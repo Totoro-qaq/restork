@@ -86,3 +86,24 @@ class SQLiteIntentStore:
             input_hash=row["input_hash"], phase=EffectPhase(row["phase"]),
             retry_contract=row["retry_contract"],
         )
+
+    def unresolved_for_run(self, run_id: str) -> list[EffectIntent]:
+        rows = self._connection.execute(
+            """
+            SELECT * FROM effect_intents
+            WHERE run_id = ? AND phase IN (?, ?)
+            ORDER BY intent_id ASC
+            """,
+            (run_id, EffectPhase.STARTED.value, EffectPhase.UNKNOWN.value),
+        ).fetchall()
+        return [
+            EffectIntent(
+                intent_id=row["intent_id"],
+                run_id=row["run_id"],
+                tool_name=row["tool_name"],
+                input_hash=row["input_hash"],
+                phase=EffectPhase(row["phase"]),
+                retry_contract=row["retry_contract"],
+            )
+            for row in rows
+        ]

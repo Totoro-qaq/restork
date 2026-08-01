@@ -13,6 +13,7 @@ from restork.modes.base import profile_for
 from restork.runtime.budget import BudgetExceeded, BudgetTracker
 from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
+from restork.storage.intents import SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
 
 
@@ -68,6 +69,51 @@ class Harness:
             verifying, RunPhase.COMPLETED, "run_completed", stop_reason=StopReason.COMPLETED
         )
         return completed
+
+    def cancel(
+        self,
+        run_id: str,
+        *,
+        idempotency_key: str,
+    ) -> RunSummary:
+        outcome = self._runs.cancel_idempotently(
+            run_id, idempotency_key=idempotency_key
+        )
+        if outcome.changed and outcome.unresolved_intent_ids:
+            self._emit(
+                run_id,
+                "user_action_required",
+                {"state": RunPhase.USER_ACTION_REQUIRED.value},
+            )
+            self._emit(
+                run_id,
+                "effect.reconciliation_required",
+                {"intent_ids": list(outcome.unresolved_intent_ids)},
+            )
+        elif outcome.changed:
+            self._emit(run_id, "run_cancelled", {"state": RunPhase.CANCELLED.value})
+        return outcome.run
+
+    def resume(self, run_id: str, intents: SQLiteIntentStore) -> RunSummary:
+        current = self._runs.get(run_id)
+        if current.state not in {
+            RunPhase.AWAITING_APPROVAL,
+            RunPhase.USER_ACTION_REQUIRED,
+        }:
+            raise ValueError("only paused runs can be resumed")
+        if (
+            current.state is RunPhase.USER_ACTION_REQUIRED
+            and intents.unresolved_for_run(run_id)
+        ):
+            raise ValueError("unknown effects must be reconciled before resume")
+        resumed = self._runs.transition(
+            run_id,
+            expected_version=current.state_version,
+            next_state=RunPhase.RUNNING,
+            clear_stop_reason=True,
+        )
+        self._emit(run_id, "run_resumed", {"state": RunPhase.RUNNING.value})
+        return resumed
 
     def _advance(
         self,

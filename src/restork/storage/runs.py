@@ -3,17 +3,27 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from restork.contracts.run import RunSummary
-from restork.contracts.types import Mode, RunPhase, StopReason
+from restork.contracts.types import EffectPhase, Mode, RunPhase, StopReason
 from restork.runtime.state_machine import transition
 from restork.storage.database import connect, initialize
 
 
 class ConcurrentRunUpdate(ValueError):
     """Raised when a stale caller attempts to change a run state."""
+
+
+@dataclass(frozen=True)
+class CancellationOutcome:
+    """One durable cancellation decision and the effects that blocked it."""
+
+    run: RunSummary
+    unresolved_intent_ids: tuple[str, ...] = ()
+    changed: bool = False
 
 
 class SQLiteRunStore:
@@ -70,7 +80,10 @@ class SQLiteRunStore:
         expected_version: int,
         next_state: RunPhase,
         stop_reason: StopReason | None = None,
+        clear_stop_reason: bool = False,
     ) -> RunSummary:
+        if stop_reason is not None and clear_stop_reason:
+            raise ValueError("stop_reason and clear_stop_reason are mutually exclusive")
         try:
             self._connection.execute("BEGIN IMMEDIATE")
             current = self.get(run_id)
@@ -78,7 +91,9 @@ class SQLiteRunStore:
                 raise ConcurrentRunUpdate("run state version is stale")
             transition(current.state, next_state)
             updated_at = datetime.now(UTC)
-            persisted_stop_reason = stop_reason or current.stop_reason
+            persisted_stop_reason = (
+                None if clear_stop_reason else stop_reason or current.stop_reason
+            )
             cursor = self._connection.execute(
                 """
                 UPDATE runs SET state = ?, state_version = ?, updated_at = ?, stop_reason = ?
@@ -102,9 +117,13 @@ class SQLiteRunStore:
             self._connection.execute("COMMIT")
         return self.get(run_id)
 
-    def cancel_idempotently(self, run_id: str, *, idempotency_key: str) -> RunSummary:
-        """Cancel exactly once and persist the response for safe request retries."""
+    def cancel_idempotently(
+        self, run_id: str, *, idempotency_key: str
+    ) -> CancellationOutcome:
+        """Cancel or pause exactly once after atomically checking uncertain effects."""
         operation = "run.cancel"
+        unresolved_intent_ids: tuple[str, ...] = ()
+        changed = False
         try:
             self._connection.execute("BEGIN IMMEDIATE")
             record = self._connection.execute(
@@ -120,10 +139,26 @@ class SQLiteRunStore:
                 result = RunSummary.model_validate_json(record["response_json"])
             else:
                 current = self.get(run_id)
-                if current.state is RunPhase.CANCELLED:
+                unresolved_intent_ids = tuple(
+                    row["intent_id"]
+                    for row in self._connection.execute(
+                        """
+                        SELECT intent_id FROM effect_intents
+                        WHERE run_id = ? AND phase IN (?, ?)
+                        ORDER BY intent_id ASC
+                        """,
+                        (run_id, EffectPhase.STARTED.value, EffectPhase.UNKNOWN.value),
+                    ).fetchall()
+                )
+                if unresolved_intent_ids and current.state is RunPhase.USER_ACTION_REQUIRED:
                     result = current
                 else:
-                    transition(current.state, RunPhase.CANCELLED)
+                    next_state = (
+                        RunPhase.USER_ACTION_REQUIRED
+                        if unresolved_intent_ids
+                        else RunPhase.CANCELLED
+                    )
+                    transition(current.state, next_state)
                     updated_at = datetime.now(UTC)
                     cursor = self._connection.execute(
                         """
@@ -132,10 +167,14 @@ class SQLiteRunStore:
                         WHERE run_id = ? AND state_version = ?
                         """,
                         (
-                            RunPhase.CANCELLED.value,
+                            next_state.value,
                             current.state_version + 1,
                             updated_at.isoformat(),
-                            StopReason.CANCELLED.value,
+                            (
+                                StopReason.USER_ACTION_REQUIRED.value
+                                if unresolved_intent_ids
+                                else StopReason.CANCELLED.value
+                            ),
                             run_id,
                             current.state_version,
                         ),
@@ -143,6 +182,7 @@ class SQLiteRunStore:
                     if cursor.rowcount != 1:
                         raise ConcurrentRunUpdate("run state version is stale")
                     result = self.get(run_id)
+                    changed = True
                 self._connection.execute(
                     """
                     INSERT INTO idempotency_records
@@ -156,4 +196,8 @@ class SQLiteRunStore:
             raise
         else:
             self._connection.execute("COMMIT")
-        return result
+        return CancellationOutcome(
+            run=result,
+            unresolved_intent_ids=unresolved_intent_ids,
+            changed=changed,
+        )

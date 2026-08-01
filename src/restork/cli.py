@@ -10,7 +10,7 @@ from pathlib import Path
 
 from restork import __version__
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
-from restork.contracts.types import ApprovalDecision, EffectPhase, Mode, RunPhase
+from restork.contracts.types import ApprovalDecision, EffectPhase, Mode
 from restork.runtime.runner import Harness
 from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.budgets import SQLiteBudgetStore
@@ -49,6 +49,7 @@ def _parser() -> argparse.ArgumentParser:
     complete.add_argument("--artifact", action="append", required=True)
     cancel = commands.add_parser("cancel")
     cancel.add_argument("run_id")
+    cancel.add_argument("--idempotency-key")
     decide = commands.add_parser("approve")
     decide.add_argument("approval_id")
     decide.add_argument("--by", required=True)
@@ -91,9 +92,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps([event.model_dump(mode="json") for event in found]))
         return 0
     if arguments.command == "cancel":
-        current = runs.get(arguments.run_id)
-        cancelled = runs.transition(
-            arguments.run_id, expected_version=current.state_version, next_state=RunPhase.CANCELLED
+        key = arguments.idempotency_key or f"cli-cancel:{arguments.run_id}"
+        cancelled = Harness(runs, events, budgets).cancel(
+            arguments.run_id,
+            idempotency_key=key,
         )
         print(cancelled.model_dump_json())
         return 0
@@ -107,11 +109,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(approved.model_dump_json())
         return 0
     if arguments.command == "resume":
-        current = runs.get(arguments.run_id)
-        if current.state not in {RunPhase.AWAITING_APPROVAL, RunPhase.USER_ACTION_REQUIRED}:
-            raise ValueError("only paused runs can be resumed")
-        resumed = runs.transition(
-            arguments.run_id, expected_version=current.state_version, next_state=RunPhase.RUNNING
+        resumed = Harness(runs, events, budgets).resume(
+            arguments.run_id, SQLiteIntentStore.create(arguments.state_db)
         )
         print(resumed.model_dump_json())
         return 0

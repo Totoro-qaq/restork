@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from starlette.middleware.base import RequestResponseEndpoint
 
 from restork.api.auth import PairingAuthority
+from restork.runtime.runner import Harness
 from restork.storage.events import SQLiteEventStore
 from restork.storage.runs import SQLiteRunStore
 
@@ -40,7 +41,9 @@ def _is_loopback_browser_origin(origin: str) -> bool:
 
 
 def create_app(
-    events: SQLiteEventStore, pairing: PairingAuthority, runs: SQLiteRunStore
+    events: SQLiteEventStore,
+    pairing: PairingAuthority,
+    runs: SQLiteRunStore,
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -136,7 +139,9 @@ def create_app(
         if not idempotency_key:
             raise HTTPException(status_code=400, detail="Idempotency-Key is required")
         try:
-            cancelled = runs.cancel_idempotently(run_id, idempotency_key=idempotency_key)
+            cancelled = Harness(runs, events).cancel(run_id, idempotency_key=idempotency_key)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="run not found") from error
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         return cancelled.model_dump(mode="json")
