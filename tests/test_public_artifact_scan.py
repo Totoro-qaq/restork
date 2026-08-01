@@ -14,6 +14,7 @@ def test_public_artifact_scan_rejects_a_synthetic_credential(tmp_path: Path) -> 
         capture_output=True,
         check=False,
         cwd=tmp_path,
+        env={"PATH": "/usr/bin:/bin"},
         text=True,
     )
 

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
+  <title id="title">Restork local-first agent workspace</title>
+  <desc id="desc">A diagram showing a private local knowledge base flowing through one Restork Core into Research, Study, and Work modes.</desc>
+  <rect width="1200" height="380" rx="28" fill="#101828"/>
+  <path d="M58 64H1142M58 316H1142" stroke="#334155" stroke-width="1"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif">
+    <text x="64" y="98" fill="#7dd3fc" font-size="14" font-weight="700" letter-spacing="2">本地优先智能工作空间 / LOCAL-FIRST AGENT WORKSPACE</text>
+    <text x="64" y="170" fill="#f8fafc" font-size="64" font-weight="760" letter-spacing="-3">Restork</text>
+    <text x="64" y="211" fill="#cbd5e1" font-size="22">一个 Core，贯穿研究、学习与工作。 / One Core for research, study, and work.</text>
+    <text x="64" y="242" fill="#cbd5e1" font-size="22">知识留在本地，每次写入均可审阅。 / Knowledge stays local; every write stays reviewable.</text>
+    <text x="64" y="285" fill="#94a3b8" font-size="15">PYTHON CORE  ·  LOCAL WEB DASHBOARD  ·  OPTIONAL OBSIDIAN BRIDGE</text>
+  </g>
+  <g transform="translate(752 77)">
+    <rect width="174" height="78" rx="14" fill="#172554" stroke="#7dd3fc" stroke-width="1.5"/>
+    <text x="20" y="31" fill="#7dd3fc" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="700">PRIVATE / LOCAL</text>
+    <text x="20" y="57" fill="#f8fafc" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="18" font-weight="650">Knowledge base</text>
+    <path d="M174 39H218" stroke="#7dd3fc" stroke-width="2"/>
+    <path d="M213 34L223 39L213 44" fill="none" stroke="#7dd3fc" stroke-width="2"/>
+    <rect x="224" width="164" height="78" rx="14" fill="#0f172a" stroke="#e2e8f0" stroke-width="1.5"/>
+    <text x="244" y="31" fill="#94a3b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="700">ONE CORE</text>
+    <text x="244" y="57" fill="#f8fafc" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="18" font-weight="650">Restork</text>
+    <path d="M306 78V114" stroke="#e2e8f0" stroke-width="2"/>
+    <path d="M132 150H362" stroke="#64748b" stroke-width="1.5"/>
+    <path d="M132 150V180M247 150V180M362 150V180" stroke="#64748b" stroke-width="1.5"/>
+    <g transform="translate(0 180)">
+      <rect width="114" height="72" rx="12" fill="#172554"/>
+      <rect x="116" width="114" height="72" rx="12" fill="#123044"/>
+      <rect x="232" width="114" height="72" rx="12" fill="#1e293b"/>
+      <text x="18" y="30" fill="#7dd3fc" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="15" font-weight="700">研究 / Research</text>
+      <text x="18" y="52" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="12">evidence</text>
+      <text x="134" y="30" fill="#7dd3fc" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="15" font-weight="700">学习 / Study</text>
+      <text x="134" y="52" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="12">practice</text>
+      <text x="250" y="30" fill="#7dd3fc" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="15" font-weight="700">工作 / Work</text>
+      <text x="250" y="52" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="12">handoff</text>
+    </g>
+  </g>
+</svg>
