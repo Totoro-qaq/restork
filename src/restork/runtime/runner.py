@@ -8,7 +8,7 @@ from restork.artifacts.verification import verify_artifacts
 from restork.contracts.approval import ApprovalRequest
 from restork.contracts.run import RunSummary
 from restork.contracts.task import TaskSpec
-from restork.contracts.types import ApprovalDecision, EffectPhase, RunPhase, StopReason
+from restork.contracts.types import ApprovalDecision, EffectPhase, Mode, RunPhase, StopReason
 from restork.modes.base import profile_for
 from restork.runtime.budget import BudgetExceeded, BudgetTracker
 from restork.storage.approvals import SQLiteApprovalStore
@@ -35,6 +35,34 @@ class Harness:
             run_id=str(uuid4()),
             idempotency_key=idempotency_key,
         ).run
+
+    def start_work_child(self, parent_run_id: str, child_task: TaskSpec) -> RunSummary:
+        """Create a separately evaluated Work handoff without permission inheritance."""
+        if self._budgets is None:
+            raise RuntimeError("child creation requires the durable budget store")
+        parent = self._runs.get(parent_run_id)
+        parent_task = self._runs.get_task(parent_run_id)
+        if parent.mode not in {Mode.RESEARCH, Mode.STUDY}:
+            raise PermissionError("only Research or Study can hand off to a Work child")
+        if child_task.mode is not Mode.WORK:
+            raise PermissionError("handoff child must use Work mode")
+        if child_task.parent_task_id != parent.task_id:
+            raise PermissionError("handoff child must bind the exact parent task")
+        if child_task.data_policy != parent_task.data_policy:
+            raise PermissionError("handoff child cannot broaden the parent data policy")
+        profile = profile_for(Mode.WORK)
+        if not set(child_task.tool_policy.allowed_tools) <= profile.allowed_tools:
+            raise PermissionError("handoff child requested a non-Work capability")
+        if not child_task.tool_policy.require_approval_for_writes:
+            raise PermissionError("Work child writes must remain approval-gated")
+        self._budgets.consume_child_task(parent_run_id)
+        child = self.start(child_task)
+        self._emit(
+            parent_run_id,
+            "run.child_created",
+            {"child_run_id": child.run_id, "mode": child.mode.value},
+        )
+        return child
 
     def complete(self, run_id: str, task: TaskSpec, artifacts: list[str]) -> RunSummary:
         profile = profile_for(task.mode)

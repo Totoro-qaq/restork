@@ -86,22 +86,22 @@ def test_approval_and_resume_are_authenticated_evented_and_idempotent(
     assert client.get(f"/v1/approvals/{approval.approval_id}", headers=auth).status_code == 200
     decision_headers = {**auth, "Idempotency-Key": "approve-1"}
     first = client.post(
-        f"/v1/approvals/{approval.approval_id}/approve",
+        f"/v1/approvals/{approval.approval_id}",
         headers=decision_headers,
-        json={"decided_by": "local-user"},
+        json={"decision": "approve", "decided_by": "local-user"},
     )
     replay = client.post(
-        f"/v1/approvals/{approval.approval_id}/approve",
+        f"/v1/approvals/{approval.approval_id}",
         headers=decision_headers,
-        json={"decided_by": "local-user"},
+        json={"decision": "approve", "decided_by": "local-user"},
     )
     assert first.status_code == replay.status_code == 200
     assert first.json() == replay.json()
     assert (
-        client.post(
-            f"/v1/approvals/{approval.approval_id}/reject",
-            headers=decision_headers,
-            json={"decided_by": "local-user"},
+            client.post(
+                f"/v1/approvals/{approval.approval_id}",
+                headers=decision_headers,
+                json={"decision": "reject", "decided_by": "local-user"},
         ).status_code
         == 409
     )

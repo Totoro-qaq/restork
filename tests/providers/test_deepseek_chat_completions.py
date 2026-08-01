@@ -79,6 +79,24 @@ def test_provider_uses_gateway_and_keeps_secret_out_of_envelope() -> None:
     assert payload["reasoning_effort"] == "high"
 
 
+def test_provider_accepts_explicit_budgeted_max_reasoning_effort() -> None:
+    response = OutboundResponse(
+        200,
+        {},
+        b'{"id":"completion-max","model":"deepseek-v4-pro","choices":[{"message":{"content":"ok"}}]}',
+    )
+    provider, gateway = _provider(response)
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="hello")],
+        reasoning_effort="max",
+    )
+
+    asyncio.run(provider.complete(request))
+
+    assert gateway.request is not None
+    assert json.loads(gateway.request.payload)["reasoning_effort"] == "max"
+
+
 def test_provider_rejects_empty_json_and_marks_rate_limit_retryable() -> None:
     empty_json = OutboundResponse(
         200,

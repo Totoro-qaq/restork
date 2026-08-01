@@ -1,68 +1,165 @@
 from __future__ import annotations
 
 import json
+from email.message import Message
 from pathlib import Path
+from urllib.request import Request
 
-from restork.cli import main
-from restork.contracts.types import EffectPhase
-from restork.storage.intents import EffectIntent, SQLiteIntentStore
+import pytest
+from pytest import CaptureFixture, MonkeyPatch
 
-
-def test_cli_creates_inspects_streams_completes_and_cancels(tmp_path: Path, capsys: object) -> None:
-    database = tmp_path / "state.db"
-    base = ["--state-db", str(database)]
-    create = [
-        *base,
-        "create",
-        "--task-id",
-        "t",
-        "--mode",
-        "research",
-        "--goal",
-        "g",
-        "--scope",
-        "s",
-        "--criterion",
-        "c",
-        "--idempotency-key",
-        "create-1",
-    ]
-    assert main(create) == 0
-    run_id = capsys.readouterr().out.strip()  # type: ignore[attr-defined]
-    assert main([*base, "stream", run_id]) == 0
-    assert len(json.loads(capsys.readouterr().out)) == 2  # type: ignore[attr-defined]
-    complete = [
-        *base,
-        "complete",
-        run_id,
-        "--artifact",
-        "artifact:x",
-    ]
-    assert main(complete) == 0
+from restork.cli import LocalApiClient, main
 
 
-def test_cli_requires_explicit_unknown_effect_reconciliation(
-    tmp_path: Path, capsys: object
+class _Response:
+    def __init__(self, payload: bytes, content_type: str = "application/json") -> None:
+        self._payload = payload
+        self.headers = Message()
+        self.headers["Content-Type"] = content_type
+
+    def __enter__(self) -> _Response:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        del args
+
+    def read(self) -> bytes:
+        return self._payload
+
+
+def test_cli_api_client_allows_only_loopback_and_uses_header_token(
+    monkeypatch: MonkeyPatch,
 ) -> None:
-    database = tmp_path / "state.db"
-    SQLiteIntentStore.create(database).create_intent(
-        EffectIntent("i", "r", "write", "hash", EffectPhase.UNKNOWN, "never")
+    seen: list[Request] = []
+
+    def fake_urlopen(request: Request, timeout: int) -> _Response:
+        assert timeout == 30
+        seen.append(request)
+        return _Response(b'{"status":"ready"}')
+
+    monkeypatch.setattr("restork.cli.urlopen", fake_urlopen)
+    client = LocalApiClient("http://127.0.0.1:7337", "cli-token")
+    assert client.request("GET", "/v1/health") == {"status": "ready"}
+    assert seen[0].get_header("Authorization") == "Bearer cli-token"
+    assert "cli-token" not in seen[0].full_url
+
+    for unsafe in (
+        "https://127.0.0.1:7337",
+        "http://example.com:7337",
+        "http://user@127.0.0.1:7337",
+        "http://127.0.0.1:7337/path",
+    ):
+        with pytest.raises(ValueError, match="loopback"):
+            LocalApiClient(unsafe, "token")
+
+
+def test_cli_commands_use_the_v1_api_contract(
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    calls: list[tuple[str, str, dict[str, object]]] = []
+
+    def fake_request(
+        self: LocalApiClient,
+        method: str,
+        path: str,
+        **kwargs: object,
+    ) -> object:
+        del self
+        calls.append((method, path, kwargs))
+        if path == "/v1/runs":
+            return {"run_id": "run-1"}
+        if path.endswith("/events"):
+            return "id: 1\nevent: run.created\ndata: {}\n\n"
+        return {"ok": True}
+
+    monkeypatch.setenv("RESTORK_CLI_TOKEN", "cli-token")
+    monkeypatch.setattr(LocalApiClient, "request", fake_request)
+    base = ["--api-url", "http://127.0.0.1:7337"]
+    assert main(
+        [
+            *base,
+            "create",
+            "--task-id",
+            "t",
+            "--mode",
+            "research",
+            "--goal",
+            "g",
+            "--scope",
+            "s",
+            "--criterion",
+            "c",
+            "--idempotency-key",
+            "create-1",
+        ]
+    ) == 0
+    assert capsys.readouterr().out.strip() == "run-1"
+    assert main([*base, "stream", "run-1", "--after", "3"]) == 0
+    assert "event: run.created" in capsys.readouterr().out
+    assert main(
+        [
+            *base,
+            "approve",
+            "approval-1",
+            "--by",
+            "local-user",
+            "--idempotency-key",
+            "approve-1",
+        ]
+    ) == 0
+    capsys.readouterr()
+    assert main(
+        [
+            *base,
+            "resolve-unknown",
+            "intent-1",
+            "--run-id",
+            "run-1",
+            "--outcome",
+            "failed",
+            "--idempotency-key",
+            "resolve-1",
+        ]
+    ) == 0
+
+    create_call = calls[0]
+    assert create_call[:2] == ("POST", "/v1/runs")
+    assert create_call[2]["idempotency_key"] == "create-1"
+    assert calls[1] == (
+        "GET",
+        "/v1/runs/run-1/events",
+        {"last_event_id": 3},
     )
-    assert (
-        main(
-            [
-                "--state-db",
-                str(database),
-                "resolve-unknown",
-                "i",
-                "--run-id",
-                "r",
-                "--outcome",
-                "failed",
-                "--idempotency-key",
-                "resolve-1",
-            ]
-        )
-        == 0
-    )
-    assert capsys.readouterr().out.strip() == "failed"  # type: ignore[attr-defined]
+    assert calls[2][1] == "/v1/approvals/approval-1"
+    assert calls[2][2]["body"] == {
+        "decision": "approve",
+        "decided_by": "local-user",
+    }
+    assert calls[3][1] == "/v1/runs/run-1/effects/intent-1/resolve"
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+
+
+def test_cli_requires_pairing_before_authenticated_commands(
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("RESTORK_CLI_TOKEN", raising=False)
+    assert main(["health"]) == 2
+    assert "restork pair" in capsys.readouterr().err
+
+
+def test_serve_displays_separate_pairing_codes_without_touching_design_assets(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    class _Server:
+        def run(self) -> None:
+            return None
+
+    monkeypatch.setattr("restork.cli.make_server", lambda app, port: _Server())
+    assert main(["--state-db", str(tmp_path / "state.db"), "serve"]) == 0
+    output = capsys.readouterr().out
+    assert "Web pairing code:" in output
+    assert "CLI pairing code:" in output

@@ -52,7 +52,7 @@ class ProviderConfig(ConfigModel):
     @classmethod
     def require_supported_reasoning_effort(cls, value: str) -> str:
         if value != "high":
-            msg = "reasoning_effort must be high until a budgeted mode profile is implemented"
+            msg = "global reasoning_effort stays high; max requires an explicit task budget"
             raise ValueError(msg)
         return value
 

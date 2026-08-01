@@ -13,11 +13,13 @@ Restork is an open-source, local-first agent workspace for engineers who move
 between research, study, and day-to-day work. It connects those modes through
 one Core instead of splitting your context across unrelated assistants.
 
-> **当前状态 / Current status — foundation.** 仓库目前可构建本地 Dashboard
-> 骨架和 Python CLI；它刻意尚不读取 Obsidian Vault、不调用模型、也不发起运行时网络请求。\
-> The repository already builds a local Dashboard shell and a Python CLI. It
-> deliberately does **not** yet read an Obsidian Vault, call a model, or make
-> runtime network requests.
+> **当前状态 / Current status — Core Step 5.** 类型化 Harness、DeepSeek V4 Pro
+> adapter、策略化工具、单次审批、预算、加密恢复点、`/v1` 本地 API 与同 API 的 CLI
+> 已实现；Dashboard 仍等待最终 UI 稿集成。测试与 CI 不会发起真实模型请求。\
+> The typed Harness, DeepSeek V4 Pro adapter, governed tools, single-use
+> approvals, budgets, encrypted recovery checkpoints, local `/v1` API, and its
+> API-backed CLI are implemented. Final Dashboard UI integration is still
+> pending, and tests/CI never make live model calls.
 
 ## 为什么是 Restork / Why Restork
 
@@ -29,7 +31,7 @@ one Core instead of splitting your context across unrelated assistants.
 - **影响发生前先审批 / Approval before impact.** 所有 Vault 写入和外部动作都应
   在发生前保持可见、可审阅。 Proposed writes and external actions stay reviewable.
 
-## 工作方式 / How it will work
+## 工作方式 / How it works
 
 ```text
 Private Obsidian Vault ──► Restork Core ──► Research / Study / Work
@@ -37,13 +39,13 @@ Private Obsidian Vault ──► Restork Core ──► Research / Study / Work
                                └──► Local Web Dashboard
 ```
 
-规划中的 Core 基于 Python 3.12，Dashboard 是本地服务的 TypeScript/Vite 客户端。
+Core 基于 Python 3.12，Dashboard 是本地服务的 TypeScript/Vite 客户端。
 Obsidian 插件会保持可选且轻量：不持有凭据、agent 状态或通用执行权限。\
-The planned Core is Python 3.12; the Dashboard is a bundled TypeScript/Vite
+The Core is Python 3.12; the Dashboard is a bundled TypeScript/Vite
 client served locally. An Obsidian plugin is intentionally optional and thin:
 it will not own credentials, agent state, or general execution authority.
 
-## 试用基础版本 / Try the foundation
+## 试用 Core / Try the Core
 
 ```bash
 git clone https://github.com/Totoro-qaq/restork.git
@@ -51,6 +53,25 @@ cd restork
 
 uv sync
 uv run restork --help
+```
+
+在一个终端启动仅监听 loopback 的 Core；它会显示彼此分离的 Web 与 CLI 配对码。\
+Start the loopback-only Core in one terminal; it displays separate Web and CLI
+pairing codes.
+
+```bash
+uv run restork serve --port 7337
+```
+
+在另一个终端交换 CLI 配对码，并把返回的短期 token 仅放进环境变量。\
+In another terminal, exchange the CLI code and keep the returned short-lived
+token in an environment variable only.
+
+```bash
+uv run restork pair --code '<CLI pairing code>'
+export RESTORK_CLI_TOKEN='<returned token>'
+uv run restork health
+uv run restork capabilities
 ```
 
 构建随附的 Dashboard 骨架 / Build the bundled Dashboard shell:

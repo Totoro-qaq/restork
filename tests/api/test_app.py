@@ -197,6 +197,25 @@ def test_server_binds_only_to_loopback(tmp_path: Path) -> None:
     assert make_server(app, 8765).config.host == LOOPBACK_HOST
 
 
+def test_health_and_capabilities_require_authentication(tmp_path: Path) -> None:
+    database = tmp_path / "state.db"
+    pairing = PairingAuthority()
+    client = TestClient(_app(database, pairing))
+    assert client.get("/v1/health").status_code == 401
+    assert client.get("/v1/capabilities").status_code == 401
+    token = client.post("/v1/pair", json={"code": pairing.pairing_code}).json()[
+        "access_token"
+    ]
+    auth = {"Authorization": f"Bearer {token}"}
+
+    health = client.get("/v1/health", headers=auth)
+    capabilities = client.get("/v1/capabilities", headers=auth)
+
+    assert health.json() == {"status": "ready", "schema": "v1"}
+    assert capabilities.json()["providers"] == ["deepseek-v4-pro"]
+    assert set(capabilities.json()["modes"]) == {"research", "study", "work"}
+
+
 def test_token_rotation_and_revocation_are_enforced(tmp_path: Path) -> None:
     database = tmp_path / "state.db"
     pairing = PairingAuthority()

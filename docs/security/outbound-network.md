@@ -19,6 +19,6 @@ The current V1 provider adapter is deliberately narrow:
   dispatch time and is placed only in the in-memory Authorization header.
 
 This adapter is not enabled by default and no live network call is made during
-tests or CI. Streaming, connector capabilities, confidential-payload approval,
-and DNS-rebinding proof are later Step 3 work; they must keep this single
-gateway boundary.
+tests or CI. Chat-completion streaming is implemented through the same gateway;
+future connector capabilities, confidential-payload approval, and DNS-rebinding
+proof must keep this single boundary.

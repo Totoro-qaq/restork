@@ -7,6 +7,7 @@ import pytest
 
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import EffectPhase, Mode, RunPhase, StopReason
+from restork.runtime.budget import BudgetExceeded
 from restork.runtime.runner import Harness
 from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
@@ -54,6 +55,54 @@ def test_tool_registry_enforces_task_and_mode_policy() -> None:
     assert exposed[0].owning_capability == "knowledge.read"
     with pytest.raises(PermissionError, match="mode"):
         registry.validate(task, "handoff_export")
+
+
+def test_handoff_creates_a_separately_budgeted_work_child_without_inheritance(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "state.db"
+    parent_task = _task().model_copy(
+        update={
+            "budgets": BudgetSpec(
+                max_steps=2,
+                max_wall_time_seconds=60,
+                max_child_tasks=1,
+            )
+        }
+    )
+    runs = SQLiteRunStore.create(path)
+    events = SQLiteEventStore.create(path)
+    budgets = SQLiteBudgetStore.create(path)
+    harness = Harness(runs, events, budgets)
+    parent = harness.start(parent_task)
+    child_task = TaskSpec(
+        task_id="work-child",
+        parent_task_id=parent.task_id,
+        mode=Mode.WORK,
+        goal="Export a reviewed handoff",
+        workspace_scope=parent_task.workspace_scope,
+        completion_criteria=["handoff artifact exists"],
+        data_policy=parent_task.data_policy,
+        tool_policy=ToolPolicy(allowed_tools=["handoff_export"]),
+        budgets=BudgetSpec(max_steps=2, max_wall_time_seconds=60),
+        created_at=datetime.now(UTC),
+    )
+
+    child = harness.start_work_child(parent.run_id, child_task)
+
+    assert child.mode is Mode.WORK
+    assert runs.get_task(child.run_id) == child_task
+    assert budgets.usage(parent.run_id).child_tasks == 1
+    with pytest.raises(BudgetExceeded, match="child"):
+        harness.start_work_child(
+            parent.run_id,
+            child_task.model_copy(update={"task_id": "two"}),
+        )
+    with pytest.raises(PermissionError, match="Work mode"):
+        harness.start_work_child(
+            parent.run_id,
+            child_task.model_copy(update={"mode": Mode.STUDY}),
+        )
 
 
 def test_cancel_pauses_for_unknown_effect_until_manual_reconciliation(tmp_path: Path) -> None:

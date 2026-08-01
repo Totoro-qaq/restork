@@ -31,6 +31,16 @@ Pairing does not make a local machine safe from malware with the same user privi
 Credentials and private runtime data therefore remain outside the public repository, and
 clients should revoke tokens when a browser profile or CLI credential is retired.
 
+## CLI flow
+
+The CLI is an API client and never opens the runtime SQLite database for lifecycle
+commands. Start Core with `restork serve`, exchange the separately displayed CLI code with
+`restork pair --code ...`, then provide the returned short-lived token through
+`RESTORK_CLI_TOKEN`. `RESTORK_API_URL` must be an explicit loopback HTTP origin. The client
+rejects remote hosts, HTTPS downgrade ambiguity, embedded credentials, paths, queries and
+fragments before constructing a request; the token appears only in the `Authorization`
+header.
+
 ## Durable event boundary
 
 Run-state changes, tool-intent phases, approval decisions and budget counters append their
