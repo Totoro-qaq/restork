@@ -9,11 +9,16 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
 from restork.api.auth import PairingAuthority
+from restork.contracts.types import RunPhase
 from restork.storage.events import SQLiteEventStore
+from restork.storage.runs import SQLiteRunStore
 
 
-def create_app(events: SQLiteEventStore, pairing: PairingAuthority) -> FastAPI:
+def create_app(
+    events: SQLiteEventStore, pairing: PairingAuthority, runs: SQLiteRunStore
+) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    idempotency: dict[str, dict[str, object]] = {}
 
     def require_token(authorization: str = Header(default="")) -> None:
         scheme, _, token = authorization.partition(" ")
@@ -56,5 +61,23 @@ def create_app(events: SQLiteEventStore, pairing: PairingAuthority) -> FastAPI:
             for event in events.read(run_id, after_seq=after_seq)
         )
         return StreamingResponse(iter([payload]), media_type="text/event-stream")
+
+    @app.post("/api/runs/{run_id}/cancel")
+    def cancel_run(
+        run_id: str,
+        idempotency_key: str = Header(default=""),
+        _: None = Depends(require_token),
+    ) -> dict[str, object]:
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        if idempotency_key in idempotency:
+            return idempotency[idempotency_key]
+        current = runs.get(run_id)
+        cancelled = runs.transition(
+            run_id, expected_version=current.state_version, next_state=RunPhase.CANCELLED
+        )
+        response = cancelled.model_dump(mode="json")
+        idempotency[idempotency_key] = response
+        return response
 
     return app
