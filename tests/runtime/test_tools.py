@@ -123,7 +123,7 @@ def test_pure_tool_retry_is_budgeted_and_visible(tmp_path: Path) -> None:
     assert search.calls == 2
     kinds = [event.kind for event in events.read("run", after_seq=0)]
     assert kinds == [
-        "tool.prepared",
+        "tool.requested",
         "tool.started",
         "tool.failed",
         "retry.scheduled",
@@ -160,10 +160,38 @@ def test_non_pure_tool_failure_is_unknown_and_never_retried(tmp_path: Path) -> N
     first = events.read("run", after_seq=0)[0]
     assert intents.get(first.metadata["intent_id"]).phase is EffectPhase.UNKNOWN
     assert [event.kind for event in events.read("run", after_seq=0)] == [
-        "tool.prepared",
+        "tool.requested",
         "tool.started",
-        "effect.unknown",
+        "tool.outcome_unknown",
     ]
+
+
+def test_stable_intent_never_repeats_a_committed_effect(tmp_path: Path) -> None:
+    runtime, _, events, _ = _runtime(tmp_path / "state.db")
+    search = RetryingSearch()
+    first = asyncio.run(
+        runtime.invoke(
+            _task(),
+            "run",
+            search,
+            {"query": "test"},
+            intent_id="stable-intent",
+        )
+    )
+    result = asyncio.run(
+        runtime.invoke(
+            _task(),
+            "run",
+            search,
+            {"query": "test"},
+            intent_id="stable-intent",
+        )
+    )
+
+    assert first.status is ToolStatus.SUCCEEDED
+    assert result.status is ToolStatus.SUCCEEDED
+    assert search.calls == 2
+    assert events.read("run", after_seq=0)[-1].kind == "tool.replayed"
 
 
 def test_tool_schema_is_checked_before_intent_and_timeout_is_enforced(tmp_path: Path) -> None:

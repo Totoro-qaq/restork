@@ -54,22 +54,80 @@ class ToolRuntime:
         arguments: Mapping[str, object],
         *,
         approval: ToolApprovalContext | None = None,
+        intent_id: str | None = None,
     ) -> ToolResult:
         tool_name = self._tool_name(tool)
         definition = self._registry.definition(task, tool_name)
         validated_arguments = self._registry.validate_input(task, tool_name, arguments)
-        intent_id = str(uuid4())
-        self._intents.create_intent(
-            EffectIntent(
-                intent_id=intent_id,
+        selected_intent_id = intent_id or str(uuid4())
+        input_hash = _input_hash(validated_arguments)
+        try:
+            existing = self._intents.get(selected_intent_id)
+        except KeyError:
+            self._intents.create_intent(
+                EffectIntent(
+                    intent_id=selected_intent_id,
+                    run_id=run_id,
+                    tool_name=tool_name,
+                    input_hash=input_hash,
+                    phase=EffectPhase.PREPARED,
+                    retry_contract=definition.retry_contract,
+                )
+            )
+            self._emit(
+                run_id,
+                "tool.requested",
+                {"tool": tool_name, "intent_id": selected_intent_id},
+            )
+        else:
+            self._validate_replay_binding(
+                existing,
                 run_id=run_id,
                 tool_name=tool_name,
-                input_hash=_input_hash(validated_arguments),
-                phase=EffectPhase.PREPARED,
+                input_hash=input_hash,
                 retry_contract=definition.retry_contract,
             )
-        )
-        self._emit(run_id, "tool.prepared", {"tool": tool_name, "intent_id": intent_id})
+            if existing.phase is EffectPhase.COMMITTED:
+                self._emit(
+                    run_id,
+                    "tool.replayed",
+                    {"tool": tool_name, "intent_id": selected_intent_id},
+                )
+                return ToolResult(
+                    status=ToolStatus.SUCCEEDED,
+                    summary="previous tool effect was already committed",
+                )
+            if existing.phase is EffectPhase.UNKNOWN or (
+                existing.phase is EffectPhase.STARTED
+                and definition.retry_contract != "pure"
+            ):
+                if existing.phase is EffectPhase.STARTED:
+                    self._intents.update_phase(selected_intent_id, EffectPhase.UNKNOWN)
+                self._emit(
+                    run_id,
+                    "tool.outcome_unknown",
+                    {"tool": tool_name, "intent_id": selected_intent_id},
+                )
+                return ToolResult(
+                    status=ToolStatus.FAILED,
+                    summary="tool outcome requires explicit reconciliation",
+                    error="OutcomeUnknown",
+                )
+            if existing.phase is EffectPhase.STARTED:
+                self._intents.update_phase(selected_intent_id, EffectPhase.PREPARED)
+                self._emit(
+                    run_id,
+                    "tool.recovered",
+                    {"tool": tool_name, "intent_id": selected_intent_id},
+                )
+            elif existing.phase is EffectPhase.FAILED:
+                if definition.retry_contract != "pure":
+                    return ToolResult(
+                        status=ToolStatus.FAILED,
+                        summary="previous non-retryable tool effect failed",
+                        error="PreviousFailure",
+                    )
+                self._intents.update_phase(selected_intent_id, EffectPhase.PREPARED)
         approval_consumed = False
         while True:
             try:
@@ -90,16 +148,20 @@ class ToolRuntime:
                     approval,
                 )
                 if denied is not None:
-                    self._intents.update_phase(intent_id, EffectPhase.FAILED)
+                    self._intents.update_phase(selected_intent_id, EffectPhase.FAILED)
                     self._emit(
                         run_id,
                         "tool.denied",
-                        {"tool": tool_name, "intent_id": intent_id},
+                        {"tool": tool_name, "intent_id": selected_intent_id},
                     )
                     return denied
                 approval_consumed = True
-            self._intents.update_phase(intent_id, EffectPhase.STARTED)
-            self._emit(run_id, "tool.started", {"tool": tool_name, "intent_id": intent_id})
+            self._intents.update_phase(selected_intent_id, EffectPhase.STARTED)
+            self._emit(
+                run_id,
+                "tool.started",
+                {"tool": tool_name, "intent_id": selected_intent_id},
+            )
             try:
                 result = await asyncio.wait_for(
                     self._invoke_tool(tool, validated_arguments),
@@ -112,19 +174,25 @@ class ToolRuntime:
                     if definition.retry_contract == "pure"
                     else EffectPhase.UNKNOWN
                 )
-                self._intents.update_phase(intent_id, cancelled_phase)
+                self._intents.update_phase(selected_intent_id, cancelled_phase)
                 event_kind = (
                     "tool.cancelled"
                     if cancelled_phase is EffectPhase.FAILED
                     else "effect.unknown"
                 )
-                self._emit(run_id, event_kind, {"tool": tool_name, "intent_id": intent_id})
+                self._emit(
+                    run_id,
+                    event_kind,
+                    {"tool": tool_name, "intent_id": selected_intent_id},
+                )
                 raise
             except Exception as error:
                 if definition.retry_contract != "pure":
-                    self._intents.update_phase(intent_id, EffectPhase.UNKNOWN)
+                    self._intents.update_phase(selected_intent_id, EffectPhase.UNKNOWN)
                     self._emit(
-                        run_id, "effect.unknown", {"tool": tool_name, "intent_id": intent_id}
+                        run_id,
+                        "tool.outcome_unknown",
+                        {"tool": tool_name, "intent_id": selected_intent_id},
                     )
                     return ToolResult(
                         status=ToolStatus.FAILED,
@@ -138,11 +206,19 @@ class ToolRuntime:
                     retryable=True,
                 )
             if result.status is ToolStatus.SUCCEEDED:
-                self._intents.update_phase(intent_id, EffectPhase.COMMITTED)
-                self._emit(run_id, "tool.completed", {"tool": tool_name, "intent_id": intent_id})
+                self._intents.update_phase(selected_intent_id, EffectPhase.COMMITTED)
+                self._emit(
+                    run_id,
+                    "tool.completed",
+                    {"tool": tool_name, "intent_id": selected_intent_id},
+                )
                 return result
-            self._intents.update_phase(intent_id, EffectPhase.FAILED)
-            self._emit(run_id, "tool.failed", {"tool": tool_name, "intent_id": intent_id})
+            self._intents.update_phase(selected_intent_id, EffectPhase.FAILED)
+            self._emit(
+                run_id,
+                "tool.failed",
+                {"tool": tool_name, "intent_id": selected_intent_id},
+            )
             if not result.retryable or definition.retry_contract != "pure":
                 return result
             try:
@@ -150,8 +226,29 @@ class ToolRuntime:
             except BudgetExceeded:
                 self._emit(run_id, "budget.exhausted", {"tool": tool_name, "kind": "retry"})
                 return result
-            self._emit(run_id, "retry.scheduled", {"tool": tool_name, "intent_id": intent_id})
-            self._intents.update_phase(intent_id, EffectPhase.PREPARED)
+            self._emit(
+                run_id,
+                "retry.scheduled",
+                {"tool": tool_name, "intent_id": selected_intent_id},
+            )
+            self._intents.update_phase(selected_intent_id, EffectPhase.PREPARED)
+
+    @staticmethod
+    def _validate_replay_binding(
+        intent: EffectIntent,
+        *,
+        run_id: str,
+        tool_name: str,
+        input_hash: str,
+        retry_contract: str,
+    ) -> None:
+        if (
+            intent.run_id != run_id
+            or intent.tool_name != tool_name
+            or intent.input_hash != input_hash
+            or intent.retry_contract != retry_contract
+        ):
+            raise ValueError("effect intent is bound to another tool invocation")
 
     def _consume_approval(
         self,
