@@ -11,15 +11,22 @@ from restork.contracts.run import RunSummary
 from restork.contracts.task import TaskSpec
 from restork.contracts.types import RunPhase, StopReason
 from restork.modes.base import profile_for
-from restork.runtime.budget import BudgetTracker
+from restork.runtime.budget import BudgetExceeded, BudgetTracker
+from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
 from restork.storage.runs import SQLiteRunStore
 
 
 class Harness:
-    def __init__(self, runs: SQLiteRunStore, events: SQLiteEventStore) -> None:
+    def __init__(
+        self,
+        runs: SQLiteRunStore,
+        events: SQLiteEventStore,
+        budgets: SQLiteBudgetStore | None = None,
+    ) -> None:
         self._runs = runs
         self._events = events
+        self._budgets = budgets
 
     def start(self, task: TaskSpec) -> RunSummary:
         now = datetime.now(UTC)
@@ -28,6 +35,8 @@ class Harness:
             state_version=0, created_at=now, updated_at=now,
         )
         self._runs.create_run(run)
+        if self._budgets is not None:
+            self._budgets.create_budget(run.run_id, task.budgets, started_at=now)
         self._emit(run.run_id, 1, "run_created", {"mode": task.mode.value})
         return self._advance(run, RunPhase.PLANNING, 2, "planning_started")
 
@@ -35,11 +44,22 @@ class Harness:
         profile = profile_for(task.mode)
         if profile.mode is not task.mode:
             raise PermissionError("task mode does not match its profile")
-        tracker = BudgetTracker(task.budgets)
-        tracker.consume_step()
         current = self._runs.get(run_id)
         if current.mode is not task.mode:
             raise PermissionError("run mode cannot change")
+        try:
+            if self._budgets is None:
+                BudgetTracker(task.budgets).consume_step()
+            else:
+                self._budgets.consume_step(run_id)
+        except BudgetExceeded:
+            return self._advance(
+                current,
+                RunPhase.FAILED,
+                0,
+                "budget_exhausted",
+                stop_reason=StopReason.BUDGET_EXHAUSTED,
+            )
         if current.state is RunPhase.VERIFYING:
             verifying = current
         else:

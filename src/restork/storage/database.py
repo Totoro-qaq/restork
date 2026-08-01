@@ -77,5 +77,16 @@ def initialize(connection: sqlite3.Connection) -> None:
             expires_at TEXT NOT NULL,
             payload BLOB NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS run_budgets (
+            run_id TEXT PRIMARY KEY,
+            budget_json TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            steps INTEGER NOT NULL DEFAULT 0,
+            retries INTEGER NOT NULL DEFAULT 0,
+            tokens INTEGER NOT NULL DEFAULT 0,
+            cost_usd REAL NOT NULL DEFAULT 0,
+            child_tasks INTEGER NOT NULL DEFAULT 0
+        );
         """
     )
