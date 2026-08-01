@@ -4,6 +4,9 @@ import type {
   DashboardApi,
   DashboardSnapshot,
   Mode,
+  RadarAction,
+  RadarActionResult,
+  ResearchArtifact,
   RunSummary,
   TaskApplyResult,
   TaskMutationPreview,
@@ -25,6 +28,46 @@ const approval: ApprovalRequest = {
   nonce: "synthetic-nonce",
   expires_at: "2026-08-02T03:10:00Z",
   decision: "pending",
+};
+
+const researchArtifact: ResearchArtifact = {
+  artifact_id: "research-synthetic-preview",
+  run_id: "run-research-synthetic",
+  question: "How does the typed local agent harness preserve evidence?",
+  claims: [
+    {
+      claim_id: "claim-synthetic-1",
+      statement: "The fixture binds each grounded claim to a bounded evidence card.",
+      kind: "grounded",
+      evidence_refs: ["evidence-synthetic-1"],
+      inference_basis: null,
+    },
+    {
+      claim_id: "claim-synthetic-2",
+      statement: "This design may reduce unsupported synthesis during review.",
+      kind: "inference",
+      evidence_refs: [],
+      inference_basis: "A labeled design inference, not a measured product claim.",
+    },
+  ],
+  conflicts: [],
+  unresolved_questions: ["How should citation correctness be sampled on larger fixtures?"],
+  related_notes: [{ relative_path: "Research/Agent Harness.md", title: "Agent Harness", score: 28 }],
+  note_preview: {
+    action: "append",
+    relative_path: "Research/Agent Harness.md",
+    expected_hash: "e".repeat(64),
+    markdown: "## Research update\n\n- **grounded:** Claims bind to bounded evidence cards. [evidence-synthetic-1]\n",
+    markdown_hash: "f".repeat(64),
+  },
+  metrics: {
+    supported_claim_rate: 0.5,
+    primary_source_ratio: 1,
+    citation_correctness: 1,
+    duplicate_sources: 0,
+    related_note_count: 1,
+    conflict_count: 0,
+  },
 };
 
 const snapshot: DashboardSnapshot = {
@@ -216,7 +259,17 @@ class DemoApi implements DashboardApi {
   ): Promise<ApprovalRequest> {
     return { ...approval, approval_id: approvalId, decision: decision === "approve" ? "approved" : "denied" };
   }
-  async radarAction(): Promise<void> {}
+  async radarAction(itemId: string, action: RadarAction): Promise<RadarActionResult> {
+    const item = snapshot.radar.items.find((candidate) => candidate.item_id === itemId)
+      ?? snapshot.radar.items[0];
+    return {
+      item,
+      run_id: action === "research" ? researchArtifact.run_id : null,
+      research_artifact: action === "research" ? researchArtifact : null,
+      task_preview_available: false,
+      task_approval_id: null,
+    };
+  }
   async previewTask(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }
   async captureTask(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }
   async applyTask(approvalId: string): Promise<TaskApplyResult> {

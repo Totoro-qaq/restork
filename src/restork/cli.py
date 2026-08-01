@@ -14,10 +14,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+from cryptography.fernet import Fernet
+
 from restork import __version__
 from restork.api.app import create_app
 from restork.api.auth import CLI_AUDIENCE, CLI_SCOPES, PairingAuthority
 from restork.api.server import make_server
+from restork.config.loader import load_config
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import DataClass, Mode
 from restork.daily.cache import SQLiteDailyCache
@@ -31,11 +34,23 @@ from restork.memory.service import MemoryService
 from restork.memory.store import SQLiteMemoryStore
 from restork.network.gateway import DefaultOutboundGateway, OutboundPolicy
 from restork.paths import RuntimePaths
+from restork.providers.deepseek_chat_completions import DeepSeekChatCompletionsProvider
+from restork.research.evidence import (
+    DeepSeekResearchSynthesizer,
+    DeterministicResearchSynthesizer,
+    ResearchSynthesizer,
+)
+from restork.research.sources import ResearchSourceClient
+from restork.research.store import SQLiteResearchStore
+from restork.research.workflow import ResearchWorkflow
+from restork.runtime.model import ModelRuntime
+from restork.secrets.store import KeychainSecretStore
 from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
 from restork.storage.intents import SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
+from restork.storage.transient_blobs import TransientBlobStore
 
 DEFAULT_API_URL = "http://127.0.0.1:7337"
 
@@ -140,6 +155,11 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--scope", required=True)
     create.add_argument("--criterion", action="append", required=True)
     create.add_argument("--idempotency-key", required=True)
+    research = commands.add_parser("research")
+    research.add_argument("run_id")
+    research.add_argument("--question", required=True)
+    research.add_argument("--source", action="append", required=True)
+    research.add_argument("--target-note")
     inspect = commands.add_parser("inspect")
     inspect.add_argument("run_id")
     stream = commands.add_parser("stream", aliases=["events"])
@@ -212,12 +232,16 @@ def _serve(
     runtime_paths = RuntimePaths.from_environ()
     selected_profile = profile_dir or runtime_paths.config_dir / "profiles" / "default"
     profile_store = PrivateProfileStore(selected_profile)
+    selected_vault = Vault(vault_dir) if vault_dir is not None else None
+    event_store = SQLiteEventStore.create(database)
+    run_store = SQLiteRunStore.create(database)
+    budget_store = SQLiteBudgetStore.create(database)
     memory = MemoryService(
         SQLiteMemoryStore.create(database),
         profile_store,
         runtime_paths.data_dir / "artifacts",
     )
-    task_board = MarkdownTaskBoard(Vault(vault_dir) if vault_dir is not None else None)
+    task_board = MarkdownTaskBoard(selected_vault)
     approval_store = SQLiteApprovalStore.open(database)
     task_mutations = (
         MarkdownTaskMutator.create(
@@ -251,18 +275,56 @@ def _serve(
             SQLiteDailyCache.create(database),
         ),
     )
+    research_store = SQLiteResearchStore.create(database)
+    config_path = runtime_paths.config_dir / "config.toml"
+    synthesizer: ResearchSynthesizer
+    if config_path.is_file():
+        provider_config = load_config(config_path).provider
+        provider = DeepSeekChatCompletionsProvider(
+            provider_config,
+            DefaultOutboundGateway(
+                OutboundPolicy(
+                    allowed_origins=frozenset({provider_config.base_url}),
+                    maximum_data_class=DataClass.PERSONAL,
+                    maximum_response_bytes=4_000_000,
+                )
+            ),
+            KeychainSecretStore(),
+        )
+        transient_blobs = TransientBlobStore.create(database, Fernet.generate_key())
+        synthesizer = DeepSeekResearchSynthesizer(
+            ModelRuntime(
+                event_store,
+                budget_store,
+                transient_blobs=transient_blobs,
+            ),
+            provider,
+        )
+    else:
+        synthesizer = DeterministicResearchSynthesizer()
+    research_workflow = ResearchWorkflow(
+        sources=ResearchSourceClient(),
+        synthesizer=synthesizer,
+        artifacts=research_store,
+        runs=run_store,
+        events=event_store,
+        budgets=budget_store,
+        vault=selected_vault,
+    )
     app = create_app(
-        SQLiteEventStore.create(database),
+        event_store,
         pairing,
-        SQLiteRunStore.create(database),
+        run_store,
         approval_store,
         SQLiteIntentStore.create(database),
         memory,
         task_board,
         task_mutations,
         SQLiteRadarStore.create(database),
-        SQLiteBudgetStore.create(database),
+        budget_store,
         daily=daily,
+        research=research_workflow,
+        research_artifacts=research_store,
     )
     print(f"Web pairing code: {pairing.pairing_code}")
     print(f"CLI pairing code: {cli_code}", flush=True)
@@ -279,6 +341,24 @@ def _run_authenticated(client: LocalApiClient, arguments: argparse.Namespace) ->
             idempotency_key=arguments.idempotency_key,
         )
         print(_mapping(response)["run_id"])
+        return 0
+    if arguments.command == "research":
+        body: dict[str, object] = {
+            "schema_version": 1,
+            "question": arguments.question,
+            "sources": [
+                {"schema_version": 1, "url": source, "kind": None}
+                for source in arguments.source
+            ],
+            "target_note": arguments.target_note,
+        }
+        _print_json(
+            client.request(
+                "POST",
+                f"/v1/research/runs/{arguments.run_id}/execute",
+                body=body,
+            )
+        )
         return 0
     if arguments.command == "inspect":
         _print_json(client.request("GET", f"/v1/runs/{arguments.run_id}"))
@@ -339,14 +419,20 @@ def _run_authenticated(client: LocalApiClient, arguments: argparse.Namespace) ->
 
 
 def _task(arguments: argparse.Namespace) -> TaskSpec:
+    mode = Mode(arguments.mode)
+    tools = {
+        Mode.RESEARCH: ["vault_search", "source_read"],
+        Mode.STUDY: ["vault_search", "practice"],
+        Mode.WORK: ["vault_search", "handoff_export"],
+    }[mode]
     return TaskSpec(
         task_id=arguments.task_id,
-        mode=Mode(arguments.mode),
+        mode=mode,
         goal=arguments.goal,
         workspace_scope=arguments.scope,
         completion_criteria=arguments.criterion,
         data_policy=DataPolicy(),
-        tool_policy=ToolPolicy(allowed_tools=["vault_search"]),
+        tool_policy=ToolPolicy(allowed_tools=tools),
         budgets=BudgetSpec(max_steps=10, max_wall_time_seconds=3600),
         created_at=datetime.now(UTC),
     )

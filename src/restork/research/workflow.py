@@ -75,8 +75,11 @@ class ResearchWorkflow:
     async def execute(self, run_id: str, request: ResearchRunRequest) -> ResearchArtifact:
         task = self._runs.get_task(run_id)
         self._validate_task(task, request)
+        request_hash = sha256(request.model_dump_json().encode()).hexdigest()
         replay = self._artifacts.for_run(run_id)
         if replay is not None:
+            if replay.request_hash != request_hash:
+                raise ValueError("Research run is already bound to another request")
             current = self._runs.get(run_id)
             if current.state not in {RunPhase.COMPLETED, RunPhase.FAILED, RunPhase.CANCELLED}:
                 self._harness.complete(
@@ -172,6 +175,7 @@ class ResearchWorkflow:
             artifact = ResearchArtifact(
                 artifact_id=_artifact_id(run_id, request.question, source_cards, claims),
                 run_id=run_id,
+                request_hash=request_hash,
                 question=request.question,
                 source_cards=source_cards,
                 evidence_cards=evidence,

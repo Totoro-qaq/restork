@@ -3,6 +3,7 @@ import type {
   DashboardSnapshot,
   MemoryRecord,
   RadarItem,
+  ResearchArtifact,
   RunEvent,
   RunListEntry,
 } from "../api/types";
@@ -93,6 +94,23 @@ export function runEventsMarkup(run: RunListEntry, events: RunEvent[]): string {
     </article>`;
 }
 
+export function researchPreviewMarkup(artifact: ResearchArtifact): string {
+  const metrics = artifact.metrics;
+  return `<article class="research-result" aria-labelledby="research-result-title">
+    <header><div><p class="eyebrow">VALIDATED RESEARCH ARTIFACT</p><h3 id="research-result-title">${escapeHtml(artifact.question)}</h3></div><span>${escapeHtml(artifact.note_preview.action.toUpperCase())}</span></header>
+    <dl class="research-metrics">
+      <div><dt>SUPPORTED</dt><dd>${percent(metrics.supported_claim_rate)}</dd></div>
+      <div><dt>PRIMARY</dt><dd>${percent(metrics.primary_source_ratio)}</dd></div>
+      <div><dt>CITATIONS</dt><dd>${percent(metrics.citation_correctness)}</dd></div>
+      <div><dt>RELATED</dt><dd>${metrics.related_note_count}</dd></div>
+    </dl>
+    <section><h4>Claims</h4><ol>${artifact.claims.map((claim) => `<li><b>${escapeHtml(claim.kind)}</b>${escapeHtml(claim.statement)}<small>${claim.evidence_refs.map(escapeHtml).join(" · ") || escapeHtml(claim.inference_basis ?? "explicit inference")}</small></li>`).join("")}</ol></section>
+    ${artifact.conflicts.length ? `<section><h4>Conflicts</h4><ul>${artifact.conflicts.map((conflict) => `<li>${escapeHtml(conflict.description)}</li>`).join("")}</ul></section>` : ""}
+    <section><h4>Markdown preview · ${escapeHtml(artifact.note_preview.relative_path)}</h4><pre>${escapeHtml(artifact.note_preview.markdown)}</pre></section>
+    <p class="fine">Preview only · Core has not written this note. Artifact ${escapeHtml(artifact.artifact_id)}</p>
+  </article>`;
+}
+
 export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : "Unexpected local error";
 }
@@ -135,6 +153,7 @@ function tasksView(snapshot: DashboardSnapshot): string {
 function radarView(snapshot: DashboardSnapshot): string {
   const lanes: Array<[RadarItem["lane"], string]> = [["my_stars", "My Stars"], ["trending", "Trending"], ["hn", "HN"], ["papers", "Papers"]];
   return `<article class="paper-card full-card"><header><h2>Radar</h2><span class="ribbon radar">CORE CONNECTORS</span></header>
+    <div id="research-result" class="research-result-host" role="status"></div>
     ${snapshot.radar.configured ? `<div class="lanes">${lanes.map(([lane, label]) => `<section><h3>${label}</h3>${snapshot.radar.items.filter((item) => item.lane === lane).map(radarItem).join("") || "<p class=\"empty\">Empty</p>"}</section>`).join("")}</div>` : "<p class=\"empty\">Radar 来源尚未配置；浏览器不会自行联网。</p>"}
   </article>`;
 }
@@ -248,6 +267,10 @@ function isTerminal(state: string): boolean {
 function formatDate(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "unknown" : new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function percent(value: number): string {
+  return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
 }
 
 function escapeHtml(value: string): string {

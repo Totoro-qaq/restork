@@ -111,6 +111,7 @@ class ResearchMetrics(ContractModel):
 class ResearchArtifact(ContractModel):
     artifact_id: str = Field(pattern=r"^research-[0-9a-f]{24}$")
     run_id: str = Field(min_length=1)
+    request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     question: str = Field(min_length=1, max_length=2_000)
     source_cards: tuple[SourceCard, ...] = Field(min_length=1)
     evidence_cards: tuple[EvidenceCard, ...] = Field(min_length=1)

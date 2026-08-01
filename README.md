@@ -16,14 +16,14 @@
   One Core turns local knowledge and cloud reasoning into a reviewable, recoverable Research–Study–Work loop.
 </p>
 
-> **当前状态 / Current status — Step 6 complete.** 本地 Core、受控 Harness、四层记忆、
-> Markdown 任务、每日上下文与配对式 Web Dashboard 已实现；Research、Study、Work
-> 的完整纵向工作流与 V1 发布加固正在 Step 7–10 推进。测试与公开演示只使用合成数据，
+> **当前状态 / Current status — Step 7 complete.** 本地 Core、受控 Harness、四层记忆、
+> Markdown 任务、每日上下文、配对式 Web Dashboard，以及带证据卡和笔记预览的
+> Research 纵向工作流已实现；Study、Work 与 V1 发布加固正在 Step 8–10 推进。测试与公开演示只使用合成数据，
 > 不会发起真实模型请求。
 >
 > The local Core, governed Harness, four-layer memory, Markdown tasks, daily
-> context, and paired Web Dashboard are implemented. Full Research, Study, and
-> Work vertical slices plus V1 release hardening continue in Steps 7–10. Tests
+> context, paired Web Dashboard, and evidence-backed Research vertical slice
+> are implemented. Study, Work, and V1 release hardening continue in Steps 8–10. Tests
 > and public demos use synthetic data and never make live model calls.
 
 ## 产品实证 / Product proof
@@ -91,11 +91,12 @@ retrieval evaluation later demonstrates a real need.
 | **Knowledge & tasks** | 只读 Vault 检索、确定性 wiki-link 投影、单文件日志化写入，以及 Markdown checkbox 任务预览/批准/应用。 Read-only Vault retrieval, deterministic wiki-link projection, journaled single-file writes, and preview/approve/apply for Markdown checkbox tasks. |
 | **Memory** | Working、Episodic、Semantic、Profile 四层；TTL/LRU 只清理瞬态值和可重建缓存。 Four layers—Working, Episodic, Semantic, Profile—with TTL/LRU limited to transient values and rebuildable caches. |
 | **Daily context** | 可选 Open-Meteo 天气、一个本地只读 ICS、私有 JSON/CSV 歌单与本地封面；无配置时不联网。 Optional Open-Meteo weather, one local read-only ICS, and private JSON/CSV playlists with local covers; no configuration means no request. |
+| **Research** | 公共网页、GitHub 与 arXiv 来源 → 有界证据卡 → 引用校验结论、冲突与实验 → 重复安全的 Markdown 预览。 Public web, GitHub, and arXiv sources → bounded evidence cards → citation-validated claims, conflicts, and experiments → duplicate-safe Markdown preview. |
 
-三个模式已经共享 Core contract 与 Dashboard 入口；它们的完整产物链在 Step 7–9 逐个交付：
+三个模式共享 Core contract 与 Dashboard 入口；Research 已完整交付，Study 与 Work 将在 Step 8–9 交付：
 
-The three modes already share Core contracts and Dashboard entry points; their
-complete artifact chains are delivered one by one in Steps 7–9:
+The three modes share Core contracts and Dashboard entry points. Research is
+complete; Study and Work follow in Steps 8–9:
 
 - **Research:** 来源 → 证据卡 → 可追溯结论。 Sources → evidence cards → traceable claims.
 - **Study:** 诊断 → 路径 → 练习 → 间隔复习。 Diagnostic → path → practice → spaced review.
@@ -145,11 +146,13 @@ uv run restork health
 uv run restork capabilities
 ```
 
-配置示例见 [`examples/profile.example.toml`](examples/profile.example.toml)，详细规则见
+配置示例见 [`examples/profile.example.toml`](examples/profile.example.toml) 与
+[`examples/config.example.toml`](examples/config.example.toml)，详细规则见
 [`Memory`](docs/memory.md)、[`Markdown tasks`](docs/markdown-tasks.md) 与
 [`Daily context`](docs/daily-context.md)。
 
-See [`examples/profile.example.toml`](examples/profile.example.toml) and the
+See [`examples/profile.example.toml`](examples/profile.example.toml),
+[`examples/config.example.toml`](examples/config.example.toml), and the
 guides for [`Memory`](docs/memory.md), [`Markdown tasks`](docs/markdown-tasks.md),
 and [`Daily context`](docs/daily-context.md).
 
@@ -196,7 +199,7 @@ uv build --no-sources
 ## 路线图与贡献 / Roadmap & contributing
 
 - Steps 0–6: ✅ 安全基础、Core、Harness、知识、记忆与 Dashboard。 Safety foundation, Core, Harness, knowledge, memory, and Dashboard.
-- Step 7: Research 来源、证据与评估。 Research sources, evidence, and evaluation.
+- Step 7: ✅ Research 来源、证据、预览与评估。 Research sources, evidence, previews, and evaluation.
 - Step 8: Study 路径、练习与复习。 Study paths, practice, and review.
 - Step 9: Work 只读上下文、交接与结果验证。 Work read-only context, handoff, and result verification.
 - Step 10: 隐私、恢复、安全、打包与发布审计。 Privacy, recovery, security, packaging, and release audit.

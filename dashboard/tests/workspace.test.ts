@@ -40,7 +40,13 @@ function fakeApi(): DashboardApi {
     decideApproval: vi.fn(async () => {
       throw new Error("not used");
     }),
-    radarAction: vi.fn(async () => undefined),
+    radarAction: vi.fn(async () => ({
+      item: {} as never,
+      run_id: null,
+      research_artifact: null,
+      task_preview_available: false,
+      task_approval_id: null,
+    })),
     previewTask: vi.fn(async () => {
       throw new Error("not used");
     }),
@@ -143,5 +149,70 @@ describe("authenticated workspace", () => {
 
     await vi.waitFor(() => expect(preview).toHaveBeenCalledWith("task-1", true));
     expect(localStorage).toHaveLength(0);
+  });
+
+  it("launches a Radar Research run and renders its write-free preview", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const item = {
+      item_id: "radar-1",
+      lane: "papers" as const,
+      title: "Synthetic evidence",
+      source: "fixture",
+      url: "https://example.com/evidence",
+      summary: "",
+      score: 1,
+      published_at: null,
+      state: "new",
+      data_class: "public",
+    };
+    const artifact = {
+      artifact_id: "research-synthetic",
+      run_id: "run-synthetic",
+      question: "Does <script>alert(1)</script> have evidence?",
+      claims: [{
+        claim_id: "claim-1",
+        statement: "The source reports a bounded result.",
+        kind: "grounded" as const,
+        evidence_refs: ["evidence-1"],
+        inference_basis: null,
+      }],
+      conflicts: [],
+      unresolved_questions: [],
+      related_notes: [],
+      note_preview: {
+        action: "create" as const,
+        relative_path: "Research/Synthetic.md",
+        expected_hash: null,
+        markdown: "# Safe preview\n<script>alert(2)</script>\n",
+        markdown_hash: "a".repeat(64),
+      },
+      metrics: {
+        supported_claim_rate: 1,
+        primary_source_ratio: 1,
+        citation_correctness: 1,
+        duplicate_sources: 0,
+        related_note_count: 0,
+        conflict_count: 0,
+      },
+    };
+    vi.spyOn(api, "radarAction").mockResolvedValue({
+      item,
+      run_id: artifact.run_id,
+      research_artifact: artifact,
+      task_preview_available: false,
+      task_approval_id: null,
+    });
+    mountDashboard(root, {
+      api,
+      snapshot: { ...snapshot, radar: { configured: true, items: [item] } },
+    });
+    root.querySelector<HTMLButtonElement>('[data-view="radar"]')?.click();
+    root.querySelector<HTMLButtonElement>('[data-radar-action="research"]')?.click();
+
+    await vi.waitFor(() => expect(root.textContent).toContain("Safe preview"));
+    expect(root.textContent).toContain("Preview only");
+    expect(root.querySelector("script")).toBeNull();
+    expect(api.radarAction).toHaveBeenCalledWith("radar-1", "research");
   });
 });

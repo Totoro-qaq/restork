@@ -100,6 +100,45 @@ export interface RadarItem {
   data_class: string;
 }
 
+export interface ResearchArtifact {
+  artifact_id: string;
+  run_id: string;
+  question: string;
+  claims: Array<{
+    claim_id: string;
+    statement: string;
+    kind: "grounded" | "inference";
+    evidence_refs: string[];
+    inference_basis: string | null;
+  }>;
+  conflicts: Array<{ description: string; evidence_refs: string[] }>;
+  unresolved_questions: string[];
+  related_notes: Array<{ relative_path: string; title: string; score: number }>;
+  note_preview: {
+    action: "create" | "append" | "no_change";
+    relative_path: string;
+    expected_hash: string | null;
+    markdown: string;
+    markdown_hash: string;
+  };
+  metrics: {
+    supported_claim_rate: number;
+    primary_source_ratio: number;
+    citation_correctness: number;
+    duplicate_sources: number;
+    related_note_count: number;
+    conflict_count: number;
+  };
+}
+
+export interface RadarActionResult {
+  item: RadarItem;
+  run_id: string | null;
+  research_artifact: ResearchArtifact | null;
+  task_preview_available: boolean;
+  task_approval_id: string | null;
+}
+
 export interface MemoryRecord {
   memory_id: string;
   layer: "working" | "episodic" | "semantic" | "profile";
@@ -192,7 +231,7 @@ export interface DashboardApi {
     approvalId: string,
     decision: "approve" | "reject",
   ): Promise<ApprovalRequest>;
-  radarAction(itemId: string, action: RadarAction): Promise<void>;
+  radarAction(itemId: string, action: RadarAction): Promise<RadarActionResult>;
   previewTask(taskId: string, completed: boolean): Promise<TaskMutationPreview>;
   captureTask(text: string, priority: string): Promise<TaskMutationPreview>;
   applyTask(approvalId: string): Promise<TaskApplyResult>;

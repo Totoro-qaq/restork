@@ -37,7 +37,37 @@ method.
 
 The complete artifact is stored once per run in local SQLite. Events contain artifact IDs and
 counts, never vault bodies, evidence excerpts, prompts, or local absolute paths. Re-executing the
-same completed run returns the persisted artifact without another source or model call.
+same completed run with the same request returns the persisted artifact without another source or
+model call. A different request cannot reuse that run: the artifact is bound to a SHA-256 request
+digest.
+
+## Dashboard, CLI, and model selection
+
+Choosing **research** on a Dashboard Radar item creates the governed run, fetches the public source,
+validates the artifact, and returns the Markdown preview in the same action. The authenticated API
+also exposes:
+
+- `POST /v1/research/runs/{run_id}/execute`;
+- `GET /v1/research/runs/{run_id}/artifact`;
+- `GET /v1/research/artifacts/{artifact_id}`.
+
+The CLI equivalent for an existing Research run is:
+
+```bash
+restork research RUN_ID \
+  --question "What does this project establish?" \
+  --source https://github.com/owner/repository
+```
+
+Without `$RESTORK_CONFIG_DIR/config.toml`, Restork uses the deterministic grounded synthesizer and
+makes no model call. To enable DeepSeek V4 Pro, copy the shape from
+`examples/config.example.toml` into that private path. In macOS Keychain Access, create a Generic
+Password whose service is `restork/provider` and account is `deepseek`; enter the key only in the
+Keychain password field.
+
+The TOML stores only `keychain:restork/provider/deepseek`; the key never enters the repository,
+SQLite, Dashboard, URL, or event stream. Provider requests remain limited to public or personal
+data in V1; confidential, secret, and credential task payloads fail closed.
 
 Run the slice gates with:
 
