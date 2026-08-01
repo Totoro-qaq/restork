@@ -77,7 +77,10 @@ def _path_issues(relative: str) -> list[str]:
     if path.name.casefold() in _PRIVATE_NAMES:
         issues.append("private configuration or source file is tracked")
     if path.suffix.casefold() in {".gif", ".jpeg", ".jpg", ".png", ".webp"}:
-        if relative not in _PUBLIC_RASTERS:
+        if not any(
+            relative == public or relative.endswith("/" + public)
+            for public in _PUBLIC_RASTERS
+        ):
             issues.append("undocumented raster or screenshot is tracked")
     return issues
 

@@ -14,8 +14,6 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-from cryptography.fernet import Fernet
-
 from restork import __version__
 from restork.api.app import create_app
 from restork.api.auth import CLI_AUDIENCE, CLI_SCOPES, PairingAuthority
@@ -44,7 +42,7 @@ from restork.research.sources import ResearchSourceClient
 from restork.research.store import SQLiteResearchStore
 from restork.research.workflow import ResearchWorkflow
 from restork.runtime.model import ModelRuntime
-from restork.secrets.store import KeychainSecretStore
+from restork.secrets import KeychainSecretStore, LocalEncryptionKeyStore
 from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
@@ -140,7 +138,11 @@ def _parser() -> argparse.ArgumentParser:
         "--api-url",
         default=os.environ.get("RESTORK_API_URL", DEFAULT_API_URL),
     )
-    parser.add_argument("--state-db", type=Path, default=Path("restork.db"))
+    parser.add_argument(
+        "--state-db",
+        type=Path,
+        default=RuntimePaths.from_environ().data_dir / "restork.db",
+    )
     parser.add_argument("--profile-dir", type=Path)
     parser.add_argument("--vault-dir", type=Path)
     parser.add_argument("-h", "--help", action="store_true", help="show this help message and exit")
@@ -296,6 +298,7 @@ def _serve(
     pairing = PairingAuthority()
     cli_code = pairing.new_pairing_code(CLI_AUDIENCE, CLI_SCOPES)
     runtime_paths = RuntimePaths.from_environ()
+    database.parent.mkdir(parents=True, exist_ok=True)
     selected_profile = profile_dir or runtime_paths.config_dir / "profiles" / "default"
     profile_store = PrivateProfileStore(selected_profile)
     selected_vault = Vault(vault_dir) if vault_dir is not None else None
@@ -359,7 +362,11 @@ def _serve(
             ),
             KeychainSecretStore(),
         )
-        transient_blobs = TransientBlobStore.create(database, Fernet.generate_key())
+        transient_key = LocalEncryptionKeyStore().load_or_create(
+            runtime_paths.data_dir / "transient.key",
+            require_existing=TransientBlobStore.contains_payloads(database),
+        )
+        transient_blobs = TransientBlobStore.create(database, transient_key)
         synthesizer = DeepSeekResearchSynthesizer(
             ModelRuntime(
                 event_store,

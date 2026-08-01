@@ -181,9 +181,10 @@ def test_work_api_plans_exports_and_verifies_without_executing(tmp_path: Path) -
 
     assert verified.status_code == 200
     assert verified.json()["status"] == "partial"
-    assert verified.json()["completion_eligible"] is True
+    assert verified.json()["completion_eligible"] is False
     assert verified.json()["commands"][0]["status"] == "unverified"
-    assert SQLiteRunStore.create(database).get(run_id).state is RunPhase.COMPLETED
+    assert verified.json()["task_update_preview"] is None
+    assert SQLiteRunStore.create(database).get(run_id).state is RunPhase.USER_ACTION_REQUIRED
     inspected = client.get(f"/v1/work/runs/{run_id}/verification", headers=auth)
     assert inspected.json() == verified.json()
 

@@ -24,6 +24,8 @@ dashboard/dist/
 secrets/
 !src/restork/secrets/
 !src/restork/secrets/*.py
+!tests/secrets/
+!tests/secrets/*.py
 
 # Private runtime state and user data
 .restork/

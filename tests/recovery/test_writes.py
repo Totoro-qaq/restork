@@ -9,6 +9,7 @@ import pytest
 
 from restork.contracts.approval import ApprovalRequest
 from restork.contracts.types import ApprovalDecision, RiskClass
+from restork.dashboard.tasks import MarkdownTaskBoard, MarkdownTaskMutator
 from restork.knowledge.vault import Vault, VaultPathError
 from restork.knowledge.write_journal import JournaledWriter
 from restork.knowledge.write_plan import WritePlan, make_write_plan
@@ -172,3 +173,32 @@ def test_sec_approval_001_symlink_swap_cannot_escape_approved_note(
 
     assert outside.read_text(encoding="utf-8") == "outside\n"
     assert os.path.islink(note)
+
+
+def test_rel_write_001_core_startup_reconciles_a_safe_pending_journal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    vault_root = tmp_path / "vault"
+    note, writer, plan, approval = _case(vault_root)
+    journal_dir = vault_root / ".journal"
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            "restork.knowledge.write_journal.os.replace",
+            lambda *args, **kwargs: (_ for _ in ()).throw(OSError("rename fault")),
+        )
+        with pytest.raises(OSError, match="rename fault"):
+            writer.apply(plan, approval)
+    assert any(journal_dir.glob("*.json"))
+
+    database = tmp_path / "state.db"
+    approvals = SQLiteApprovalStore.open(database)
+    MarkdownTaskMutator.create(
+        MarkdownTaskBoard(Vault(vault_root)),
+        database,
+        approvals,
+        journal_dir,
+    )
+
+    assert note.read_text(encoding="utf-8") == "before\n"
+    assert not any(journal_dir.glob("*.json"))

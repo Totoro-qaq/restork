@@ -243,13 +243,11 @@ def test_imported_result_hashes_are_verified_without_executing_claimed_commands(
     report = workflow.verify(run_id, manifest, idempotency_key="verify-result")
 
     assert report.status is VerificationStatus.PARTIAL
-    assert report.completion_eligible is True
+    assert report.completion_eligible is False
     assert report.changed_files[0].status is EvidenceStatus.MATCHED
     assert report.commands[0].status is EvidenceStatus.UNVERIFIED
-    assert report.task_update_preview is not None
-    assert report.task_update_preview.apply_available is False
-    assert run_id in report.task_update_preview.suggested_markdown
-    assert runs.get(run_id).state is RunPhase.COMPLETED
+    assert report.task_update_preview is None
+    assert runs.get(run_id).state is RunPhase.USER_ACTION_REQUIRED
 
 
 def test_mismatched_or_unexpected_results_require_user_action(tmp_path: Path) -> None:

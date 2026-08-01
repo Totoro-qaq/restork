@@ -1,0 +1,50 @@
+name: Release candidate
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build-and-attest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: uv sync --frozen --all-groups
+      - run: npm --prefix dashboard ci
+      - run: uv run pytest
+      - run: uv run ruff check .
+      - run: uv run mypy src
+      - run: uv run bandit -q -r src
+      - run: npm --prefix dashboard run lint
+      - run: npm --prefix dashboard test
+      - run: npm --prefix dashboard run build
+      - run: uv run python scripts/audit_readme.py README.md
+      - run: ./scripts/scan-public-artifacts.sh
+      - run: uv run python scripts/build_release.py --output dist/release
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: |
+            dist/release/*.whl
+            dist/release/*.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: restork-release-candidate
+          path: dist/release/
+          if-no-files-found: error
+          retention-days: 30

@@ -93,6 +93,22 @@ class HandoffExport:
         return ToolResult(status=ToolStatus.SUCCEEDED, summary="exported")
 
 
+class ArtifactSearch:
+    name = "vault_search"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def invoke(self, arguments: object) -> ToolResult:
+        del arguments
+        self.calls += 1
+        return ToolResult(
+            status=ToolStatus.SUCCEEDED,
+            summary="produced one durable reference",
+            artifacts=["artifact:restart-stable"],
+        )
+
+
 def _runtime(
     path: Path,
     *,
@@ -200,6 +216,34 @@ def test_stable_intent_never_repeats_a_committed_effect(tmp_path: Path) -> None:
     assert result.status is ToolStatus.SUCCEEDED
     assert search.calls == 2
     assert events.read("run", after_seq=0)[-1].kind == "tool.replayed"
+
+
+def test_committed_tool_replay_preserves_artifact_evidence(tmp_path: Path) -> None:
+    runtime, intents, _, _ = _runtime(tmp_path / "state.db")
+    search = ArtifactSearch()
+
+    first = asyncio.run(
+        runtime.invoke(
+            _task(),
+            "run",
+            search,
+            {"query": "test"},
+            intent_id="artifact-intent",
+        )
+    )
+    replay = asyncio.run(
+        runtime.invoke(
+            _task(),
+            "run",
+            search,
+            {"query": "test"},
+            intent_id="artifact-intent",
+        )
+    )
+
+    assert first.artifacts == replay.artifacts == ["artifact:restart-stable"]
+    assert intents.get("artifact-intent").artifact_refs == ("artifact:restart-stable",)
+    assert search.calls == 1
 
 
 def test_tool_schema_is_checked_before_intent_and_timeout_is_enforced(tmp_path: Path) -> None:

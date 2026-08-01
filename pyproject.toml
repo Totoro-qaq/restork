@@ -23,6 +23,9 @@ restork = "restork.cli:main"
 requires = ["uv_build>=0.11.26,<0.12"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+source-include = ["assets/readme/**"]
+
 [dependency-groups]
 dev = [
   "bandit>=1.8",
