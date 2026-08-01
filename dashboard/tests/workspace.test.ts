@@ -37,6 +37,15 @@ function fakeApi(): DashboardApi {
     createRun: vi.fn(async () => {
       throw new Error("not used");
     }),
+    prepareStudy: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    submitStudyDiagnostic: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    submitStudyPractice: vi.fn(async () => {
+      throw new Error("not used");
+    }),
     decideApproval: vi.fn(async () => {
       throw new Error("not used");
     }),
@@ -214,5 +223,127 @@ describe("authenticated workspace", () => {
     expect(root.textContent).toContain("Preview only");
     expect(root.querySelector("script")).toBeNull();
     expect(api.radarAction).toHaveBeenCalledWith("radar-1", "research");
+  });
+
+  it("runs diagnostic-first Study without rendering or retaining an answer", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    vi.spyOn(api, "createRun").mockResolvedValue({
+      run_id: "run-study",
+      task_id: "task-study",
+      mode: "study",
+      state: "planning",
+      state_version: 1,
+      stop_reason: null,
+      created_at: "2026-08-02T00:00:00Z",
+      updated_at: "2026-08-02T00:00:00Z",
+    });
+    vi.spyOn(api, "prepareStudy").mockResolvedValue({
+      diagnostic_id: `study-diagnostic-${"1".repeat(24)}`,
+      run_id: "run-study",
+      objective: "Explain <script>alert(1)</script> Bayesian evidence",
+      questions: [
+        {
+          question_id: `diagnostic-${"2".repeat(24)}`,
+          prompt: "Rate readiness",
+          response_kind: "rating",
+        },
+        {
+          question_id: `diagnostic-${"3".repeat(24)}`,
+          prompt: "Explain success",
+          response_kind: "free_text",
+        },
+      ],
+      source_snapshot_hash: null,
+      created_at: "2026-08-02T00:00:00Z",
+    });
+    const artifact = {
+      artifact_id: `study-${"4".repeat(24)}`,
+      run_id: "run-study",
+      readiness_signal: "developing" as const,
+      objective: {
+        objective_id: `objective-${"5".repeat(24)}`,
+        outcome: "Explain Bayesian evidence",
+        success_criteria: ["Explain without notes"],
+      },
+      prerequisites: [],
+      related_notes: [],
+      learning_path: [{
+        step_id: `learning-step-${"6".repeat(24)}`,
+        order: 1,
+        title: "Build the model",
+        outcome: "Explain it",
+        note_refs: [],
+      }],
+      exercises: [{
+        exercise_id: `exercise-${"7".repeat(24)}`,
+        concept: "Bayesian evidence",
+        kind: "active_recall" as const,
+        prompt: "Explain <script>alert(2)</script> Bayesian evidence",
+        hints: ["Name one boundary"],
+        answer_revealed: false as const,
+      }],
+      metrics: {
+        diagnostic_completed: true as const,
+        explicit_prerequisite_ratio: 0,
+        practice_count: 1,
+        related_note_count: 0,
+      },
+      sensitivity: "public",
+      created_at: "2026-08-02T00:00:00Z",
+      validation_status: "valid" as const,
+    };
+    vi.spyOn(api, "submitStudyDiagnostic").mockResolvedValue(artifact);
+    const practice = vi.spyOn(api, "submitStudyPractice").mockResolvedValue({
+      attempt_id: `attempt-${"8".repeat(24)}`,
+      run_id: "run-study",
+      exercise_id: artifact.exercises[0].exercise_id,
+      correct: false,
+      feedback: "Use the hint before retrying.",
+      error_count: 1,
+      attempt_count: 1,
+      next_review: {
+        action: "retry_with_hint",
+        due_at: "2026-08-02T00:10:00Z",
+        interval_days: 0,
+        reason: "A private rubric term was missing.",
+      },
+      record_preview: null,
+      created_at: "2026-08-02T00:00:00Z",
+    });
+    mountDashboard(root, { api, snapshot });
+
+    root.querySelector<HTMLButtonElement>('[data-mode="study"]')?.click();
+    const goal = root.querySelector<HTMLInputElement>("#run-goal");
+    if (goal) goal.value = "Explain Bayesian evidence";
+    root.querySelector<HTMLFormElement>("#run-form")?.requestSubmit();
+    await vi.waitFor(() => expect(root.textContent).toContain("DIAGNOSTIC FIRST"));
+    expect(root.querySelector("script")).toBeNull();
+
+    const diagnosticFields = root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+      "[data-diagnostic-question]",
+    );
+    diagnosticFields[0].value = "2";
+    diagnosticFields[1].value = "private diagnostic answer";
+    root.querySelector<HTMLFormElement>("[data-study-diagnostic]")?.requestSubmit();
+    await vi.waitFor(() => expect(root.textContent).toContain("VALIDATED STUDY PATH"));
+    expect(root.querySelector("script")).toBeNull();
+    expect(root.textContent).not.toContain("private diagnostic answer");
+
+    const practiceForm = root.querySelector<HTMLFormElement>("[data-study-practice]");
+    const response = practiceForm?.querySelector<HTMLTextAreaElement>('textarea[name="answer"]');
+    if (response) response.value = "private practice answer";
+    practiceForm?.requestSubmit();
+    await vi.waitFor(() => expect(root.textContent).toContain("RETRY WITH HINT"));
+    expect(practice).toHaveBeenCalledWith(
+      "run-study",
+      artifact.exercises[0].exercise_id,
+      "private practice answer",
+      3,
+    );
+    expect(response?.value).toBe("");
+    expect(root.textContent).not.toContain("private practice answer");
+    expect(localStorage).toHaveLength(0);
+    expect(sessionStorage).toHaveLength(0);
   });
 });

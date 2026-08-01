@@ -131,6 +131,85 @@ export interface ResearchArtifact {
   };
 }
 
+export interface StudyDiagnostic {
+  diagnostic_id: string;
+  run_id: string;
+  objective: string;
+  questions: Array<{
+    question_id: string;
+    prompt: string;
+    response_kind: "rating" | "free_text";
+  }>;
+  source_snapshot_hash: string | null;
+  created_at: string;
+}
+
+export interface StudyArtifact {
+  artifact_id: string;
+  run_id: string;
+  readiness_signal: "foundation" | "developing" | "ready";
+  objective: {
+    objective_id: string;
+    outcome: string;
+    success_criteria: string[];
+  };
+  prerequisites: Array<{
+    relative_path: string;
+    title: string;
+    rationale: string;
+    explicit_source: "prerequisite_section";
+  }>;
+  related_notes: Array<{ relative_path: string; title: string }>;
+  learning_path: Array<{
+    step_id: string;
+    order: number;
+    title: string;
+    outcome: string;
+    note_refs: string[];
+  }>;
+  exercises: Array<{
+    exercise_id: string;
+    concept: string;
+    kind: "active_recall" | "application";
+    prompt: string;
+    hints: string[];
+    answer_revealed: false;
+  }>;
+  metrics: {
+    diagnostic_completed: true;
+    explicit_prerequisite_ratio: number;
+    practice_count: number;
+    related_note_count: number;
+  };
+  sensitivity: string;
+  created_at: string;
+  validation_status: "valid";
+}
+
+export interface PracticeAttemptResult {
+  attempt_id: string;
+  run_id: string;
+  exercise_id: string;
+  correct: boolean;
+  feedback: string;
+  error_count: number;
+  attempt_count: number;
+  next_review: {
+    action: "retry_with_hint" | "spaced_review";
+    due_at: string;
+    interval_days: number;
+    reason: string;
+  };
+  record_preview: {
+    relative_path: string;
+    markdown: string;
+    markdown_hash: string;
+    attempt_count: number;
+    apply_available: false;
+  } | null;
+  created_at: string;
+}
+
 export interface RadarActionResult {
   item: RadarItem;
   run_id: string | null;
@@ -227,6 +306,21 @@ export interface DashboardApi {
   pair(code: string): Promise<void>;
   loadDashboard(): Promise<DashboardSnapshot>;
   createRun(mode: Mode, goal: string): Promise<RunSummary>;
+  prepareStudy(
+    runId: string,
+    objective: string,
+    targetNote: string | null,
+  ): Promise<StudyDiagnostic>;
+  submitStudyDiagnostic(
+    runId: string,
+    answers: Record<string, string>,
+  ): Promise<StudyArtifact>;
+  submitStudyPractice(
+    runId: string,
+    exerciseId: string,
+    answer: string,
+    confidence: number,
+  ): Promise<PracticeAttemptResult>;
   decideApproval(
     approvalId: string,
     decision: "approve" | "reject",

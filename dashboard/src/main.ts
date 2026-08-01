@@ -6,6 +6,9 @@ import {
   errorText,
   pairingMarkup,
   researchPreviewMarkup,
+  studyArtifactMarkup,
+  studyAttemptMarkup,
+  studyDiagnosticMarkup,
   runEventsMarkup,
   workspaceMarkup,
 } from "./ui/render";
@@ -102,6 +105,10 @@ function openRunForm(root: HTMLElement, mode: Mode): void {
   const field = root.querySelector<HTMLInputElement>("#run-mode");
   if (panel) panel.hidden = false;
   if (field) field.value = mode;
+  const target = root.querySelector<HTMLInputElement>("#study-target-note");
+  const targetLabel = root.querySelector<HTMLElement>("#study-target-label");
+  if (target) target.hidden = mode !== "study";
+  if (targetLabel) targetLabel.hidden = mode !== "study";
   root.querySelector<HTMLInputElement>("#run-goal")?.focus();
 }
 
@@ -109,15 +116,93 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
   const data = new FormData(form);
   const mode = String(data.get("mode")) as Mode;
   const goal = String(data.get("goal") ?? "").trim();
+  const targetNote = String(data.get("target_note") ?? "").trim() || null;
   const status = root.querySelector<HTMLElement>("#action-status");
   if (!goal) return;
   if (status) status.textContent = "正在创建本地运行…";
   try {
     const run = await api.createRun(mode, goal);
     if (status) status.textContent = `已创建 ${run.run_id}`;
-    await refresh(root, api, "runs");
+    if (mode === "study") {
+      const diagnostic = await api.prepareStudy(run.run_id, goal, targetNote);
+      const host = root.querySelector<HTMLElement>("#study-workspace");
+      if (host) {
+        host.innerHTML = studyDiagnosticMarkup(diagnostic);
+        bindStudyDiagnostic(root, api);
+      }
+    } else {
+      await refresh(root, api, "runs");
+    }
   } catch (error) {
     if (status) status.textContent = errorText(error);
+  }
+}
+
+function bindStudyDiagnostic(root: HTMLElement, api: DashboardApi): void {
+  const form = root.querySelector<HTMLFormElement>("[data-study-diagnostic]");
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void submitStudyDiagnostic(root, api, form);
+  });
+}
+
+async function submitStudyDiagnostic(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+  if (submit) submit.disabled = true;
+  const answers: Record<string, string> = {};
+  for (const field of form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+    "[data-diagnostic-question]",
+  )) answers[field.name] = field.value;
+  try {
+    const artifact = await api.submitStudyDiagnostic(form.dataset.runId ?? "", answers);
+    const host = root.querySelector<HTMLElement>("#study-workspace");
+    if (host) {
+      host.innerHTML = studyArtifactMarkup(artifact);
+      bindStudyPractice(root, api);
+    }
+  } catch (error) {
+    if (submit) submit.disabled = false;
+    announce(root, errorText(error));
+  }
+}
+
+function bindStudyPractice(root: HTMLElement, api: DashboardApi): void {
+  root.querySelectorAll<HTMLFormElement>("[data-study-practice]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void submitStudyPractice(root, api, form);
+    });
+  });
+}
+
+async function submitStudyPractice(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  const data = new FormData(form);
+  const answer = String(data.get("answer") ?? "");
+  const confidence = Number(data.get("confidence"));
+  const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+  if (submit) submit.disabled = true;
+  try {
+    const result = await api.submitStudyPractice(
+      form.dataset.runId ?? "",
+      form.dataset.exerciseId ?? "",
+      answer,
+      confidence,
+    );
+    form.reset();
+    const feedback = form.querySelector<HTMLElement>(".study-attempt");
+    if (feedback) feedback.innerHTML = studyAttemptMarkup(result);
+  } catch (error) {
+    announce(root, errorText(error));
+  } finally {
+    if (submit) submit.disabled = false;
   }
 }
 

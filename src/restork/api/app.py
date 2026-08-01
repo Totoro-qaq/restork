@@ -63,6 +63,9 @@ from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
 from restork.storage.intents import SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
+from restork.study.models import DiagnosticSubmission, PracticeSubmission, StudyStartRequest
+from restork.study.store import SQLiteStudyStore
+from restork.study.workflow import StudyWorkflow
 from restork.tools.registry import DEFAULT_TOOL_DEFINITIONS
 
 
@@ -121,6 +124,8 @@ def create_app(
     daily: DailyContextService | None = None,
     research: ResearchWorkflow | None = None,
     research_artifacts: SQLiteResearchStore | None = None,
+    study: StudyWorkflow | None = None,
+    study_artifacts: SQLiteStudyStore | None = None,
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -672,6 +677,126 @@ def create_app(
             artifact = research_artifacts.get(artifact_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Research artifact not found") from error
+        return artifact.model_dump(mode="json")
+
+    @app.post("/v1/study/runs/{run_id}/diagnostic")
+    async def prepare_study_diagnostic(
+        run_id: str,
+        request: Request,
+        _: Annotated[AccessToken, Depends(write_runs)],
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if study is None:
+            raise HTTPException(status_code=503, detail="Study workflow is not configured")
+        try:
+            body = StudyStartRequest.model_validate_json(await request.body())
+            diagnostic = study.prepare(run_id, body)
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=error.errors(include_context=False),
+            ) from error
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Study run not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail="Study diagnostic failed") from error
+        return diagnostic.model_dump(mode="json")
+
+    @app.post("/v1/study/runs/{run_id}/path")
+    async def submit_study_diagnostic(
+        run_id: str,
+        request: Request,
+        _: Annotated[AccessToken, Depends(write_runs)],
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if study is None:
+            raise HTTPException(status_code=503, detail="Study workflow is not configured")
+        try:
+            body = DiagnosticSubmission.model_validate_json(await request.body())
+            artifact = study.submit_diagnostic(run_id, body)
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=error.errors(include_context=False),
+            ) from error
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Study run not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail="Study path generation failed") from error
+        return artifact.model_dump(mode="json")
+
+    @app.post("/v1/study/runs/{run_id}/exercises/{exercise_id}/attempt")
+    async def submit_study_practice(
+        run_id: str,
+        exercise_id: str,
+        request: Request,
+        _: Annotated[AccessToken, Depends(write_runs)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if study is None:
+            raise HTTPException(status_code=503, detail="Study workflow is not configured")
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        try:
+            body = PracticeSubmission.model_validate_json(await request.body())
+            result = study.submit_practice(
+                run_id,
+                exercise_id,
+                body,
+                idempotency_key=idempotency_key,
+            )
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=error.errors(include_context=False),
+            ) from error
+        except KeyError as error:
+            raise HTTPException(
+                status_code=404, detail="Study run or exercise not found"
+            ) from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail="Study practice failed") from error
+        return result.model_dump(mode="json")
+
+    @app.get("/v1/study/runs/{run_id}/diagnostic")
+    def inspect_study_diagnostic(
+        run_id: str,
+        _: Annotated[AccessToken, Depends(read_runs)],
+    ) -> dict[str, object]:
+        if study_artifacts is None:
+            raise HTTPException(status_code=503, detail="Study artifacts are not configured")
+        try:
+            diagnostic = study_artifacts.diagnostic(run_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Study diagnostic not found") from error
+        return diagnostic.model_dump(mode="json")
+
+    @app.get("/v1/study/runs/{run_id}/artifact")
+    def inspect_study_artifact(
+        run_id: str,
+        _: Annotated[AccessToken, Depends(read_runs)],
+    ) -> dict[str, object]:
+        if study_artifacts is None:
+            raise HTTPException(status_code=503, detail="Study artifacts are not configured")
+        try:
+            artifact = study_artifacts.artifact_for_run(run_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Study artifact not found") from error
+        if artifact is None:
+            raise HTTPException(status_code=404, detail="Study artifact not found")
         return artifact.model_dump(mode="json")
 
     @app.get("/v1/daily")

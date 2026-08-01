@@ -6,8 +6,11 @@ import type {
   Mode,
   RadarAction,
   RadarActionResult,
+  PracticeAttemptResult,
   RunEvent,
   RunSummary,
+  StudyArtifact,
+  StudyDiagnostic,
   TaskApplyResult,
   TaskMutationPreview,
 } from "./types";
@@ -93,6 +96,47 @@ export class LocalApiClient implements DashboardApi {
       },
       true,
       `dashboard-create-${identity}`,
+    );
+  }
+
+  async prepareStudy(
+    runId: string,
+    objective: string,
+    targetNote: string | null,
+  ): Promise<StudyDiagnostic> {
+    return this.#request<StudyDiagnostic>(
+      "POST",
+      `/v1/study/runs/${encodeURIComponent(runId)}/diagnostic`,
+      { objective, target_note: targetNote },
+    );
+  }
+
+  async submitStudyDiagnostic(
+    runId: string,
+    answers: Record<string, string>,
+  ): Promise<StudyArtifact> {
+    return this.#request<StudyArtifact>(
+      "POST",
+      `/v1/study/runs/${encodeURIComponent(runId)}/path`,
+      { answers },
+    );
+  }
+
+  async submitStudyPractice(
+    runId: string,
+    exerciseId: string,
+    answer: string,
+    confidence: number,
+  ): Promise<PracticeAttemptResult> {
+    return this.#request<PracticeAttemptResult>(
+      "POST",
+      (
+        `/v1/study/runs/${encodeURIComponent(runId)}/exercises/`
+        + `${encodeURIComponent(exerciseId)}/attempt`
+      ),
+      { answer, confidence },
+      true,
+      `dashboard-study-attempt-${crypto.randomUUID()}`,
     );
   }
 

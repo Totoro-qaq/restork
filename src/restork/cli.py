@@ -51,6 +51,8 @@ from restork.storage.events import SQLiteEventStore
 from restork.storage.intents import SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
 from restork.storage.transient_blobs import TransientBlobStore
+from restork.study.store import SQLiteStudyStore
+from restork.study.workflow import StudyWorkflow
 
 DEFAULT_API_URL = "http://127.0.0.1:7337"
 
@@ -160,6 +162,24 @@ def _parser() -> argparse.ArgumentParser:
     research.add_argument("--question", required=True)
     research.add_argument("--source", action="append", required=True)
     research.add_argument("--target-note")
+    study_diagnostic = commands.add_parser("study-diagnostic")
+    study_diagnostic.add_argument("run_id")
+    study_diagnostic.add_argument("--objective", required=True)
+    study_diagnostic.add_argument("--target-note")
+    study_path = commands.add_parser("study-path")
+    study_path.add_argument("run_id")
+    study_path.add_argument(
+        "--answer",
+        action="append",
+        required=True,
+        metavar="QUESTION_ID=VALUE",
+    )
+    study_practice = commands.add_parser("study-practice")
+    study_practice.add_argument("run_id")
+    study_practice.add_argument("exercise_id")
+    study_practice.add_argument("--answer", required=True)
+    study_practice.add_argument("--confidence", type=int, choices=range(1, 6), required=True)
+    study_practice.add_argument("--idempotency-key", required=True)
     inspect = commands.add_parser("inspect")
     inspect.add_argument("run_id")
     stream = commands.add_parser("stream", aliases=["events"])
@@ -276,6 +296,7 @@ def _serve(
         ),
     )
     research_store = SQLiteResearchStore.create(database)
+    study_store = SQLiteStudyStore.create(database)
     config_path = runtime_paths.config_dir / "config.toml"
     synthesizer: ResearchSynthesizer
     if config_path.is_file():
@@ -311,6 +332,13 @@ def _serve(
         budgets=budget_store,
         vault=selected_vault,
     )
+    study_workflow = StudyWorkflow(
+        study=study_store,
+        runs=run_store,
+        events=event_store,
+        budgets=budget_store,
+        vault=selected_vault,
+    )
     app = create_app(
         event_store,
         pairing,
@@ -325,6 +353,8 @@ def _serve(
         daily=daily,
         research=research_workflow,
         research_artifacts=research_store,
+        study=study_workflow,
+        study_artifacts=study_store,
     )
     print(f"Web pairing code: {pairing.pairing_code}")
     print(f"CLI pairing code: {cli_code}", flush=True)
@@ -357,6 +387,46 @@ def _run_authenticated(client: LocalApiClient, arguments: argparse.Namespace) ->
                 "POST",
                 f"/v1/research/runs/{arguments.run_id}/execute",
                 body=body,
+            )
+        )
+        return 0
+    if arguments.command == "study-diagnostic":
+        _print_json(
+            client.request(
+                "POST",
+                f"/v1/study/runs/{arguments.run_id}/diagnostic",
+                body={
+                    "schema_version": 1,
+                    "objective": arguments.objective,
+                    "target_note": arguments.target_note,
+                },
+            )
+        )
+        return 0
+    if arguments.command == "study-path":
+        answers = _parse_answers(arguments.answer)
+        _print_json(
+            client.request(
+                "POST",
+                f"/v1/study/runs/{arguments.run_id}/path",
+                body={"schema_version": 1, "answers": answers},
+            )
+        )
+        return 0
+    if arguments.command == "study-practice":
+        _print_json(
+            client.request(
+                "POST",
+                (
+                    f"/v1/study/runs/{arguments.run_id}/exercises/"
+                    f"{arguments.exercise_id}/attempt"
+                ),
+                body={
+                    "schema_version": 1,
+                    "answer": arguments.answer,
+                    "confidence": arguments.confidence,
+                },
+                idempotency_key=arguments.idempotency_key,
             )
         )
         return 0
@@ -442,6 +512,18 @@ def _mapping(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         raise LocalApiError("local API returned an invalid object")
     return cast(dict[str, object], value)
+
+
+def _parse_answers(values: Sequence[str]) -> dict[str, str]:
+    answers: dict[str, str] = {}
+    for value in values:
+        question_id, separator, answer = value.partition("=")
+        if not separator or not question_id or not answer:
+            raise ValueError("--answer must use QUESTION_ID=VALUE")
+        if question_id in answers:
+            raise ValueError(f"duplicate diagnostic answer: {question_id}")
+        answers[question_id] = answer
+    return answers
 
 
 def _print_json(value: object) -> None:
