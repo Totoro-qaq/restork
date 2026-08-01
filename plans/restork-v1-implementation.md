@@ -1,13 +1,13 @@
 # Restork V1 Implementation Blueprint
 
-> Status: In progress — Steps 0–1 complete; Step 2 persistence and the Step 3
-> outbound policy gate are merged, with the provider adapter in its current
-> review slice | Version: 0.5 | Date: 2026-08-01
+> Status: In progress — Steps 0–5 complete; Step 6 approved and in progress |
+> Version: 0.6 | Date: 2026-08-02
 >
 > Objective: Build a public-ready, local-first personal agent for Research, Study, and Work without exposing private runtime data.
 >
 > Review: independent adversarial architecture pass completed; blocking findings incorporated
 > Governing specification: [specs/restork-v1.md](../specs/restork-v1.md)
+> Step 6 detail: [specs/restork-step6.md](../specs/restork-step6.md)
 
 ## 1. Repository preflight
 
@@ -40,6 +40,9 @@ At V1 completion, the repository will provide:
 - preview-and-approval writes;
 - one outbound gateway for model, Web, GitHub, paper, feed, and future executor traffic;
 - local metadata-only observability;
+- four policy-controlled memory layers with user inspection, correction, export, and deletion;
+- a private-configurable daily context for weather, read-only calendar, and generic music recommendation;
+- a bilingual project-native README with GitHub-safe SVG and an HD synthetic product GIF;
 - synthetic fixtures and privacy tests;
 - an MIT-licensed open-source-ready release without private runtime data.
 
@@ -120,7 +123,7 @@ The numbered steps are delivery milestones, not single pull requests. Each slice
 | 3 | `3A` OutboundGateway and network-policy tests; `3B` provider adapter and model-specific policy |
 | 4 | `4A` read-only parser/index; `4B` deterministic link/task projection; `4C` journaled single-file mutation and recovery |
 | 5 | `5A` runtime, budgets, and tool policy; `5B` local API/auth/SSE; `5C` CLI and recovery integration |
-| 6 | `6A` local Web shell and paired transport/event client; `6B` run/approval views; `6C` Markdown task and generic Radar actions; optional non-blocking `6D` Obsidian bridge |
+| 6 | `6A` four-layer memory contracts/storage/API; `6B` paired Dashboard transport and run/approval views; `6C` Markdown task and generic Radar actions; `6D` daily context widgets/services; `6E` bilingual README SVG/GIF visual refresh; optional non-blocking `6F` Obsidian bridge |
 | 7 | `7A` source/evidence adapters; `7B` research workflow/artifacts/evals; `7C` Dashboard/Radar integration |
 | 8 | `8A` diagnostic/path/practice workflow; `8B` review state and evals |
 | 9 | `9A` read-only repository context and handoff contract; `9B` imported-result verification; `9C` Dashboard/CLI integration |
@@ -684,24 +687,37 @@ dashboard/src/views/tasks.tsx
 dashboard/src/views/radar.tsx
 dashboard/src/styles/
 dashboard/tests/
+src/restork/memory/
+src/restork/daily/
+tests/memory/
+tests/daily/
+assets/readme/hero.svg
+assets/readme/demo-hd.gif
 src/restork/web/static/          # generated release assets
-plugin/                          # optional 6D bridge only
+plugin/                          # optional 6F bridge only
 ```
 
 ### Tasks
 
-1. Reimplement the approved warm-forest design direction using new design tokens, components, and original or legally distributable assets; copy no legacy source.
-2. Add explicit Research, Study, and Work entrances.
-3. Serve the production Dashboard from Core on loopback. Pair each browser profile with an interactive one-time code and rotate scoped session material.
-4. Render snapshot/cursor SSE events with event-ID de-duplication without reparsing or rewriting final artifacts.
-5. Show active runs, budgets, sources, tools, artifacts, and verification.
-6. Implement approval review with the resolved action preview, canonical target, resource/policy versions, expiry, and diff/effect; never expose a secret or persist the body in browser storage.
-7. Render Core-backed Markdown aggregation; the browser owns no canonical task state.
-8. Split Radar into `My Stars`, `Trending`, and `HN` lanes; all fetches originate in Core connectors through `OutboundGateway`, never directly in the browser.
-9. Add `dismiss`, `read later`, `research`, and `make task` actions.
-10. Keep provider credentials, durable state, and shell execution out of Dashboard code and browser storage.
-11. Build reproducible static assets into the Python wheel and verify that runtime installation needs no Node.js.
-12. Optional slice 6D: add an Obsidian plugin limited to `Open Restork`, current-note/selection handoff, note/heading/block navigation, and lightweight notifications. It must not duplicate the Dashboard.
+1. Implement the four-layer memory contract: token-budgeted working context, SQLite episodic metadata/user-approved summaries, Markdown/FTS semantic retrieval, and explicit private TOML/Markdown profiles.
+2. Add retention classes, provenance, classification propagation, context selection, user inspection/correction/export/deletion, and complete source-purge tests. TTL/LRU apply only to eligible transient or derived data.
+3. Keep Valkey, Memory MCP, mandatory vector stores, graph servers, and silent profile inference outside V1; preserve replaceable adapter boundaries.
+4. Reimplement the approved light glass/typewriter design direction using reviewed design tokens, components, and original or legally distributable assets; copy no private legacy source.
+5. Add explicit Research, Study, and Work entrances.
+6. Serve the production Dashboard from Core on loopback. Pair each browser profile with an interactive one-time code and rotate scoped session material.
+7. Render snapshot/cursor SSE events with event-ID de-duplication without reparsing or rewriting final artifacts.
+8. Show active runs, budgets, sources, tools, artifacts, verification, and memory provenance/retention status.
+9. Implement approval review with the resolved action preview, canonical target, resource/policy versions, expiry, and diff/effect; never expose a secret or persist the body in browser storage.
+10. Render Core-backed Markdown aggregation; the browser owns no canonical task state.
+11. Split Radar into `My Stars`, `Trending`, and `HN` lanes; all fetches originate in Core connectors through `OutboundGateway`, never directly in the browser.
+12. Add `dismiss`, `read later`, `research`, and `make task` actions.
+13. Add a Roman-numeral analog clock, optional gateway-backed weather, local read-only ICS calendar, and a generic user-imported daily music recommendation with optional album art in a rotating CD treatment.
+14. Make every daily-context module configurable and safe when absent. Keep location, calendar, playlist, owner music taste, and remote credentials outside Git and browser persistence.
+15. Honor reduced motion, keyboard navigation, focus visibility, semantic landmarks, pause controls, and legible light/dark GitHub surroundings for exported visuals.
+16. Refresh the bilingual README in project-native visual order (`Value -> Proof -> Mechanism -> First use -> Detail`) with maintainable GitHub-safe SVG and an HD GIF captured only from synthetic Dashboard data.
+17. Keep provider credentials, durable state, and shell execution out of Dashboard code and browser storage.
+18. Build reproducible static assets into the Python wheel and verify that runtime installation needs no Node.js.
+19. Optional slice 6F: add an Obsidian plugin limited to `Open Restork`, current-note/selection handoff, note/heading/block navigation, and lightweight notifications. It must not duplicate the Dashboard.
 
 ### Verification
 
@@ -710,10 +726,12 @@ npm --prefix dashboard test
 npm --prefix dashboard run lint
 npm --prefix dashboard run build
 uv run pytest tests/api
+uv run pytest tests/memory tests/daily
 uv build --no-sources
+python3 scripts/audit_readme.py README.md
 ```
 
-Run automated transport/auth tests for cursor reconnect, hostile Origin, missing/wrong-audience token, query-token rejection, and approval replay. Install the built wheel in a clean environment and open its bundled Dashboard. Perform manual browser QA only for focus, keyboard navigation, reduced motion, visual streaming, disconnect/reconnect, approval comprehension, and Markdown task presentation. If 6D is built, run its separate build/auth/navigation checks.
+Run automated transport/auth tests for cursor reconnect, hostile Origin, missing/wrong-audience token, query-token rejection, and approval replay. Install the built wheel in a clean environment and open its bundled Dashboard. Perform manual browser QA only for focus, keyboard navigation, reduced motion, visual streaming, disconnect/reconnect, approval comprehension, and Markdown task presentation. If 6F is built, run its separate build/auth/navigation checks.
 
 ### Exit criteria
 
@@ -722,6 +740,11 @@ Run automated transport/auth tests for cursor reconnect, hostile Origin, missing
 - Browser/plugin data is non-sensitive and non-canonical.
 - Run events and final artifacts render consistently with CLI output.
 - Completing a Dashboard task updates its source Markdown.
+- Memory records are inspectable and deletable according to retention class; protected truth/audit data are never evicted by TTL/LRU.
+- Missing weather, calendar, playlist, or cover configuration produces explicit empty states and zero hidden network requests.
+- Calendar and playlist inputs remain local and read-only; weather/cover requests use the gateway.
+- Clock/CD motion has a pause or static alternative and honors reduced-motion preferences.
+- README SVG/GIF assets render at GitHub width, contain no private data, and the raster demonstration is at least 1280 pixels wide.
 - The wheel installs and serves only reviewed public static assets; no legacy source, `data.json`, or private asset is packaged.
 
 ### Rollback
@@ -989,7 +1012,7 @@ tests/evals/
 docs/operations.md
 docs/privacy.md
 docs/dashboard-usage.md
-docs/obsidian-bridge.md          # only if optional slice 6D ships
+docs/obsidian-bridge.md          # only if optional slice 6F ships
 docs/release-checklist.md
 .github/workflows/release.yml
 CHANGELOG.md
@@ -1000,14 +1023,16 @@ CHANGELOG.md
 1. Implement every release-blocking Spec test ID as an automated CI gate. Manual checks may cover only UI usability, platform integration, and visual inspection and cannot waive a security/privacy invariant.
 2. Add source-label leakage checks across raw outbound bytes, URLs, requests, encrypted transient blobs, logs, traces, snapshots, packages, screenshots, diagnostics, and CI artifacts, including encoded/chunked/Unicode/archive/derived variants.
 3. Add restart, timeout, cancellation, effect reconciliation, approval replay/expiry/concurrency, policy/resource staleness, and crash-before/after-effect tests.
-4. Compare CLI and Dashboard outputs to detect transport/rendering mutation; include the optional plugin only if slice 6D ships.
-5. Add golden Research, Study, and planning-only Work/handoff cases.
-6. Measure retrieval, citation, cost, latency, retry, and verification metrics.
-7. Run a complete repository and Git-history secret scan.
-8. Confirm no private path, username, incident metadata, asset, profile, note, database, transient blob, screenshot, diagnostic bundle, or log is included.
-9. Document Keychain setup, local directories, DeepSeek provider settings, Dashboard usage, optional plugin installation, backup, and recovery.
-10. Produce signed or reproducible release artifacts where practical.
-11. Complete a final adversarial architecture and security review.
+4. Compare CLI and Dashboard outputs to detect transport/rendering mutation; include the optional plugin only if slice 6F ships.
+5. Exercise memory compaction, protected-retention, user correction/export/deletion, source purge, and zero-network empty-state behavior.
+6. Add golden Research, Study, and planning-only Work/handoff cases.
+7. Measure retrieval, citation, cost, latency, retry, verification, memory-context reduction, and purge completeness metrics.
+8. Run a complete repository and Git-history secret scan.
+9. Confirm no private path, username, incident metadata, asset, profile, note, database, transient blob, screenshot, diagnostic bundle, playlist, calendar, location, or log is included.
+10. Document Keychain setup, local directories, DeepSeek provider settings, Dashboard usage, memory retention/deletion, daily-context configuration, optional plugin installation, backup, and recovery.
+11. Validate README SVG/GIF dimensions, GitHub-safe markup, alt text, public/synthetic provenance, and release-package inclusion.
+12. Produce signed or reproducible release artifacts where practical.
+13. Complete a final adversarial architecture and security review.
 
 ### Verification
 

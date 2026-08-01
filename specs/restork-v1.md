@@ -1,11 +1,12 @@
 # Restork V1 Product & Technical Specification
 
-> Status: Draft for owner review | Version: 0.4 | Date: 2026-08-01
+> Status: Approved for implementation | Version: 0.5 | Date: 2026-08-02
 >
 > Scope: V1 local-first personal agent for Research, Study, and Work
 >
 > Review: independent adversarial architecture pass completed; blocking findings incorporated
 > Implementation blueprint: [plans/restork-v1-implementation.md](../plans/restork-v1-implementation.md)
+> Step 6 detail: [specs/restork-step6.md](restork-step6.md)
 
 ## 1. Executive summary
 
@@ -38,6 +39,8 @@ The primary interface is a local Web Dashboard served on loopback by the Python 
 | User-facing tasks | Canonical Markdown checkbox grammar with `#todo`, explicit inline fields, and stable `^restork-...` block IDs |
 | Core distribution | Python wheel with bundled Dashboard assets; install with `uv tool install restork`, run with `restork start` |
 | Operational state | SQLite outside the repository and vault |
+| Memory architecture | Four local layers: ephemeral working context, SQLite episodic memory, Markdown-backed semantic knowledge, and explicit private profiles |
+| Conversation cache | In-process sliding window and token budget; no Valkey in single-process V1 |
 | Retrieval | Local full-text search, metadata, links, and optional local ranking |
 | Vector database | Not required in V1 |
 | Graph database / KAG | Not required in V1; build a derived graph projection and evaluate later |
@@ -46,6 +49,7 @@ The primary interface is a local Web Dashboard served on loopback by the Python 
 | Privacy model | Public engine, private runtime profile, mandatory outbound-network policy |
 | Write policy | Read-only by default; preview, approve, then apply |
 | Work execution | Read-only planning and local handoff in V1; managed execution is post-V1 behind an OS-sandbox gate |
+| Daily context | Local clock plus user-configured weather, read-only calendar, and generic daily music recommendation modules |
 
 ## 3. Context and current-state constraints
 
@@ -122,7 +126,7 @@ V1 will not provide:
 - A graph database, global ontology, OpenSPG, or production KAG pipeline.
 - A native Tauri/Electron desktop wrapper; the V1 local Web Dashboard can be wrapped later without rewriting its UI.
 - Mobile support.
-- Email or calendar expansion unless added by a later specification.
+- Email integration, calendar writes, or OAuth-based account synchronization.
 
 ## 7. Product model
 
@@ -138,6 +142,7 @@ All modes share:
 - tool runtime;
 - privacy and approval policies;
 - artifact and verification schemas.
+- a policy-controlled four-layer memory service.
 
 Each `ModeProfile` changes only:
 
@@ -263,6 +268,14 @@ Changing from Research or Study to Work always creates a new child run. A run's 
 3. The user selects `dismiss`, `read later`, `research`, or `make task`.
 4. A `research` action opens UJ-1; a `make task` action produces a Markdown preview.
 
+### UJ-5. Review the daily context
+
+1. Dashboard shows a local Roman-numeral clock without requiring a network request.
+2. Restork reads optional weather configuration and a local read-only calendar source.
+3. A generic music recommender selects one item from a user-imported private playlist and explains the selection from user-provided metadata or an approved model artifact.
+4. Missing providers, location, calendar, playlist, or cover art produce explicit empty states rather than hidden outbound traffic.
+5. The Dashboard renders cover art inside a rotating CD treatment, with pause and reduced-motion behavior.
+
 ## 9. Functional requirements
 
 ### 9.1 Core runtime
@@ -302,6 +315,21 @@ Changing from Research or Study to Work always creates a new child run. A run's 
 - **FR-KNOW-008**: Markdown remains the source of truth; local indexes are disposable and rebuildable.
 - **FR-KNOW-009**: Rename and delete events remove or tombstone stale chunks and edges. A source-purge operation removes every derived chunk, edge, cache entry, embedding, artifact body/reference, transient payload, and debug capture owned by that source; non-content audit events may retain only an unlinkable opaque tombstone ID, never the path, title, or content hash.
 - **FR-KNOW-010**: Note identity and anchors handle Unicode normalization, duplicate headings, block IDs, and path changes without treating line numbers as stable identity.
+
+#### Four-layer memory contract
+
+- **FR-MEM-001**: Layer 0 working context is assembled per run from a token-budgeted sliding window, local retrieval, and an optional encrypted TTL summary; it is not durable knowledge.
+- **FR-MEM-002**: Layer 1 episodic memory stores run/session metadata, event references, checkpoints, attempts, and user-approved summaries in SQLite without duplicating source document bodies.
+- **FR-MEM-003**: Layer 2 semantic memory is the user's Markdown plus disposable FTS/link indexes. Markdown remains authoritative and every derived record is purgeable by source.
+- **FR-MEM-004**: Layer 3 profile memory is explicit user-controlled TOML and optional Markdown stored in the private profile directory. Stable preferences are never inferred into the profile silently.
+- **FR-MEM-005**: The user can inspect, correct, export, and delete profile and episodic memory through local authenticated interfaces.
+- **FR-MEM-006**: TTL and LRU apply only to transient context, derived caches, downloads, and rebuildable indexes; they cannot evict source notes, approvals, audit events, committed artifacts, or configured preferences.
+- **FR-MEM-007**: Every memory record carries provenance, data classification, creation/update time, retention class, and source/run references where applicable.
+- **FR-MEM-008**: Context selection is deterministic at the policy boundary, records selected memory IDs and token estimates, and sends only the minimum approved excerpts through `OutboundGateway`.
+- **FR-MEM-009**: Secret and credential data are never eligible for memory capture. Confidential memory remains local unless a separate scoped outbound policy explicitly authorizes an excerpt.
+- **FR-MEM-010**: V1 uses no Valkey, Memory MCP service, graph database, or mandatory vector store. Interfaces remain replaceable so these can be evaluated later without changing the source-of-truth model.
+- **FR-MEM-011**: Optional vector retrieval, including a TurboVec-style adapter, is a derived Layer 2 index and cannot become a truth store or a release dependency without a measured retrieval evaluation.
+- **FR-MEM-012**: Temporary Study attempts and model-generated profile suggestions do not become durable semantic or profile memory without an explicit user action.
 
 ### 9.4 Tasks
 
@@ -359,6 +387,12 @@ Rules:
 - **FR-UI-005**: CLI and Dashboard use the same local API and contracts.
 - **FR-UI-006**: Streaming delivery must not mutate the structured final artifact.
 - **FR-UI-007**: The Core wheel includes the production Dashboard static assets; end users do not need Node.js at runtime.
+- **FR-UI-008**: Dashboard includes an accessible Roman-numeral analog clock in the approved old-print/typewriter visual language and honors `prefers-reduced-motion`.
+- **FR-UI-009**: Weather is optional, location/provider configuration is private, responses are TTL-cached, and every fetch originates in Core through `OutboundGateway`.
+- **FR-UI-010**: Calendar V1 reads local ICS data only. It performs no calendar write, account login, or browser-side file access.
+- **FR-UI-011**: Daily music is genre-neutral public functionality driven by a user-imported private playlist/profile. Genre and locale preferences remain private configuration, not repository defaults.
+- **FR-UI-012**: Album art is optional and never bundled from a copyrighted catalog. The rotating-CD presentation supports pause, a static fallback, lazy loading, and safe missing-image behavior.
+- **FR-UI-013**: The repository README is bilingual and uses GitHub-safe project-native SVG plus an HD product demonstration GIF generated only from synthetic public data.
 
 ## 10. Knowledge indexing and graph readiness
 
@@ -431,6 +465,7 @@ flowchart LR
     Harness --> Policy["Tool and approval policy"]
     Harness --> Outbound["Outbound gateway"]
     Harness --> Artifacts["Artifact and verification"]
+    Context --> Memory["Four-layer memory policy"]
   end
 
   Context --> Index["Local knowledge index"]
@@ -442,6 +477,9 @@ flowchart LR
   Outbound --> Provider["DeepSeek V4 Pro"]
   Outbound --> PublicNet["Approved public destinations"]
   Harness --> State["SQLite run and event store"]
+  Memory --> State
+  Memory --> Profiles["Private profile directory"]
+  Memory --> Index
   Artifacts --> Preview["Diff / approval preview"]
   Preview -->|"approved"| Vault
 ```
@@ -528,7 +566,21 @@ Responsibilities:
 - duplicate and backlink analysis;
 - deterministic write preview and validation.
 
-### 12.7 Core packaging
+### 12.7 Memory and daily-context services
+
+Responsibilities:
+
+- assemble a bounded working context from explicit sources;
+- manage inspectable episodic summaries and retention classes;
+- read user-authored private profiles without copying them into Git;
+- expose purge, export, and correction operations;
+- parse local ICS and imported playlist files;
+- fetch optional weather and cover art only through scoped outbound capabilities;
+- produce deterministic empty states when private configuration is absent.
+
+These services do not own Markdown truth, infer permanent preferences silently, or add a second network path. Valkey and Memory MCP are not V1 runtime dependencies.
+
+### 12.8 Core packaging
 
 The V1 private-alpha and open-source package is a Python wheel named `restork`, installed as an isolated CLI tool:
 
@@ -551,10 +603,15 @@ V1 does not install an always-running daemon by default and does not ship a Taur
 | Run and step state | Local SQLite | No | No |
 | Events and approvals | Local SQLite | No | No |
 | Sensitive transient payloads | Encrypted local blob store with TTL | No | No |
+| Working context window | In-process plus encrypted TTL summary when required | No | Selected excerpts by policy |
+| Episodic memory | Local SQLite metadata and user-approved summaries | No | Selected excerpts by policy |
 | Knowledge index | Local rebuildable data | No | No |
 | Graph projection | Local rebuildable data | No | No |
 | API credentials | OS keychain | No | Exact-origin adapter authentication only |
 | Personal profile and skills | External private profile directory | No | Selected by policy |
+| Daily context configuration | External private profile directory | No | Weather fields selected by policy |
+| Weather and cover cache | Local TTL cache | No | Provider response only |
+| Calendar and playlist source | User-selected local files | No | No by default |
 | Generic profiles and schemas | Restork repository | Yes | Yes |
 | Test knowledge | Synthetic fixtures | Yes | Yes |
 
@@ -691,6 +748,10 @@ The exact wire schema is versioned under `/v1`.
 | `POST` | `/v1/radar/{item_id}/action` | Dismiss, save, research, or create task |
 | `GET` | `/v1/capabilities` | Report configured modes, providers, and tools |
 | `GET` | `/v1/health` | Local health and readiness |
+| `GET` | `/v1/memory` | Inspect memory layers, retention, and provenance metadata |
+| `POST` | `/v1/memory/context` | Build a bounded policy-reviewed context selection |
+| `DELETE` | `/v1/memory/{memory_id}` | Delete an eligible episodic/profile record or purge a derived source |
+| `GET` | `/v1/daily-context` | Read clock-independent weather, calendar, and daily music view data |
 
 Mutation endpoints require a client-generated idempotency key. Repeating an approval decision returns the existing decision and cannot consume or execute the action twice; action consumption occurs separately and atomically at apply time.
 
@@ -897,6 +958,14 @@ A new contributor can run all public tests using synthetic fixtures without acce
 
 The local index rebuilds explicit wiki-link and user-authored relationships and can answer related-note queries without requiring a graph server.
 
+### AC-10. Memory retention and deletion
+
+A multi-turn run compacts its working window without losing referenced source identity, keeps only user-approved episodic/profile memory, applies TTL/LRU only to eligible derived data, and purges all source-owned derived records on deletion.
+
+### AC-11. Private daily context
+
+With synthetic local configuration, Dashboard renders a Roman-numeral clock, weather, read-only calendar events, and a deterministic daily music recommendation with a reduced-motion CD. With no configuration it renders safe setup states and performs zero outbound requests.
+
 ### 18.1 Automated release-blocking tests
 
 The following are mandatory CI gates; they cannot be replaced by a documented manual test:
@@ -911,6 +980,9 @@ The following are mandatory CI gates; they cannot be replaced by a documented ma
 | `REL-WRITE-001` | Fault injection at journal, stage, flush, rename, validation, and recovery boundaries preserves either the preimage or the approved new single-file state |
 | `REL-EVENT-001` | SSE snapshot/cursor reconnect loses and duplicates no logical event |
 | `OSS-CLEAN-001` | Clean checkout, packages, screenshots, diagnostics, docs, and full Git history contain only synthetic/public data |
+| `MEM-RETENTION-001` | Sliding-window compaction, retention, correction, export, deletion, and source purge preserve provenance and never evict protected truth or audit records |
+| `UI-CONTEXT-001` | Missing daily-context configuration causes no outbound traffic; configured weather uses the gateway and calendar/playlist remain local and read-only |
+| `README-ASSET-001` | README SVG/GIF assets are GitHub-safe, legible, HD where rasterized, and contain only synthetic/public content |
 
 Manual release checks are limited to UI usability, platform integration, and visual inspection; they may supplement but not waive these gates.
 
@@ -926,6 +998,8 @@ Manual release checks are limited to UI usability, platform integration, and vis
 | Radar | save/research/task action rate versus dismissed items |
 | Privacy | zero canary leakage; zero unapproved confidential egress |
 | Graph pilot | grounded multi-hop quality gain versus baseline retrieval |
+| Memory | context token reduction, referenced-source retention, purge completeness, and correction/deletion success |
+| Daily context | configured-widget success, cache hit rate, zero-network empty-state rate, and reduced-motion coverage |
 
 ## 20. Deferred-technology gates
 
@@ -988,10 +1062,9 @@ Closed by the owner:
 3. UI: reimplement a local Web Dashboard; do not migrate legacy source. The Obsidian plugin is optional and thin.
 4. Todo grammar: standard Markdown checkbox plus `#todo`, explicit inline fields, and stable `^restork-...` block ID as specified in Section 9.4.
 5. Core packaging: Python wheel with bundled Dashboard assets; `uv tool install restork`, `restork init`, and foreground `restork start`; no default daemon or native wrapper in V1.
-
-Remaining implementation-time decision:
-
-1. Select the local profile-directory format for private skills and interests before profile implementation.
+6. Memory: four local layers; TOML for structured profile values plus optional Markdown instructions, SQLite episodic metadata, and Markdown-backed semantic memory. No Valkey or Memory MCP dependency in V1.
+7. Daily context: optional weather, local read-only ICS calendar, and user-imported generic playlist; genre and locale preferences remain private configuration.
+8. README: bilingual visual refresh with project-native GitHub-safe SVG and an HD synthetic product GIF matching the approved light typewriter UI.
 
 ## 23. External references
 
