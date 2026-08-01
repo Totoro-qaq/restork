@@ -62,5 +62,13 @@ def initialize(connection: sqlite3.Connection) -> None:
             covered_seq INTEGER NOT NULL CHECK (covered_seq >= 0),
             snapshot_json TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS idempotency_records (
+            operation TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            resource_id TEXT NOT NULL,
+            response_json TEXT NOT NULL,
+            PRIMARY KEY (operation, idempotency_key)
+        );
         """
     )
