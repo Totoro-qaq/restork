@@ -31,7 +31,9 @@ class SourceRequest(ContractModel):
     @field_validator("url")
     @classmethod
     def require_bounded_public_https_url(cls, value: str) -> str:
-        if value != value.strip() or any(ord(character) < 32 for character in value):
+        if value != value.strip() or any(
+            character.isspace() or ord(character) < 32 for character in value
+        ):
             raise ValueError("source URL contains whitespace or control characters")
         try:
             value.encode("ascii")

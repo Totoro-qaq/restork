@@ -240,6 +240,8 @@ def test_redirect_content_type_and_query_payloads_fail_closed() -> None:
         )
     with pytest.raises(ValueError, match="credentials"):
         SourceRequest(url="https://example.com/source?token=value")
+    with pytest.raises(ValueError, match="whitespace"):
+        SourceRequest(url="https://example.com/private note")
 
 
 def test_github_and_paper_adapters_reject_noncanonical_or_mismatched_sources() -> None:
