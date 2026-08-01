@@ -90,6 +90,13 @@ def initialize(connection: sqlite3.Connection) -> None:
             cost_usd REAL NOT NULL DEFAULT 0,
             child_tasks INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS run_checkpoints (
+            run_id TEXT PRIMARY KEY,
+            phase TEXT NOT NULL,
+            blob_ref TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         """
     )
     try:

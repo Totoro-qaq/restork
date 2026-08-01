@@ -245,6 +245,9 @@ class SQLiteRunStore:
                 RunPhase.CANCELLED,
             }:
                 self._connection.execute("DELETE FROM transient_blobs WHERE run_id = ?", (run_id,))
+                self._connection.execute(
+                    "DELETE FROM run_checkpoints WHERE run_id = ?", (run_id,)
+                )
         except BaseException:
             self._connection.execute("ROLLBACK")
             raise
@@ -317,6 +320,9 @@ class SQLiteRunStore:
                     if next_state is RunPhase.CANCELLED:
                         self._connection.execute(
                             "DELETE FROM transient_blobs WHERE run_id = ?", (run_id,)
+                        )
+                        self._connection.execute(
+                            "DELETE FROM run_checkpoints WHERE run_id = ?", (run_id,)
                         )
                     result = self.get(run_id)
                     changed = True
