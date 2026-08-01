@@ -230,6 +230,36 @@ def initialize(connection: sqlite3.Connection) -> None:
             PRIMARY KEY (run_id, exercise_id),
             FOREIGN KEY (run_id) REFERENCES study_sessions (run_id)
         );
+
+        CREATE TABLE IF NOT EXISTS work_sessions (
+            run_id TEXT PRIMARY KEY,
+            request_hash TEXT NOT NULL,
+            request_json TEXT NOT NULL,
+            plan_json TEXT NOT NULL,
+            snapshot_json TEXT NOT NULL,
+            preview_idempotency_key TEXT UNIQUE,
+            preview_binding TEXT,
+            preview_json TEXT,
+            export_idempotency_key TEXT UNIQUE,
+            export_binding TEXT,
+            export_json TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS work_verifications (
+            verification_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            binding TEXT NOT NULL,
+            manifest_hash TEXT NOT NULL,
+            report_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES work_sessions (run_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS work_verifications_run
+            ON work_verifications (run_id, created_at);
         """
     )
     try:
