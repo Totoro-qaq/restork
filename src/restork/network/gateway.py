@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.error import HTTPError
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from restork.contracts.outbound import OutboundEnvelope
@@ -27,6 +27,7 @@ class OutboundPolicy:
     allowed_origins: frozenset[str]
     maximum_data_class: DataClass = DataClass.PUBLIC
     maximum_response_bytes: int = 1_000_000
+    allowed_query_keys: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,7 @@ class UrllibTransport:
     def send(self, request: OutboundRequest, timeout_seconds: float) -> OutboundResponse:
         wire_request = Request(
             request.envelope.destination,
-            data=request.payload,
+            data=request.payload or None,
             headers=dict(request.headers),
             method=request.envelope.method,
         )
@@ -133,7 +134,6 @@ def evaluate_outbound(
         or parsed.hostname is None
         or parsed.username is not None
         or parsed.password is not None
-        or parsed.query
         or parsed.fragment
         or resolved_address_class != "public"
     ):
@@ -141,5 +141,25 @@ def evaluate_outbound(
 
     origin = f"{parsed.scheme}://{parsed.netloc}"
     if origin not in policy.allowed_origins:
+        return PolicyDecision.DENIED
+    try:
+        query = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
+    except ValueError:
+        return PolicyDecision.DENIED
+    query_keys = {key for key, _ in query}
+    sensitive_query_keys = {
+        "access_token",
+        "api_key",
+        "apikey",
+        "authorization",
+        "key",
+        "password",
+        "secret",
+        "signature",
+        "token",
+    }
+    if query_keys.intersection(sensitive_query_keys):
+        return PolicyDecision.DENIED
+    if not query_keys.issubset(policy.allowed_query_keys):
         return PolicyDecision.DENIED
     return PolicyDecision.ALLOWED

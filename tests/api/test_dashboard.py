@@ -11,7 +11,7 @@ from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import DataClass, Mode
 from restork.dashboard.models import RadarItem, RadarLane
 from restork.dashboard.radar import SQLiteRadarStore
-from restork.dashboard.tasks import MarkdownTaskBoard
+from restork.dashboard.tasks import MarkdownTaskBoard, MarkdownTaskMutator
 from restork.knowledge.vault import Vault
 from restork.runtime.runner import Harness
 from restork.storage.approvals import SQLiteApprovalStore
@@ -64,14 +64,22 @@ def _client(tmp_path: Path) -> tuple[TestClient, dict[str, str], SQLiteRunStore]
         )
     )
     pairing = PairingAuthority()
+    approvals = SQLiteApprovalStore.open(database)
+    task_board = MarkdownTaskBoard(Vault(vault_root))
     client = TestClient(
         create_app(
             events,
             pairing,
             runs,
-            SQLiteApprovalStore.open(database),
+            approvals,
             SQLiteIntentStore.create(database),
-            tasks=MarkdownTaskBoard(Vault(vault_root)),
+            tasks=task_board,
+            task_mutations=MarkdownTaskMutator.create(
+                task_board,
+                database,
+                approvals,
+                tmp_path / "journal",
+            ),
             radar=radar,
             budgets=SQLiteBudgetStore.create(database),
         )
@@ -126,6 +134,9 @@ def test_core_serves_dashboard_with_security_headers(tmp_path: Path) -> None:
     web = tmp_path / "web"
     (web / "assets").mkdir(parents=True)
     (web / "index.html").write_text("<!doctype html><title>Restork</title>", encoding="utf-8")
+    (web / "favicon.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg"/>', encoding="utf-8"
+    )
     database = tmp_path / "static.db"
     pairing = PairingAuthority()
     client = TestClient(
@@ -140,9 +151,72 @@ def test_core_serves_dashboard_with_security_headers(tmp_path: Path) -> None:
     )
 
     response = client.get("/")
+    favicon = client.get("/favicon.svg")
 
     assert response.status_code == 200
     assert "Restork" in response.text
     assert response.headers["x-content-type-options"] == "nosniff"
     assert "default-src 'self'" in response.headers["content-security-policy"]
     assert response.headers["cache-control"] == "no-store"
+    assert favicon.status_code == 200
+    assert favicon.headers["content-type"].startswith("image/svg+xml")
+
+
+def test_task_completion_uses_preview_approval_and_apply(tmp_path: Path) -> None:
+    client, auth, _ = _client(tmp_path)
+    preview = client.post(
+        "/v1/tasks/restork-dashboard/preview",
+        headers={**auth, "Idempotency-Key": "preview-dashboard-task"},
+        json={"completed": True},
+    )
+
+    assert preview.status_code == 200
+    approval_id = preview.json()["approval"]["approval_id"]
+    approved = client.post(
+        f"/v1/approvals/{approval_id}",
+        headers={**auth, "Idempotency-Key": "approve-dashboard-task"},
+        json={"decision": "approve", "decided_by": "dashboard-test"},
+    )
+    applied = client.post(
+        f"/v1/tasks/approvals/{approval_id}/apply",
+        headers={
+            **auth,
+            "Idempotency-Key": "apply-dashboard-task",
+            "Content-Type": "application/json",
+        },
+        json={},
+    )
+
+    assert approved.status_code == applied.status_code == 200
+    tasks = client.get("/v1/tasks", headers=auth).json()["tasks"]
+    assert tasks[0]["completed"] is True
+
+
+def test_quick_capture_and_radar_make_task_both_create_reviewable_previews(
+    tmp_path: Path,
+) -> None:
+    client, auth, _ = _client(tmp_path)
+
+    capture = client.post(
+        "/v1/tasks/quick-capture/preview",
+        headers={**auth, "Idempotency-Key": "quick-capture"},
+        json={"text": "Review a synthetic source", "priority": "P2"},
+    )
+    radar = client.post(
+        "/v1/radar/radar-api/action",
+        headers={**auth, "Idempotency-Key": "radar-make-task"},
+        json={"action": "make_task"},
+    )
+
+    assert capture.status_code == radar.status_code == 200
+    assert capture.json()["after_line"].startswith("- [ ] Review a synthetic source")
+    assert capture.json()["approval"]["decision"] == "pending"
+    assert radar.json()["task_preview_available"] is True
+    assert radar.json()["task_approval_id"].startswith("task-approval-")
+    pending = client.get("/v1/approvals?pending_only=true", headers=auth).json()[
+        "approvals"
+    ]
+    assert {approval["approval_id"] for approval in pending} == {
+        capture.json()["approval"]["approval_id"],
+        radar.json()["task_approval_id"],
+    }

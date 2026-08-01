@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
 
+from restork.contracts.approval import ApprovalRequest
 from restork.contracts.base import ContractModel
 from restork.contracts.types import DataClass
 
@@ -26,6 +27,51 @@ class DashboardTask(ContractModel):
 class TaskBoardSnapshot(ContractModel):
     configured: bool
     tasks: tuple[DashboardTask, ...]
+
+
+class TaskCompletionRequest(ContractModel):
+    completed: bool
+
+
+class TaskCaptureRequest(ContractModel):
+    text: str = Field(min_length=1, max_length=500)
+    due: date | None = None
+    priority: str | None = None
+    project: str | None = Field(default=None, max_length=300)
+    source: str | None = Field(default=None, max_length=300)
+
+    @field_validator("text")
+    @classmethod
+    def require_single_line_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or "\n" in normalized or "\r" in normalized:
+            raise ValueError("task text must be one non-empty line")
+        return normalized
+
+    @field_validator("priority")
+    @classmethod
+    def require_supported_priority(cls, value: str | None) -> str | None:
+        if value is not None and value not in {"P0", "P1", "P2", "P3"}:
+            raise ValueError("priority must be P0 through P3")
+        return value
+
+
+class TaskMutationPreview(ContractModel):
+    task_id: str = Field(min_length=1)
+    relative_path: str = Field(min_length=1)
+    before_line: str
+    after_line: str = Field(min_length=1)
+    expected_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    postimage_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    approval: ApprovalRequest
+
+
+class TaskApplyResult(ContractModel):
+    approval_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    relative_path: str = Field(min_length=1)
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    applied: bool = True
 
 
 class RadarLane(StrEnum):
@@ -106,3 +152,4 @@ class RadarActionResult(ContractModel):
     item: RadarItem
     run_id: str | None = None
     task_preview_available: bool = False
+    task_approval_id: str | None = None

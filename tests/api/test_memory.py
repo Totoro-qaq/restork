@@ -129,3 +129,35 @@ def test_memory_api_export_purge_and_missing_configuration(tmp_path: Path) -> No
         "/v1/memory", headers={"Authorization": f"Bearer {token}"}
     )
     assert response.status_code == 503
+
+
+def test_memory_inspection_redacts_private_profile_paths_and_preferences(
+    tmp_path: Path,
+) -> None:
+    client, memory, auth = _client(tmp_path)
+    location = memory.get("profile:daily.weather_location")
+    genres = memory.get("profile:preferences.music_genres")
+    memory.correct(
+        location.memory_id,
+        "Private Home|1.0000,2.0000",
+        expected_content_hash=location.content_hash,
+        data_class=DataClass.PERSONAL,
+        idempotency_key="profile-location",
+    )
+    memory.correct(
+        genres.memory_id,
+        ["private-genre"],
+        expected_content_hash=genres.content_hash,
+        data_class=DataClass.PERSONAL,
+        idempotency_key="profile-genres",
+    )
+
+    response = client.get("/v1/memory?layer=profile", headers=auth)
+    summaries = {
+        record["memory_id"]: record["summary"] for record in response.json()["records"]
+    }
+
+    assert summaries[location.memory_id] == "[configured]"
+    assert summaries[genres.memory_id] == "[configured]"
+    assert "Private Home" not in response.text
+    assert "private-genre" not in response.text

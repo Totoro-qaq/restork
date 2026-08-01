@@ -27,6 +27,7 @@ const snapshot: DashboardSnapshot = {
     counts: { working: 0, episodic: 0, semantic: 0, profile: 0 },
     architecture: ["working", "episodic", "semantic", "profile"],
   },
+  daily: null,
 };
 
 function fakeApi(): DashboardApi {
@@ -40,6 +41,16 @@ function fakeApi(): DashboardApi {
       throw new Error("not used");
     }),
     radarAction: vi.fn(async () => undefined),
+    previewTask: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    captureTask: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    applyTask: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    musicCover: vi.fn(async () => null),
     events: vi.fn(async () => []),
   };
 }
@@ -64,5 +75,73 @@ describe("authenticated workspace", () => {
 
     expect(root.querySelector<HTMLElement>('[data-view-panel="tasks"]')?.hidden).toBe(false);
     expect(root.querySelector<HTMLElement>('[data-view-panel="overview"]')?.hidden).toBe(true);
+  });
+
+  it("renders an accessible local clock and reduced-dependency daily context", () => {
+    const root = document.createElement("main");
+    mountDashboard(root, {
+      api: fakeApi(),
+      snapshot: {
+        ...snapshot,
+        daily: {
+          weather: {
+            configured: false,
+            status: "not_configured",
+            provider: "",
+            location_label: "",
+            condition: "",
+            temperature_c: null,
+            apparent_temperature_c: null,
+            relative_humidity_percent: null,
+            is_day: null,
+            observed_at: null,
+            expires_at: null,
+            attribution: "",
+            message: "Configure private weather.",
+          },
+          calendar: { configured: false, status: "not_configured", events: [], message: "Select ICS." },
+          music: {
+            configured: true,
+            status: "ready",
+            message: "",
+            recommendation: {
+              item_id: "synthetic-track",
+              title: "Synthetic Track",
+              artist: "Example Artist",
+              album: "Demo Album",
+              tags: ["focus"],
+              analysis: "Selected from public synthetic metadata.",
+              cover_available: false,
+            },
+          },
+        },
+      },
+    });
+
+    expect(root.querySelector("#clock-title")?.textContent).toContain("Roman numeral");
+    expect(root.querySelector("#clock-text")?.textContent).not.toContain("读取");
+    expect(root.textContent).toContain("Synthetic Track");
+    const toggle = root.querySelector<HTMLButtonElement>("[data-music-toggle]");
+    toggle?.click();
+    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
+    expect(root.querySelector("[data-music-disc]")?.classList).toContain("is-playing");
+  });
+
+  it("turns a checkbox change into a Core preview instead of browser-owned state", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const preview = vi.spyOn(api, "previewTask").mockResolvedValue({} as never);
+    mountDashboard(root, { api, snapshot });
+    root.querySelector<HTMLButtonElement>('[data-view="tasks"]')?.click();
+
+    const task = root.querySelector<HTMLInputElement>('[data-task-id="task-1"]');
+    expect(task).not.toBeNull();
+    if (task) {
+      task.checked = true;
+      task.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    await vi.waitFor(() => expect(preview).toHaveBeenCalledWith("task-1", true));
+    expect(localStorage).toHaveLength(0);
   });
 });

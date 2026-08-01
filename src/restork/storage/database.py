@@ -138,6 +138,39 @@ def initialize(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS radar_items_lane_state
             ON radar_items (lane, state, score, published_at);
+
+        CREATE TABLE IF NOT EXISTS task_write_previews (
+            approval_id TEXT PRIMARY KEY,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            binding TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            relative_path TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            request_json TEXT NOT NULL,
+            before_line TEXT NOT NULL,
+            after_line TEXT NOT NULL,
+            expected_hash TEXT NOT NULL,
+            postimage_hash TEXT NOT NULL,
+            action_digest TEXT NOT NULL,
+            policy_version TEXT NOT NULL,
+            nonce TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS task_write_previews_expiry
+            ON task_write_previews (expires_at);
+
+        CREATE TABLE IF NOT EXISTS daily_cache (
+            cache_key TEXT PRIMARY KEY,
+            payload_json TEXT NOT NULL,
+            observed_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS daily_cache_expiry
+            ON daily_cache (expires_at);
         """
     )
     try:

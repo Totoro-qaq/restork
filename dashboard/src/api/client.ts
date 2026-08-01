@@ -7,6 +7,8 @@ import type {
   RadarAction,
   RunEvent,
   RunSummary,
+  TaskApplyResult,
+  TaskMutationPreview,
 } from "./types";
 
 export class LocalApiClient implements DashboardApi {
@@ -21,15 +23,18 @@ export class LocalApiClient implements DashboardApi {
   }
 
   async loadDashboard(): Promise<DashboardSnapshot> {
-    const [runs, approvals, taskBoard, radar, memory] = await Promise.all([
+    const [runs, approvals, taskBoard, radar, memory, daily] = await Promise.all([
       this.#request<{ runs: DashboardSnapshot["runs"] }>("GET", "/v1/runs"),
       this.#request<{ approvals: DashboardSnapshot["approvals"] }>(
         "GET",
-        "/v1/approvals?pending_only=true",
+        "/v1/approvals?pending_only=false",
       ),
       this.#request<DashboardSnapshot["taskBoard"]>("GET", "/v1/tasks"),
       this.#request<DashboardSnapshot["radar"]>("GET", "/v1/radar"),
       this.#request<NonNullable<DashboardSnapshot["memory"]>>("GET", "/v1/memory").catch(
+        () => null,
+      ),
+      this.#request<NonNullable<DashboardSnapshot["daily"]>>("GET", "/v1/daily").catch(
         () => null,
       ),
     ]);
@@ -39,6 +44,7 @@ export class LocalApiClient implements DashboardApi {
       taskBoard,
       radar,
       memory,
+      daily,
     };
   }
 
@@ -106,6 +112,51 @@ export class LocalApiClient implements DashboardApi {
       true,
       `dashboard-radar-${crypto.randomUUID()}`,
     );
+  }
+
+  async previewTask(taskId: string, completed: boolean): Promise<TaskMutationPreview> {
+    return this.#request<TaskMutationPreview>(
+      "POST",
+      `/v1/tasks/${encodeURIComponent(taskId)}/preview`,
+      { completed },
+      true,
+      `dashboard-task-preview-${crypto.randomUUID()}`,
+    );
+  }
+
+  async captureTask(text: string, priority: string): Promise<TaskMutationPreview> {
+    return this.#request<TaskMutationPreview>(
+      "POST",
+      "/v1/tasks/quick-capture/preview",
+      { text, priority: priority || null },
+      true,
+      `dashboard-task-capture-${crypto.randomUUID()}`,
+    );
+  }
+
+  async applyTask(approvalId: string): Promise<TaskApplyResult> {
+    return this.#request<TaskApplyResult>(
+      "POST",
+      `/v1/tasks/approvals/${encodeURIComponent(approvalId)}/apply`,
+      {},
+      true,
+      `dashboard-task-apply-${crypto.randomUUID()}`,
+    );
+  }
+
+  async musicCover(): Promise<Blob | null> {
+    const response = await this.#fetch(
+      "/v1/daily/music/cover",
+      { method: "GET", headers: { Accept: "image/png,image/jpeg,image/webp" } },
+      true,
+    );
+    if (response.status === 404) return null;
+    if (!response.ok) throw await apiError(response);
+    const contentType = response.headers.get("Content-Type") ?? "";
+    if (!["image/png", "image/jpeg", "image/webp"].includes(contentType)) {
+      throw new Error("Core returned an unsupported cover type");
+    }
+    return response.blob();
   }
 
   async events(runId: string, after: number): Promise<RunEvent[]> {

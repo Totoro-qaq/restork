@@ -56,6 +56,24 @@ export interface ApprovalRequest {
   decision: string;
 }
 
+export interface TaskMutationPreview {
+  task_id: string;
+  relative_path: string;
+  before_line: string;
+  after_line: string;
+  expected_hash: string;
+  postimage_hash: string;
+  approval: ApprovalRequest;
+}
+
+export interface TaskApplyResult {
+  approval_id: string;
+  task_id: string;
+  relative_path: string;
+  content_hash: string;
+  applied: boolean;
+}
+
 export interface MarkdownTask {
   task_id: string;
   relative_path: string;
@@ -94,6 +112,59 @@ export interface MemoryRecord {
   content_hash: string;
 }
 
+export type DailyStatus = "not_configured" | "ready" | "fresh" | "stale" | "error";
+
+export interface WeatherSnapshot {
+  configured: boolean;
+  status: DailyStatus;
+  provider: string;
+  location_label: string;
+  condition: string;
+  temperature_c: number | null;
+  apparent_temperature_c: number | null;
+  relative_humidity_percent: number | null;
+  is_day: boolean | null;
+  observed_at: string | null;
+  expires_at: string | null;
+  attribution: string;
+  message: string;
+}
+
+export interface CalendarEvent {
+  event_id: string;
+  title: string;
+  starts_at: string;
+  ends_at: string;
+  all_day: boolean;
+  redacted: boolean;
+}
+
+export interface MusicRecommendation {
+  item_id: string;
+  title: string;
+  artist: string;
+  album: string;
+  tags: string[];
+  analysis: string;
+  cover_available: boolean;
+}
+
+export interface DailySnapshot {
+  weather: WeatherSnapshot;
+  calendar: {
+    configured: boolean;
+    status: DailyStatus;
+    events: CalendarEvent[];
+    message: string;
+  };
+  music: {
+    configured: boolean;
+    status: DailyStatus;
+    recommendation: MusicRecommendation | null;
+    message: string;
+  };
+}
+
 export interface DashboardSnapshot {
   runs: RunListEntry[];
   approvals: ApprovalRequest[];
@@ -104,6 +175,7 @@ export interface DashboardSnapshot {
     counts: Record<string, number>;
     architecture: string[];
   } | null;
+  daily: DailySnapshot | null;
 }
 
 export interface RunEvent {
@@ -121,5 +193,9 @@ export interface DashboardApi {
     decision: "approve" | "reject",
   ): Promise<ApprovalRequest>;
   radarAction(itemId: string, action: RadarAction): Promise<void>;
+  previewTask(taskId: string, completed: boolean): Promise<TaskMutationPreview>;
+  captureTask(text: string, priority: string): Promise<TaskMutationPreview>;
+  applyTask(approvalId: string): Promise<TaskApplyResult>;
+  musicCover(): Promise<Blob | null>;
   events(runId: string, after: number): Promise<RunEvent[]>;
 }

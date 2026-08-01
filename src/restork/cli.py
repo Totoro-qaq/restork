@@ -19,13 +19,17 @@ from restork.api.app import create_app
 from restork.api.auth import CLI_AUDIENCE, CLI_SCOPES, PairingAuthority
 from restork.api.server import make_server
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
-from restork.contracts.types import Mode
+from restork.contracts.types import DataClass, Mode
+from restork.daily.cache import SQLiteDailyCache
+from restork.daily.service import DailyContextService
+from restork.daily.weather import OpenMeteoWeather
 from restork.dashboard.radar import SQLiteRadarStore
-from restork.dashboard.tasks import MarkdownTaskBoard
+from restork.dashboard.tasks import MarkdownTaskBoard, MarkdownTaskMutator
 from restork.knowledge.vault import Vault
 from restork.memory.profile import PrivateProfileStore
 from restork.memory.service import MemoryService
 from restork.memory.store import SQLiteMemoryStore
+from restork.network.gateway import DefaultOutboundGateway, OutboundPolicy
 from restork.paths import RuntimePaths
 from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.budgets import SQLiteBudgetStore
@@ -207,22 +211,58 @@ def _serve(
     cli_code = pairing.new_pairing_code(CLI_AUDIENCE, CLI_SCOPES)
     runtime_paths = RuntimePaths.from_environ()
     selected_profile = profile_dir or runtime_paths.config_dir / "profiles" / "default"
+    profile_store = PrivateProfileStore(selected_profile)
     memory = MemoryService(
         SQLiteMemoryStore.create(database),
-        PrivateProfileStore(selected_profile),
+        profile_store,
         runtime_paths.data_dir / "artifacts",
     )
     task_board = MarkdownTaskBoard(Vault(vault_dir) if vault_dir is not None else None)
+    approval_store = SQLiteApprovalStore.open(database)
+    task_mutations = (
+        MarkdownTaskMutator.create(
+            task_board,
+            database,
+            approval_store,
+            runtime_paths.data_dir / "write-journal",
+        )
+        if task_board.configured
+        else None
+    )
+    daily = DailyContextService(
+        profile_store,
+        OpenMeteoWeather(
+            DefaultOutboundGateway(
+                OutboundPolicy(
+                    allowed_origins=frozenset({"https://api.open-meteo.com"}),
+                    maximum_data_class=DataClass.PERSONAL,
+                    maximum_response_bytes=500_000,
+                    allowed_query_keys=frozenset(
+                        {
+                            "latitude",
+                            "longitude",
+                            "current",
+                            "timezone",
+                            "forecast_days",
+                        }
+                    ),
+                )
+            ),
+            SQLiteDailyCache.create(database),
+        ),
+    )
     app = create_app(
         SQLiteEventStore.create(database),
         pairing,
         SQLiteRunStore.create(database),
-        SQLiteApprovalStore.open(database),
+        approval_store,
         SQLiteIntentStore.create(database),
         memory,
         task_board,
+        task_mutations,
         SQLiteRadarStore.create(database),
         SQLiteBudgetStore.create(database),
+        daily=daily,
     )
     print(f"Web pairing code: {pairing.pairing_code}")
     print(f"CLI pairing code: {cli_code}", flush=True)
