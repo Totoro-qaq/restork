@@ -40,6 +40,34 @@ def test_pairing_header_auth_origin_and_sse_cursor_replay(tmp_path: Path) -> Non
     assert denied.status_code == 403
 
 
+def test_pairing_accepts_only_loopback_browser_origins_and_json(tmp_path: Path) -> None:
+    database = tmp_path / "state.db"
+    pairing = PairingAuthority()
+    client = TestClient(
+        create_app(SQLiteEventStore.create(database), pairing, SQLiteRunStore.create(database))
+    )
+    headers = {"Origin": "http://127.0.0.1:5173"}
+    paired = client.post("/api/pair", json={"code": pairing.pairing_code}, headers=headers)
+    assert paired.status_code == 200
+    assert paired.headers["access-control-allow-origin"] == headers["Origin"]
+    assert client.options("/api/pair", headers=headers).status_code == 204
+
+    second_pairing = PairingAuthority()
+    second_database = tmp_path / "second.db"
+    second = TestClient(
+        create_app(
+            SQLiteEventStore.create(second_database),
+            second_pairing,
+            SQLiteRunStore.create(second_database),
+        )
+    )
+    unsupported = second.post("/api/pair", content="{}", headers={"Content-Type": "text/plain"})
+    assert unsupported.status_code == 415
+    assert second.post(
+        "/api/pair", json={"code": second_pairing.pairing_code, "unexpected": "value"}
+    ).status_code == 422
+
+
 def test_sse_replay_uses_snapshot_then_only_events_after_its_cursor(tmp_path: Path) -> None:
     database = tmp_path / "state.db"
     events = SQLiteEventStore.create(database)
