@@ -38,10 +38,52 @@ The preview has `apply_available=false`; Study has no vault-write, repository-wr
 unrestricted-executor capability. Temporary attempts never call the semantic/profile memory service
 and never become curated long-term memory automatically.
 
+## API, CLI, and Dashboard
+
+All Study routes use the authenticated, loopback-only Core API:
+
+| Phase | Endpoint |
+|---|---|
+| Prepare diagnostic | `POST /v1/study/runs/{run_id}/diagnostic` |
+| Submit exact answers and build a path | `POST /v1/study/runs/{run_id}/path` |
+| Submit one practice attempt | `POST /v1/study/runs/{run_id}/exercises/{exercise_id}/attempt` |
+| Inspect diagnostic or artifact | `GET /v1/study/runs/{run_id}/diagnostic` and `/artifact` |
+
+Practice submissions require an `Idempotency-Key`. The API returns safe validation and state
+errors without including submitted answer bodies. The Dashboard keeps the current form only in page
+memory, clears a practice response after submission, and never uses browser storage.
+
+After pairing the CLI, a complete flow is:
+
+```bash
+uv run restork create \
+  --task-id learn-bayes --mode study \
+  --goal 'Explain and apply Bayesian model comparison' \
+  --scope private-vault --criterion 'complete one evaluated response' \
+  --idempotency-key learn-bayes-1
+
+uv run restork study-diagnostic '<run-id>' \
+  --objective 'Explain and apply Bayesian model comparison' \
+  --target-note 'Study/Bayesian.md'
+
+uv run restork study-path '<run-id>' \
+  --answer 'diagnostic-<id>=2' \
+  --answer 'diagnostic-<id>=A bounded explanation'
+
+uv run restork study-practice '<run-id>' 'exercise-<id>' \
+  --answer 'A private response' --confidence 3 \
+  --idempotency-key learn-bayes-attempt-1
+```
+
+The diagnostic and exercise IDs must be copied from the preceding JSON response. Shell history may
+retain CLI arguments, so use the Dashboard or another protected input channel for sensitive answer
+text.
+
 Run the Core gates with:
 
 ```bash
 uv run pytest tests/study tests/evals/test_study_golden.py
+uv run pytest tests/api/test_study.py
 uv run ruff check src tests
 uv run mypy src
 ```

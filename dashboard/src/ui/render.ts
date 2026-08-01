@@ -4,8 +4,11 @@ import type {
   MemoryRecord,
   RadarItem,
   ResearchArtifact,
+  PracticeAttemptResult,
   RunEvent,
   RunListEntry,
+  StudyArtifact,
+  StudyDiagnostic,
 } from "../api/types";
 
 export function pairingMarkup(): string {
@@ -59,8 +62,11 @@ export function workspaceMarkup(snapshot: DashboardSnapshot): string {
             <input type="hidden" name="mode" id="run-mode" value="research">
             <label for="run-goal">目标 / Goal</label>
             <div><input id="run-goal" name="goal" required maxlength="1000"><button type="submit">START</button></div>
+            <label id="study-target-label" for="study-target-note" hidden>可选 Obsidian 笔记 / Optional note</label>
+            <input id="study-target-note" name="target_note" maxlength="1024" hidden placeholder="Study/Topic.md">
           </form>
           <p id="action-status" class="status" role="status"></p>
+          <div id="study-workspace" class="study-workspace" aria-live="polite"></div>
         </section>
         <section class="metrics" aria-label="运行概览">
           ${metric("research", "进行中运行", String(active.length), modeCounts(active))}
@@ -109,6 +115,36 @@ export function researchPreviewMarkup(artifact: ResearchArtifact): string {
     <section><h4>Markdown preview · ${escapeHtml(artifact.note_preview.relative_path)}</h4><pre>${escapeHtml(artifact.note_preview.markdown)}</pre></section>
     <p class="fine">Preview only · Core has not written this note. Artifact ${escapeHtml(artifact.artifact_id)}</p>
   </article>`;
+}
+
+export function studyDiagnosticMarkup(diagnostic: StudyDiagnostic): string {
+  return `<article class="study-result" aria-labelledby="study-diagnostic-title">
+    <header><div><p class="eyebrow">DIAGNOSTIC FIRST · ANSWERS STAY LOCAL</p><h3 id="study-diagnostic-title">${escapeHtml(diagnostic.objective)}</h3></div><span>PLANNING</span></header>
+    <form data-study-diagnostic data-run-id="${escapeHtml(diagnostic.run_id)}">
+      ${diagnostic.questions.map((question, index) => `<label>${index + 1}. ${escapeHtml(question.prompt)}${question.response_kind === "rating" ? `<input data-diagnostic-question name="${escapeHtml(question.question_id)}" type="number" min="0" max="4" required inputmode="numeric">` : `<textarea data-diagnostic-question name="${escapeHtml(question.question_id)}" required maxlength="4000" rows="3"></textarea>`}</label>`).join("")}
+      <button type="submit">BUILD PATH</button>
+    </form>
+    <p class="fine">The Core creates no learning path until every diagnostic question is answered.</p>
+  </article>`;
+}
+
+export function studyArtifactMarkup(artifact: StudyArtifact): string {
+  return `<article class="study-result" aria-labelledby="study-artifact-title">
+    <header><div><p class="eyebrow">VALIDATED STUDY PATH</p><h3 id="study-artifact-title">${escapeHtml(artifact.objective.outcome)}</h3></div><span>${escapeHtml(artifact.readiness_signal.toUpperCase())}</span></header>
+    <section><h4>Learning path</h4><ol class="study-path">${artifact.learning_path.map((step) => `<li><b>${step.order}</b><span>${escapeHtml(step.title)}<small>${escapeHtml(step.outcome)}</small></span></li>`).join("")}</ol></section>
+    ${artifact.prerequisites.length ? `<section><h4>Explicit prerequisites</h4><ul>${artifact.prerequisites.map((item) => `<li>${escapeHtml(item.title)}<small>${escapeHtml(item.relative_path)}</small></li>`).join("")}</ul></section>` : ""}
+    <section><h4>Active practice · answers are never revealed</h4><div class="study-exercises">${artifact.exercises.map((exercise) => `<form data-study-practice data-run-id="${escapeHtml(artifact.run_id)}" data-exercise-id="${escapeHtml(exercise.exercise_id)}"><b>${escapeHtml(exercise.kind.replace("_", " "))}</b><p>${escapeHtml(exercise.prompt)}</p><small>${exercise.hints.map(escapeHtml).join(" · ")}</small><label>Your response<textarea name="answer" required maxlength="8000" rows="3" autocomplete="off"></textarea></label><label>Confidence<select name="confidence" required><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option></select></label><button type="submit">CHECK LOCALLY</button><div class="study-attempt" role="status"></div></form>`).join("")}</div></section>
+    <p class="fine">No answer key is present in this artifact. Progress notes remain preview-only.</p>
+  </article>`;
+}
+
+export function studyAttemptMarkup(result: PracticeAttemptResult): string {
+  return `<section class="study-feedback ${result.correct ? "is-correct" : "is-retry"}">
+    <b>${result.correct ? "CORRECT · SPACED REVIEW" : "RETRY WITH HINT"}</b>
+    <p>${escapeHtml(result.feedback)}</p>
+    <small>${escapeHtml(result.next_review.reason)} · ${formatDate(result.next_review.due_at)}</small>
+    ${result.record_preview ? `<details><summary>Progress note preview · write disabled</summary><pre>${escapeHtml(result.record_preview.markdown)}</pre></details>` : `<small>Complete another attempt before a progress preview is meaningful.</small>`}
+  </section>`;
 }
 
 export function errorText(error: unknown): string {

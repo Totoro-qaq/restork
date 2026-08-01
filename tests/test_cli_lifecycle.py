@@ -94,7 +94,45 @@ def test_cli_commands_use_the_v1_api_contract(
             "create-1",
         ]
     ) == 0
-    assert capsys.readouterr().out.strip() == "run-1"
+    assert main(
+        [
+            *base,
+            "study-diagnostic",
+            "run-study",
+            "--objective",
+            "Explain Bayesian evidence",
+            "--target-note",
+            "Study/Bayesian.md",
+        ]
+    ) == 0
+    capsys.readouterr()
+    assert main(
+        [
+            *base,
+            "study-path",
+            "run-study",
+            "--answer",
+            "diagnostic-111111111111111111111111=2",
+            "--answer",
+            "diagnostic-222222222222222222222222=bounded response",
+        ]
+    ) == 0
+    capsys.readouterr()
+    assert main(
+        [
+            *base,
+            "study-practice",
+            "run-study",
+            "exercise-333333333333333333333333",
+            "--answer",
+            "private response",
+            "--confidence",
+            "3",
+            "--idempotency-key",
+            "study-cli-attempt",
+        ]
+    ) == 0
+    assert json.loads(capsys.readouterr().out)["ok"] is True
     assert main([*base, "stream", "run-1", "--after", "3"]) == 0
     assert "event: run.created" in capsys.readouterr().out
     assert main(
@@ -140,19 +178,19 @@ def test_cli_commands_use_the_v1_api_contract(
     create_call = calls[0]
     assert create_call[:2] == ("POST", "/v1/runs")
     assert create_call[2]["idempotency_key"] == "create-1"
-    assert calls[1] == (
+    assert calls[4] == (
         "GET",
         "/v1/runs/run-1/events",
         {"last_event_id": 3},
     )
-    assert calls[2][1] == "/v1/approvals/approval-1"
-    assert calls[2][2]["body"] == {
+    assert calls[5][1] == "/v1/approvals/approval-1"
+    assert calls[5][2]["body"] == {
         "decision": "approve",
         "decided_by": "local-user",
     }
-    assert calls[3][1] == "/v1/runs/run-1/effects/intent-1/resolve"
-    assert calls[4][1] == "/v1/research/runs/run-1/execute"
-    assert calls[4][2]["body"] == {
+    assert calls[6][1] == "/v1/runs/run-1/effects/intent-1/resolve"
+    assert calls[7][1] == "/v1/research/runs/run-1/execute"
+    assert calls[7][2]["body"] == {
         "schema_version": 1,
         "question": "What does the source report?",
         "sources": [
@@ -164,6 +202,24 @@ def test_cli_commands_use_the_v1_api_contract(
         ],
         "target_note": "Research/Source.md",
     }
+    assert calls[1][1] == "/v1/study/runs/run-study/diagnostic"
+    assert calls[1][2]["body"] == {
+        "schema_version": 1,
+        "objective": "Explain Bayesian evidence",
+        "target_note": "Study/Bayesian.md",
+    }
+    assert calls[2][1] == "/v1/study/runs/run-study/path"
+    assert calls[2][2]["body"] == {
+        "schema_version": 1,
+        "answers": {
+            "diagnostic-111111111111111111111111": "2",
+            "diagnostic-222222222222222222222222": "bounded response",
+        },
+    }
+    assert calls[3][1].endswith(
+        "/exercises/exercise-333333333333333333333333/attempt"
+    )
+    assert calls[3][2]["idempotency_key"] == "study-cli-attempt"
     assert json.loads(capsys.readouterr().out)["ok"] is True
 
 
