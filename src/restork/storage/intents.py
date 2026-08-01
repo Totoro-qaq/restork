@@ -9,6 +9,7 @@ from pathlib import Path
 
 from restork.contracts.types import EffectPhase
 from restork.storage.database import connect, initialize
+from restork.storage.event_log import append_next_event
 from restork.storage.idempotency import (
     load_idempotent_response,
     mutation_binding,
@@ -67,6 +68,28 @@ class SQLiteIntentStore:
             ),
         )
 
+    def create_with_event(
+        self,
+        intent: EffectIntent,
+        *,
+        event_kind: str,
+        metadata: dict[str, object],
+    ) -> None:
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            self.create_intent(intent)
+            append_next_event(
+                self._connection,
+                intent.run_id,
+                kind=event_kind,
+                metadata=metadata,
+            )
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        else:
+            self._connection.execute("COMMIT")
+
     def update_phase(self, intent_id: str, phase: EffectPhase) -> EffectIntent:
         cursor = self._connection.execute(
             "UPDATE effect_intents SET phase = ? WHERE intent_id = ?", (phase.value, intent_id)
@@ -86,6 +109,30 @@ class SQLiteIntentStore:
             phase=EffectPhase(row["phase"]),
             retry_contract=row["retry_contract"],
         )
+
+    def update_phase_with_event(
+        self,
+        intent_id: str,
+        phase: EffectPhase,
+        *,
+        event_kind: str,
+        metadata: dict[str, object],
+    ) -> EffectIntent:
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            result = self.update_phase(intent_id, phase)
+            append_next_event(
+                self._connection,
+                result.run_id,
+                kind=event_kind,
+                metadata=metadata,
+            )
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        else:
+            self._connection.execute("COMMIT")
+        return result
 
     def get(self, intent_id: str) -> EffectIntent:
         row = self._connection.execute(
@@ -150,6 +197,12 @@ class SQLiteIntentStore:
                 if current.phase is not EffectPhase.UNKNOWN:
                     raise ValueError("only unknown effects require reconciliation")
                 result = self.update_phase(intent_id, phase)
+                append_next_event(
+                    self._connection,
+                    run_id,
+                    kind="tool.reconciled",
+                    metadata={"intent_id": intent_id, "outcome": phase.value},
+                )
                 save_idempotent_response(
                     self._connection,
                     operation=operation,

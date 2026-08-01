@@ -30,8 +30,8 @@ def test_next_sequence_is_allocated_across_restarted_store_instances(tmp_path: o
     first = SQLiteEventStore.create(path)
     second = SQLiteEventStore.create(path)
 
-    event_1 = first.append_next("run-001", kind="model.requested")
-    event_2 = second.append_next("run-001", kind="tool.prepared")
+    event_1 = first.append_next("run-001", kind="model.started")
+    event_2 = second.append_next("run-001", kind="tool.requested")
     event_3 = first.append_next("run-001", kind="verification.started")
 
     assert [event_1.seq, event_2.seq, event_3.seq] == [1, 2, 3]

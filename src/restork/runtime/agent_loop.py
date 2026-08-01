@@ -338,11 +338,6 @@ class PersistedAgentLoop:
             request = self._approvals.get(checkpoint.approval.approval_id)
         except KeyError:
             self._approvals.create(checkpoint.approval)
-            self._emit(
-                checkpoint.approval.run_id,
-                "approval.requested",
-                {"approval_id": checkpoint.approval.approval_id},
-            )
             return ApprovalDecision.PENDING
         return request.decision
 
@@ -388,13 +383,6 @@ class PersistedAgentLoop:
             stop_reason=stop_reason,
             clear_stop_reason=clear_stop_reason,
         )
-        self._emit(
-            current.run_id,
-            "run.state_changed",
-            {"previous": current.state.value, "state": state.value},
-        )
-        if state is RunPhase.COMPLETED:
-            self._emit(current.run_id, "run.completed", {"state": state.value})
         return updated
 
     def _fail(
@@ -406,7 +394,6 @@ class PersistedAgentLoop:
             current, RunPhase.FAILED, stop_reason=reason
         )
         self._emit(current.run_id, event_kind, {"stop_reason": reason.value})
-        self._emit(current.run_id, "run.failed", {"stop_reason": reason.value})
         return updated
 
     def _require_user_action(
@@ -421,11 +408,6 @@ class PersistedAgentLoop:
             stop_reason=StopReason.USER_ACTION_REQUIRED,
         )
         self._emit(current.run_id, event_kind, metadata)
-        self._emit(
-            current.run_id,
-            "run.user_action_required",
-            {"state": RunPhase.USER_ACTION_REQUIRED.value},
-        )
         return updated
 
     def _emit(self, run_id: str, kind: str, metadata: dict[str, object]) -> None:

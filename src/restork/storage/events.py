@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
 from restork.contracts.event import RunEvent
 from restork.storage.database import connect, initialize
+from restork.storage.event_log import append_next_event
 
 
 class SQLiteEventStore:
@@ -55,35 +55,11 @@ class SQLiteEventStore:
         """Assign and append the next per-run sequence under one write lock."""
         try:
             self._connection.execute("BEGIN IMMEDIATE")
-            row = self._connection.execute(
-                "SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM events WHERE run_id = ?",
-                (run_id,),
-            ).fetchone()
-            if row is None:
-                raise RuntimeError("failed to allocate event sequence")
-            event = RunEvent(
-                event_id=str(uuid4()),
-                run_id=run_id,
-                seq=row["next_seq"],
-                occurred_at=datetime.now(UTC),
+            event = append_next_event(
+                self._connection,
+                run_id,
                 kind=kind,
-                metadata=metadata or {},
-            )
-            self._connection.execute(
-                """
-                INSERT INTO events
-                    (event_id, run_id, seq, occurred_at, kind, metadata_json, schema_version)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event.event_id,
-                    event.run_id,
-                    event.seq,
-                    event.occurred_at.isoformat(),
-                    event.kind,
-                    json.dumps(event.metadata, sort_keys=True),
-                    event.schema_version,
-                ),
+                metadata=metadata,
             )
         except BaseException:
             self._connection.execute("ROLLBACK")

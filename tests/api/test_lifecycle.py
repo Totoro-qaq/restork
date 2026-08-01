@@ -113,8 +113,8 @@ def test_approval_and_resume_are_authenticated_evented_and_idempotent(
     assert resumed.json() == resumed_replay.json()
     assert resumed.json()["state"] == "running"
     event_kinds = [event.kind for event in events.read(run.run_id, after_seq=0)]
-    assert event_kinds.count("approval.approved") == 1
-    assert event_kinds.count("run_resumed") == 1
+    assert event_kinds.count("approval.resolved") == 1
+    assert event_kinds[-1] == "run.state_changed"
 
 
 def test_unknown_effect_must_be_resolved_before_api_resume(tmp_path: Path) -> None:
@@ -171,5 +171,5 @@ def test_unknown_effect_must_be_resolved_before_api_resume(tmp_path: Path) -> No
     assert resumed.status_code == 200
     assert resumed.json()["stop_reason"] is None
     event_kinds = [event.kind for event in events.read(run.run_id, after_seq=0)]
-    assert event_kinds.count("effect.reconciled") == 1
-    assert event_kinds[-1] == "run_resumed"
+    assert event_kinds.count("tool.reconciled") == 1
+    assert event_kinds[-1] == "run.state_changed"
