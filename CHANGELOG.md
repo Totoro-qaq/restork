@@ -17,5 +17,6 @@ All notable changes to Restork are documented here.
   reproducible packages, checksums, and provenance-attested release workflow.
 - Refreshed the synthetic 1600×1000 README poster and HD workflow animation through the final Work
   handoff state, matching the shipped light typewriter Dashboard.
+- Pinned CI and release workflows to reviewed Node 24-compatible GitHub Action revisions.
 - Kept private Vaults, profiles, databases, logs, artifacts, locations, calendars, playlists, and
   credentials outside Git and release packages.
