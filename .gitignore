@@ -40,6 +40,8 @@ logs/
 indexes/
 cache/
 artifacts/
+!src/restork/artifacts/
+!src/restork/artifacts/*.py
 profiles/
 
 # Editor / OS
