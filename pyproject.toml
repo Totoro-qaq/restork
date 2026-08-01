@@ -8,8 +8,10 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Restork contributors" }]
 dependencies = [
+  "fastapi>=0.135,<0.136",
   "platformdirs>=4.3",
   "pydantic>=2.11",
+  "uvicorn>=0.30,<0.31",
 ]
 
 [project.scripts]
@@ -22,6 +24,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
   "bandit>=1.8",
+  "httpx>=0.28",
   "mypy>=1.15",
   "pytest>=8.3",
   "ruff>=0.11",

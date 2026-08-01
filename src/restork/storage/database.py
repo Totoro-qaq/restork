@@ -7,7 +7,8 @@ from pathlib import Path
 
 
 def connect(path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(path, isolation_level=None)
+    # API handlers may run in a worker thread; stores still serialize mutations with SQLite.
+    connection = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
