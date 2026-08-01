@@ -7,16 +7,17 @@ from typing import Protocol
 
 from restork.contracts.approval import ApprovalRequest
 from restork.contracts.event import RunEvent
-from restork.contracts.outbound import OutboundEnvelope
 from restork.contracts.run import RunSummary
 from restork.contracts.task import TaskSpec
 from restork.contracts.tool import ToolResult
+from restork.network.gateway import OutboundRequest, OutboundResponse
+from restork.providers.base import ChatCompletion, ChatCompletionRequest
 
 
 class ModelProvider(Protocol):
     """A provider adapter that operates only through approved envelopes."""
 
-    async def complete(self, envelope: OutboundEnvelope) -> ToolResult: ...
+    async def complete(self, request: ChatCompletionRequest) -> ChatCompletion: ...
 
 
 class WorkflowRuntime(Protocol):
@@ -52,7 +53,7 @@ class KnowledgeStore(Protocol):
 class OutboundGateway(Protocol):
     """The sole Core-owned boundary for external requests."""
 
-    async def dispatch(self, envelope: OutboundEnvelope) -> ToolResult: ...
+    async def dispatch(self, request: OutboundRequest) -> OutboundResponse: ...
 
 
 class WorkHandoffExporter(Protocol):

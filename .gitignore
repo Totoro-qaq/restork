@@ -22,6 +22,8 @@ dashboard/dist/
 *.pem
 *.key
 secrets/
+!src/restork/secrets/
+!src/restork/secrets/*.py
 
 # Private runtime state and user data
 .restork/

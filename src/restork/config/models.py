@@ -32,6 +32,30 @@ class ProviderConfig(ConfigModel):
     thinking_enabled: bool = True
     reasoning_effort: str = "high"
 
+    @field_validator("model")
+    @classmethod
+    def require_supported_model(cls, value: str) -> str:
+        if value != "deepseek-v4-pro":
+            msg = "V1 supports only the deepseek-v4-pro model"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("base_url")
+    @classmethod
+    def require_official_origin(cls, value: str) -> str:
+        if value != "https://api.deepseek.com":
+            msg = "the DeepSeek provider must use https://api.deepseek.com"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("reasoning_effort")
+    @classmethod
+    def require_supported_reasoning_effort(cls, value: str) -> str:
+        if value != "high":
+            msg = "reasoning_effort must be high until a budgeted mode profile is implemented"
+            raise ValueError(msg)
+        return value
+
     @field_validator("api_key_ref", mode="before")
     @classmethod
     def coerce_keychain_reference(cls, value: Any) -> Any:
