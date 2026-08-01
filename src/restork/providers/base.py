@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from restork.contracts.types import DataClass
 
@@ -16,9 +17,58 @@ class ProviderModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
+class ToolCall(ProviderModel):
+    tool_call_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    arguments: dict[str, object]
+
+    @model_validator(mode="after")
+    def require_json_arguments(self) -> ToolCall:
+        _require_json(self.arguments, "tool arguments")
+        return self
+
+
+class ChatToolDefinition(ProviderModel):
+    name: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    parameters: dict[str, object]
+
+    @model_validator(mode="after")
+    def require_object_schema(self) -> ChatToolDefinition:
+        if self.parameters.get("type") != "object":
+            raise ValueError("tool parameters must be a JSON object schema")
+        _require_json(self.parameters, "tool parameters")
+        return self
+
+
 class ChatMessage(ProviderModel):
     role: Literal["system", "user", "assistant", "tool"]
-    content: str = Field(min_length=1)
+    content: str | None = Field(default=None, min_length=1)
+    reasoning_content: str | None = None
+    tool_calls: tuple[ToolCall, ...] = ()
+    tool_call_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_role_shape(self) -> ChatMessage:
+        if self.role in {"system", "user"} and (
+            self.content is None
+            or self.reasoning_content is not None
+            or self.tool_calls
+            or self.tool_call_id is not None
+        ):
+            raise ValueError("system and user messages require content only")
+        if self.role == "assistant" and self.content is None and not self.tool_calls:
+            raise ValueError("assistant message requires content or tool calls")
+        if self.role == "assistant" and self.tool_call_id is not None:
+            raise ValueError("assistant message cannot carry a tool_call_id")
+        if self.role == "tool" and (
+            self.content is None
+            or self.tool_call_id is None
+            or self.reasoning_content is not None
+            or self.tool_calls
+        ):
+            raise ValueError("tool message requires content and tool_call_id only")
+        return self
 
 
 class ChatCompletionRequest(ProviderModel):
@@ -29,6 +79,14 @@ class ChatCompletionRequest(ProviderModel):
     reasoning_effort: Literal["high"] | None = None
     classification: DataClass = DataClass.PUBLIC
     source_refs: tuple[str, ...] = ()
+    tools: tuple[ChatToolDefinition, ...] = ()
+    tool_choice: Literal["auto", "none", "required"] = "auto"
+
+    @model_validator(mode="after")
+    def require_tools_for_tool_choice(self) -> ChatCompletionRequest:
+        if not self.tools and self.tool_choice != "auto":
+            raise ValueError("tool_choice requires at least one tool definition")
+        return self
 
 
 class CompletionUsage(ProviderModel):
@@ -43,8 +101,32 @@ class ChatCompletion(ProviderModel):
     content: str | None = None
     reasoning_content: str | None = None
     reasoning_ref: str | None = None
+    tool_calls: tuple[ToolCall, ...] = ()
     finish_reason: str | None = None
     usage: CompletionUsage = Field(default_factory=CompletionUsage)
+
+    @model_validator(mode="after")
+    def require_output(self) -> ChatCompletion:
+        if self.content is None and not self.tool_calls:
+            raise ValueError("completion requires content or tool calls")
+        return self
+
+
+class ToolCallDelta(ProviderModel):
+    index: int = Field(ge=0)
+    tool_call_id: str | None = None
+    name: str | None = None
+    arguments_delta: str = ""
+
+
+class ChatCompletionChunk(ProviderModel):
+    completion_id: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    content_delta: str | None = None
+    reasoning_delta: str | None = None
+    tool_call_deltas: tuple[ToolCallDelta, ...] = ()
+    finish_reason: str | None = None
+    usage: CompletionUsage | None = None
 
 
 class ProviderErrorKind(StrEnum):
@@ -84,3 +166,10 @@ class ProviderResponseError(RuntimeError):
             ProviderErrorKind.RETRYABLE,
             ProviderErrorKind.INVALID_SCHEMA,
         }
+
+
+def _require_json(value: object, label: str) -> None:
+    try:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{label} must be JSON serializable") from error
