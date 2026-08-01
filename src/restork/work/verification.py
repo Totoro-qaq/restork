@@ -117,8 +117,9 @@ def verify_work_result(
     evidence = (*changed_checks, *artifact_checks)
     has_evidence = bool(evidence)
     matched = all(item.status is EvidenceStatus.MATCHED for item in evidence)
-    completion_eligible = has_evidence and matched and not unexpected
-    if not completion_eligible:
+    independently_verified = has_evidence and matched and not unexpected
+    completion_eligible = independently_verified and not commands
+    if not independently_verified:
         status = VerificationStatus.FAILED
     elif commands:
         status = VerificationStatus.PARTIAL

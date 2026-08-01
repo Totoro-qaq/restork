@@ -180,9 +180,16 @@ class WorkVerificationReport(ContractModel):
         if self.completion_eligible and (
             failed_evidence
             or self.unexpected_changes
-            or self.status is VerificationStatus.FAILED
+            or self.commands
+            or self.status is not VerificationStatus.VERIFIED
         ):
-            raise ValueError("failed Work evidence cannot become completion-eligible")
+            raise ValueError(
+                "only fully verified Work evidence can become completion-eligible"
+            )
+        if self.status is VerificationStatus.VERIFIED and not self.completion_eligible:
+            raise ValueError("verified Work evidence must be completion-eligible")
+        if self.status is VerificationStatus.PARTIAL and not self.commands:
+            raise ValueError("partial Work verification requires unverified command claims")
         if self.task_update_preview is not None and not self.completion_eligible:
             raise ValueError("Work task previews require independently verified evidence")
         if (

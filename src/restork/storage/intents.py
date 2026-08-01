@@ -25,6 +25,7 @@ class EffectIntent:
     input_hash: str
     phase: EffectPhase
     retry_contract: str
+    artifact_refs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -55,8 +56,9 @@ class SQLiteIntentStore:
         self._connection.execute(
             """
             INSERT INTO effect_intents
-                (intent_id, run_id, tool_name, input_hash, phase, retry_contract)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (intent_id, run_id, tool_name, input_hash, phase, retry_contract,
+                 artifact_refs_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 intent.intent_id,
@@ -65,6 +67,7 @@ class SQLiteIntentStore:
                 intent.input_hash,
                 intent.phase.value,
                 intent.retry_contract,
+                json.dumps(intent.artifact_refs, separators=(",", ":")),
             ),
         )
 
@@ -101,14 +104,7 @@ class SQLiteIntentStore:
         ).fetchone()
         if row is None:
             raise RuntimeError("effect intent disappeared after an update")
-        return EffectIntent(
-            intent_id=row["intent_id"],
-            run_id=row["run_id"],
-            tool_name=row["tool_name"],
-            input_hash=row["input_hash"],
-            phase=EffectPhase(row["phase"]),
-            retry_contract=row["retry_contract"],
-        )
+        return _intent_from_row(row)
 
     def update_phase_with_event(
         self,
@@ -134,17 +130,56 @@ class SQLiteIntentStore:
             self._connection.execute("COMMIT")
         return result
 
+    def commit_with_artifacts_and_event(
+        self,
+        intent_id: str,
+        artifact_refs: tuple[str, ...],
+        *,
+        event_kind: str,
+        metadata: dict[str, object],
+    ) -> EffectIntent:
+        """Atomically preserve completion evidence with the committed effect."""
+        if any(not item.strip() for item in artifact_refs):
+            raise ValueError("committed artifact references must be non-empty")
+        if len(artifact_refs) != len(set(artifact_refs)):
+            raise ValueError("committed artifact references must be unique")
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            cursor = self._connection.execute(
+                """
+                UPDATE effect_intents
+                SET phase = ?, artifact_refs_json = ?
+                WHERE intent_id = ?
+                """,
+                (
+                    EffectPhase.COMMITTED.value,
+                    json.dumps(artifact_refs, separators=(",", ":")),
+                    intent_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(intent_id)
+            result = self.get(intent_id)
+            append_next_event(
+                self._connection,
+                result.run_id,
+                kind=event_kind,
+                metadata=metadata,
+            )
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        else:
+            self._connection.execute("COMMIT")
+        return result
+
     def get(self, intent_id: str) -> EffectIntent:
         row = self._connection.execute(
             "SELECT * FROM effect_intents WHERE intent_id = ?", (intent_id,)
         ).fetchone()
         if row is None:
             raise KeyError(intent_id)
-        return EffectIntent(
-            intent_id=row["intent_id"], run_id=row["run_id"], tool_name=row["tool_name"],
-            input_hash=row["input_hash"], phase=EffectPhase(row["phase"]),
-            retry_contract=row["retry_contract"],
-        )
+        return _intent_from_row(row)
 
     def unresolved_for_run(self, run_id: str) -> list[EffectIntent]:
         rows = self._connection.execute(
@@ -156,14 +191,7 @@ class SQLiteIntentStore:
             (run_id, EffectPhase.STARTED.value, EffectPhase.UNKNOWN.value),
         ).fetchall()
         return [
-            EffectIntent(
-                intent_id=row["intent_id"],
-                run_id=row["run_id"],
-                tool_name=row["tool_name"],
-                input_hash=row["input_hash"],
-                phase=EffectPhase(row["phase"]),
-                retry_contract=row["retry_contract"],
-            )
+            _intent_from_row(row)
             for row in rows
         ]
 
@@ -228,6 +256,7 @@ def _intent_to_json(intent: EffectIntent) -> str:
             "input_hash": intent.input_hash,
             "phase": intent.phase.value,
             "retry_contract": intent.retry_contract,
+            "artifact_refs": intent.artifact_refs,
         },
         sort_keys=True,
     )
@@ -242,4 +271,22 @@ def _intent_from_json(payload: str) -> EffectIntent:
         input_hash=value["input_hash"],
         phase=EffectPhase(value["phase"]),
         retry_contract=value["retry_contract"],
+        artifact_refs=tuple(value.get("artifact_refs", ())),
+    )
+
+
+def _intent_from_row(row: sqlite3.Row) -> EffectIntent:
+    artifact_refs = json.loads(row["artifact_refs_json"])
+    if not isinstance(artifact_refs, list) or not all(
+        isinstance(item, str) and item for item in artifact_refs
+    ):
+        raise ValueError("stored effect artifact references are invalid")
+    return EffectIntent(
+        intent_id=row["intent_id"],
+        run_id=row["run_id"],
+        tool_name=row["tool_name"],
+        input_hash=row["input_hash"],
+        phase=EffectPhase(row["phase"]),
+        retry_contract=row["retry_contract"],
+        artifact_refs=tuple(artifact_refs),
     )

@@ -155,14 +155,15 @@ def test_priv_label_001_transient_storage_is_encrypted_and_secret_ineligible(
     store = TransientBlobStore.create(database, Fernet.generate_key())
     expiry = datetime.now(UTC) + timedelta(minutes=5)
 
-    with pytest.raises(PermissionError, match="never eligible"):
-        store.put(
-            "secret-source",
-            canary.encode(),
-            expires_at=expiry,
-            data_class=DataClass.SECRET,
-            source_id="source-canary",
-        )
+    for data_class in (DataClass.SECRET, DataClass.CREDENTIAL):
+        with pytest.raises(PermissionError, match="never eligible"):
+            store.put(
+                f"{data_class.value}-source",
+                canary.encode(),
+                expires_at=expiry,
+                data_class=data_class,
+                source_id="source-canary",
+            )
     store.put(
         "encrypted-source",
         canary.encode(),

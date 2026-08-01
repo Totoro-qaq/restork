@@ -481,14 +481,8 @@ describe("authenticated workspace", () => {
         reason: "Restork Work V1 never executes commands.",
       }],
       unexpected_changes: [],
-      completion_eligible: true,
-      task_update_preview: {
-        run_id: "run-work",
-        action: "mark_complete",
-        suggested_markdown: "- [x] Verified Work result [run:: run-work]",
-        evidence_ref: `work-verification-${"4".repeat(24)}`,
-        apply_available: false,
-      },
+      completion_eligible: false,
+      task_update_preview: null,
       created_at: "2026-08-02T00:02:00Z",
     };
     vi.spyOn(api, "createRun").mockResolvedValue({

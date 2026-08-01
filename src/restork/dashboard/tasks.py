@@ -129,6 +129,7 @@ class MarkdownTaskMutator:
         self._connection = connection
         self._approvals = approvals
         self._writer = JournaledWriter(board.vault, journal_dir)
+        self._writer.recover()
         self._inbox = inbox
 
     @classmethod

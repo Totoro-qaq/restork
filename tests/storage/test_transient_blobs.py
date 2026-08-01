@@ -29,11 +29,15 @@ def test_transient_blob_is_encrypted_ttl_bound_and_purgeable(tmp_path: object) -
 def test_transient_blob_rejects_secrets_and_removes_expired_payloads(tmp_path: Path) -> None:
     database = tmp_path / "restork.db"
     store = TransientBlobStore.create(database, Fernet.generate_key())
-    with pytest.raises(PermissionError, match="never eligible"):
-        store.put(
-            "secret", b"do-not-store", expires_at=datetime.now(UTC) + timedelta(minutes=1),
-            data_class=DataClass.SECRET,
-        )
+    for data_class in (DataClass.SECRET, DataClass.CREDENTIAL):
+        with pytest.raises(PermissionError, match="never eligible"):
+            store.put(
+                data_class.value,
+                b"do-not-store",
+                expires_at=datetime.now(UTC) + timedelta(minutes=1),
+                data_class=data_class,
+                source_id="source-never-store",
+            )
     with pytest.raises(ValueError, match="future"):
         store.put(
             "expired", b"payload", expires_at=datetime.now(UTC), data_class=DataClass.PERSONAL
@@ -169,3 +173,16 @@ def test_existing_transient_blob_table_adds_run_ownership_column(tmp_path: Path)
     )
 
     assert store.get("migrated") == b"payload"
+def test_transient_blob_restore_probe_detects_existing_payloads(tmp_path: Path) -> None:
+    database = tmp_path / "restork.db"
+    store = TransientBlobStore.create(database, Fernet.generate_key())
+
+    assert TransientBlobStore.contains_payloads(database) is False
+    store.put(
+        "restore-probe",
+        b"restart-safe",
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
+        data_class=DataClass.PERSONAL,
+        run_id="run-restore",
+    )
+    assert TransientBlobStore.contains_payloads(database) is True

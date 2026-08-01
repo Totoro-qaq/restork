@@ -55,7 +55,8 @@ def initialize(connection: sqlite3.Connection) -> None:
             tool_name TEXT NOT NULL,
             input_hash TEXT NOT NULL,
             phase TEXT NOT NULL,
-            retry_contract TEXT NOT NULL
+            retry_contract TEXT NOT NULL,
+            artifact_refs_json TEXT NOT NULL DEFAULT '[]'
         );
 
         CREATE TABLE IF NOT EXISTS event_snapshots (
@@ -278,6 +279,14 @@ def initialize(connection: sqlite3.Connection) -> None:
         run_columns = {row["name"] for row in connection.execute("PRAGMA table_info(runs)")}
         if "task_spec_json" not in run_columns:
             connection.execute("ALTER TABLE runs ADD COLUMN task_spec_json TEXT")
+        intent_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(effect_intents)")
+        }
+        if "artifact_refs_json" not in intent_columns:
+            connection.execute(
+                "ALTER TABLE effect_intents "
+                "ADD COLUMN artifact_refs_json TEXT NOT NULL DEFAULT '[]'"
+            )
     except BaseException:
         connection.execute("ROLLBACK")
         raise

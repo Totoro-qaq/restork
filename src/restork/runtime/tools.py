@@ -93,6 +93,7 @@ class ToolRuntime:
                 return ToolResult(
                     status=ToolStatus.SUCCEEDED,
                     summary="previous tool effect was already committed",
+                    artifacts=list(existing.artifact_refs),
                 )
             if existing.phase is EffectPhase.UNKNOWN or (
                 existing.phase is EffectPhase.STARTED
@@ -209,9 +210,9 @@ class ToolRuntime:
                     retryable=True,
                 )
             if result.status is ToolStatus.SUCCEEDED:
-                self._intents.update_phase_with_event(
+                self._intents.commit_with_artifacts_and_event(
                     selected_intent_id,
-                    EffectPhase.COMMITTED,
+                    tuple(dict.fromkeys(result.artifacts)),
                     event_kind="tool.completed",
                     metadata={"tool": tool_name, "intent_id": selected_intent_id},
                 )

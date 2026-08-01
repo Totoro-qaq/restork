@@ -25,6 +25,19 @@ class TransientBlobStore:
         initialize(connection)
         return cls(connection, key)
 
+    @classmethod
+    def contains_payloads(cls, path: Path) -> bool:
+        """Inspect restore state without requiring or inventing an encryption key."""
+        connection = connect(path)
+        try:
+            initialize(connection)
+            row = connection.execute(
+                "SELECT EXISTS(SELECT 1 FROM transient_blobs LIMIT 1)"
+            ).fetchone()
+            return bool(row[0])
+        finally:
+            connection.close()
+
     def put(
         self,
         blob_id: str,
@@ -35,8 +48,10 @@ class TransientBlobStore:
         run_id: str | None = None,
         source_id: str | None = None,
     ) -> None:
-        if data_class is DataClass.SECRET:
-            raise PermissionError("secret data is never eligible for transient storage")
+        if data_class in {DataClass.SECRET, DataClass.CREDENTIAL}:
+            raise PermissionError(
+                "secret and credential data are never eligible for transient storage"
+            )
         if expires_at <= datetime.now(UTC):
             raise ValueError("transient payload expiry must be in the future")
         if run_id is None and source_id is None:
