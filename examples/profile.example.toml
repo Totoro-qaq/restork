@@ -1,0 +1,16 @@
+schema_version = 1
+
+[locale]
+language = ""
+timezone = ""
+
+[daily]
+weather_provider = ""
+weather_location = ""
+calendar_ics = ""
+playlist = ""
+
+[preferences]
+research_topics = []
+favorite_artists = []
+music_genres = []

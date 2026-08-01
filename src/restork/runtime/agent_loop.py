@@ -20,6 +20,7 @@ from restork.contracts.types import (
     StopReason,
     ToolStatus,
 )
+from restork.memory.context import MessageWindow
 from restork.providers.base import (
     ChatCompletionRequest,
     ChatMessage,
@@ -56,6 +57,7 @@ class PersistedAgentLoop:
         registry: ToolRegistry,
         provider: object,
         tools: Mapping[str, object],
+        message_window: MessageWindow | None = None,
     ) -> None:
         self._runs = runs
         self._events = events
@@ -67,6 +69,7 @@ class PersistedAgentLoop:
         self._registry = registry
         self._provider = provider
         self._tools = dict(tools)
+        self._message_window = message_window or MessageWindow()
 
     async def start(self, task: TaskSpec) -> RunSummary:
         """Implement the framework-neutral WorkflowRuntime start boundary."""
@@ -159,8 +162,27 @@ class PersistedAgentLoop:
                 self._checkpoints.save(run_id, checkpoint)
                 continue
 
+            try:
+                selected_messages, context_tokens, dropped_messages = (
+                    self._message_window.select(checkpoint.messages)
+                )
+            except ValueError:
+                return self._fail(
+                    current,
+                    StopReason.BUDGET_EXHAUSTED,
+                    "memory.context_budget_exceeded",
+                )
+            self._emit(
+                run_id,
+                "memory.context_selected",
+                {
+                    "selected_messages": len(selected_messages),
+                    "dropped_messages": dropped_messages,
+                    "estimated_tokens": context_tokens,
+                },
+            )
             request = ChatCompletionRequest(
-                messages=list(checkpoint.messages),
+                messages=list(selected_messages),
                 classification=task.data_policy.maximum_outbound_class,
                 reasoning_effort=task.budgets.reasoning_effort,
                 tools=self._tool_definitions(task),

@@ -97,6 +97,29 @@ def initialize(connection: sqlite3.Connection) -> None:
             blob_ref TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS memory_records (
+            memory_id TEXT PRIMARY KEY,
+            layer TEXT NOT NULL CHECK (layer = 'episodic'),
+            kind TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            provenance TEXT NOT NULL,
+            data_class TEXT NOT NULL CHECK (data_class NOT IN ('secret', 'credential')),
+            retention_class TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            expires_at TEXT,
+            last_accessed_at TEXT,
+            run_id TEXT,
+            source_id TEXT,
+            content_hash TEXT NOT NULL,
+            version INTEGER NOT NULL CHECK (version > 0)
+        );
+
+        CREATE INDEX IF NOT EXISTS memory_records_source_id
+            ON memory_records (source_id);
+        CREATE INDEX IF NOT EXISTS memory_records_retention
+            ON memory_records (retention_class, expires_at, last_accessed_at);
         """
     )
     try:
