@@ -12,6 +12,7 @@ from pathlib import Path
 from restork.contracts.approval import ApprovalRequest
 from restork.knowledge.vault import Vault, VaultPathError
 from restork.knowledge.write_plan import WritePlan, validate_approval
+from restork.storage.approvals import SQLiteApprovalStore
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,21 @@ class JournaledWriter:
         if _hash(target.read_text(encoding="utf-8")) != journal.postimage_hash:
             raise RuntimeError("post-write validation failed")
         journal_path.unlink()
+
+    def apply_authorized(
+        self, plan: WritePlan, approvals: SQLiteApprovalStore, *, approval_id: str, nonce: str
+    ) -> ApprovalRequest:
+        """Bind a single-use approval to this exact write immediately before apply."""
+        approval = approvals.consume_matching(
+            approval_id,
+            action_digest=plan.action_digest,
+            canonical_scope=plan.relative_path,
+            resource_versions={plan.relative_path: plan.expected_hash},
+            policy_version=plan.policy_version,
+            nonce=nonce,
+        )
+        self.apply(plan, approval)
+        return approval
 
     def recover(self) -> list[str]:
         recovered: list[str] = []
