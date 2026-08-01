@@ -181,6 +181,55 @@ def initialize(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS research_artifacts_created
             ON research_artifacts (created_at, artifact_id);
+
+        CREATE TABLE IF NOT EXISTS study_sessions (
+            run_id TEXT PRIMARY KEY,
+            request_hash TEXT NOT NULL,
+            request_json TEXT NOT NULL,
+            diagnostic_json TEXT NOT NULL,
+            diagnostic_submission_hash TEXT,
+            artifact_json TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS study_exercise_rubrics (
+            exercise_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            required_terms_json TEXT NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES study_sessions (run_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS study_exercise_rubrics_run
+            ON study_exercise_rubrics (run_id);
+
+        CREATE TABLE IF NOT EXISTS study_attempts (
+            attempt_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            exercise_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            binding TEXT NOT NULL,
+            answer_hash TEXT NOT NULL,
+            correct INTEGER NOT NULL CHECK (correct IN (0, 1)),
+            result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES study_sessions (run_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS study_attempts_run_exercise
+            ON study_attempts (run_id, exercise_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS study_review_state (
+            run_id TEXT NOT NULL,
+            exercise_id TEXT NOT NULL,
+            due_at TEXT NOT NULL,
+            interval_days INTEGER NOT NULL CHECK (interval_days >= 0),
+            error_count INTEGER NOT NULL CHECK (error_count >= 0),
+            successful_count INTEGER NOT NULL CHECK (successful_count >= 0),
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (run_id, exercise_id),
+            FOREIGN KEY (run_id) REFERENCES study_sessions (run_id)
+        );
         """
     )
     try:

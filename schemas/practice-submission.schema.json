@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "answer": {
+      "maxLength": 8000,
+      "minLength": 1,
+      "title": "Answer",
+      "type": "string"
+    },
+    "confidence": {
+      "maximum": 5,
+      "minimum": 1,
+      "title": "Confidence",
+      "type": "integer"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "answer",
+    "confidence"
+  ],
+  "title": "PracticeSubmission",
+  "type": "object"
+}

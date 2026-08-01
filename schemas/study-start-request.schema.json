@@ -1,0 +1,35 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "objective": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Objective",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "target_note": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Note"
+    }
+  },
+  "required": [
+    "objective"
+  ],
+  "title": "StudyStartRequest",
+  "type": "object"
+}
