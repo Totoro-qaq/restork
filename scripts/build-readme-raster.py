@@ -18,6 +18,7 @@ FRAME_NAMES = (
     "04-radar.png",
     "05-memory.png",
     "06-overview-cd.png",
+    "07-work.png",
 )
 
 

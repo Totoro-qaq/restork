@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml/badge.svg" alt="Release candidate status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0ea5e9.svg" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/Python-3.12-8b5cf6.svg" alt="Python 3.12">
   <img src="https://img.shields.io/badge/UI-TypeScript-06b6d4.svg" alt="TypeScript Dashboard">
@@ -16,32 +17,33 @@
   One Core turns local knowledge and cloud reasoning into a reviewable, recoverable Research–Study–Work loop.
 </p>
 
-> **当前状态 / Current status — Step 9 complete.** 本地 Core、受控 Harness、四层记忆、
+> **当前状态 / Current status — V1 release candidate, Steps 0–10 complete.** 本地 Core、受控 Harness、四层记忆、
 > Markdown 任务、每日上下文、配对式 Web Dashboard，以及带证据卡和笔记预览的
-> Research、Study 与 planning-only Work 三条纵向工作流均已实现；V1 发布加固正在 Step 10 推进。测试与公开演示只使用合成数据，
+> Research、Study 与 planning-only Work 三条纵向工作流均已实现；隐私、恢复、安全、评估与可复现发布门禁均已完成。测试与公开演示只使用合成数据，
 > 不会发起真实模型请求。
 >
 > The local Core, governed Harness, four-layer memory, Markdown tasks, daily
 > context, paired Web Dashboard, and evidence-backed Research vertical slice
 > are implemented, together with diagnostic-first Study and a planning-only,
-> approval-bound Work handoff. V1 release hardening continues in Step 10. Tests
+> approval-bound Work handoff. Privacy, recovery, security, evaluation, and
+> reproducible release gates are complete. Tests
 > and public demos use synthetic data and never make live model calls.
 
 ## 产品实证 / Product proof
 
 <p align="center">
   <a href="./assets/readme/demo-poster.webp">
-    <img src="./assets/readme/demo-hd.gif" width="100%" alt="Restork Dashboard cycling through overview, runs, approvals, Markdown tasks, Radar, memory, and daily context using synthetic data.">
+    <img src="./assets/readme/demo-hd.gif" width="100%" alt="Restork Dashboard cycling through overview, runs, approvals, Markdown tasks, Radar, memory, daily context, and a planning-only Work handoff using synthetic data.">
   </a>
 </p>
 
 上图由仓库内的真实 Dashboard 构建生成，内容是公开合成夹具。它展示运行、单次审批、
-Markdown 任务、Radar、四层记忆，以及带罗马数字时钟、天气、只读日历和可旋转唱片的每日上下文。
+Markdown 任务、Radar、四层记忆、planning-only Work 交接，以及带罗马数字时钟、天气、只读日历和可旋转唱片的每日上下文。
 
 The capture is generated from the real Dashboard build with public synthetic
 fixtures. It shows runs, single-use approvals, Markdown tasks, Radar, four-layer
-memory, and daily context with a Roman clock, weather, read-only calendar, and
-an opt-in spinning record.
+memory, a planning-only Work handoff, and daily context with a Roman clock,
+weather, read-only calendar, and an opt-in spinning record.
 
 ## 为什么是 Restork / Why Restork
 
@@ -74,7 +76,7 @@ Restork Core ─ Harness ─ Policy ─ Approval ─ Event log
 - **Markdown 真相 / Markdown truth:** 笔记与用户任务。 Notes and user tasks.
 - **SQLite 真相 / SQLite truth:** 运行、步骤、审批、意图与事件。 Runs, steps, approvals, intents, and events.
 - **可重建投影 / Rebuildable projections:** 索引、wiki-link 图与缓存。 Indexes, wiki-link graphs, and caches.
-- **薄客户端 / Thin clients:** Dashboard 与可选 Obsidian bridge 不持有模型密钥或执行权限。 The Dashboard and optional Obsidian bridge own neither model credentials nor execution authority.
+- **薄客户端 / Thin clients:** Dashboard 与 CLI 不持有模型密钥或执行权限；V1 不发布也不要求 Obsidian 插件。 The Dashboard and CLI own neither model credentials nor execution authority; V1 ships and requires no Obsidian plugin.
 
 V1 不需要 LangGraph、图数据库、KAG、Valkey 或 Memory MCP。它们保留为未来的可插拔适配器，
 只有在分布式执行、跨应用记忆或检索评估证明必要时才引入。
@@ -159,6 +161,16 @@ See [`examples/profile.example.toml`](examples/profile.example.toml),
 guides for [`Memory`](docs/memory.md), [`Markdown tasks`](docs/markdown-tasks.md),
 [`Daily context`](docs/daily-context.md), and [`Study`](docs/study.md).
 
+运行、隐私与发布细节见 [`Operations`](docs/operations.md)、
+[`Privacy`](docs/privacy.md)、[`Dashboard & CLI`](docs/dashboard-usage.md)、
+[`Adversarial review`](docs/adversarial-review.md) 与
+[`Release checklist`](docs/release-checklist.md)。
+
+For operating, privacy, and release details, read [`Operations`](docs/operations.md),
+[`Privacy`](docs/privacy.md), [`Dashboard & CLI`](docs/dashboard-usage.md),
+the [`adversarial review`](docs/adversarial-review.md), and the
+[`release checklist`](docs/release-checklist.md).
+
 ## 隐私边界 / Privacy boundary
 
 | 可以公开提交 / Safe to track | 必须留在 Git 外 / Must stay outside Git |
@@ -196,7 +208,7 @@ npm --prefix dashboard run build
 
 # Public artifact and package gates
 ./scripts/scan-public-artifacts.sh
-uv build --no-sources
+uv run python scripts/build_release.py --output dist/release
 ```
 
 ## 路线图与贡献 / Roadmap & contributing
@@ -205,7 +217,7 @@ uv build --no-sources
 - Step 7: ✅ Research 来源、证据、预览与评估。 Research sources, evidence, previews, and evaluation.
 - Step 8: ✅ Study 诊断、路径、练习与复习。 Study diagnostics, paths, practice, and review.
 - Step 9: ✅ Work 只读上下文、审批交接与结果验证。 Work read-only context, approved handoff, and result verification.
-- Step 10: 隐私、恢复、安全、打包与发布审计。 Privacy, recovery, security, packaging, and release audit.
+- Step 10: ✅ 隐私、恢复、安全、打包与发布审计。 Privacy, recovery, security, packaging, and release audit.
 
 产品约定见 [`V1 specification`](specs/restork-v1.md)，交付切片见
 [`implementation blueprint`](plans/restork-v1-implementation.md)，Step 6 的详细验收见

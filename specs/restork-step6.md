@@ -1,6 +1,6 @@
 # Restork Step 6 Specification
 
-> Status: Implemented | Version: 1.1 | Date: 2026-08-02
+> Status: Implemented | Version: 1.2 | Date: 2026-08-02
 >
 > Governing specification: [Restork V1](restork-v1.md)
 >
@@ -16,7 +16,8 @@ Step 6 turns the Step 5 local control plane into a usable local workspace. It ad
 - a bilingual GitHub README with project-native SVG and an HD synthetic demonstration GIF;
 - reproducible static assets bundled in the Python wheel.
 
-The optional Obsidian bridge remains non-blocking and is not required for Step 6 or V1 acceptance.
+Core reads the configured Obsidian Vault directly. The optional bridge was deliberately deferred
+beyond V1 and is not shipped or required for acceptance.
 
 ## 2. Scope boundaries
 
@@ -247,7 +248,7 @@ The public build ships the same features the owner uses. Personal behavior comes
 3. `6C` — Markdown tasks, Radar contracts/actions, and Core-only connectors.
 4. `6D` — daily context services and clock/weather/calendar/music/CD UI.
 5. `6E` — README visual refresh, SVG, HD GIF/poster, audit, and wheel asset verification.
-6. `6F` — optional Obsidian bridge only if it does not delay V1.
+6. `6F` — Obsidian bridge deferred beyond V1; direct Vault integration is sufficient.
 
 Every required slice gets a reviewable branch, tests, public-artifact scan, CI, and squash merge before the dependent slice starts.
 
