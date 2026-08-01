@@ -20,6 +20,10 @@ from restork.api.auth import CLI_AUDIENCE, CLI_SCOPES, PairingAuthority
 from restork.api.server import make_server
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import Mode
+from restork.memory.profile import PrivateProfileStore
+from restork.memory.service import MemoryService
+from restork.memory.store import SQLiteMemoryStore
+from restork.paths import RuntimePaths
 from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.events import SQLiteEventStore
 from restork.storage.intents import SQLiteIntentStore
@@ -110,6 +114,7 @@ def _parser() -> argparse.ArgumentParser:
         default=os.environ.get("RESTORK_API_URL", DEFAULT_API_URL),
     )
     parser.add_argument("--state-db", type=Path, default=Path("restork.db"))
+    parser.add_argument("--profile-dir", type=Path)
     parser.add_argument("-h", "--help", action="store_true", help="show this help message and exit")
     parser.add_argument("--version", action="store_true", help="show the Restork version and exit")
     commands = parser.add_subparsers(dest="command")
@@ -166,7 +171,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
     if arguments.command == "serve":
-        return _serve(arguments.state_db, arguments.port)
+        return _serve(arguments.state_db, arguments.port, arguments.profile_dir)
 
     try:
         client = LocalApiClient(arguments.api_url, os.environ.get("RESTORK_CLI_TOKEN"))
@@ -182,15 +187,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
 
-def _serve(database: Path, port: int) -> int:
+def _serve(database: Path, port: int, profile_dir: Path | None = None) -> int:
     pairing = PairingAuthority()
     cli_code = pairing.new_pairing_code(CLI_AUDIENCE, CLI_SCOPES)
+    runtime_paths = RuntimePaths.from_environ()
+    selected_profile = profile_dir or runtime_paths.config_dir / "profiles" / "default"
+    memory = MemoryService(
+        SQLiteMemoryStore.create(database),
+        PrivateProfileStore(selected_profile),
+        runtime_paths.data_dir / "artifacts",
+    )
     app = create_app(
         SQLiteEventStore.create(database),
         pairing,
         SQLiteRunStore.create(database),
         SQLiteApprovalStore.open(database),
         SQLiteIntentStore.create(database),
+        memory,
     )
     print(f"Web pairing code: {pairing.pairing_code}")
     print(f"CLI pairing code: {cli_code}", flush=True)

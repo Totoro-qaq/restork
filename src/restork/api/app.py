@@ -15,6 +15,8 @@ from restork.api.auth import (
     APPROVALS_READ,
     CLI_AUDIENCE,
     EFFECTS_RESOLVE,
+    MEMORY_READ,
+    MEMORY_WRITE,
     RUNS_READ,
     RUNS_WRITE,
     TOKENS_MANAGE,
@@ -25,6 +27,15 @@ from restork.api.auth import (
 )
 from restork.contracts.task import TaskSpec
 from restork.contracts.types import ApprovalDecision, EffectPhase, Mode
+from restork.memory.models import (
+    ContextSelectionRequest,
+    MemoryCorrection,
+    MemoryDeleteRequest,
+    MemoryExportRequest,
+    MemoryLayer,
+    SourcePurgeRequest,
+)
+from restork.memory.service import MemoryService
 from restork.runtime.runner import Harness
 from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.events import SQLiteEventStore
@@ -79,6 +90,7 @@ def create_app(
     runs: SQLiteRunStore,
     approvals: SQLiteApprovalStore,
     intents: SQLiteIntentStore,
+    memory: MemoryService | None = None,
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -112,6 +124,8 @@ def create_app(
     read_approvals = require_token(APPROVALS_READ)
     decide_approvals = require_token(APPROVALS_DECIDE)
     resolve_effects = require_token(EFFECTS_RESOLVE)
+    read_memory = require_token(MEMORY_READ)
+    write_memory = require_token(MEMORY_WRITE)
 
     def require_json(content_type: str = Header(default="")) -> None:
         if content_type.split(";", maxsplit=1)[0].strip().lower() != "application/json":
@@ -135,7 +149,10 @@ def create_app(
             )
         if request.method == "OPTIONS" and origin:
             requested_method = request.headers.get("access-control-request-method", "")
-            if requested_method not in {"GET", "POST"}:
+            allowed_methods = {"GET", "POST"}
+            if request.url.path.startswith("/v1/memory/"):
+                allowed_methods.update({"PATCH", "DELETE"})
+            if requested_method not in allowed_methods:
                 return JSONResponse(
                     status_code=405,
                     content={"detail": "CORS method is not allowed"},
@@ -163,7 +180,9 @@ def create_app(
                     "Access-Control-Allow-Headers": (
                         "Authorization, Content-Type, Idempotency-Key, Last-Event-ID"
                     ),
-                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Methods": ", ".join(
+                        (*sorted(allowed_methods), "OPTIONS")
+                    ),
                     "Vary": "Origin",
                 },
             )
@@ -215,7 +234,114 @@ def create_app(
             "modes": [mode.value for mode in Mode],
             "providers": ["deepseek-v4-pro"],
             "tools": sorted(DEFAULT_TOOL_DEFINITIONS),
+            "memory": {
+                "layers": [layer.value for layer in MemoryLayer],
+                "valkey_required": False,
+                "memory_mcp_required": False,
+            },
         }
+
+    def configured_memory() -> MemoryService:
+        if memory is None:
+            raise HTTPException(status_code=503, detail="memory service is not configured")
+        return memory
+
+    @app.get("/v1/memory")
+    def inspect_memory(
+        _: Annotated[AccessToken, Depends(read_memory)],
+        layer: MemoryLayer | None = None,
+    ) -> dict[str, object]:
+        return configured_memory().inspect(layer).model_dump(mode="json")
+
+    @app.post("/v1/memory/context")
+    def build_memory_context(
+        body: ContextSelectionRequest,
+        _: Annotated[AccessToken, Depends(read_memory)],
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        try:
+            selection = configured_memory().build_context(body)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="memory record not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return selection.model_dump(mode="json")
+
+    @app.patch("/v1/memory/{memory_id}")
+    def correct_memory(
+        memory_id: str,
+        body: MemoryCorrection,
+        _: Annotated[AccessToken, Depends(write_memory)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        try:
+            record = configured_memory().correct(
+                memory_id,
+                body.value,
+                expected_content_hash=body.expected_content_hash,
+                data_class=body.data_class,
+                idempotency_key=idempotency_key,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="memory record not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return record.model_dump(mode="json")
+
+    @app.delete("/v1/memory/{memory_id}")
+    def delete_memory(
+        memory_id: str,
+        body: MemoryDeleteRequest,
+        _: Annotated[AccessToken, Depends(write_memory)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, bool]:
+        try:
+            deleted = configured_memory().delete(
+                memory_id,
+                expected_content_hash=body.expected_content_hash,
+                idempotency_key=idempotency_key,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="memory record not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return {"deleted": deleted}
+
+    @app.post("/v1/memory/export")
+    def export_memory(
+        body: MemoryExportRequest,
+        _: Annotated[AccessToken, Depends(write_memory)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        try:
+            result = configured_memory().export(
+                body.layers, idempotency_key=idempotency_key
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return result.model_dump(mode="json")
+
+    @app.post("/v1/memory/purge-source")
+    def purge_memory_source(
+        body: SourcePurgeRequest,
+        _: Annotated[AccessToken, Depends(write_memory)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        try:
+            result = configured_memory().purge_source(
+                body.source_id, idempotency_key=idempotency_key
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return result.model_dump(mode="json")
 
     @app.post("/v1/runs")
     async def create_run(

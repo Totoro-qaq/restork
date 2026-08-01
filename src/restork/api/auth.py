@@ -16,6 +16,8 @@ APPROVALS_READ = "approvals:read"
 APPROVALS_DECIDE = "approvals:decide"
 EFFECTS_RESOLVE = "effects:resolve"
 TOKENS_MANAGE = "tokens:manage"
+MEMORY_READ = "memory:read"
+MEMORY_WRITE = "memory:write"
 
 WEB_SCOPES = frozenset(
     {
@@ -25,6 +27,8 @@ WEB_SCOPES = frozenset(
         APPROVALS_DECIDE,
         EFFECTS_RESOLVE,
         TOKENS_MANAGE,
+        MEMORY_READ,
+        MEMORY_WRITE,
     }
 )
 CLI_SCOPES = WEB_SCOPES
