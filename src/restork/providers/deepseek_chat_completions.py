@@ -8,12 +8,18 @@ from typing import Any
 
 from restork.config.models import ProviderConfig
 from restork.contracts.outbound import OutboundEnvelope
-from restork.contracts.types import DataClass, PolicyDecision
-from restork.network.gateway import OutboundGateway, OutboundRequest, OutboundResponse
+from restork.contracts.types import PolicyDecision
+from restork.network.gateway import (
+    OutboundDeniedError,
+    OutboundGateway,
+    OutboundRequest,
+    OutboundResponse,
+)
 from restork.providers.base import (
     ChatCompletion,
     ChatCompletionRequest,
     CompletionUsage,
+    ProviderErrorKind,
     ProviderResponseError,
 )
 from restork.secrets.store import SecretResolver
@@ -40,25 +46,41 @@ class DeepSeekChatCompletionsProvider:
             resolved_address_class="public",
             method="POST",
             purpose="model_completion",
-            source_refs=[],
+            source_refs=list(request.source_refs),
             payload_hash=sha256(payload).hexdigest(),
-            classification=DataClass.PUBLIC,
+            classification=request.classification,
             redaction_summary="provider request is transient and not persisted",
             policy_version="v1",
             policy_decision=PolicyDecision.ALLOWED,
         )
-        secret = self._secrets.resolve(self._config.api_key_ref)
-        response = await self._gateway.dispatch(
-            OutboundRequest(
-                envelope=envelope,
-                payload=payload,
-                headers={
-                    "Authorization": f"Bearer {secret}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                },
+        try:
+            secret = self._secrets.resolve(self._config.api_key_ref)
+            response = await self._gateway.dispatch(
+                OutboundRequest(
+                    envelope=envelope,
+                    payload=payload,
+                    headers={
+                        "Authorization": f"Bearer {secret}",
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    },
+                )
             )
-        )
+        except OutboundDeniedError as error:
+            raise ProviderResponseError(
+                "DeepSeek request was denied by outbound policy",
+                kind=ProviderErrorKind.POLICY_DENIED,
+            ) from error
+        except (KeyError, PermissionError) as error:
+            raise ProviderResponseError(
+                "DeepSeek credential requires user action",
+                kind=ProviderErrorKind.USER_ACTION_REQUIRED,
+            ) from error
+        except TimeoutError as error:
+            raise ProviderResponseError(
+                "DeepSeek request timed out",
+                kind=ProviderErrorKind.RETRYABLE,
+            ) from error
         return self._decode_response(response, response_format=request.response_format)
 
     def _encode_request(self, request: ChatCompletionRequest) -> bytes:
@@ -114,5 +136,6 @@ class DeepSeekChatCompletionsProvider:
             )
         except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise ProviderResponseError(
-                "DeepSeek returned an invalid completion", retryable=False
+                "DeepSeek returned an invalid completion",
+                kind=ProviderErrorKind.INVALID_SCHEMA,
             ) from error

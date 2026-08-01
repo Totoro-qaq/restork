@@ -62,6 +62,19 @@ class SQLiteBudgetStore:
             row["steps"], row["retries"], row["tokens"], row["cost_usd"], row["child_tasks"]
         )
 
+    def budget(self, run_id: str) -> BudgetSpec:
+        row = self._row(run_id)
+        self._require_wall_time(row)
+        return BudgetSpec.model_validate_json(row["budget_json"])
+
+    def remaining_tokens(self, run_id: str) -> int | None:
+        row = self._row(run_id)
+        self._require_wall_time(row)
+        maximum = BudgetSpec.model_validate_json(row["budget_json"]).max_tokens
+        if maximum is None:
+            return None
+        return max(0, maximum - int(row["tokens"]))
+
     def _consume_integer(self, run_id: str, column: str, limit: str, amount: int) -> BudgetUsage:
         if amount < 0:
             raise ValueError("budget consumption cannot be negative")
