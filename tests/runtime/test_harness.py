@@ -41,9 +41,14 @@ def test_harness_persists_ordered_events_and_requires_artifact(tmp_path: Path) -
 
 def test_tool_registry_enforces_task_and_mode_policy() -> None:
     task = _task()
-    ToolRegistry().validate(task, "vault_search")
+    registry = ToolRegistry()
+    registry.validate(task, "vault_search")
+    exposed = registry.expose(task)
+    assert [definition.name for definition in exposed] == ["vault_search"]
+    assert exposed[0].timeout_seconds > 0
+    assert exposed[0].owning_capability == "knowledge.read"
     with pytest.raises(PermissionError, match="mode"):
-        ToolRegistry().validate(task, "handoff_export")
+        registry.validate(task, "handoff_export")
 
 
 def test_cancel_pauses_for_unknown_effect_until_manual_reconciliation(tmp_path: Path) -> None:
