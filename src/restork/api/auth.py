@@ -36,3 +36,13 @@ class PairingAuthority:
         token = self._tokens.get(value)
         if token is None or token.audience != audience or token.expires_at <= datetime.now(UTC):
             raise PermissionError("invalid or expired access token")
+
+    def revoke(self, value: str) -> None:
+        self._tokens.pop(value, None)
+
+    def rotate(self, value: str, audience: str) -> AccessToken:
+        self.verify(value, audience)
+        self.revoke(value)
+        token = AccessToken(secrets.token_urlsafe(32), audience, datetime.now(UTC) + self._ttl)
+        self._tokens[token.value] = token
+        return token

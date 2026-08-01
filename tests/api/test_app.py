@@ -48,6 +48,21 @@ def test_server_binds_only_to_loopback(tmp_path: Path) -> None:
     assert make_server(app, 8765).config.host == LOOPBACK_HOST
 
 
+def test_token_rotation_and_revocation_are_enforced(tmp_path: Path) -> None:
+    database = tmp_path / "state.db"
+    pairing = PairingAuthority()
+    client = TestClient(
+        create_app(SQLiteEventStore.create(database), pairing, SQLiteRunStore.create(database))
+    )
+    first = client.post("/api/pair", json={"code": pairing.pairing_code}).json()["access_token"]
+    rotated = client.post("/api/token/rotate", headers={"Authorization": f"Bearer {first}"})
+    assert rotated.status_code == 200
+    second = rotated.json()["access_token"]
+    headers = {"Authorization": f"Bearer {second}"}
+    assert client.post("/api/token/revoke", headers=headers).status_code == 204
+    assert client.get("/api/runs/r/events", headers=headers).status_code == 401
+
+
 def test_cancel_requires_idempotency_and_is_replay_safe(tmp_path: Path) -> None:
     database = tmp_path / "state.db"
     events = SQLiteEventStore.create(database)

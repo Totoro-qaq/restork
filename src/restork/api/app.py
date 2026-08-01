@@ -20,7 +20,7 @@ def create_app(
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     idempotency: dict[str, dict[str, object]] = {}
 
-    def require_token(authorization: str = Header(default="")) -> None:
+    def require_token(authorization: str = Header(default="")) -> str:
         scheme, _, token = authorization.partition(" ")
         if scheme != "Bearer" or not token:
             raise HTTPException(status_code=401, detail="Bearer authorization is required")
@@ -28,6 +28,7 @@ def create_app(
             pairing.verify(token, "restork-web")
         except PermissionError as error:
             raise HTTPException(status_code=401, detail=str(error)) from error
+        return token
 
     @app.middleware("http")
     async def local_origin_only(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -44,11 +45,21 @@ def create_app(
             raise HTTPException(status_code=401, detail=str(error)) from error
         return {"access_token": token.value, "token_type": "bearer"}  # nosec B105
 
+    @app.post("/api/token/rotate")
+    def rotate_token(token: str = Depends(require_token)) -> dict[str, str]:
+        replacement = pairing.rotate(token, "restork-web")
+        return {"access_token": replacement.value, "token_type": "bearer"}  # nosec B105
+
+    @app.post("/api/token/revoke")
+    def revoke_token(token: str = Depends(require_token)) -> Response:
+        pairing.revoke(token)
+        return Response(status_code=204)
+
     @app.get("/api/runs/{run_id}/events")
     def stream_events(
         run_id: str,
         last_event_id: str | None = Header(default=None),
-        _: None = Depends(require_token),
+        _: str = Depends(require_token),
     ) -> StreamingResponse:
         try:
             after_seq = int(last_event_id) if last_event_id is not None else 0
@@ -66,7 +77,7 @@ def create_app(
     def cancel_run(
         run_id: str,
         idempotency_key: str = Header(default=""),
-        _: None = Depends(require_token),
+        _: str = Depends(require_token),
     ) -> dict[str, object]:
         if not idempotency_key:
             raise HTTPException(status_code=400, detail="Idempotency-Key is required")
