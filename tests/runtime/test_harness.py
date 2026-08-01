@@ -6,10 +6,11 @@ from pathlib import Path
 import pytest
 
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
-from restork.contracts.types import Mode, RunPhase
+from restork.contracts.types import EffectPhase, Mode, RunPhase, StopReason
 from restork.runtime.runner import Harness
 from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
+from restork.storage.intents import EffectIntent, SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
 from restork.tools.registry import ToolRegistry
 
@@ -43,3 +44,43 @@ def test_tool_registry_enforces_task_and_mode_policy() -> None:
     ToolRegistry().validate(task, "vault_search")
     with pytest.raises(PermissionError, match="mode"):
         ToolRegistry().validate(task, "handoff_export")
+
+
+def test_cancel_pauses_for_unknown_effect_until_manual_reconciliation(tmp_path: Path) -> None:
+    path = tmp_path / "state.db"
+    runs = SQLiteRunStore.create(path)
+    events = SQLiteEventStore.create(path)
+    intents = SQLiteIntentStore.create(path)
+    harness = Harness(runs, events, SQLiteBudgetStore.create(path))
+    run = harness.start(_task())
+    running = runs.transition(
+        run.run_id, expected_version=run.state_version, next_state=RunPhase.RUNNING
+    )
+    assert running.state is RunPhase.RUNNING
+    intents.create_intent(
+        EffectIntent(
+            "intent-1", run.run_id, "vault_search", "hash", EffectPhase.UNKNOWN, "pure"
+        )
+    )
+
+    paused = harness.cancel(run.run_id, idempotency_key="cancel-1")
+
+    assert paused.state is RunPhase.USER_ACTION_REQUIRED
+    assert paused.stop_reason is StopReason.USER_ACTION_REQUIRED
+    assert harness.cancel(run.run_id, idempotency_key="cancel-1") == paused
+    with pytest.raises(ValueError, match="reconciled"):
+        harness.resume(run.run_id, intents)
+    intents.update_phase("intent-1", EffectPhase.FAILED)
+    resumed = harness.resume(run.run_id, intents)
+    replayed = harness.cancel(run.run_id, idempotency_key="cancel-1")
+    cancelled = harness.cancel(run.run_id, idempotency_key="cancel-2")
+    assert resumed.state is RunPhase.RUNNING
+    assert resumed.stop_reason is None
+    assert replayed == paused
+    assert cancelled.state is RunPhase.CANCELLED
+    assert [event.kind for event in events.read(run.run_id, after_seq=0)][-4:] == [
+        "user_action_required",
+        "effect.reconciliation_required",
+        "run_resumed",
+        "run_cancelled",
+    ]
