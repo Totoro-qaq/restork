@@ -33,3 +33,41 @@ def test_gateway_rejects_subdomain_and_secret_payloads() -> None:
         )
         is PolicyDecision.DENIED
     )
+
+
+def test_gateway_rejects_credential_urls_private_addresses_and_confidential_data() -> None:
+    policy = OutboundPolicy(allowed_origins=frozenset({"https://api.deepseek.com"}))
+
+    assert (
+        evaluate_outbound(
+            destination="https://token@api.deepseek.com/chat/completions",
+            classification=DataClass.PUBLIC,
+            policy=policy,
+        )
+        is PolicyDecision.DENIED
+    )
+    assert (
+        evaluate_outbound(
+            destination="https://api.deepseek.com/chat/completions?key=token",
+            classification=DataClass.PUBLIC,
+            policy=policy,
+        )
+        is PolicyDecision.DENIED
+    )
+    assert (
+        evaluate_outbound(
+            destination="https://api.deepseek.com/chat/completions",
+            classification=DataClass.PUBLIC,
+            policy=policy,
+            resolved_address_class="private",
+        )
+        is PolicyDecision.DENIED
+    )
+    assert (
+        evaluate_outbound(
+            destination="https://api.deepseek.com/chat/completions",
+            classification=DataClass.CONFIDENTIAL,
+            policy=policy,
+        )
+        is PolicyDecision.DENIED
+    )

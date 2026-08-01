@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from restork.config.loader import load_config
-from restork.config.models import KeychainReference
+from restork.config.models import KeychainReference, ProviderConfig
 from restork.paths import RuntimePaths
 
 
@@ -35,6 +35,20 @@ api_key_ref = "keychain:restork/provider/deepseek"
 def test_keychain_reference_requires_the_keychain_scheme() -> None:
     with pytest.raises(ValidationError):
         KeychainReference(value="actual-secret")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("model", "deepseek-chat"),
+        ("base_url", "https://api.deepseek.com/beta"),
+        ("reasoning_effort", "medium"),
+        ("reasoning_effort", "max"),
+    ],
+)
+def test_provider_config_rejects_retired_or_noncanonical_settings(field: str, value: str) -> None:
+    with pytest.raises(ValidationError):
+        ProviderConfig(api_key_ref="keychain:restork/deepseek", **{field: value})
 
 
 def test_runtime_paths_honor_explicit_environment_overrides(tmp_path: Path) -> None:

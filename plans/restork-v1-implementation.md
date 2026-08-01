@@ -1,6 +1,8 @@
 # Restork V1 Implementation Blueprint
 
-> Status: In progress — Steps 0–1 completed locally | Version: 0.4 | Date: 2026-08-01
+> Status: In progress — Steps 0–1 complete; Step 2 persistence and the Step 3
+> outbound policy gate are merged, with the provider adapter in its current
+> review slice | Version: 0.5 | Date: 2026-08-01
 >
 > Objective: Build a public-ready, local-first personal agent for Research, Study, and Work without exposing private runtime data.
 >
@@ -12,7 +14,9 @@
 Current public-safe repository facts at plan creation:
 
 - Repository root: `<repo-root>`
-- Initial implementation baseline: Steps 0–1 created locally; Step 0 is published, while later slices await their PR sequence
+- Initial implementation baseline: Steps 0–1, durable run/event/approval storage,
+  and the outbound policy gate are merged; the provider adapter follows in its own
+  reviewable slice.
 - Private machine paths, accounts, authentication state, vault inventory, and migration incidents are intentionally excluded from this tracked plan.
 
 Execution mode:
