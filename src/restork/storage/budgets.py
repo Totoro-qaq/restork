@@ -23,6 +23,14 @@ class BudgetUsage:
     child_tasks: int
 
 
+@dataclass(frozen=True)
+class BudgetSnapshot:
+    budget: BudgetSpec
+    usage: BudgetUsage
+    started_at: datetime
+    wall_time_exceeded: bool
+
+
 class SQLiteBudgetStore:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
@@ -75,6 +83,21 @@ class SQLiteBudgetStore:
         if maximum is None:
             return None
         return max(0, maximum - int(row["tokens"]))
+
+    def snapshot(self, run_id: str) -> BudgetSnapshot:
+        row = self._row(run_id)
+        budget = BudgetSpec.model_validate_json(row["budget_json"])
+        started_at = datetime.fromisoformat(row["started_at"])
+        usage = BudgetUsage(
+            row["steps"], row["retries"], row["tokens"], row["cost_usd"], row["child_tasks"]
+        )
+        return BudgetSnapshot(
+            budget=budget,
+            usage=usage,
+            started_at=started_at,
+            wall_time_exceeded=(datetime.now(UTC) - started_at).total_seconds()
+            > budget.max_wall_time_seconds,
+        )
 
     def _consume_integer(self, run_id: str, column: str, limit: str, amount: int) -> BudgetUsage:
         if amount < 0:

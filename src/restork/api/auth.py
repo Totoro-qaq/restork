@@ -18,6 +18,10 @@ EFFECTS_RESOLVE = "effects:resolve"
 TOKENS_MANAGE = "tokens:manage"
 MEMORY_READ = "memory:read"
 MEMORY_WRITE = "memory:write"
+TASKS_READ = "tasks:read"
+TASKS_WRITE = "tasks:write"
+RADAR_READ = "radar:read"
+RADAR_WRITE = "radar:write"
 
 WEB_SCOPES = frozenset(
     {
@@ -29,6 +33,10 @@ WEB_SCOPES = frozenset(
         TOKENS_MANAGE,
         MEMORY_READ,
         MEMORY_WRITE,
+        TASKS_READ,
+        TASKS_WRITE,
+        RADAR_READ,
+        RADAR_WRITE,
     }
 )
 CLI_SCOPES = WEB_SCOPES

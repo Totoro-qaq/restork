@@ -293,6 +293,32 @@ class SQLiteApprovalStore:
             self._connection.execute("COMMIT")
         return request
 
+    def list_requests(
+        self, *, pending_only: bool = False, limit: int = 50
+    ) -> tuple[ApprovalRequest, ...]:
+        if not 1 <= limit <= 200:
+            raise ValueError("approval list limit must be between 1 and 200")
+        if pending_only:
+            rows = self._connection.execute(
+                """
+                SELECT approval_id FROM approvals
+                WHERE decision = ?
+                ORDER BY expires_at ASC, approval_id
+                LIMIT ?
+                """,
+                (ApprovalDecision.PENDING.value, limit),
+            ).fetchall()
+        else:
+            rows = self._connection.execute(
+                """
+                SELECT approval_id FROM approvals
+                ORDER BY expires_at DESC, approval_id
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return tuple(self.get(row["approval_id"]) for row in rows)
+
     def _save(self, request: ApprovalRequest) -> None:
         self._connection.execute(
             """

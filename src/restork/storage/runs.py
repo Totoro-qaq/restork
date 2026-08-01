@@ -178,6 +178,15 @@ class SQLiteRunStore:
             schema_version=row["schema_version"],
         )
 
+    def list_runs(self, *, limit: int = 50) -> tuple[RunSummary, ...]:
+        if not 1 <= limit <= 200:
+            raise ValueError("run list limit must be between 1 and 200")
+        rows = self._connection.execute(
+            "SELECT run_id FROM runs ORDER BY updated_at DESC, run_id LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return tuple(self.get(row["run_id"]) for row in rows)
+
     def transition(
         self,
         run_id: str,

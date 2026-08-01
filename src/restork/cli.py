@@ -20,11 +20,15 @@ from restork.api.auth import CLI_AUDIENCE, CLI_SCOPES, PairingAuthority
 from restork.api.server import make_server
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import Mode
+from restork.dashboard.radar import SQLiteRadarStore
+from restork.dashboard.tasks import MarkdownTaskBoard
+from restork.knowledge.vault import Vault
 from restork.memory.profile import PrivateProfileStore
 from restork.memory.service import MemoryService
 from restork.memory.store import SQLiteMemoryStore
 from restork.paths import RuntimePaths
 from restork.storage.approvals import SQLiteApprovalStore
+from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
 from restork.storage.intents import SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
@@ -115,6 +119,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--state-db", type=Path, default=Path("restork.db"))
     parser.add_argument("--profile-dir", type=Path)
+    parser.add_argument("--vault-dir", type=Path)
     parser.add_argument("-h", "--help", action="store_true", help="show this help message and exit")
     parser.add_argument("--version", action="store_true", help="show the Restork version and exit")
     commands = parser.add_subparsers(dest="command")
@@ -171,7 +176,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
     if arguments.command == "serve":
-        return _serve(arguments.state_db, arguments.port, arguments.profile_dir)
+        return _serve(
+            arguments.state_db,
+            arguments.port,
+            arguments.profile_dir,
+            arguments.vault_dir,
+        )
 
     try:
         client = LocalApiClient(arguments.api_url, os.environ.get("RESTORK_CLI_TOKEN"))
@@ -187,7 +197,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
 
-def _serve(database: Path, port: int, profile_dir: Path | None = None) -> int:
+def _serve(
+    database: Path,
+    port: int,
+    profile_dir: Path | None = None,
+    vault_dir: Path | None = None,
+) -> int:
     pairing = PairingAuthority()
     cli_code = pairing.new_pairing_code(CLI_AUDIENCE, CLI_SCOPES)
     runtime_paths = RuntimePaths.from_environ()
@@ -197,6 +212,7 @@ def _serve(database: Path, port: int, profile_dir: Path | None = None) -> int:
         PrivateProfileStore(selected_profile),
         runtime_paths.data_dir / "artifacts",
     )
+    task_board = MarkdownTaskBoard(Vault(vault_dir) if vault_dir is not None else None)
     app = create_app(
         SQLiteEventStore.create(database),
         pairing,
@@ -204,6 +220,9 @@ def _serve(database: Path, port: int, profile_dir: Path | None = None) -> int:
         SQLiteApprovalStore.open(database),
         SQLiteIntentStore.create(database),
         memory,
+        task_board,
+        SQLiteRadarStore.create(database),
+        SQLiteBudgetStore.create(database),
     )
     print(f"Web pairing code: {pairing.pairing_code}")
     print(f"CLI pairing code: {cli_code}", flush=True)
