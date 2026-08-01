@@ -10,3 +10,8 @@ def test_contract_schemas_are_versioned_and_include_task_spec() -> None:
     assert schemas["TaskSpec"]["additionalProperties"] is False
     assert schemas["SourceCard"]["properties"]["untrusted"]["const"] is True
     assert schemas["SourceRequest"]["additionalProperties"] is False
+    assert schemas["WorkStartRequest"]["additionalProperties"] is False
+    assert (
+        schemas["WorkHandoffEnvelope"]["properties"]["executor_boundary"]["const"]
+        == "external_user_started_no_restork_executor"
+    )

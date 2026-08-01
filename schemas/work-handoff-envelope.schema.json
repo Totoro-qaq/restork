@@ -1,0 +1,203 @@
+{
+  "$defs": {
+    "DataClass": {
+      "enum": [
+        "public",
+        "personal",
+        "confidential",
+        "secret",
+        "credential"
+      ],
+      "title": "DataClass",
+      "type": "string"
+    },
+    "HandoffContext": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_count": {
+          "maximum": 200000,
+          "minimum": 0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "content": {
+          "maxLength": 200000,
+          "title": "Content",
+          "type": "string"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "data_class": {
+          "$ref": "#/$defs/DataClass"
+        },
+        "exists_at_plan": {
+          "default": true,
+          "title": "Exists At Plan",
+          "type": "boolean"
+        },
+        "redactions": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Redactions",
+          "type": "array"
+        },
+        "relative_path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "relative_path",
+        "byte_count",
+        "data_class",
+        "content"
+      ],
+      "title": "HandoffContext",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "base_snapshot_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Base Snapshot Hash",
+      "type": "string"
+    },
+    "completion_criteria": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "minItems": 1,
+      "title": "Completion Criteria",
+      "type": "array"
+    },
+    "constraints": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Constraints",
+      "type": "array"
+    },
+    "context": {
+      "items": {
+        "$ref": "#/$defs/HandoffContext"
+      },
+      "maxItems": 80,
+      "title": "Context",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "executor_boundary": {
+      "const": "external_user_started_no_restork_executor",
+      "default": "external_user_started_no_restork_executor",
+      "title": "Executor Boundary",
+      "type": "string"
+    },
+    "goal": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Goal",
+      "type": "string"
+    },
+    "handoff_id": {
+      "pattern": "^work-handoff-[0-9a-f]{24}$",
+      "title": "Handoff Id",
+      "type": "string"
+    },
+    "non_goals": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Non Goals",
+      "type": "array"
+    },
+    "plan_ref": {
+      "pattern": "^work-plan-[0-9a-f]{24}$",
+      "title": "Plan Ref",
+      "type": "string"
+    },
+    "proposed_verification_commands": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Proposed Verification Commands",
+      "type": "array"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "target_files": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "minItems": 1,
+      "title": "Target Files",
+      "type": "array"
+    },
+    "validation_status": {
+      "const": "valid",
+      "default": "valid",
+      "title": "Validation Status",
+      "type": "string"
+    },
+    "workspace_id": {
+      "pattern": "^workspace-[0-9a-f]{24}$",
+      "title": "Workspace Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "handoff_id",
+    "run_id",
+    "plan_ref",
+    "workspace_id",
+    "base_snapshot_hash",
+    "goal",
+    "target_files",
+    "completion_criteria",
+    "context",
+    "created_at"
+  ],
+  "title": "WorkHandoffEnvelope",
+  "type": "object"
+}

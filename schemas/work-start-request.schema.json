@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "DataClass": {
+      "enum": [
+        "public",
+        "personal",
+        "confidential",
+        "secret",
+        "credential"
+      ],
+      "title": "DataClass",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "completion_criteria": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "minItems": 1,
+      "title": "Completion Criteria",
+      "type": "array"
+    },
+    "constraints": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Constraints",
+      "type": "array"
+    },
+    "context_data_class": {
+      "$ref": "#/$defs/DataClass",
+      "default": "confidential"
+    },
+    "context_files": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Context Files",
+      "type": "array"
+    },
+    "goal": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Goal",
+      "type": "string"
+    },
+    "non_goals": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Non Goals",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "target_files": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "minItems": 1,
+      "title": "Target Files",
+      "type": "array"
+    },
+    "verification_commands": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 30,
+      "title": "Verification Commands",
+      "type": "array"
+    },
+    "workspace_root": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Workspace Root",
+      "type": "string"
+    }
+  },
+  "required": [
+    "goal",
+    "workspace_root",
+    "target_files",
+    "completion_criteria"
+  ],
+  "title": "WorkStartRequest",
+  "type": "object"
+}

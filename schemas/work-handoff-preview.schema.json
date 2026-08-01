@@ -1,0 +1,690 @@
+{
+  "$defs": {
+    "ApprovalDecision": {
+      "enum": [
+        "pending",
+        "approved",
+        "denied",
+        "expired",
+        "consumed"
+      ],
+      "title": "ApprovalDecision",
+      "type": "string"
+    },
+    "ApprovalRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "action_digest": {
+          "minLength": 1,
+          "title": "Action Digest",
+          "type": "string"
+        },
+        "action_kind": {
+          "minLength": 1,
+          "title": "Action Kind",
+          "type": "string"
+        },
+        "approval_id": {
+          "minLength": 1,
+          "title": "Approval Id",
+          "type": "string"
+        },
+        "canonical_scope": {
+          "minLength": 1,
+          "title": "Canonical Scope",
+          "type": "string"
+        },
+        "consumed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consumed At"
+        },
+        "decided_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decided At"
+        },
+        "decided_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decided By"
+        },
+        "decision": {
+          "$ref": "#/$defs/ApprovalDecision",
+          "default": "pending"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "human_summary": {
+          "minLength": 1,
+          "title": "Human Summary",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "minLength": 1,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "nonce": {
+          "minLength": 1,
+          "title": "Nonce",
+          "type": "string"
+        },
+        "policy_version": {
+          "minLength": 1,
+          "title": "Policy Version",
+          "type": "string"
+        },
+        "preview_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preview Ref"
+        },
+        "resource_versions": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Resource Versions",
+          "type": "object"
+        },
+        "risk_class": {
+          "$ref": "#/$defs/RiskClass"
+        },
+        "run_id": {
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "approval_id",
+        "run_id",
+        "action_kind",
+        "risk_class",
+        "human_summary",
+        "action_digest",
+        "canonical_scope",
+        "policy_version",
+        "idempotency_key",
+        "nonce",
+        "expires_at"
+      ],
+      "title": "ApprovalRequest",
+      "type": "object"
+    },
+    "DataClass": {
+      "enum": [
+        "public",
+        "personal",
+        "confidential",
+        "secret",
+        "credential"
+      ],
+      "title": "DataClass",
+      "type": "string"
+    },
+    "HandoffContext": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_count": {
+          "maximum": 200000,
+          "minimum": 0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "content": {
+          "maxLength": 200000,
+          "title": "Content",
+          "type": "string"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "data_class": {
+          "$ref": "#/$defs/DataClass"
+        },
+        "exists_at_plan": {
+          "default": true,
+          "title": "Exists At Plan",
+          "type": "boolean"
+        },
+        "redactions": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Redactions",
+          "type": "array"
+        },
+        "relative_path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "relative_path",
+        "byte_count",
+        "data_class",
+        "content"
+      ],
+      "title": "HandoffContext",
+      "type": "object"
+    },
+    "RiskClass": {
+      "enum": [
+        "read_only",
+        "local_write",
+        "external_action",
+        "high_impact"
+      ],
+      "title": "RiskClass",
+      "type": "string"
+    },
+    "WorkFileSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_count": {
+          "maximum": 500000,
+          "minimum": 0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "data_class": {
+          "$ref": "#/$defs/DataClass"
+        },
+        "exists_at_plan": {
+          "default": true,
+          "title": "Exists At Plan",
+          "type": "boolean"
+        },
+        "included_in_handoff": {
+          "title": "Included In Handoff",
+          "type": "boolean"
+        },
+        "language": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Language",
+          "type": "string"
+        },
+        "redactions": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Redactions",
+          "type": "array"
+        },
+        "relative_path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "relative_path",
+        "byte_count",
+        "language",
+        "data_class",
+        "included_in_handoff"
+      ],
+      "title": "WorkFileSnapshot",
+      "type": "object"
+    },
+    "WorkHandoffEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "base_snapshot_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Base Snapshot Hash",
+          "type": "string"
+        },
+        "completion_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "minItems": 1,
+          "title": "Completion Criteria",
+          "type": "array"
+        },
+        "constraints": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Constraints",
+          "type": "array"
+        },
+        "context": {
+          "items": {
+            "$ref": "#/$defs/HandoffContext"
+          },
+          "maxItems": 80,
+          "title": "Context",
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "executor_boundary": {
+          "const": "external_user_started_no_restork_executor",
+          "default": "external_user_started_no_restork_executor",
+          "title": "Executor Boundary",
+          "type": "string"
+        },
+        "goal": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Goal",
+          "type": "string"
+        },
+        "handoff_id": {
+          "pattern": "^work-handoff-[0-9a-f]{24}$",
+          "title": "Handoff Id",
+          "type": "string"
+        },
+        "non_goals": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Non Goals",
+          "type": "array"
+        },
+        "plan_ref": {
+          "pattern": "^work-plan-[0-9a-f]{24}$",
+          "title": "Plan Ref",
+          "type": "string"
+        },
+        "proposed_verification_commands": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Proposed Verification Commands",
+          "type": "array"
+        },
+        "run_id": {
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "target_files": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "minItems": 1,
+          "title": "Target Files",
+          "type": "array"
+        },
+        "validation_status": {
+          "const": "valid",
+          "default": "valid",
+          "title": "Validation Status",
+          "type": "string"
+        },
+        "workspace_id": {
+          "pattern": "^workspace-[0-9a-f]{24}$",
+          "title": "Workspace Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "handoff_id",
+        "run_id",
+        "plan_ref",
+        "workspace_id",
+        "base_snapshot_hash",
+        "goal",
+        "target_files",
+        "completion_criteria",
+        "context",
+        "created_at"
+      ],
+      "title": "WorkHandoffEnvelope",
+      "type": "object"
+    },
+    "WorkPlanArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "pattern": "^work-plan-[0-9a-f]{24}$",
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "completion_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "minItems": 1,
+          "title": "Completion Criteria",
+          "type": "array"
+        },
+        "constraints": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Constraints",
+          "type": "array"
+        },
+        "context_manifest": {
+          "items": {
+            "$ref": "#/$defs/WorkFileSnapshot"
+          },
+          "maxItems": 80,
+          "title": "Context Manifest",
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "goal": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Goal",
+          "type": "string"
+        },
+        "instruction_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Instruction Refs",
+          "type": "array"
+        },
+        "non_goals": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Non Goals",
+          "type": "array"
+        },
+        "plan_steps": {
+          "items": {
+            "$ref": "#/$defs/WorkPlanStep"
+          },
+          "maxItems": 50,
+          "minItems": 1,
+          "title": "Plan Steps",
+          "type": "array"
+        },
+        "request_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Hash",
+          "type": "string"
+        },
+        "run_id": {
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "scope_summary": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Scope Summary",
+          "type": "string"
+        },
+        "sensitivity": {
+          "$ref": "#/$defs/DataClass"
+        },
+        "target_files": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "minItems": 1,
+          "title": "Target Files",
+          "type": "array"
+        },
+        "validation_status": {
+          "const": "valid",
+          "default": "valid",
+          "title": "Validation Status",
+          "type": "string"
+        },
+        "verification_commands": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Verification Commands",
+          "type": "array"
+        },
+        "warnings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Warnings",
+          "type": "array"
+        },
+        "workspace_id": {
+          "pattern": "^workspace-[0-9a-f]{24}$",
+          "title": "Workspace Id",
+          "type": "string"
+        },
+        "workspace_snapshot_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Workspace Snapshot Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "run_id",
+        "request_hash",
+        "workspace_id",
+        "workspace_snapshot_hash",
+        "goal",
+        "scope_summary",
+        "target_files",
+        "context_manifest",
+        "completion_criteria",
+        "plan_steps",
+        "sensitivity",
+        "created_at"
+      ],
+      "title": "WorkPlanArtifact",
+      "type": "object"
+    },
+    "WorkPlanStep": {
+      "additionalProperties": false,
+      "properties": {
+        "intent": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Intent",
+          "type": "string"
+        },
+        "order": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Order",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "step_id": {
+          "pattern": "^work-step-[0-9a-f]{24}$",
+          "title": "Step Id",
+          "type": "string"
+        },
+        "target_files": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Target Files",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "verification": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Verification",
+          "type": "array"
+        }
+      },
+      "required": [
+        "step_id",
+        "order",
+        "title",
+        "intent"
+      ],
+      "title": "WorkPlanStep",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "approval": {
+      "$ref": "#/$defs/ApprovalRequest"
+    },
+    "byte_count": {
+      "maximum": 2000000,
+      "minimum": 1,
+      "title": "Byte Count",
+      "type": "integer"
+    },
+    "envelope": {
+      "$ref": "#/$defs/WorkHandoffEnvelope"
+    },
+    "package_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Package Hash",
+      "type": "string"
+    },
+    "plan": {
+      "$ref": "#/$defs/WorkPlanArtifact"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "plan",
+    "envelope",
+    "package_hash",
+    "byte_count",
+    "approval"
+  ],
+  "title": "WorkHandoffPreview",
+  "type": "object"
+}
