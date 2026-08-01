@@ -1,8 +1,8 @@
 """Authenticated local FastAPI app with replayable run-event SSE."""
 
-from __future__ import annotations
-
 import json
+from collections.abc import Callable
+from typing import Annotated
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -10,7 +10,16 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from starlette.middleware.base import RequestResponseEndpoint
 
-from restork.api.auth import PairingAuthority
+from restork.api.auth import (
+    CLI_AUDIENCE,
+    RUNS_READ,
+    RUNS_WRITE,
+    TOKENS_MANAGE,
+    WEB_AUDIENCE,
+    AccessToken,
+    InvalidAccessToken,
+    PairingAuthority,
+)
 from restork.runtime.runner import Harness
 from restork.storage.events import SQLiteEventStore
 from restork.storage.runs import SQLiteRunStore
@@ -47,15 +56,37 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
-    def require_token(authorization: str = Header(default="")) -> str:
-        scheme, _, token = authorization.partition(" ")
-        if scheme != "Bearer" or not token:
-            raise HTTPException(status_code=401, detail="Bearer authorization is required")
-        try:
-            pairing.verify(token, "restork-web")
-        except PermissionError as error:
-            raise HTTPException(status_code=401, detail=str(error)) from error
-        return token
+    def require_token(scope: str) -> Callable[..., AccessToken]:
+        def dependency(
+            request: Request, authorization: str = Header(default="")
+        ) -> AccessToken:
+            scheme, _, token_value = authorization.partition(" ")
+            if scheme != "Bearer" or not token_value:
+                raise HTTPException(
+                    status_code=401, detail="Bearer authorization is required"
+                )
+            try:
+                token = pairing.verify(
+                    token_value,
+                    {WEB_AUDIENCE, CLI_AUDIENCE},
+                    {scope},
+                )
+            except InvalidAccessToken as error:
+                raise HTTPException(status_code=401, detail=str(error)) from error
+            except PermissionError as error:
+                raise HTTPException(status_code=403, detail=str(error)) from error
+            if request.headers.get("origin") and token.audience != WEB_AUDIENCE:
+                raise HTTPException(
+                    status_code=403,
+                    detail="browser requests require a Web audience token",
+                )
+            return token
+
+        return dependency
+
+    manage_token = require_token(TOKENS_MANAGE)
+    read_runs = require_token(RUNS_READ)
+    write_runs = require_token(RUNS_WRITE)
 
     def require_json(content_type: str = Header(default="")) -> None:
         if content_type.split(";", maxsplit=1)[0].strip().lower() != "application/json":
@@ -63,10 +94,45 @@ def create_app(
 
     @app.middleware("http")
     async def local_origin_only(request: Request, call_next: RequestResponseEndpoint) -> Response:
+        forbidden_query_keys = {"access_token", "authorization", "token"}
+        if forbidden_query_keys.intersection(request.query_params):
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "credentials are forbidden in query parameters"},
+            )
         origin = request.headers.get("origin")
         if origin and not _is_loopback_browser_origin(origin):
             return JSONResponse(status_code=403, content={"detail": "cross-origin request denied"})
+        if origin and request.url.path.startswith("/api/cli/"):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "CLI pairing rejects browser origins"},
+            )
         if request.method == "OPTIONS" and origin:
+            requested_method = request.headers.get("access-control-request-method", "")
+            if requested_method not in {"GET", "POST"}:
+                return JSONResponse(
+                    status_code=405,
+                    content={"detail": "CORS method is not allowed"},
+                )
+            allowed_headers = {
+                "authorization",
+                "content-type",
+                "idempotency-key",
+                "last-event-id",
+            }
+            requested_headers = {
+                header.strip().lower()
+                for header in request.headers.get(
+                    "access-control-request-headers", ""
+                ).split(",")
+                if header.strip()
+            }
+            if not requested_headers <= allowed_headers:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "CORS header is not allowed"},
+                )
             return Response(
                 status_code=204,
                 headers={
@@ -87,26 +153,38 @@ def create_app(
     @app.post("/api/pair")
     def pair(body: PairPayload, _: None = Depends(require_json)) -> dict[str, str]:
         try:
-            token = pairing.pair(body.code, "restork-web")
+            token = pairing.pair(body.code, WEB_AUDIENCE)
         except PermissionError as error:
             raise HTTPException(status_code=401, detail=str(error)) from error
-        return {"access_token": token.value, "token_type": "bearer"}  # nosec B105
+        return _token_payload(token)
+
+    @app.post("/api/cli/pair")
+    def pair_cli(body: PairPayload, _: None = Depends(require_json)) -> dict[str, str]:
+        try:
+            token = pairing.pair(body.code, CLI_AUDIENCE)
+        except PermissionError as error:
+            raise HTTPException(status_code=401, detail=str(error)) from error
+        return _token_payload(token)
 
     @app.post("/api/token/rotate")
-    def rotate_token(token: str = Depends(require_token)) -> dict[str, str]:
-        replacement = pairing.rotate(token, "restork-web")
-        return {"access_token": replacement.value, "token_type": "bearer"}  # nosec B105
+    def rotate_token(
+        token: Annotated[AccessToken, Depends(manage_token)],
+    ) -> dict[str, str]:
+        replacement = pairing.rotate(token.value, token.audience)
+        return _token_payload(replacement)
 
     @app.post("/api/token/revoke")
-    def revoke_token(token: str = Depends(require_token)) -> Response:
-        pairing.revoke(token)
+    def revoke_token(
+        token: Annotated[AccessToken, Depends(manage_token)],
+    ) -> Response:
+        pairing.revoke(token.value)
         return Response(status_code=204)
 
     @app.get("/api/runs/{run_id}/events")
     def stream_events(
         run_id: str,
+        _: Annotated[AccessToken, Depends(read_runs)],
         last_event_id: str | None = Header(default=None),
-        _: str = Depends(require_token),
     ) -> StreamingResponse:
         try:
             after_seq = int(last_event_id) if last_event_id is not None else 0
@@ -133,8 +211,8 @@ def create_app(
     @app.post("/api/runs/{run_id}/cancel")
     def cancel_run(
         run_id: str,
+        _: Annotated[AccessToken, Depends(write_runs)],
         idempotency_key: str = Header(default=""),
-        _: str = Depends(require_token),
     ) -> dict[str, object]:
         if not idempotency_key:
             raise HTTPException(status_code=400, detail="Idempotency-Key is required")
@@ -147,3 +225,13 @@ def create_app(
         return cancelled.model_dump(mode="json")
 
     return app
+
+
+def _token_payload(token: AccessToken) -> dict[str, str]:
+    return {
+        "access_token": token.value,
+        "token_type": "bearer",  # nosec B105
+        "audience": token.audience,
+        "scope": " ".join(sorted(token.scopes)),
+        "expires_at": token.expires_at.isoformat(),
+    }
