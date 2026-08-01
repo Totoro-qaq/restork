@@ -8,11 +8,14 @@ import {
   runEventsMarkup,
   workspaceMarkup,
 } from "./ui/render";
+import { startClock } from "./ui/clock";
 
 interface MountOptions {
   api?: DashboardApi;
   snapshot?: DashboardSnapshot;
 }
+
+const coverUrls = new WeakMap<HTMLElement, string>();
 
 export function mountDashboard(root: HTMLElement, options: MountOptions = {}): void {
   const api = options.api ?? new LocalApiClient();
@@ -42,7 +45,9 @@ async function pairAndLoad(root: HTMLElement, api: DashboardApi, data: FormData)
 }
 
 function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: DashboardSnapshot): void {
+  releaseCover(root);
   root.innerHTML = workspaceMarkup(snapshot);
+  startClock(root);
   root.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => {
     button.addEventListener("click", () => selectView(root, button.dataset.view ?? "overview"));
   });
@@ -59,12 +64,26 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   root.querySelectorAll<HTMLButtonElement>("[data-approval-id]").forEach((button) => {
     button.addEventListener("click", () => void decide(root, api, button));
   });
+  root.querySelectorAll<HTMLButtonElement>("[data-task-apply]").forEach((button) => {
+    button.addEventListener("click", () => void applyApprovedTask(root, api, button));
+  });
+  root.querySelectorAll<HTMLInputElement>("[data-task-id]").forEach((input) => {
+    input.addEventListener("change", () => void previewTask(root, api, input));
+  });
+  root.querySelector<HTMLFormElement>("#quick-task-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void captureTask(root, api, event.currentTarget as HTMLFormElement);
+  });
   root.querySelectorAll<HTMLButtonElement>("[data-radar-id]").forEach((button) => {
     button.addEventListener("click", () => void actOnRadar(root, api, button));
   });
   root.querySelectorAll<HTMLButtonElement>("[data-run-id]").forEach((button) => {
     button.addEventListener("click", () => void showRun(root, api, snapshot, button));
   });
+  configureMusic(root);
+  if (snapshot.daily?.music.recommendation?.cover_available) {
+    void loadMusicCover(root, api);
+  }
 }
 
 function selectView(root: HTMLElement, view: string): void {
@@ -104,11 +123,17 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
 async function decide(root: HTMLElement, api: DashboardApi, button: HTMLButtonElement): Promise<void> {
   button.disabled = true;
   try {
-    await api.decideApproval(
+    const decision = button.dataset.decision === "approve" ? "approve" : "reject";
+    const approval = await api.decideApproval(
       button.dataset.approvalId ?? "",
-      button.dataset.decision === "approve" ? "approve" : "reject",
+      decision,
     );
-    await refresh(root, api, "approvals");
+    if (decision === "approve" && approval.action_kind === "task_write") {
+      await api.applyTask(approval.approval_id);
+      await refresh(root, api, "tasks");
+    } else {
+      await refresh(root, api, "approvals");
+    }
   } catch (error) {
     button.disabled = false;
     announce(root, errorText(error));
@@ -118,11 +143,64 @@ async function decide(root: HTMLElement, api: DashboardApi, button: HTMLButtonEl
 async function actOnRadar(root: HTMLElement, api: DashboardApi, button: HTMLButtonElement): Promise<void> {
   button.disabled = true;
   try {
+    const action = button.dataset.radarAction as RadarAction;
     await api.radarAction(
       button.dataset.radarId ?? "",
-      button.dataset.radarAction as RadarAction,
+      action,
     );
-    await refresh(root, api, "radar");
+    await refresh(root, api, action === "make_task" ? "approvals" : "radar");
+  } catch (error) {
+    button.disabled = false;
+    announce(root, errorText(error));
+  }
+}
+
+async function previewTask(
+  root: HTMLElement,
+  api: DashboardApi,
+  input: HTMLInputElement,
+): Promise<void> {
+  input.disabled = true;
+  try {
+    await api.previewTask(input.dataset.taskId ?? "", input.checked);
+    announce(root, "已生成 Markdown diff，等待审批。 / Preview ready for approval.");
+    await refresh(root, api, "approvals");
+  } catch (error) {
+    input.checked = !input.checked;
+    input.disabled = false;
+    announce(root, errorText(error));
+  }
+}
+
+async function captureTask(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  const data = new FormData(form);
+  const text = String(data.get("text") ?? "").trim();
+  const priority = String(data.get("priority") ?? "");
+  if (!text) return;
+  const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+  if (submit) submit.disabled = true;
+  try {
+    await api.captureTask(text, priority);
+    await refresh(root, api, "approvals");
+  } catch (error) {
+    if (submit) submit.disabled = false;
+    announce(root, errorText(error));
+  }
+}
+
+async function applyApprovedTask(
+  root: HTMLElement,
+  api: DashboardApi,
+  button: HTMLButtonElement,
+): Promise<void> {
+  button.disabled = true;
+  try {
+    await api.applyTask(button.dataset.taskApply ?? "");
+    await refresh(root, api, "tasks");
   } catch (error) {
     button.disabled = false;
     announce(root, errorText(error));
@@ -156,8 +234,45 @@ async function refresh(root: HTMLElement, api: DashboardApi, view = "overview"):
 }
 
 function announce(root: HTMLElement, message: string): void {
-  const target = root.querySelector<HTMLElement>("#action-status");
+  const target = root.querySelector<HTMLElement>("#global-status")
+    ?? root.querySelector<HTMLElement>("#action-status");
   if (target) target.textContent = message;
+}
+
+function configureMusic(root: HTMLElement): void {
+  const button = root.querySelector<HTMLButtonElement>("[data-music-toggle]");
+  const disc = root.querySelector<HTMLElement>("[data-music-disc]");
+  if (!button || !disc) return;
+  button.addEventListener("click", () => {
+    const playing = disc.classList.toggle("is-playing");
+    button.setAttribute("aria-pressed", String(playing));
+    button.textContent = playing ? "PAUSE CD" : "ROTATE CD";
+  });
+}
+
+async function loadMusicCover(root: HTMLElement, api: DashboardApi): Promise<void> {
+  try {
+    const blob = await api.musicCover();
+    const image = root.querySelector<HTMLImageElement>("#music-cover");
+    if (!blob || !image || typeof URL.createObjectURL !== "function") return;
+    releaseCover(root);
+    const url = URL.createObjectURL(blob);
+    coverUrls.set(root, url);
+    image.addEventListener("error", () => {
+      image.hidden = true;
+      releaseCover(root);
+    }, { once: true });
+    image.src = url;
+    image.hidden = false;
+  } catch (error) {
+    announce(root, errorText(error));
+  }
+}
+
+function releaseCover(root: HTMLElement): void {
+  const previous = coverUrls.get(root);
+  if (previous) URL.revokeObjectURL(previous);
+  coverUrls.delete(root);
 }
 
 const app = document.querySelector<HTMLElement>("#app");

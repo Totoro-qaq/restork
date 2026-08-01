@@ -17,6 +17,7 @@ from restork.api.auth import (
     APPROVALS_DECIDE,
     APPROVALS_READ,
     CLI_AUDIENCE,
+    DAILY_READ,
     EFFECTS_RESOLVE,
     MEMORY_READ,
     MEMORY_WRITE,
@@ -25,6 +26,7 @@ from restork.api.auth import (
     RUNS_READ,
     RUNS_WRITE,
     TASKS_READ,
+    TASKS_WRITE,
     TOKENS_MANAGE,
     WEB_AUDIENCE,
     AccessToken,
@@ -33,9 +35,16 @@ from restork.api.auth import (
 )
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import ApprovalDecision, EffectPhase, Mode
-from restork.dashboard.models import RadarAction, RadarActionRequest, RadarActionResult
+from restork.daily.service import DailyContextService
+from restork.dashboard.models import (
+    RadarAction,
+    RadarActionRequest,
+    RadarActionResult,
+    TaskCaptureRequest,
+    TaskCompletionRequest,
+)
 from restork.dashboard.radar import SQLiteRadarStore, empty_radar_snapshot
-from restork.dashboard.tasks import MarkdownTaskBoard
+from restork.dashboard.tasks import MarkdownTaskBoard, MarkdownTaskMutator
 from restork.memory.models import (
     ContextSelectionRequest,
     MemoryCorrection,
@@ -102,9 +111,11 @@ def create_app(
     intents: SQLiteIntentStore,
     memory: MemoryService | None = None,
     tasks: MarkdownTaskBoard | None = None,
+    task_mutations: MarkdownTaskMutator | None = None,
     radar: SQLiteRadarStore | None = None,
     budgets: SQLiteBudgetStore | None = None,
     web_root: Path | None = None,
+    daily: DailyContextService | None = None,
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -141,8 +152,10 @@ def create_app(
     read_memory = require_token(MEMORY_READ)
     write_memory = require_token(MEMORY_WRITE)
     read_tasks = require_token(TASKS_READ)
+    write_tasks = require_token(TASKS_WRITE)
     read_radar = require_token(RADAR_READ)
     write_radar = require_token(RADAR_WRITE)
+    read_daily = require_token(DAILY_READ)
 
     def require_json(content_type: str = Header(default="")) -> None:
         if content_type.split(";", maxsplit=1)[0].strip().lower() != "application/json":
@@ -275,7 +288,21 @@ def create_app(
         _: Annotated[AccessToken, Depends(read_memory)],
         layer: MemoryLayer | None = None,
     ) -> dict[str, object]:
-        return configured_memory().inspect(layer).model_dump(mode="json")
+        payload = configured_memory().inspect(layer).model_dump(mode="json")
+        records = payload.get("records")
+        if isinstance(records, list):
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                memory_id = record.get("memory_id")
+                if (
+                    isinstance(memory_id, str)
+                    and memory_id.startswith("profile:")
+                    and memory_id
+                    not in {"profile:locale.language", "profile:locale.timezone"}
+                ):
+                    record["summary"] = "[configured]" if record.get("summary") else ""
+        return payload
 
     @app.post("/v1/memory/context")
     def build_memory_context(
@@ -432,6 +459,68 @@ def create_app(
         board = tasks or MarkdownTaskBoard()
         return board.snapshot(include_completed=include_completed).model_dump(mode="json")
 
+    @app.post("/v1/tasks/quick-capture/preview")
+    def preview_task_capture(
+        body: TaskCaptureRequest,
+        _: Annotated[AccessToken, Depends(write_tasks)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if task_mutations is None:
+            raise HTTPException(status_code=503, detail="Task mutations are not configured")
+        try:
+            preview = task_mutations.preview_capture(
+                body,
+                idempotency_key=idempotency_key,
+            )
+        except (KeyError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return preview.model_dump(mode="json")
+
+    @app.post("/v1/tasks/{task_id}/preview")
+    def preview_task_completion(
+        task_id: str,
+        body: TaskCompletionRequest,
+        _: Annotated[AccessToken, Depends(write_tasks)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if task_mutations is None:
+            raise HTTPException(status_code=503, detail="Task mutations are not configured")
+        try:
+            preview = task_mutations.preview_completion(
+                task_id,
+                body.completed,
+                idempotency_key=idempotency_key,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Task not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return preview.model_dump(mode="json")
+
+    @app.post("/v1/tasks/approvals/{approval_id}/apply")
+    def apply_task_mutation(
+        approval_id: str,
+        _: Annotated[AccessToken, Depends(write_tasks)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if task_mutations is None:
+            raise HTTPException(status_code=503, detail="Task mutations are not configured")
+        try:
+            result = task_mutations.apply(
+                approval_id,
+                idempotency_key=idempotency_key,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Task preview not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return result.model_dump(mode="json")
+
     @app.get("/v1/radar")
     def read_radar_items(
         _: Annotated[AccessToken, Depends(read_radar)],
@@ -459,6 +548,7 @@ def create_app(
         try:
             item = radar.get(item_id)
             run_id = None
+            task_approval_id = None
             if body.action is RadarAction.RESEARCH:
                 task_id = f"radar-{sha256(item.item_id.encode()).hexdigest()[:24]}"
                 research_task = TaskSpec(
@@ -489,6 +579,16 @@ def create_app(
                     idempotency_key=f"radar-research:{idempotency_key}",
                 )
                 run_id = run.run_id
+            elif body.action is RadarAction.MAKE_TASK and task_mutations is not None:
+                preview = task_mutations.preview_capture(
+                    TaskCaptureRequest(
+                        text=f"Review: {item.title}",
+                        priority="P2",
+                        source=f"restork:radar/{item.item_id}",
+                    ),
+                    idempotency_key=f"radar-task:{idempotency_key}",
+                )
+                task_approval_id = preview.approval.approval_id
             updated = radar.act(item_id, body.action, idempotency_key=idempotency_key)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Radar item not found") from error
@@ -499,11 +599,36 @@ def create_app(
             run_id=run_id,
             task_preview_available=(
                 body.action is RadarAction.MAKE_TASK
-                and tasks is not None
-                and tasks.configured
+                and task_approval_id is not None
             ),
+            task_approval_id=task_approval_id,
         )
         return result.model_dump(mode="json")
+
+    @app.get("/v1/daily")
+    async def read_daily_context(
+        _: Annotated[AccessToken, Depends(read_daily)],
+    ) -> dict[str, object]:
+        if daily is None:
+            raise HTTPException(status_code=503, detail="Daily context is not configured")
+        snapshot = await daily.snapshot()
+        return snapshot.model_dump(mode="json")
+
+    @app.get("/v1/daily/music/cover")
+    def read_daily_music_cover(
+        _: Annotated[AccessToken, Depends(read_daily)],
+    ) -> FileResponse:
+        if daily is None:
+            raise HTTPException(status_code=503, detail="Daily context is not configured")
+        try:
+            path, media_type = daily.music_cover()
+        except (KeyError, OSError, TypeError, ValueError) as error:
+            raise HTTPException(status_code=404, detail="Daily cover is unavailable") from error
+        return FileResponse(
+            path,
+            media_type=media_type,
+            headers={"Cache-Control": "private, no-store"},
+        )
 
     @app.post("/v1/runs")
     async def create_run(
@@ -709,8 +834,19 @@ def create_app(
     selected_web_root = web_root or Path(__file__).resolve().parents[1] / "web"
     asset_root = selected_web_root / "assets"
     index_path = selected_web_root / "index.html"
+    favicon_path = selected_web_root / "favicon.svg"
     if asset_root.is_dir() and index_path.is_file():
         app.mount("/assets", StaticFiles(directory=asset_root), name="dashboard-assets")
+
+        if favicon_path.is_file():
+
+            @app.get("/favicon.svg", include_in_schema=False)
+            def dashboard_favicon() -> FileResponse:
+                return FileResponse(
+                    favicon_path,
+                    media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=86400"},
+                )
 
         @app.get("/", include_in_schema=False)
         def dashboard_index() -> FileResponse:

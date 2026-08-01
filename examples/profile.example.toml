@@ -5,8 +5,10 @@ language = ""
 timezone = ""
 
 [daily]
+# Supported provider: "open-meteo". Location: "label|latitude,longitude".
 weather_provider = ""
 weather_location = ""
+# Use private local .ics and JSON/CSV paths; never commit personal files.
 calendar_ics = ""
 playlist = ""
 

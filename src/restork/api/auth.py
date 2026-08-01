@@ -22,6 +22,7 @@ TASKS_READ = "tasks:read"
 TASKS_WRITE = "tasks:write"
 RADAR_READ = "radar:read"
 RADAR_WRITE = "radar:write"
+DAILY_READ = "daily:read"
 
 WEB_SCOPES = frozenset(
     {
@@ -37,6 +38,7 @@ WEB_SCOPES = frozenset(
         TASKS_WRITE,
         RADAR_READ,
         RADAR_WRITE,
+        DAILY_READ,
     }
 )
 CLI_SCOPES = WEB_SCOPES

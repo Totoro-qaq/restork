@@ -52,6 +52,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot): string {
           <p>&gt; <span id="greeting">今天想研究、学习，还是完成一项工作？</span><span class="caret" aria-hidden="true"></span></p>
           <button class="quiet-button" id="refresh" type="button">REFRESH</button>
         </header>
+        <p id="global-status" class="sr-only" role="status"></p>
         <section id="action-panel" class="action-panel" hidden>
           <form id="run-form">
             <input type="hidden" name="mode" id="run-mode" value="research">
@@ -66,6 +67,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot): string {
           ${metric("work", "Markdown 任务", String(incomplete.length), snapshot.taskBoard.configured ? "Markdown 为准" : "尚未配置 Vault")}
           ${metric("study", "记忆记录", String(memories.length), "四层 · 本地可控")}
         </section>
+        ${dailyContext(snapshot)}
         <section class="view is-visible" data-view-panel="overview">${overview(snapshot)}</section>
         <section class="view" data-view-panel="runs" hidden>${runsView(snapshot.runs)}</section>
         <section class="view" data-view-panel="approvals" hidden>${approvalsView(snapshot.approvals)}</section>
@@ -124,8 +126,9 @@ function approvalsView(approvals: ApprovalRequest[]): string {
 function tasksView(snapshot: DashboardSnapshot): string {
   if (!snapshot.taskBoard.configured) return emptyCard("Markdown 任务", "使用 --vault-dir 配置私有 Vault。浏览器不会持有 Vault 路径之外的权限。");
   return `<article class="paper-card full-card"><header><h2>Markdown 任务</h2><span class="ribbon work">MARKDOWN TRUTH</span></header>
-    <div class="task-list">${snapshot.taskBoard.tasks.map((task) => `<label class="task-row ${task.completed ? "is-complete" : ""}"><input type="checkbox" ${task.completed ? "checked" : ""} disabled><span>${escapeHtml(cleanTaskText(task.text))}<small>${escapeHtml(task.relative_path)} · L${task.line_number} · ${escapeHtml(task.fields.due ?? "no due date")}</small></span></label>`).join("") || "<p class=\"empty\">没有任务。</p>"}</div>
-    <p class="fine">任务状态来自 Core 重新扫描的 Markdown；写入预览与审批将在单文件事务中执行。</p>
+    <form id="quick-task-form" class="quick-task-form"><label for="quick-task">快速捕获 / Quick capture</label><div><input id="quick-task" name="text" required maxlength="500" placeholder="一行 Markdown 任务"><select name="priority" aria-label="优先级"><option value="">P–</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select><button type="submit">PREVIEW</button></div></form>
+    <div class="task-list">${snapshot.taskBoard.tasks.map((task) => `<label class="task-row ${task.completed ? "is-complete" : ""}"><input type="checkbox" data-task-id="${escapeHtml(task.task_id)}" ${task.completed ? "checked" : ""}><span>${escapeHtml(cleanTaskText(task.text))}<small>${escapeHtml(task.relative_path)} · L${task.line_number} · ${escapeHtml(task.fields.due ?? "no due date")}</small></span></label>`).join("") || "<p class=\"empty\">没有任务。</p>"}</div>
+    <p class="fine">勾选与捕获只生成精确 diff；Markdown 仅在审批后由 Core 原子写入。</p>
   </article>`;
 }
 
@@ -159,11 +162,41 @@ function runCard(run: RunListEntry): string {
 
 function approvalCard(approval: ApprovalRequest): string {
   const pending = approval.decision === "pending";
+  const taskReady = approval.decision === "approved" && approval.action_kind === "task_write";
   return `<article class="paper-card approval-card"><header><h2>审批请求</h2><span class="ribbon approval">${escapeHtml(approval.decision)}</span></header>
     <p class="run-title">${escapeHtml(approval.human_summary)}</p>
     <dl class="metadata compact"><div><dt>TARGET</dt><dd>${escapeHtml(approval.canonical_scope)}</dd></div><div><dt>POLICY</dt><dd>${escapeHtml(approval.policy_version)}</dd></div><div><dt>DIGEST</dt><dd>${escapeHtml(approval.action_digest.slice(0, 16))}…</dd></div><div><dt>EXPIRES</dt><dd>${formatDate(approval.expires_at)}</dd></div></dl>
-    ${pending ? `<div class="stamps"><button class="stamp approve" type="button" data-approval-id="${escapeHtml(approval.approval_id)}" data-decision="approve">APPROVE</button><button class="stamp reject" type="button" data-approval-id="${escapeHtml(approval.approval_id)}" data-decision="reject">REJECT</button></div>` : ""}
+    ${pending ? `<div class="stamps"><button class="stamp approve" type="button" data-approval-id="${escapeHtml(approval.approval_id)}" data-action-kind="${escapeHtml(approval.action_kind)}" data-decision="approve">APPROVE</button><button class="stamp reject" type="button" data-approval-id="${escapeHtml(approval.approval_id)}" data-action-kind="${escapeHtml(approval.action_kind)}" data-decision="reject">REJECT</button></div>` : ""}
+    ${taskReady ? `<div class="stamps"><button class="stamp approve" type="button" data-task-apply="${escapeHtml(approval.approval_id)}">APPLY TASK</button></div>` : ""}
   </article>`;
+}
+
+function dailyContext(snapshot: DashboardSnapshot): string {
+  const daily = snapshot.daily;
+  const weather = daily?.weather;
+  const calendar = daily?.calendar;
+  const music = daily?.music;
+  const recommendation = music?.recommendation;
+  return `<section class="daily-context" aria-label="每日上下文">
+    <article class="daily-card clock-card">
+      <header><h2>本地时间</h2><span>LOCAL</span></header>
+      <svg class="roman-clock" viewBox="0 0 100 100" role="img" aria-labelledby="clock-title clock-description">
+        <title id="clock-title">Roman numeral local clock</title><desc id="clock-description">An analog clock marked I through XII.</desc>
+        <circle cx="50" cy="50" r="45"></circle><circle class="clock-rule" cx="50" cy="50" r="39"></circle>
+        <g class="clock-numerals"><text x="50" y="14">XII</text><text x="70" y="19">I</text><text x="84" y="33">II</text><text x="89" y="53">III</text><text x="84" y="73">IV</text><text x="70" y="87">V</text><text x="50" y="92">VI</text><text x="30" y="87">VII</text><text x="16" y="73">VIII</text><text x="11" y="53">IX</text><text x="16" y="33">X</text><text x="30" y="19">XI</text></g>
+        <line data-clock-hour class="clock-hand hour-hand" x1="50" y1="53" x2="50" y2="29"></line><line data-clock-minute class="clock-hand minute-hand" x1="50" y1="54" x2="50" y2="19"></line><line data-clock-second class="clock-hand second-hand" x1="50" y1="57" x2="50" y2="16"></line><circle class="clock-pin" cx="50" cy="50" r="2.5"></circle>
+      </svg><time id="clock-text">读取本地时间…</time>
+    </article>
+    <article class="daily-card weather-card"><header><h2>天气</h2><span>${escapeHtml(weather?.status ?? "offline")}</span></header>
+      ${weather?.configured && weather.temperature_c !== null ? `<strong class="weather-temperature">${weather.temperature_c.toFixed(1)}°</strong><p>${escapeHtml(weather.condition)} · 体感 ${weather.apparent_temperature_c?.toFixed(1) ?? "–"}°</p><small>${escapeHtml(weather.location_label)} · 湿度 ${weather.relative_humidity_percent ?? "–"}%</small><em>${escapeHtml(weather.attribution)}</em>` : `<p class="daily-empty">${escapeHtml(weather?.message ?? "在私有 Profile 中配置天气；当前没有网络请求。")}</p>`}
+    </article>
+    <article class="daily-card calendar-card"><header><h2>日历</h2><span>${escapeHtml(calendar?.status ?? "offline")}</span></header>
+      <ol>${calendar?.events.slice(0, 3).map((event) => `<li><time>${formatDate(event.starts_at)}</time><b>${escapeHtml(event.title)}</b>${event.redacted ? "<small>PRIVATE · REDACTED</small>" : ""}</li>`).join("") || `<li class="daily-empty">${escapeHtml(calendar?.message ?? "选择本地只读 ICS 文件。")}</li>`}</ol>
+    </article>
+    <article class="daily-card music-card"><header><h2>每日一曲</h2><span>${escapeHtml(music?.status ?? "offline")}</span></header>
+      ${recommendation ? `<div class="music-layout"><div class="disc" data-music-disc><div class="disc-label"><span>RESTORK</span><img id="music-cover" alt="${escapeHtml(`${recommendation.title} cover`)}" hidden></div></div><div class="music-copy"><strong>${escapeHtml(recommendation.title)}</strong><p>${escapeHtml([recommendation.artist, recommendation.album].filter(Boolean).join(" · ") || "Private playlist")}</p><small>${escapeHtml(recommendation.analysis)}</small><button type="button" data-music-toggle aria-pressed="false">ROTATE CD</button></div></div>` : `<p class="daily-empty">${escapeHtml(music?.message ?? "导入私有 JSON/CSV 歌单后生成每日推荐。")}</p>`}
+    </article>
+  </section>`;
 }
 
 function radarItem(item: RadarItem): string {
