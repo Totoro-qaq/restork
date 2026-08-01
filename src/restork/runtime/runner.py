@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from uuid import uuid4
 
 from restork.artifacts.verification import verify_artifacts
@@ -30,17 +29,12 @@ class Harness:
         self._events = events
         self._budgets = budgets
 
-    def start(self, task: TaskSpec) -> RunSummary:
-        now = datetime.now(UTC)
-        run = RunSummary(
-            run_id=str(uuid4()), task_id=task.task_id, mode=task.mode, state=RunPhase.CREATED,
-            state_version=0, created_at=now, updated_at=now,
-        )
-        self._runs.create_run(run)
-        if self._budgets is not None:
-            self._budgets.create_budget(run.run_id, task.budgets, started_at=now)
-        self._emit(run.run_id, "run_created", {"mode": task.mode.value})
-        return self._advance(run, RunPhase.PLANNING, "planning_started")
+    def start(self, task: TaskSpec, *, idempotency_key: str | None = None) -> RunSummary:
+        return self._runs.start_idempotently(
+            task,
+            run_id=str(uuid4()),
+            idempotency_key=idempotency_key,
+        ).run
 
     def complete(self, run_id: str, task: TaskSpec, artifacts: list[str]) -> RunSummary:
         profile = profile_for(task.mode)
@@ -78,9 +72,7 @@ class Harness:
         *,
         idempotency_key: str,
     ) -> RunSummary:
-        outcome = self._runs.cancel_idempotently(
-            run_id, idempotency_key=idempotency_key
-        )
+        outcome = self._runs.cancel_idempotently(run_id, idempotency_key=idempotency_key)
         if outcome.changed and outcome.unresolved_intent_ids:
             self._emit(
                 run_id,
@@ -97,9 +89,7 @@ class Harness:
         return outcome.run
 
     def resume(self, run_id: str, *, idempotency_key: str) -> RunSummary:
-        outcome = self._runs.resume_idempotently(
-            run_id, idempotency_key=idempotency_key
-        )
+        outcome = self._runs.resume_idempotently(run_id, idempotency_key=idempotency_key)
         if outcome.changed:
             self._emit(run_id, "run_resumed", {"state": RunPhase.RUNNING.value})
         return outcome.run

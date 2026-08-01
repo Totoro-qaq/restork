@@ -23,9 +23,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="restork",
         add_help=False,
-        description=(
-            "Restork is a local-first agent workspace for Research, Study, and Work."
-        ),
+        description=("Restork is a local-first agent workspace for Research, Study, and Work."),
     )
     parser.add_argument("--state-db", type=Path, default=Path("restork.db"))
     parser.add_argument("-h", "--help", action="store_true", help="show this help message and exit")
@@ -37,15 +35,14 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--goal", required=True)
     create.add_argument("--scope", required=True)
     create.add_argument("--criterion", action="append", required=True)
+    create.add_argument("--idempotency-key", required=True)
     inspect = commands.add_parser("inspect")
     inspect.add_argument("run_id")
-    events = commands.add_parser("events")
-    events.add_argument("run_id")
-    events.add_argument("--after", type=int, default=0)
+    stream = commands.add_parser("stream", aliases=["events"])
+    stream.add_argument("run_id")
+    stream.add_argument("--after", type=int, default=0)
     complete = commands.add_parser("complete")
     complete.add_argument("run_id")
-    complete.add_argument("--task-id", required=True)
-    complete.add_argument("--mode", choices=[mode.value for mode in Mode], required=True)
     complete.add_argument("--artifact", action="append", required=True)
     cancel = commands.add_parser("cancel")
     cancel.add_argument("run_id")
@@ -86,13 +83,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     budgets = SQLiteBudgetStore.create(arguments.state_db)
     if arguments.command == "create":
         task = _task(arguments)
-        run = Harness(runs, events, budgets).start(task)
+        run = Harness(runs, events, budgets).start(task, idempotency_key=arguments.idempotency_key)
         print(run.run_id)
         return 0
     if arguments.command == "inspect":
         print(runs.get(arguments.run_id).model_dump_json())
         return 0
-    if arguments.command == "events":
+    if arguments.command in {"stream", "events"}:
         found = events.read(arguments.run_id, after_seq=arguments.after)
         print(json.dumps([event.model_dump(mode="json") for event in found]))
         return 0
@@ -134,7 +131,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(intent.phase.value)
         return 0
-    task = _task(arguments)
+    task = runs.get_task(arguments.run_id)
     completed = Harness(runs, events, budgets).complete(arguments.run_id, task, arguments.artifact)
     print(completed.model_dump_json())
     return 0

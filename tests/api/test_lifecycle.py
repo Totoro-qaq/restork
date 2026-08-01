@@ -47,9 +47,7 @@ def _client(
     intents = SQLiteIntentStore.create(database)
     pairing = PairingAuthority()
     client = TestClient(create_app(events, pairing, runs, approvals, intents))
-    token = client.post("/api/pair", json={"code": pairing.pairing_code}).json()[
-        "access_token"
-    ]
+    token = client.post("/v1/pair", json={"code": pairing.pairing_code}).json()["access_token"]
     return client, {"Authorization": f"Bearer {token}"}, runs, events, approvals, intents
 
 
@@ -84,32 +82,33 @@ def test_approval_and_resume_are_authenticated_evented_and_idempotent(
     )
     approvals.create(approval)
 
-    assert client.get(f"/api/runs/{run.run_id}", headers=auth).json()["state"] == waiting.state
-    assert client.get(
-        f"/api/approvals/{approval.approval_id}", headers=auth
-    ).status_code == 200
+    assert client.get(f"/v1/runs/{run.run_id}", headers=auth).json()["state"] == waiting.state
+    assert client.get(f"/v1/approvals/{approval.approval_id}", headers=auth).status_code == 200
     decision_headers = {**auth, "Idempotency-Key": "approve-1"}
     first = client.post(
-        f"/api/approvals/{approval.approval_id}/approve",
+        f"/v1/approvals/{approval.approval_id}/approve",
         headers=decision_headers,
         json={"decided_by": "local-user"},
     )
     replay = client.post(
-        f"/api/approvals/{approval.approval_id}/approve",
+        f"/v1/approvals/{approval.approval_id}/approve",
         headers=decision_headers,
         json={"decided_by": "local-user"},
     )
     assert first.status_code == replay.status_code == 200
     assert first.json() == replay.json()
-    assert client.post(
-        f"/api/approvals/{approval.approval_id}/reject",
-        headers=decision_headers,
-        json={"decided_by": "local-user"},
-    ).status_code == 409
+    assert (
+        client.post(
+            f"/v1/approvals/{approval.approval_id}/reject",
+            headers=decision_headers,
+            json={"decided_by": "local-user"},
+        ).status_code
+        == 409
+    )
 
     resume_headers = {**auth, "Idempotency-Key": "resume-1"}
-    resumed = client.post(f"/api/runs/{run.run_id}/resume", headers=resume_headers)
-    resumed_replay = client.post(f"/api/runs/{run.run_id}/resume", headers=resume_headers)
+    resumed = client.post(f"/v1/runs/{run.run_id}/resume", headers=resume_headers)
+    resumed_replay = client.post(f"/v1/runs/{run.run_id}/resume", headers=resume_headers)
     assert resumed.status_code == resumed_replay.status_code == 200
     assert resumed.json() == resumed_replay.json()
     assert resumed.json()["state"] == "running"
@@ -138,28 +137,35 @@ def test_unknown_effect_must_be_resolved_before_api_resume(tmp_path: Path) -> No
         )
     )
     cancel_headers = {**auth, "Idempotency-Key": "cancel-1"}
-    assert client.post(
-        f"/api/runs/{run.run_id}/cancel", headers=cancel_headers
-    ).json()["state"] == "user_action_required"
-    assert client.post(
-        f"/api/runs/{run.run_id}/resume",
-        headers={**auth, "Idempotency-Key": "resume-before-resolution"},
-    ).status_code == 409
+    assert (
+        client.post(f"/v1/runs/{run.run_id}/cancel", headers=cancel_headers).json()["state"]
+        == "user_action_required"
+    )
+    assert (
+        client.post(
+            f"/v1/runs/{run.run_id}/resume",
+            headers={**auth, "Idempotency-Key": "resume-before-resolution"},
+        ).status_code
+        == 409
+    )
 
     resolve_headers = {**auth, "Idempotency-Key": "resolve-1"}
-    resolve_path = f"/api/runs/{run.run_id}/effects/intent-1/resolve"
+    resolve_path = f"/v1/runs/{run.run_id}/effects/intent-1/resolve"
     first = client.post(resolve_path, headers=resolve_headers, json={"outcome": "failed"})
     replay = client.post(resolve_path, headers=resolve_headers, json={"outcome": "failed"})
     assert first.status_code == replay.status_code == 200
     assert first.json() == replay.json()
-    assert client.post(
-        resolve_path,
-        headers={**auth, "Idempotency-Key": "resolve-invalid"},
-        json={"outcome": "unknown"},
-    ).status_code == 422
+    assert (
+        client.post(
+            resolve_path,
+            headers={**auth, "Idempotency-Key": "resolve-invalid"},
+            json={"outcome": "unknown"},
+        ).status_code
+        == 422
+    )
 
     resumed = client.post(
-        f"/api/runs/{run.run_id}/resume",
+        f"/v1/runs/{run.run_id}/resume",
         headers={**auth, "Idempotency-Key": "resume-after-resolution"},
     )
     assert resumed.status_code == 200

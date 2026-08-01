@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 from restork.contracts.run import RunSummary
+from restork.contracts.task import TaskSpec
 from restork.contracts.types import EffectPhase, Mode, RunPhase, StopReason
 from restork.runtime.state_machine import transition
 from restork.storage.database import connect, initialize
@@ -37,6 +40,12 @@ class ResumeOutcome:
     changed: bool = False
 
 
+@dataclass(frozen=True)
+class RunStartOutcome:
+    run: RunSummary
+    changed: bool = False
+
+
 class SQLiteRunStore:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
@@ -47,17 +56,18 @@ class SQLiteRunStore:
         initialize(connection)
         return cls(connection)
 
-    def create_run(self, run: RunSummary) -> None:
+    def create_run(self, run: RunSummary, task: TaskSpec | None = None) -> None:
         self._connection.execute(
             """
             INSERT INTO runs
-                (run_id, task_id, mode, state, state_version, stop_reason, created_at, updated_at,
-                 schema_version)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (run_id, task_id, task_spec_json, mode, state, state_version, stop_reason,
+                 created_at, updated_at, schema_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run.run_id,
                 run.task_id,
+                task.model_dump_json() if task is not None else None,
                 run.mode.value,
                 run.state.value,
                 run.state_version,
@@ -65,6 +75,114 @@ class SQLiteRunStore:
                 run.created_at.isoformat(),
                 run.updated_at.isoformat(),
                 run.schema_version,
+            ),
+        )
+
+    def start_idempotently(
+        self,
+        task: TaskSpec,
+        *,
+        run_id: str,
+        idempotency_key: str | None = None,
+    ) -> RunStartOutcome:
+        """Atomically persist a planning run, its budget, initial events, and replay record."""
+        operation = "run.create"
+        binding = mutation_binding(task.model_dump_json())
+        changed = False
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            replay = None
+            if idempotency_key is not None:
+                replay = load_idempotent_response(
+                    self._connection,
+                    operation=operation,
+                    idempotency_key=idempotency_key,
+                    binding=binding,
+                )
+            if replay is not None:
+                result = RunSummary.model_validate_json(replay)
+            else:
+                now = datetime.now(UTC)
+                result = RunSummary(
+                    run_id=run_id,
+                    task_id=task.task_id,
+                    mode=task.mode,
+                    state=RunPhase.PLANNING,
+                    state_version=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                self.create_run(result, task)
+                self._connection.execute(
+                    """
+                    INSERT INTO run_budgets (run_id, budget_json, started_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (run_id, task.budgets.model_dump_json(), now.isoformat()),
+                )
+                self._append_event(
+                    run_id,
+                    seq=1,
+                    kind="run.created",
+                    metadata={"mode": task.mode.value},
+                    occurred_at=now,
+                )
+                self._append_event(
+                    run_id,
+                    seq=2,
+                    kind="run.state_changed",
+                    metadata={"state": RunPhase.PLANNING.value},
+                    occurred_at=now,
+                )
+                if idempotency_key is not None:
+                    save_idempotent_response(
+                        self._connection,
+                        operation=operation,
+                        idempotency_key=idempotency_key,
+                        binding=binding,
+                        response_json=result.model_dump_json(),
+                    )
+                changed = True
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        else:
+            self._connection.execute("COMMIT")
+        return RunStartOutcome(result, changed)
+
+    def get_task(self, run_id: str) -> TaskSpec:
+        row = self._connection.execute(
+            "SELECT task_spec_json FROM runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(run_id)
+        if row["task_spec_json"] is None:
+            raise ValueError("run was created without a persisted TaskSpec")
+        return TaskSpec.model_validate_json(row["task_spec_json"])
+
+    def _append_event(
+        self,
+        run_id: str,
+        *,
+        seq: int,
+        kind: str,
+        metadata: dict[str, object],
+        occurred_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO events
+                (event_id, run_id, seq, occurred_at, kind, metadata_json, schema_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(uuid4()),
+                run_id,
+                seq,
+                occurred_at.isoformat(),
+                kind,
+                json.dumps(metadata, sort_keys=True),
+                1,
             ),
         )
 
@@ -126,9 +244,7 @@ class SQLiteRunStore:
                 RunPhase.FAILED,
                 RunPhase.CANCELLED,
             }:
-                self._connection.execute(
-                    "DELETE FROM transient_blobs WHERE run_id = ?", (run_id,)
-                )
+                self._connection.execute("DELETE FROM transient_blobs WHERE run_id = ?", (run_id,))
         except BaseException:
             self._connection.execute("ROLLBACK")
             raise
@@ -136,9 +252,7 @@ class SQLiteRunStore:
             self._connection.execute("COMMIT")
         return self.get(run_id)
 
-    def cancel_idempotently(
-        self, run_id: str, *, idempotency_key: str
-    ) -> CancellationOutcome:
+    def cancel_idempotently(self, run_id: str, *, idempotency_key: str) -> CancellationOutcome:
         """Cancel or pause exactly once after atomically checking uncertain effects."""
         operation = "run.cancel"
         unresolved_intent_ids: tuple[str, ...] = ()
@@ -225,9 +339,7 @@ class SQLiteRunStore:
             changed=changed,
         )
 
-    def resume_idempotently(
-        self, run_id: str, *, idempotency_key: str
-    ) -> ResumeOutcome:
+    def resume_idempotently(self, run_id: str, *, idempotency_key: str) -> ResumeOutcome:
         operation = "run.resume"
         binding = mutation_binding(run_id)
         changed = False
