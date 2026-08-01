@@ -13,6 +13,7 @@ from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import ApprovalDecision, EffectPhase, Mode, RunPhase
 from restork.runtime.runner import Harness
 from restork.storage.approvals import SQLiteApprovalStore
+from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
 from restork.storage.intents import SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
@@ -76,9 +77,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     runs = SQLiteRunStore.create(arguments.state_db)
     events = SQLiteEventStore.create(arguments.state_db)
+    budgets = SQLiteBudgetStore.create(arguments.state_db)
     if arguments.command == "create":
         task = _task(arguments)
-        run = Harness(runs, events).start(task)
+        run = Harness(runs, events, budgets).start(task)
         print(run.run_id)
         return 0
     if arguments.command == "inspect":
@@ -121,7 +123,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(intents.update_phase(arguments.intent_id, EffectPhase(arguments.outcome)).phase.value)
         return 0
     task = _task(arguments)
-    completed = Harness(runs, events).complete(arguments.run_id, task, arguments.artifact)
+    completed = Harness(runs, events, budgets).complete(arguments.run_id, task, arguments.artifact)
     print(completed.model_dump_json())
     return 0
 

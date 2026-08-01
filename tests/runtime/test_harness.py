@@ -8,6 +8,7 @@ import pytest
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import Mode, RunPhase
 from restork.runtime.runner import Harness
+from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
 from restork.storage.runs import SQLiteRunStore
 from restork.tools.registry import ToolRegistry
@@ -23,7 +24,9 @@ def _task() -> TaskSpec:
 
 def test_harness_persists_ordered_events_and_requires_artifact(tmp_path: Path) -> None:
     path = tmp_path / "state.db"
-    harness = Harness(SQLiteRunStore.create(path), SQLiteEventStore.create(path))
+    harness = Harness(
+        SQLiteRunStore.create(path), SQLiteEventStore.create(path), SQLiteBudgetStore.create(path)
+    )
     run = harness.start(_task())
     with pytest.raises(ValueError, match="artifact"):
         harness.complete(run.run_id, _task(), [])
