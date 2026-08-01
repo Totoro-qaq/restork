@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from restork.api.app import create_app
@@ -18,8 +19,26 @@ from restork.contracts.event import RunEvent
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import Mode
 from restork.runtime.runner import Harness
+from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.events import SQLiteEventStore
+from restork.storage.intents import SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
+
+
+def _app(
+    database: Path,
+    pairing: PairingAuthority,
+    *,
+    events: SQLiteEventStore | None = None,
+    runs: SQLiteRunStore | None = None,
+) -> FastAPI:
+    return create_app(
+        events or SQLiteEventStore.create(database),
+        pairing,
+        runs or SQLiteRunStore.create(database),
+        SQLiteApprovalStore.open(database),
+        SQLiteIntentStore.create(database),
+    )
 
 
 def test_pairing_header_auth_origin_and_sse_cursor_replay(tmp_path: Path) -> None:
@@ -33,7 +52,7 @@ def test_pairing_header_auth_origin_and_sse_cursor_replay(tmp_path: Path) -> Non
         RunEvent(event_id="e2", run_id="r", seq=2, occurred_at=datetime.now(UTC), kind="b")
     )
     pairing = PairingAuthority()
-    client = TestClient(create_app(events, pairing, runs))
+    client = TestClient(_app(database, pairing, events=events, runs=runs))
 
     assert client.get("/api/runs/r/events").status_code == 401
     paired = client.post("/api/pair", json={"code": pairing.pairing_code}).json()
@@ -49,13 +68,7 @@ def test_pairing_header_auth_origin_and_sse_cursor_replay(tmp_path: Path) -> Non
 def test_pairing_accepts_only_loopback_browser_origins_and_json(tmp_path: Path) -> None:
     database = tmp_path / "state.db"
     pairing = PairingAuthority()
-    client = TestClient(
-        create_app(
-            SQLiteEventStore.create(database),
-            pairing,
-            SQLiteRunStore.create(database),
-        )
-    )
+    client = TestClient(_app(database, pairing))
     headers = {"Origin": "http://127.0.0.1:5173"}
     paired = client.post("/api/pair", json={"code": pairing.pairing_code}, headers=headers)
     assert paired.status_code == 200
@@ -77,13 +90,7 @@ def test_pairing_accepts_only_loopback_browser_origins_and_json(tmp_path: Path) 
 
     second_pairing = PairingAuthority()
     second_database = tmp_path / "second.db"
-    second = TestClient(
-        create_app(
-            SQLiteEventStore.create(second_database),
-            second_pairing,
-            SQLiteRunStore.create(second_database),
-        )
-    )
+    second = TestClient(_app(second_database, second_pairing))
     unsupported = second.post("/api/pair", content="{}", headers={"Content-Type": "text/plain"})
     assert unsupported.status_code == 415
     assert second.post(
@@ -96,7 +103,7 @@ def test_api_enforces_cli_audience_scopes_and_header_only_tokens(tmp_path: Path)
     events = SQLiteEventStore.create(database)
     runs = SQLiteRunStore.create(database)
     pairing = PairingAuthority()
-    client = TestClient(create_app(events, pairing, runs))
+    client = TestClient(_app(database, pairing, events=events, runs=runs))
 
     cli_code = pairing.new_pairing_code(CLI_AUDIENCE, CLI_SCOPES)
     cli_pair = client.post("/api/cli/pair", json={"code": cli_code})
@@ -127,13 +134,7 @@ def test_api_enforces_cli_audience_scopes_and_header_only_tokens(tmp_path: Path)
 def test_cli_pairing_rejects_browser_origin_and_wrong_audience(tmp_path: Path) -> None:
     database = tmp_path / "state.db"
     pairing = PairingAuthority()
-    client = TestClient(
-        create_app(
-            SQLiteEventStore.create(database),
-            pairing,
-            SQLiteRunStore.create(database),
-        )
-    )
+    client = TestClient(_app(database, pairing))
     cli_code = pairing.new_pairing_code(CLI_AUDIENCE, CLI_SCOPES)
     assert client.post(
         "/api/cli/pair",
@@ -162,7 +163,7 @@ def test_sse_replay_uses_snapshot_then_only_events_after_its_cursor(tmp_path: Pa
         )
     events.save_snapshot("r", covered_seq=2, snapshot={"phase": "running"})
     pairing = PairingAuthority()
-    client = TestClient(create_app(events, pairing, runs))
+    client = TestClient(_app(database, pairing, events=events, runs=runs))
     token = client.post("/api/pair", json={"code": pairing.pairing_code}).json()["access_token"]
 
     response = client.get(
@@ -178,24 +179,14 @@ def test_sse_replay_uses_snapshot_then_only_events_after_its_cursor(tmp_path: Pa
 
 def test_server_binds_only_to_loopback(tmp_path: Path) -> None:
     database = tmp_path / "state.db"
-    app = create_app(
-        SQLiteEventStore.create(database),
-        PairingAuthority(),
-        SQLiteRunStore.create(database),
-    )
+    app = _app(database, PairingAuthority())
     assert make_server(app, 8765).config.host == LOOPBACK_HOST
 
 
 def test_token_rotation_and_revocation_are_enforced(tmp_path: Path) -> None:
     database = tmp_path / "state.db"
     pairing = PairingAuthority()
-    client = TestClient(
-        create_app(
-            SQLiteEventStore.create(database),
-            pairing,
-            SQLiteRunStore.create(database),
-        )
-    )
+    client = TestClient(_app(database, pairing))
     first = client.post("/api/pair", json={"code": pairing.pairing_code}).json()["access_token"]
     rotated = client.post("/api/token/rotate", headers={"Authorization": f"Bearer {first}"})
     assert rotated.status_code == 200
@@ -216,16 +207,12 @@ def test_cancel_requires_idempotency_and_is_replay_safe(tmp_path: Path) -> None:
     )
     run = Harness(runs, events).start(task)
     pairing = PairingAuthority()
-    client = TestClient(create_app(events, pairing, runs))
+    client = TestClient(_app(database, pairing, events=events, runs=runs))
     token = client.post("/api/pair", json={"code": pairing.pairing_code}).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": "cancel-1"}
     first = client.post(f"/api/runs/{run.run_id}/cancel", headers=headers)
     restarted_client = TestClient(
-        create_app(
-            events,
-            pairing,
-            SQLiteRunStore.create(database),
-        )
+        _app(database, pairing, events=events, runs=SQLiteRunStore.create(database))
     )
     second = restarted_client.post(f"/api/runs/{run.run_id}/cancel", headers=headers)
     assert first.status_code == second.status_code == 200

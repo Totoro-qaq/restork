@@ -6,14 +6,16 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from restork.artifacts.verification import verify_artifacts
+from restork.contracts.approval import ApprovalRequest
 from restork.contracts.run import RunSummary
 from restork.contracts.task import TaskSpec
-from restork.contracts.types import RunPhase, StopReason
+from restork.contracts.types import ApprovalDecision, EffectPhase, RunPhase, StopReason
 from restork.modes.base import profile_for
 from restork.runtime.budget import BudgetExceeded, BudgetTracker
+from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
-from restork.storage.intents import SQLiteIntentStore
+from restork.storage.intents import EffectIntent, SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
 
 
@@ -94,26 +96,59 @@ class Harness:
             self._emit(run_id, "run_cancelled", {"state": RunPhase.CANCELLED.value})
         return outcome.run
 
-    def resume(self, run_id: str, intents: SQLiteIntentStore) -> RunSummary:
-        current = self._runs.get(run_id)
-        if current.state not in {
-            RunPhase.AWAITING_APPROVAL,
-            RunPhase.USER_ACTION_REQUIRED,
-        }:
-            raise ValueError("only paused runs can be resumed")
-        if (
-            current.state is RunPhase.USER_ACTION_REQUIRED
-            and intents.unresolved_for_run(run_id)
-        ):
-            raise ValueError("unknown effects must be reconciled before resume")
-        resumed = self._runs.transition(
-            run_id,
-            expected_version=current.state_version,
-            next_state=RunPhase.RUNNING,
-            clear_stop_reason=True,
+    def resume(self, run_id: str, *, idempotency_key: str) -> RunSummary:
+        outcome = self._runs.resume_idempotently(
+            run_id, idempotency_key=idempotency_key
         )
-        self._emit(run_id, "run_resumed", {"state": RunPhase.RUNNING.value})
-        return resumed
+        if outcome.changed:
+            self._emit(run_id, "run_resumed", {"state": RunPhase.RUNNING.value})
+        return outcome.run
+
+    def decide_approval(
+        self,
+        approvals: SQLiteApprovalStore,
+        approval_id: str,
+        decision: ApprovalDecision,
+        decided_by: str,
+        *,
+        idempotency_key: str,
+    ) -> ApprovalRequest:
+        outcome = approvals.decide_idempotently(
+            approval_id,
+            decision,
+            decided_by,
+            idempotency_key=idempotency_key,
+        )
+        if outcome.changed:
+            self._emit(
+                outcome.request.run_id,
+                f"approval.{decision.value}",
+                {"approval_id": approval_id},
+            )
+        return outcome.request
+
+    def resolve_effect(
+        self,
+        intents: SQLiteIntentStore,
+        run_id: str,
+        intent_id: str,
+        phase: EffectPhase,
+        *,
+        idempotency_key: str,
+    ) -> EffectIntent:
+        outcome = intents.resolve_idempotently(
+            run_id,
+            intent_id,
+            phase,
+            idempotency_key=idempotency_key,
+        )
+        if outcome.changed:
+            self._emit(
+                run_id,
+                "effect.reconciled",
+                {"intent_id": intent_id, "outcome": phase.value},
+            )
+        return outcome.intent
 
     def _advance(
         self,

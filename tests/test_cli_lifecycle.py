@@ -40,5 +40,18 @@ def test_cli_requires_explicit_unknown_effect_reconciliation(
     SQLiteIntentStore.create(database).create_intent(
         EffectIntent("i", "r", "write", "hash", EffectPhase.UNKNOWN, "never")
     )
-    assert main(["--state-db", str(database), "resolve-unknown", "i", "--outcome", "failed"]) == 0
+    assert main(
+        [
+            "--state-db",
+            str(database),
+            "resolve-unknown",
+            "i",
+            "--run-id",
+            "r",
+            "--outcome",
+            "failed",
+            "--idempotency-key",
+            "resolve-1",
+        ]
+    ) == 0
     assert capsys.readouterr().out.strip() == "failed"  # type: ignore[attr-defined]

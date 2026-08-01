@@ -53,14 +53,19 @@ def _parser() -> argparse.ArgumentParser:
     decide = commands.add_parser("approve")
     decide.add_argument("approval_id")
     decide.add_argument("--by", required=True)
+    decide.add_argument("--idempotency-key", required=True)
     reject = commands.add_parser("reject")
     reject.add_argument("approval_id")
     reject.add_argument("--by", required=True)
+    reject.add_argument("--idempotency-key", required=True)
     resume = commands.add_parser("resume")
     resume.add_argument("run_id")
+    resume.add_argument("--idempotency-key", required=True)
     resolve = commands.add_parser("resolve-unknown")
     resolve.add_argument("intent_id")
+    resolve.add_argument("--run-id", required=True)
     resolve.add_argument("--outcome", choices=["committed", "failed"], required=True)
+    resolve.add_argument("--idempotency-key", required=True)
     return parser
 
 
@@ -103,23 +108,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         decision = (
             ApprovalDecision.APPROVED if arguments.command == "approve" else ApprovalDecision.DENIED
         )
-        approved = SQLiteApprovalStore.open(arguments.state_db).decide(
-            arguments.approval_id, decision, arguments.by
+        approved = Harness(runs, events, budgets).decide_approval(
+            SQLiteApprovalStore.open(arguments.state_db),
+            arguments.approval_id,
+            decision,
+            arguments.by,
+            idempotency_key=arguments.idempotency_key,
         )
         print(approved.model_dump_json())
         return 0
     if arguments.command == "resume":
         resumed = Harness(runs, events, budgets).resume(
-            arguments.run_id, SQLiteIntentStore.create(arguments.state_db)
+            arguments.run_id, idempotency_key=arguments.idempotency_key
         )
         print(resumed.model_dump_json())
         return 0
     if arguments.command == "resolve-unknown":
         intents = SQLiteIntentStore.create(arguments.state_db)
-        intent = intents.get(arguments.intent_id)
-        if intent.phase is not EffectPhase.UNKNOWN:
-            raise ValueError("only unknown effects require reconciliation")
-        print(intents.update_phase(arguments.intent_id, EffectPhase(arguments.outcome)).phase.value)
+        intent = Harness(runs, events, budgets).resolve_effect(
+            intents,
+            arguments.run_id,
+            arguments.intent_id,
+            EffectPhase(arguments.outcome),
+            idempotency_key=arguments.idempotency_key,
+        )
+        print(intent.phase.value)
         return 0
     task = _task(arguments)
     completed = Harness(runs, events, budgets).complete(arguments.run_id, task, arguments.artifact)

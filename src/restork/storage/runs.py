@@ -11,6 +11,11 @@ from restork.contracts.run import RunSummary
 from restork.contracts.types import EffectPhase, Mode, RunPhase, StopReason
 from restork.runtime.state_machine import transition
 from restork.storage.database import connect, initialize
+from restork.storage.idempotency import (
+    load_idempotent_response,
+    mutation_binding,
+    save_idempotent_response,
+)
 
 
 class ConcurrentRunUpdate(ValueError):
@@ -23,6 +28,12 @@ class CancellationOutcome:
 
     run: RunSummary
     unresolved_intent_ids: tuple[str, ...] = ()
+    changed: bool = False
+
+
+@dataclass(frozen=True)
+class ResumeOutcome:
+    run: RunSummary
     changed: bool = False
 
 
@@ -201,3 +212,87 @@ class SQLiteRunStore:
             unresolved_intent_ids=unresolved_intent_ids,
             changed=changed,
         )
+
+    def resume_idempotently(
+        self, run_id: str, *, idempotency_key: str
+    ) -> ResumeOutcome:
+        operation = "run.resume"
+        binding = mutation_binding(run_id)
+        changed = False
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            replay = load_idempotent_response(
+                self._connection,
+                operation=operation,
+                idempotency_key=idempotency_key,
+                binding=binding,
+            )
+            if replay is not None:
+                result = RunSummary.model_validate_json(replay)
+            else:
+                current = self.get(run_id)
+                if current.state not in {
+                    RunPhase.AWAITING_APPROVAL,
+                    RunPhase.USER_ACTION_REQUIRED,
+                }:
+                    raise ValueError("only paused runs can be resumed")
+                if current.state is RunPhase.USER_ACTION_REQUIRED:
+                    unresolved = self._connection.execute(
+                        """
+                        SELECT 1 FROM effect_intents
+                        WHERE run_id = ? AND phase IN (?, ?)
+                        LIMIT 1
+                        """,
+                        (
+                            run_id,
+                            EffectPhase.STARTED.value,
+                            EffectPhase.UNKNOWN.value,
+                        ),
+                    ).fetchone()
+                    if unresolved is not None:
+                        raise ValueError("unknown effects must be reconciled before resume")
+                else:
+                    now = datetime.now(UTC).isoformat()
+                    approved = self._connection.execute(
+                        """
+                        SELECT 1 FROM approvals
+                        WHERE run_id = ? AND decision = ? AND expires_at > ?
+                        LIMIT 1
+                        """,
+                        (run_id, "approved", now),
+                    ).fetchone()
+                    if approved is None:
+                        raise ValueError("an unexpired approval is required before resume")
+                transition(current.state, RunPhase.RUNNING)
+                updated_at = datetime.now(UTC)
+                cursor = self._connection.execute(
+                    """
+                    UPDATE runs
+                    SET state = ?, state_version = ?, updated_at = ?, stop_reason = NULL
+                    WHERE run_id = ? AND state_version = ?
+                    """,
+                    (
+                        RunPhase.RUNNING.value,
+                        current.state_version + 1,
+                        updated_at.isoformat(),
+                        run_id,
+                        current.state_version,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ConcurrentRunUpdate("run state version is stale")
+                result = self.get(run_id)
+                save_idempotent_response(
+                    self._connection,
+                    operation=operation,
+                    idempotency_key=idempotency_key,
+                    binding=binding,
+                    response_json=result.model_dump_json(),
+                )
+                changed = True
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        else:
+            self._connection.execute("COMMIT")
+        return ResumeOutcome(result, changed)
