@@ -59,15 +59,7 @@ class SQLiteApprovalStore:
         try:
             self._connection.execute("BEGIN IMMEDIATE")
             request = self._load(approval_id)
-            if request.decision is ApprovalDecision.CONSUMED:
-                raise ApprovalAlreadyConsumed("approval capability has already been consumed")
-            if request.expires_at <= datetime.now(UTC):
-                raise ValueError("approval capability has expired")
-            if request.decision is not ApprovalDecision.APPROVED:
-                raise ValueError("approval capability is not approved")
-            updated = request.model_copy(
-                update={"decision": ApprovalDecision.CONSUMED, "consumed_at": datetime.now(UTC)}
-            )
+            updated = self._consume_request(request)
             self._save(updated)
         except BaseException:
             self._connection.execute("ROLLBACK")
@@ -75,6 +67,51 @@ class SQLiteApprovalStore:
         else:
             self._connection.execute("COMMIT")
             return updated
+
+    def consume_matching(
+        self,
+        approval_id: str,
+        *,
+        action_digest: str,
+        canonical_scope: str,
+        resource_versions: dict[str, str],
+        policy_version: str,
+        nonce: str,
+    ) -> ApprovalRequest:
+        """Atomically consume only the exact reviewed action capability."""
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            request = self._load(approval_id)
+            if request.action_digest != action_digest:
+                raise PermissionError("approval action digest does not match")
+            if request.canonical_scope != canonical_scope:
+                raise PermissionError("approval canonical scope does not match")
+            if request.resource_versions != resource_versions:
+                raise PermissionError("approval resource versions do not match")
+            if request.policy_version != policy_version:
+                raise PermissionError("approval policy version does not match")
+            if request.nonce != nonce:
+                raise PermissionError("approval nonce does not match")
+            updated = self._consume_request(request)
+            self._save(updated)
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        else:
+            self._connection.execute("COMMIT")
+            return updated
+
+    @staticmethod
+    def _consume_request(request: ApprovalRequest) -> ApprovalRequest:
+        if request.decision is ApprovalDecision.CONSUMED:
+            raise ApprovalAlreadyConsumed("approval capability has already been consumed")
+        if request.expires_at <= datetime.now(UTC):
+            raise ValueError("approval capability has expired")
+        if request.decision is not ApprovalDecision.APPROVED:
+            raise ValueError("approval capability is not approved")
+        return request.model_copy(
+            update={"decision": ApprovalDecision.CONSUMED, "consumed_at": datetime.now(UTC)}
+        )
 
     def _load(self, approval_id: str) -> ApprovalRequest:
         row = self._connection.execute(
