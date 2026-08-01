@@ -67,3 +67,11 @@ class ToolStatus(StrEnum):
     FAILED = "failed"
     DENIED = "denied"
     CANCELLED = "cancelled"
+
+
+class EffectPhase(StrEnum):
+    PREPARED = "prepared"
+    STARTED = "started"
+    COMMITTED = "committed"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
