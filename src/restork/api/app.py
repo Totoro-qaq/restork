@@ -67,10 +67,20 @@ def create_app(
             raise HTTPException(
                 status_code=400, detail="Last-Event-ID must be an integer"
             ) from error
-        payload = "".join(
+        covered_seq, snapshot, replay_events = events.replay_window(run_id, after_seq=after_seq)
+        frames: list[str] = []
+        if snapshot is not None and covered_seq is not None:
+            frames.append(
+                "id: "
+                f"{covered_seq}\n"
+                "event: run.snapshot\n"
+                f"data: {json.dumps(snapshot)}\n\n"
+            )
+        frames.extend(
             f"id: {event.seq}\nevent: {event.kind}\ndata: {json.dumps(event.metadata)}\n\n"
-            for event in events.read(run_id, after_seq=after_seq)
+            for event in replay_events
         )
+        payload = "".join(frames)
         return StreamingResponse(iter([payload]), media_type="text/event-stream")
 
     @app.post("/api/runs/{run_id}/cancel")

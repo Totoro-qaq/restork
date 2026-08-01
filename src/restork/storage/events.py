@@ -84,10 +84,18 @@ class SQLiteEventStore:
     def replay(
         self, run_id: str, *, after_seq: int
     ) -> tuple[dict[str, object] | None, list[RunEvent]]:
+        _, snapshot, replay_events = self.replay_window(run_id, after_seq=after_seq)
+        return snapshot, replay_events
+
+    def replay_window(
+        self, run_id: str, *, after_seq: int
+    ) -> tuple[int | None, dict[str, object] | None, list[RunEvent]]:
+        """Return the durable snapshot cursor with replay data for SSE consumers."""
         row = self._connection.execute(
             "SELECT covered_seq, snapshot_json FROM event_snapshots WHERE run_id = ?", (run_id,)
         ).fetchone()
         if row is None or after_seq >= row["covered_seq"]:
-            return None, self.read(run_id, after_seq=after_seq)
+            return None, None, self.read(run_id, after_seq=after_seq)
+        covered_seq = int(row["covered_seq"])
         snapshot = json.loads(row["snapshot_json"])
-        return snapshot, self.read(run_id, after_seq=row["covered_seq"])
+        return covered_seq, snapshot, self.read(run_id, after_seq=covered_seq)

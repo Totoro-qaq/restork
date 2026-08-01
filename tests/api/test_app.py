@@ -40,6 +40,37 @@ def test_pairing_header_auth_origin_and_sse_cursor_replay(tmp_path: Path) -> Non
     assert denied.status_code == 403
 
 
+def test_sse_replay_uses_snapshot_then_only_events_after_its_cursor(tmp_path: Path) -> None:
+    database = tmp_path / "state.db"
+    events = SQLiteEventStore.create(database)
+    runs = SQLiteRunStore.create(database)
+    for seq in range(1, 4):
+        events.append(
+            RunEvent(
+                event_id=f"e{seq}",
+                run_id="r",
+                seq=seq,
+                occurred_at=datetime.now(UTC),
+                kind="run.progress",
+                metadata={"seq": seq},
+            )
+        )
+    events.save_snapshot("r", covered_seq=2, snapshot={"phase": "running"})
+    pairing = PairingAuthority()
+    client = TestClient(create_app(events, pairing, runs))
+    token = client.post("/api/pair", json={"code": pairing.pairing_code}).json()["access_token"]
+
+    response = client.get(
+        "/api/runs/r/events", headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert response.status_code == 200
+    assert "id: 2\nevent: run.snapshot\ndata: {\"phase\": \"running\"}" in response.text
+    assert "id: 3\nevent: run.progress" in response.text
+    assert "id: 1\nevent: run.progress" not in response.text
+    assert "id: 2\nevent: run.progress" not in response.text
+
+
 def test_server_binds_only_to_loopback(tmp_path: Path) -> None:
     database = tmp_path / "state.db"
     app = create_app(
