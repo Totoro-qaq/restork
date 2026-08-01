@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from restork.contracts.approval import ApprovalRequest
-from restork.contracts.types import ApprovalDecision
+from restork.contracts.types import ApprovalDecision, RiskClass
 from restork.storage.database import connect, initialize
 from restork.storage.idempotency import (
     load_idempotent_response,
@@ -167,6 +167,8 @@ class SQLiteApprovalStore:
         resource_versions: dict[str, str],
         policy_version: str,
         nonce: str,
+        action_kind: str | None = None,
+        risk_class: RiskClass | None = None,
     ) -> ApprovalRequest:
         """Atomically consume only the exact reviewed action capability."""
         try:
@@ -182,6 +184,10 @@ class SQLiteApprovalStore:
                 raise PermissionError("approval policy version does not match")
             if request.nonce != nonce:
                 raise PermissionError("approval nonce does not match")
+            if action_kind is not None and request.action_kind != action_kind:
+                raise PermissionError("approval action kind does not match")
+            if risk_class is not None and request.risk_class is not risk_class:
+                raise PermissionError("approval risk class does not match")
             updated = self._consume_request(request)
             self._save(updated)
             self._delete_preview(updated)
