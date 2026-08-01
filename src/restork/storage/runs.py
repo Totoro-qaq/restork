@@ -121,6 +121,14 @@ class SQLiteRunStore:
             )
             if cursor.rowcount != 1:
                 raise ConcurrentRunUpdate("run state version is stale")
+            if next_state in {
+                RunPhase.COMPLETED,
+                RunPhase.FAILED,
+                RunPhase.CANCELLED,
+            }:
+                self._connection.execute(
+                    "DELETE FROM transient_blobs WHERE run_id = ?", (run_id,)
+                )
         except BaseException:
             self._connection.execute("ROLLBACK")
             raise
@@ -192,6 +200,10 @@ class SQLiteRunStore:
                     )
                     if cursor.rowcount != 1:
                         raise ConcurrentRunUpdate("run state version is stale")
+                    if next_state is RunPhase.CANCELLED:
+                        self._connection.execute(
+                            "DELETE FROM transient_blobs WHERE run_id = ?", (run_id,)
+                        )
                     result = self.get(run_id)
                     changed = True
                 self._connection.execute(
