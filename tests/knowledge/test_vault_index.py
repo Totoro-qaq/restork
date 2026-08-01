@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from restork.knowledge.graph_projection import WikiLinkGraph
 from restork.knowledge.links import extract_wiki_links
 from restork.knowledge.search import VaultIndex
 from restork.knowledge.vault import Vault, VaultPathError
@@ -46,3 +47,11 @@ def test_vault_rejects_denied_paths_and_ignores_hidden_app_content(tmp_path: Pat
 
 def test_wiki_links_exclude_headings_aliases_and_inferred_words() -> None:
     assert extract_wiki_links("[[Target#Heading|Alias]] mentions Target") == ("Target",)
+
+
+def test_graph_projection_contains_only_explicit_resolved_links(tmp_path: Path) -> None:
+    _write(tmp_path, "A.md", "# A\n\n[[B]] mentions C")
+    _write(tmp_path, "B.md", "# B")
+    graph = WikiLinkGraph.from_index(VaultIndex.build(Vault(tmp_path)))
+
+    assert graph.related("A.md") == ("B.md",)

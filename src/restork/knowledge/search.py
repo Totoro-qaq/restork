@@ -71,3 +71,7 @@ class VaultIndex:
                     )
                 )
         return sorted(results, key=lambda item: (-item.score, item.relative_path))[:limit]
+
+    def indexed_notes(self) -> tuple[IndexedNote, ...]:
+        """Expose immutable source-derived records for deterministic projections."""
+        return self._notes
