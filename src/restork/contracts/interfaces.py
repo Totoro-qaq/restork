@@ -11,13 +11,15 @@ from restork.contracts.run import RunSummary
 from restork.contracts.task import TaskSpec
 from restork.contracts.tool import ToolResult
 from restork.network.gateway import OutboundRequest, OutboundResponse
-from restork.providers.base import ChatCompletion, ChatCompletionRequest
+from restork.providers.base import ChatCompletion, ChatCompletionChunk, ChatCompletionRequest
 
 
 class ModelProvider(Protocol):
     """A provider adapter that operates only through approved envelopes."""
 
     async def complete(self, request: ChatCompletionRequest) -> ChatCompletion: ...
+
+    def stream(self, request: ChatCompletionRequest) -> AsyncIterator[ChatCompletionChunk]: ...
 
 
 class WorkflowRuntime(Protocol):

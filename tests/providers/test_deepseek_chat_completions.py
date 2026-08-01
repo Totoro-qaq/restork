@@ -9,10 +9,13 @@ from restork.config.models import KeychainReference, ProviderConfig
 from restork.contracts.types import DataClass
 from restork.network.gateway import OutboundDeniedError, OutboundRequest, OutboundResponse
 from restork.providers.base import (
+    ChatCompletionChunk,
     ChatCompletionRequest,
     ChatMessage,
+    ChatToolDefinition,
     ProviderErrorKind,
     ProviderResponseError,
+    ToolCall,
 )
 from restork.providers.deepseek_chat_completions import DeepSeekChatCompletionsProvider
 
@@ -109,3 +112,208 @@ def test_provider_normalizes_outbound_policy_denial() -> None:
     with pytest.raises(ProviderResponseError, match="HTTP 429") as error:
         asyncio.run(rate_limited.complete(request))
     assert error.value.retryable is True
+
+
+def test_provider_decodes_tool_calls_and_replays_reasoning_exactly() -> None:
+    tool_response = OutboundResponse(
+        200,
+        {},
+        json.dumps(
+            {
+                "id": "completion-tool",
+                "model": "deepseek-v4-pro",
+                "choices": [
+                    {
+                        "message": {
+                            "content": None,
+                            "reasoning_content": "exact reasoning state",
+                            "tool_calls": [
+                                {
+                                    "id": "call-1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "vault_search",
+                                        "arguments": '{"limit":3,"query":"agent"}',
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+            }
+        ).encode(),
+    )
+    provider, _ = _provider(tool_response)
+    tool = ChatToolDefinition(
+        name="vault_search",
+        description="Search the selected vault",
+        parameters={"type": "object", "properties": {"query": {"type": "string"}}},
+    )
+    completion = asyncio.run(
+        provider.complete(
+            ChatCompletionRequest(
+                messages=[ChatMessage(role="user", content="search")],
+                tools=(tool,),
+            )
+        )
+    )
+
+    assert completion.content is None
+    assert completion.reasoning_content == "exact reasoning state"
+    assert completion.tool_calls == (
+        ToolCall(
+            tool_call_id="call-1",
+            name="vault_search",
+            arguments={"limit": 3, "query": "agent"},
+        ),
+    )
+
+    final_response = OutboundResponse(
+        200,
+        {},
+        b'{"id":"completion-final","model":"deepseek-v4-pro","choices":[{"message":{"content":"done"},"finish_reason":"stop"}]}',
+    )
+    followup_provider, gateway = _provider(final_response)
+    followup = ChatCompletionRequest(
+        messages=[
+            ChatMessage(role="user", content="search"),
+            ChatMessage(
+                role="assistant",
+                reasoning_content=completion.reasoning_content,
+                tool_calls=completion.tool_calls,
+            ),
+            ChatMessage(role="tool", content="found", tool_call_id="call-1"),
+        ],
+        tools=(tool,),
+    )
+    asyncio.run(followup_provider.complete(followup))
+
+    assert gateway.request is not None
+    encoded_messages = json.loads(gateway.request.payload)["messages"]
+    assert encoded_messages[1]["reasoning_content"] == "exact reasoning state"
+    assert encoded_messages[1]["tool_calls"][0]["function"]["arguments"] == (
+        '{"limit":3,"query":"agent"}'
+    )
+    assert encoded_messages[2] == {
+        "role": "tool",
+        "content": "found",
+        "tool_call_id": "call-1",
+    }
+
+
+def test_thinking_tool_continuation_rejects_missing_reasoning_content() -> None:
+    provider, gateway = _provider(OutboundResponse(200, {}, b"{}"))
+    request = ChatCompletionRequest(
+        messages=[
+            ChatMessage(role="user", content="search"),
+            ChatMessage(
+                role="assistant",
+                tool_calls=(
+                    ToolCall(
+                        tool_call_id="call-1",
+                        name="vault_search",
+                        arguments={"query": "agent"},
+                    ),
+                ),
+            ),
+        ]
+    )
+
+    with pytest.raises(ProviderResponseError, match="reasoning_content"):
+        asyncio.run(provider.complete(request))
+
+    assert gateway.request is None
+
+
+def test_provider_parses_typed_stream_chunks_and_requires_done_frame() -> None:
+    def frame(payload: dict[str, object]) -> str:
+        return f"data: {json.dumps(payload, separators=(',', ':'))}"
+
+    frames = "\n\n".join(
+        [
+            frame(
+                {
+                    "id": "stream-1",
+                    "model": "deepseek-v4-pro",
+                    "choices": [{"delta": {"reasoning_content": "think"}}],
+                }
+            ),
+            frame(
+                {
+                    "id": "stream-1",
+                    "model": "deepseek-v4-pro",
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call-1",
+                                        "function": {
+                                            "name": "vault_search",
+                                            "arguments": '{"query":',
+                                        },
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                }
+            ),
+            frame(
+                {
+                    "id": "stream-1",
+                    "model": "deepseek-v4-pro",
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "function": {"arguments": '"agent"}'},
+                                    }
+                                ]
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                }
+            ),
+            frame(
+                {
+                    "id": "stream-1",
+                    "model": "deepseek-v4-pro",
+                    "choices": [],
+                    "usage": {"total_tokens": 7},
+                }
+            ),
+            "data: [DONE]",
+        ]
+    ).encode()
+    provider, gateway = _provider(OutboundResponse(200, {}, frames))
+    request = ChatCompletionRequest(messages=[ChatMessage(role="user", content="search")])
+
+    async def collect() -> list[ChatCompletionChunk]:
+        return [chunk async for chunk in provider.stream(request)]
+
+    chunks = asyncio.run(collect())
+
+    assert len(chunks) == 4
+    assert chunks[0].reasoning_delta == "think"
+    assert chunks[1].tool_call_deltas[0].name == "vault_search"
+    assert chunks[-1].usage is not None
+    assert chunks[-1].usage.total_tokens == 7
+    assert gateway.request is not None
+    assert json.loads(gateway.request.payload)["stream"] is True
+    assert gateway.request.headers["Accept"] == "text/event-stream"
+
+    incomplete, _ = _provider(OutboundResponse(200, {}, frames.split(b"data: [DONE]")[0]))
+
+    async def consume_incomplete() -> None:
+        async for _ in incomplete.stream(request):
+            pass
+
+    with pytest.raises(ProviderResponseError, match="done frame") as error:
+        asyncio.run(consume_incomplete())
+    assert error.value.kind is ProviderErrorKind.RETRYABLE
