@@ -76,7 +76,7 @@ class ChatCompletionRequest(ProviderModel):
     response_format: Literal["text", "json_object"] = "text"
     max_tokens: int | None = Field(default=None, ge=1)
     thinking_enabled: bool | None = None
-    reasoning_effort: Literal["high"] | None = None
+    reasoning_effort: Literal["high", "max"] | None = None
     classification: DataClass = DataClass.PUBLIC
     source_refs: tuple[str, ...] = ()
     tools: tuple[ChatToolDefinition, ...] = ()

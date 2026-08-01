@@ -122,6 +122,8 @@ def evaluate_outbound(
     resolved_address_class: str = "public",
 ) -> PolicyDecision:
     """Allow only exact public HTTPS origins, never credential-bearing URLs."""
+    if classification in {DataClass.SECRET, DataClass.CREDENTIAL}:
+        return PolicyDecision.DENIED
     if _DATA_CLASS_ORDER[classification] > _DATA_CLASS_ORDER[policy.maximum_data_class]:
         return PolicyDecision.DENIED
 

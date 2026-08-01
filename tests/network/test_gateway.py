@@ -29,6 +29,17 @@ def test_gateway_rejects_subdomain_and_secret_payloads() -> None:
         evaluate_outbound(
             destination="https://api.deepseek.com/chat/completions",
             classification=DataClass.SECRET,
+            policy=OutboundPolicy(
+                allowed_origins=frozenset({"https://api.deepseek.com"}),
+                maximum_data_class=DataClass.SECRET,
+            ),
+        )
+        is PolicyDecision.DENIED
+    )
+    assert (
+        evaluate_outbound(
+            destination="https://api.deepseek.com/chat/completions",
+            classification=DataClass.SECRET,
             policy=policy,
         )
         is PolicyDecision.DENIED

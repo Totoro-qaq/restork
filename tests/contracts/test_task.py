@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from restork.contracts.task import BudgetSpec, DataPolicy, Mode, TaskSpec, ToolPolicy
+from restork.contracts.types import DataClass
 
 
 def test_task_spec_is_versioned_and_rejects_unknown_fields() -> None:
@@ -24,6 +25,10 @@ def test_task_spec_is_versioned_and_rejects_unknown_fields() -> None:
 
     assert task.schema_version == 1
     assert task.model_dump(mode="json")["mode"] == "research"
+    assert task.budgets.reasoning_effort == "high"
+    assert task.budgets.model_copy(update={"reasoning_effort": "max"}).reasoning_effort == "max"
 
     with pytest.raises(ValidationError):
         TaskSpec.model_validate({**task.model_dump(mode="json"), "surprise": "nope"})
+    with pytest.raises(ValidationError, match="never be outbound"):
+        DataPolicy(maximum_outbound_class=DataClass.SECRET)

@@ -24,12 +24,13 @@ from restork.api.auth import (
     PairingAuthority,
 )
 from restork.contracts.task import TaskSpec
-from restork.contracts.types import ApprovalDecision, EffectPhase
+from restork.contracts.types import ApprovalDecision, EffectPhase, Mode
 from restork.runtime.runner import Harness
 from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.events import SQLiteEventStore
 from restork.storage.intents import SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
+from restork.tools.registry import DEFAULT_TOOL_DEFINITIONS
 
 
 class PairPayload(BaseModel):
@@ -42,6 +43,10 @@ class ApprovalDecisionPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     decided_by: str = Field(min_length=1, max_length=128)
+
+
+class ApprovalMutationPayload(ApprovalDecisionPayload):
+    decision: Literal["approve", "reject"]
 
 
 class EffectResolutionPayload(BaseModel):
@@ -198,6 +203,20 @@ def create_app(
         pairing.revoke(token.value)
         return Response(status_code=204)
 
+    @app.get("/v1/health")
+    def health(_: Annotated[AccessToken, Depends(read_runs)]) -> dict[str, str]:
+        return {"status": "ready", "schema": "v1"}
+
+    @app.get("/v1/capabilities")
+    def capabilities(
+        _: Annotated[AccessToken, Depends(read_runs)],
+    ) -> dict[str, object]:
+        return {
+            "modes": [mode.value for mode in Mode],
+            "providers": ["deepseek-v4-pro"],
+            "tools": sorted(DEFAULT_TOOL_DEFINITIONS),
+        }
+
     @app.post("/v1/runs")
     async def create_run(
         request: Request,
@@ -331,6 +350,26 @@ def create_app(
         return decide_approval(
             approval_id,
             ApprovalDecision.APPROVED,
+            body,
+            idempotency_key,
+        )
+
+    @app.post("/v1/approvals/{approval_id}")
+    def decide_canonical(
+        approval_id: str,
+        body: ApprovalMutationPayload,
+        _: Annotated[AccessToken, Depends(decide_approvals)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        decision = (
+            ApprovalDecision.APPROVED
+            if body.decision == "approve"
+            else ApprovalDecision.DENIED
+        )
+        return decide_approval(
+            approval_id,
+            decision,
             body,
             idempotency_key,
         )

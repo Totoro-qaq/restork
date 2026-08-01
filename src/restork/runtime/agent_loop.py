@@ -137,7 +137,10 @@ class PersistedAgentLoop:
                         {"intent_ids": [intent.intent_id]},
                     )
                 if result.status is not ToolStatus.SUCCEEDED:
-                    return self._fail(current, StopReason.FAILED, "tool.failed")
+                    latest = self._runs.get(run_id)
+                    if latest.state is not RunPhase.RUNNING:
+                        return latest
+                    return self._fail(latest, StopReason.FAILED, "tool.failed")
                 artifacts = tuple(dict.fromkeys((*checkpoint.artifacts, *result.artifacts)))
                 for artifact in result.artifacts:
                     self._emit(run_id, "artifact.created", {"artifact_ref": artifact})
@@ -159,6 +162,7 @@ class PersistedAgentLoop:
             request = ChatCompletionRequest(
                 messages=list(checkpoint.messages),
                 classification=task.data_policy.maximum_outbound_class,
+                reasoning_effort=task.budgets.reasoning_effort,
                 tools=self._tool_definitions(task),
                 tool_choice="auto",
             )
@@ -350,6 +354,11 @@ class PersistedAgentLoop:
         call = checkpoint.pending_tool_call
         if call is None or checkpoint.intent_id is None:
             raise ValueError("tool checkpoint is incomplete")
+        if self._runs.get(run_id).state is not RunPhase.RUNNING:
+            return ToolResult(
+                status=ToolStatus.CANCELLED,
+                summary="run left the running phase before tool execution",
+            )
         approval = None
         if checkpoint.approval is not None:
             approval = ToolApprovalContext(
