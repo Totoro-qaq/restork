@@ -16,15 +16,15 @@
   One Core turns local knowledge and cloud reasoning into a reviewable, recoverable Research–Study–Work loop.
 </p>
 
-> **当前状态 / Current status — Step 8 complete.** 本地 Core、受控 Harness、四层记忆、
+> **当前状态 / Current status — Step 9 complete.** 本地 Core、受控 Harness、四层记忆、
 > Markdown 任务、每日上下文、配对式 Web Dashboard，以及带证据卡和笔记预览的
-> Research 纵向工作流和诊断优先的 Study 学习循环已实现；Work 与 V1 发布加固正在 Step 9–10 推进。测试与公开演示只使用合成数据，
+> Research、Study 与 planning-only Work 三条纵向工作流均已实现；V1 发布加固正在 Step 10 推进。测试与公开演示只使用合成数据，
 > 不会发起真实模型请求。
 >
 > The local Core, governed Harness, four-layer memory, Markdown tasks, daily
 > context, paired Web Dashboard, and evidence-backed Research vertical slice
-> are implemented, together with a diagnostic-first Study learning loop. Work
-> and V1 release hardening continue in Steps 9–10. Tests
+> are implemented, together with diagnostic-first Study and a planning-only,
+> approval-bound Work handoff. V1 release hardening continues in Step 10. Tests
 > and public demos use synthetic data and never make live model calls.
 
 ## 产品实证 / Product proof
@@ -94,15 +94,16 @@ retrieval evaluation later demonstrates a real need.
 | **Daily context** | 可选 Open-Meteo 天气、一个本地只读 ICS、私有 JSON/CSV 歌单与本地封面；无配置时不联网。 Optional Open-Meteo weather, one local read-only ICS, and private JSON/CSV playlists with local covers; no configuration means no request. |
 | **Research** | 公共网页、GitHub 与 arXiv 来源 → 有界证据卡 → 引用校验结论、冲突与实验 → 重复安全的 Markdown 预览。 Public web, GitHub, and arXiv sources → bounded evidence cards → citation-validated claims, conflicts, and experiments → duplicate-safe Markdown preview. |
 | **Study** | 先诊断、再生成显式先修与学习路径；无答案泄露的练习、错误驱动复习，以及不可写的进度预览。 Diagnostic first, then explicit prerequisites and learning paths, answer-free practice, error-driven review, and write-disabled progress previews. |
+| **Work** | 只读仓库快照 → 有界计划 → 精确脱敏上下文预览 → 单次审批的本地交接包 → 导入哈希验证；不启动执行器。 Read-only snapshot → bounded plan → exact sanitized context preview → single-use approved local handoff → imported hash verification; no executor launch. |
 
-三个模式共享 Core contract 与 Dashboard 入口；Research 与 Study 已完整交付，Work 将在 Step 9 交付：
+三个模式共享 Core contract、Dashboard 入口与恢复语义，并已完成 V1 纵向交付：
 
-The three modes share Core contracts and Dashboard entry points. Research and
-Study are complete; Work follows in Step 9:
+The three modes share Core contracts, Dashboard entry points, and recovery
+semantics, and all three V1 vertical slices are implemented:
 
 - **Research:** 来源 → 证据卡 → 可追溯结论。 Sources → evidence cards → traceable claims.
 - **Study:** 诊断 → 路径 → 练习 → 间隔复习。 Diagnostic → path → practice → spaced review.
-- **Work:** 只读仓库上下文 → 有界计划 → 可审阅交接包。 Read-only repo context → bounded plan → reviewable handoff package.
+- **Work:** 只读上下文 → 有界计划 → 审批交接 → 导入验证。 Read-only context → bounded plan → approved handoff → imported verification.
 
 ## 五分钟启动 / Five-minute start
 
@@ -203,7 +204,7 @@ uv build --no-sources
 - Steps 0–6: ✅ 安全基础、Core、Harness、知识、记忆与 Dashboard。 Safety foundation, Core, Harness, knowledge, memory, and Dashboard.
 - Step 7: ✅ Research 来源、证据、预览与评估。 Research sources, evidence, previews, and evaluation.
 - Step 8: ✅ Study 诊断、路径、练习与复习。 Study diagnostics, paths, practice, and review.
-- Step 9: Work 只读上下文、交接与结果验证。 Work read-only context, handoff, and result verification.
+- Step 9: ✅ Work 只读上下文、审批交接与结果验证。 Work read-only context, approved handoff, and result verification.
 - Step 10: 隐私、恢复、安全、打包与发布审计。 Privacy, recovery, security, packaging, and release audit.
 
 产品约定见 [`V1 specification`](specs/restork-v1.md)，交付切片见

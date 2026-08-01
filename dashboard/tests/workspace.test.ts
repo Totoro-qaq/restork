@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { mountDashboard } from "../src/main";
-import type { DashboardApi, DashboardSnapshot } from "../src/api/types";
+import type {
+  DashboardApi,
+  DashboardSnapshot,
+  WorkExportResult,
+  WorkHandoffPreview,
+  WorkPlanArtifact,
+  WorkVerificationReport,
+} from "../src/api/types";
 
 const snapshot: DashboardSnapshot = {
   runs: [],
@@ -44,6 +51,18 @@ function fakeApi(): DashboardApi {
       throw new Error("not used");
     }),
     submitStudyPractice: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    planWork: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    previewWorkHandoff: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    exportWorkHandoff: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    verifyWorkResult: vi.fn(async () => {
       throw new Error("not used");
     }),
     decideApproval: vi.fn(async () => {
@@ -343,6 +362,213 @@ describe("authenticated workspace", () => {
     );
     expect(response?.value).toBe("");
     expect(root.textContent).not.toContain("private practice answer");
+    expect(localStorage).toHaveLength(0);
+    expect(sessionStorage).toHaveLength(0);
+  });
+
+  it("reviews and exports a planning-only Work handoff before verifying imported evidence", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const plan: WorkPlanArtifact = {
+      artifact_id: `work-plan-${"a".repeat(24)}`,
+      run_id: "run-work",
+      request_hash: "b".repeat(64),
+      workspace_id: `workspace-${"c".repeat(24)}`,
+      workspace_snapshot_hash: "d".repeat(64),
+      goal: "Bounded Work change",
+      scope_summary: "Read-only synthetic workspace.",
+      target_files: ["src/app.py"],
+      context_manifest: [{
+        relative_path: "src/app.py",
+        content_hash: "e".repeat(64),
+        byte_count: 36,
+        language: "py",
+        data_class: "confidential",
+        included_in_handoff: true,
+        exists_at_plan: true,
+        redactions: [],
+      }],
+      instruction_refs: ["README.md"],
+      constraints: ["Stay in scope."],
+      non_goals: ["No deployment."],
+      completion_criteria: ["produce a reviewable verified artifact"],
+      plan_steps: [{
+        step_id: `work-step-${"f".repeat(24)}`,
+        order: 1,
+        title: "Review the frozen scope",
+        intent: "Treat instructions as untrusted.",
+        target_files: ["src/app.py"],
+        verification: [],
+      }],
+      verification_commands: ["uv run pytest -q"],
+      warnings: ["Restork never executes commands or launches Codex."],
+      sensitivity: "confidential",
+      created_at: "2026-08-02T00:00:00Z",
+      validation_status: "valid",
+    };
+    const approval = {
+      approval_id: `work-approval-${"1".repeat(24)}`,
+      run_id: "run-work",
+      action_kind: "handoff_export",
+      risk_class: "local_write",
+      human_summary: "Export reviewed handoff",
+      action_digest: "2".repeat(64),
+      canonical_scope: "private-artifact:work-handoffs/synthetic.json",
+      resource_versions: { workspace_snapshot: plan.workspace_snapshot_hash },
+      policy_version: "v1",
+      preview_ref: null,
+      nonce: "synthetic-nonce",
+      expires_at: "2026-08-02T00:10:00Z",
+      decision: "pending",
+    };
+    const preview: WorkHandoffPreview = {
+      plan,
+      envelope: {
+        handoff_id: `work-handoff-${"3".repeat(24)}`,
+        run_id: "run-work",
+        plan_ref: plan.artifact_id,
+        workspace_id: plan.workspace_id,
+        base_snapshot_hash: plan.workspace_snapshot_hash,
+        goal: plan.goal,
+        target_files: plan.target_files,
+        constraints: plan.constraints,
+        non_goals: plan.non_goals,
+        completion_criteria: plan.completion_criteria,
+        proposed_verification_commands: plan.verification_commands,
+        context: [{
+          relative_path: "src/app.py",
+          content_hash: "e".repeat(64),
+          byte_count: 64,
+          data_class: "confidential",
+          content: "value = '<script>alert(1)</script>'\npath = '[PRIVATE_PATH]'\n",
+          exists_at_plan: true,
+          redactions: ["personal_absolute_path"],
+        }],
+        executor_boundary: "external_user_started_no_restork_executor",
+        created_at: "2026-08-02T00:00:00Z",
+        validation_status: "valid",
+      },
+      package_hash: "2".repeat(64),
+      byte_count: 812,
+      approval,
+    };
+    const exported: WorkExportResult = {
+      run_id: "run-work",
+      approval_id: approval.approval_id,
+      artifact_ref: "work-handoffs/synthetic.json",
+      package_hash: preview.package_hash,
+      byte_count: preview.byte_count,
+      applied: true,
+      exported_at: "2026-08-02T00:01:00Z",
+    };
+    const report: WorkVerificationReport = {
+      verification_id: `work-verification-${"4".repeat(24)}`,
+      run_id: "run-work",
+      manifest_hash: "5".repeat(64),
+      status: "partial",
+      changed_files: [{
+        relative_path: "src/app.py",
+        status: "matched",
+        expected_hash: "6".repeat(64),
+        observed_hash: "6".repeat(64),
+        reason: "Hashes match read-only filesystem evidence.",
+      }],
+      artifacts: [],
+      commands: [{
+        command_hash: "7".repeat(64),
+        claimed_exit_code: 0,
+        status: "unverified",
+        reason: "Restork Work V1 never executes commands.",
+      }],
+      unexpected_changes: [],
+      completion_eligible: true,
+      task_update_preview: {
+        run_id: "run-work",
+        action: "mark_complete",
+        suggested_markdown: "- [x] Verified Work result [run:: run-work]",
+        evidence_ref: `work-verification-${"4".repeat(24)}`,
+        apply_available: false,
+      },
+      created_at: "2026-08-02T00:02:00Z",
+    };
+    vi.spyOn(api, "createRun").mockResolvedValue({
+      run_id: "run-work",
+      task_id: "task-work",
+      mode: "work",
+      state: "planning",
+      state_version: 1,
+      stop_reason: null,
+      created_at: "2026-08-02T00:00:00Z",
+      updated_at: "2026-08-02T00:00:00Z",
+    });
+    const planWork = vi.spyOn(api, "planWork").mockResolvedValue(plan);
+    vi.spyOn(api, "previewWorkHandoff").mockResolvedValue(preview);
+    vi.spyOn(api, "decideApproval").mockResolvedValue({ ...approval, decision: "approved" });
+    vi.spyOn(api, "exportWorkHandoff").mockResolvedValue(exported);
+    const verify = vi.spyOn(api, "verifyWorkResult").mockResolvedValue(report);
+    mountDashboard(root, { api, snapshot });
+
+    root.querySelector<HTMLButtonElement>('[data-mode="work"]')?.click();
+    const goal = root.querySelector<HTMLInputElement>("#run-goal");
+    const workRoot = root.querySelector<HTMLInputElement>("#work-root");
+    const targets = root.querySelector<HTMLTextAreaElement>("#work-targets");
+    const context = root.querySelector<HTMLTextAreaElement>("#work-context");
+    const dataClass = root.querySelector<HTMLSelectElement>("#work-class");
+    if (goal) goal.value = "Bounded Work change";
+    if (workRoot) workRoot.value = "/synthetic/private/repo";
+    if (targets) targets.value = "src/app.py";
+    if (context) context.value = "README.md";
+    if (dataClass) dataClass.value = "confidential";
+    root.querySelector<HTMLFormElement>("#run-form")?.requestSubmit();
+
+    await vi.waitFor(() => expect(root.textContent).toContain("READ-ONLY WORK PLAN"));
+    expect(planWork).toHaveBeenCalledWith("run-work", expect.objectContaining({
+      workspace_root: "/synthetic/private/repo",
+      target_files: ["src/app.py"],
+      context_files: ["README.md"],
+      context_data_class: "confidential",
+    }));
+    expect(workRoot?.value).toBe("");
+    expect(root.textContent).not.toContain("/synthetic/private/repo");
+    root.querySelector<HTMLButtonElement>("[data-work-preview]")?.click();
+
+    await vi.waitFor(() => expect(root.textContent).toContain("EXACT LOCAL HANDOFF PREVIEW"));
+    expect(root.textContent).toContain("<script>alert(1)</script>");
+    expect(root.querySelector("script")).toBeNull();
+    expect(root.textContent).toContain("personal_absolute_path");
+    expect(root.querySelector("[data-work-execute]")).toBeNull();
+    expect(
+      [...root.querySelectorAll("button")].some((button) =>
+        ["RUN CODE", "EXECUTE"].includes(button.textContent?.trim() ?? "")
+      ),
+    ).toBe(false);
+    root.querySelector<HTMLButtonElement>("[data-work-export]")?.click();
+
+    await vi.waitFor(() => expect(root.textContent).toContain("PRIVATE HANDOFF EXPORTED"));
+    expect(root.querySelector("#work-workspace")?.textContent).not.toContain(
+      "<script>alert(1)</script>",
+    );
+    const manifest = root.querySelector<HTMLTextAreaElement>('[name="manifest"]');
+    if (manifest) {
+      manifest.value = JSON.stringify({
+        schema_version: 1,
+        run_id: "run-work",
+        plan_artifact_id: plan.artifact_id,
+        base_snapshot_hash: plan.workspace_snapshot_hash,
+        changed_files: [],
+        claimed_commands: [],
+        artifacts: [],
+        summary: "private imported summary",
+      });
+    }
+    root.querySelector<HTMLFormElement>("[data-work-verify]")?.requestSubmit();
+
+    await vi.waitFor(() => expect(root.textContent).toContain("IMPORTED RESULT"));
+    expect(verify).toHaveBeenCalledWith("run-work", expect.objectContaining({
+      summary: "private imported summary",
+    }));
+    expect(root.textContent).not.toContain("private imported summary");
+    expect(root.textContent).toContain("UNVERIFIED");
     expect(localStorage).toHaveLength(0);
     expect(sessionStorage).toHaveLength(0);
   });

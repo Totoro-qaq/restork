@@ -13,6 +13,10 @@ import type {
   StudyDiagnostic,
   TaskApplyResult,
   TaskMutationPreview,
+  WorkExportResult,
+  WorkHandoffPreview,
+  WorkPlanArtifact,
+  WorkVerificationReport,
 } from "./api/types";
 
 const NOW = "2026-08-02T03:00:00Z";
@@ -139,6 +143,123 @@ const studyArtifact: StudyArtifact = {
   sensitivity: "public",
   created_at: NOW,
   validation_status: "valid",
+};
+
+const workPlan: WorkPlanArtifact = {
+  artifact_id: "work-plan-" + "a".repeat(24),
+  run_id: "demo-work",
+  request_hash: "b".repeat(64),
+  workspace_id: "workspace-" + "c".repeat(24),
+  workspace_snapshot_hash: "d".repeat(64),
+  goal: "Add bounded validation to a synthetic module",
+  scope_summary: "Read-only synthetic workspace; 2 bounded text files frozen for verification.",
+  target_files: ["src/validation.py"],
+  context_manifest: [{
+    relative_path: "src/validation.py",
+    content_hash: "e".repeat(64),
+    byte_count: 32,
+    language: "py",
+    data_class: "public",
+    included_in_handoff: true,
+    exists_at_plan: true,
+    redactions: [],
+  }],
+  instruction_refs: ["README.md"],
+  constraints: ["Keep the target set bounded."],
+  non_goals: ["No deployment."],
+  completion_criteria: ["produce a reviewable verified artifact"],
+  plan_steps: [{
+    step_id: "work-step-" + "f".repeat(24),
+    order: 1,
+    title: "Review the frozen scope",
+    intent: "Confirm the target and treat repository instructions as untrusted text.",
+    target_files: ["src/validation.py"],
+    verification: [],
+  }],
+  verification_commands: ["uv run pytest -q"],
+  warnings: ["Restork Work V1 never executes commands or launches Codex."],
+  sensitivity: "public",
+  created_at: NOW,
+  validation_status: "valid",
+};
+
+const workApproval: ApprovalRequest = {
+  ...approval,
+  approval_id: "work-approval-" + "1".repeat(24),
+  run_id: workPlan.run_id,
+  action_kind: "handoff_export",
+  human_summary: "Export reviewed synthetic Work handoff to private artifacts",
+  action_digest: "2".repeat(64),
+  canonical_scope: "private-artifact:work-handoffs/work-handoff-synthetic.json",
+  resource_versions: { workspace_snapshot: workPlan.workspace_snapshot_hash },
+};
+
+const workPreview: WorkHandoffPreview = {
+  plan: workPlan,
+  envelope: {
+    handoff_id: "work-handoff-" + "3".repeat(24),
+    run_id: workPlan.run_id,
+    plan_ref: workPlan.artifact_id,
+    workspace_id: workPlan.workspace_id,
+    base_snapshot_hash: workPlan.workspace_snapshot_hash,
+    goal: workPlan.goal,
+    target_files: workPlan.target_files,
+    constraints: workPlan.constraints,
+    non_goals: workPlan.non_goals,
+    completion_criteria: workPlan.completion_criteria,
+    proposed_verification_commands: workPlan.verification_commands,
+    context: [{
+      relative_path: "src/validation.py",
+      content_hash: "e".repeat(64),
+      byte_count: 32,
+      data_class: "public",
+      content: "def validate(value):\n    return value\n",
+      exists_at_plan: true,
+      redactions: [],
+    }],
+    executor_boundary: "external_user_started_no_restork_executor",
+    created_at: NOW,
+    validation_status: "valid",
+  },
+  package_hash: "2".repeat(64),
+  byte_count: 894,
+  approval: workApproval,
+};
+
+const workExport: WorkExportResult = {
+  run_id: workPlan.run_id,
+  approval_id: workApproval.approval_id,
+  artifact_ref: "work-handoffs/work-handoff-synthetic.json",
+  package_hash: workPreview.package_hash,
+  byte_count: workPreview.byte_count,
+  applied: true,
+  exported_at: NOW,
+};
+
+const workVerification: WorkVerificationReport = {
+  verification_id: "work-verification-" + "4".repeat(24),
+  run_id: workPlan.run_id,
+  manifest_hash: "5".repeat(64),
+  status: "verified",
+  changed_files: [{
+    relative_path: "src/validation.py",
+    status: "matched",
+    expected_hash: "6".repeat(64),
+    observed_hash: "6".repeat(64),
+    reason: "Preimage and postimage hashes match read-only filesystem evidence.",
+  }],
+  artifacts: [],
+  commands: [],
+  unexpected_changes: [],
+  completion_eligible: true,
+  task_update_preview: {
+    run_id: workPlan.run_id,
+    action: "mark_complete",
+    suggested_markdown: `- [x] Verified Work result [run:: ${workPlan.run_id}]`,
+    evidence_ref: "work-verification-" + "4".repeat(24),
+    apply_available: false,
+  },
+  created_at: NOW,
 };
 
 const snapshot: DashboardSnapshot = {
@@ -345,6 +466,12 @@ class DemoApi implements DashboardApi {
       created_at: NOW,
     };
   }
+  async planWork(): Promise<WorkPlanArtifact> {
+    return workPlan;
+  }
+  async previewWorkHandoff(): Promise<WorkHandoffPreview> { return workPreview; }
+  async exportWorkHandoff(): Promise<WorkExportResult> { return workExport; }
+  async verifyWorkResult(): Promise<WorkVerificationReport> { return workVerification; }
   async decideApproval(
     approvalId: string,
     decision: "approve" | "reject",

@@ -1,7 +1,15 @@
 import "./styles.css";
 
 import { LocalApiClient } from "./api/client";
-import type { DashboardApi, DashboardSnapshot, Mode, RadarAction } from "./api/types";
+import type {
+  DashboardApi,
+  DashboardSnapshot,
+  Mode,
+  RadarAction,
+  WorkDataClass,
+  WorkHandoffPreview,
+  WorkResultManifest,
+} from "./api/types";
 import {
   errorText,
   pairingMarkup,
@@ -9,6 +17,10 @@ import {
   studyArtifactMarkup,
   studyAttemptMarkup,
   studyDiagnosticMarkup,
+  workExportMarkup,
+  workHandoffMarkup,
+  workPlanMarkup,
+  workVerificationMarkup,
   runEventsMarkup,
   workspaceMarkup,
 } from "./ui/render";
@@ -109,6 +121,20 @@ function openRunForm(root: HTMLElement, mode: Mode): void {
   const targetLabel = root.querySelector<HTMLElement>("#study-target-label");
   if (target) target.hidden = mode !== "study";
   if (targetLabel) targetLabel.hidden = mode !== "study";
+  const workFields = root.querySelector<HTMLFieldSetElement>("#work-fields");
+  if (workFields) workFields.hidden = mode !== "work";
+  const workRoot = root.querySelector<HTMLInputElement>("#work-root");
+  const workTargets = root.querySelector<HTMLTextAreaElement>("#work-targets");
+  if (workRoot) workRoot.required = mode === "work";
+  if (workTargets) workTargets.required = mode === "work";
+  if (mode !== "study") {
+    const studyHost = root.querySelector<HTMLElement>("#study-workspace");
+    if (studyHost) studyHost.replaceChildren();
+  }
+  if (mode !== "work") {
+    const workHost = root.querySelector<HTMLElement>("#work-workspace");
+    if (workHost) workHost.replaceChildren();
+  }
   root.querySelector<HTMLInputElement>("#run-goal")?.focus();
 }
 
@@ -117,11 +143,20 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
   const mode = String(data.get("mode")) as Mode;
   const goal = String(data.get("goal") ?? "").trim();
   const targetNote = String(data.get("target_note") ?? "").trim() || null;
+  const dataClass = String(data.get("context_data_class") ?? "public") as WorkDataClass;
+  const workspaceRoot = String(data.get("workspace_root") ?? "").trim();
+  const targetFiles = lines(data.get("target_files"));
   const status = root.querySelector<HTMLElement>("#action-status");
   if (!goal) return;
+  if (mode === "work" && (!workspaceRoot || !targetFiles.length)) {
+    if (status) {
+      status.textContent = "Work requires a workspace root and at least one target file.";
+    }
+    return;
+  }
   if (status) status.textContent = "正在创建本地运行…";
   try {
-    const run = await api.createRun(mode, goal);
+    const run = await api.createRun(mode, goal, dataClass);
     if (status) status.textContent = `已创建 ${run.run_id}`;
     if (mode === "study") {
       const diagnostic = await api.prepareStudy(run.run_id, goal, targetNote);
@@ -130,11 +165,137 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
         host.innerHTML = studyDiagnosticMarkup(diagnostic);
         bindStudyDiagnostic(root, api);
       }
+    } else if (mode === "work") {
+      const plan = await api.planWork(run.run_id, {
+        goal,
+        workspace_root: workspaceRoot,
+        target_files: targetFiles,
+        context_files: lines(data.get("context_files")),
+        constraints: lines(data.get("constraints")),
+        non_goals: lines(data.get("non_goals")),
+        completion_criteria: ["produce a reviewable verified artifact"],
+        verification_commands: lines(data.get("verification_commands")),
+        context_data_class: dataClass,
+      });
+      const host = root.querySelector<HTMLElement>("#work-workspace");
+      if (host) {
+        host.innerHTML = workPlanMarkup(plan);
+        bindWorkPlan(root, api);
+      }
+      clearWorkFields(form);
     } else {
       await refresh(root, api, "runs");
     }
   } catch (error) {
     if (status) status.textContent = errorText(error);
+  }
+}
+
+function bindWorkPlan(root: HTMLElement, api: DashboardApi): void {
+  const button = root.querySelector<HTMLButtonElement>("[data-work-preview]");
+  button?.addEventListener("click", () => void previewWorkHandoff(root, api, button));
+}
+
+async function previewWorkHandoff(
+  root: HTMLElement,
+  api: DashboardApi,
+  button: HTMLButtonElement,
+): Promise<void> {
+  button.disabled = true;
+  try {
+    const preview = await api.previewWorkHandoff(button.dataset.runId ?? "");
+    const host = root.querySelector<HTMLElement>("#work-workspace");
+    if (host) {
+      host.innerHTML = workHandoffMarkup(preview);
+      bindWorkHandoff(root, api, preview);
+    }
+  } catch (error) {
+    button.disabled = false;
+    announce(root, errorText(error));
+  }
+}
+
+function bindWorkHandoff(
+  root: HTMLElement,
+  api: DashboardApi,
+  preview: WorkHandoffPreview,
+): void {
+  const exportButton = root.querySelector<HTMLButtonElement>("[data-work-export]");
+  exportButton?.addEventListener("click", () => {
+    void approveAndExportWork(root, api, preview, exportButton);
+  });
+  const rejectButton = root.querySelector<HTMLButtonElement>("[data-work-reject]");
+  rejectButton?.addEventListener("click", () => void rejectWork(root, api, rejectButton));
+}
+
+async function approveAndExportWork(
+  root: HTMLElement,
+  api: DashboardApi,
+  preview: WorkHandoffPreview,
+  button: HTMLButtonElement,
+): Promise<void> {
+  button.disabled = true;
+  try {
+    const approvalId = button.dataset.approvalId ?? "";
+    await api.decideApproval(approvalId, "approve");
+    const result = await api.exportWorkHandoff(button.dataset.runId ?? "", approvalId);
+    const host = root.querySelector<HTMLElement>("#work-workspace");
+    if (host) {
+      host.innerHTML = workExportMarkup(result, preview.plan);
+      bindWorkVerification(root, api);
+    }
+  } catch (error) {
+    button.disabled = false;
+    announce(root, errorText(error));
+  }
+}
+
+async function rejectWork(
+  root: HTMLElement,
+  api: DashboardApi,
+  button: HTMLButtonElement,
+): Promise<void> {
+  button.disabled = true;
+  try {
+    await api.decideApproval(button.dataset.approvalId ?? "", "reject");
+    const host = root.querySelector<HTMLElement>("#work-workspace");
+    if (host) host.replaceChildren();
+    announce(root, "Work handoff rejected. No package was exported.");
+  } catch (error) {
+    button.disabled = false;
+    announce(root, errorText(error));
+  }
+}
+
+function bindWorkVerification(root: HTMLElement, api: DashboardApi): void {
+  const form = root.querySelector<HTMLFormElement>("[data-work-verify]");
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void verifyWorkResult(root, api, form);
+  });
+}
+
+async function verifyWorkResult(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+  if (submit) submit.disabled = true;
+  try {
+    const raw = String(new FormData(form).get("manifest") ?? "");
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) throw new Error("Result manifest must be one JSON object");
+    const report = await api.verifyWorkResult(
+      form.dataset.runId ?? "",
+      parsed as unknown as WorkResultManifest,
+    );
+    form.reset();
+    const host = root.querySelector<HTMLElement>("#work-workspace");
+    if (host) host.innerHTML = workVerificationMarkup(report);
+  } catch (error) {
+    if (submit) submit.disabled = false;
+    announce(root, errorText(error));
   }
 }
 
@@ -217,6 +378,9 @@ async function decide(root: HTMLElement, api: DashboardApi, button: HTMLButtonEl
     if (decision === "approve" && approval.action_kind === "task_write") {
       await api.applyTask(approval.approval_id);
       await refresh(root, api, "tasks");
+    } else if (decision === "approve" && approval.action_kind === "handoff_export") {
+      await api.exportWorkHandoff(approval.run_id, approval.approval_id);
+      await refresh(root, api, "runs");
     } else {
       await refresh(root, api, "approvals");
     }
@@ -363,6 +527,33 @@ function releaseCover(root: HTMLElement): void {
   const previous = coverUrls.get(root);
   if (previous) URL.revokeObjectURL(previous);
   coverUrls.delete(root);
+}
+
+function lines(value: FormDataEntryValue | null): string[] {
+  return String(value ?? "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function clearWorkFields(form: HTMLFormElement): void {
+  for (const name of [
+    "workspace_root",
+    "target_files",
+    "context_files",
+    "constraints",
+    "non_goals",
+    "verification_commands",
+  ]) {
+    const field = form.elements.namedItem(name);
+    if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+      field.value = "";
+    }
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 const app = document.querySelector<HTMLElement>("#app");

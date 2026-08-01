@@ -59,7 +59,7 @@ def _repository(root: Path) -> Path:
     return root
 
 
-def _workflow(tmp_path: Path) -> tuple[
+def _workflow(tmp_path: Path, task: TaskSpec | None = None) -> tuple[
     WorkWorkflow,
     SQLiteRunStore,
     SQLiteEventStore,
@@ -77,7 +77,7 @@ def _workflow(tmp_path: Path) -> tuple[
     budgets = SQLiteBudgetStore.create(database)
     approvals = SQLiteApprovalStore.open(database)
     work = SQLiteWorkStore.create(database)
-    run = Harness(runs, events, budgets).start(_task())
+    run = Harness(runs, events, budgets).start(task or _task())
     workflow = WorkWorkflow(
         work=work,
         runs=runs,
@@ -199,6 +199,24 @@ def test_stale_workspace_blocks_handoff_preview(tmp_path: Path) -> None:
         workflow.preview_handoff(run_id, idempotency_key="stale-preview")
 
 
+def test_private_context_requires_an_explicit_task_policy(tmp_path: Path) -> None:
+    task = _task().model_copy(
+        update={
+            "data_policy": DataPolicy(
+                maximum_outbound_class=DataClass.CONFIDENTIAL,
+                allow_private_previews=False,
+            )
+        }
+    )
+    workflow, _, _, _, _, run_id, workspace, _ = _workflow(tmp_path, task)
+    request = _request(workspace).model_copy(
+        update={"context_data_class": DataClass.CONFIDENTIAL}
+    )
+
+    with pytest.raises(PermissionError, match="private context"):
+        workflow.plan(run_id, request)
+
+
 def test_imported_result_hashes_are_verified_without_executing_claimed_commands(
     tmp_path: Path,
 ) -> None:
@@ -228,6 +246,9 @@ def test_imported_result_hashes_are_verified_without_executing_claimed_commands(
     assert report.completion_eligible is True
     assert report.changed_files[0].status is EvidenceStatus.MATCHED
     assert report.commands[0].status is EvidenceStatus.UNVERIFIED
+    assert report.task_update_preview is not None
+    assert report.task_update_preview.apply_available is False
+    assert run_id in report.task_update_preview.suggested_markdown
     assert runs.get(run_id).state is RunPhase.COMPLETED
 
 
@@ -255,6 +276,7 @@ def test_mismatched_or_unexpected_results_require_user_action(tmp_path: Path) ->
     assert report.status is VerificationStatus.FAILED
     assert report.completion_eligible is False
     assert report.changed_files[0].status is EvidenceStatus.MISMATCHED
+    assert report.task_update_preview is None
     assert runs.get(run_id).state is RunPhase.USER_ACTION_REQUIRED
 
 
