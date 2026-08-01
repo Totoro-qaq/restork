@@ -1,0 +1,126 @@
+{
+  "$defs": {
+    "SourceAuthority": {
+      "enum": [
+        "primary",
+        "secondary"
+      ],
+      "title": "SourceAuthority",
+      "type": "string"
+    },
+    "SourceKind": {
+      "enum": [
+        "web",
+        "github",
+        "paper"
+      ],
+      "title": "SourceKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "authority": {
+      "$ref": "#/$defs/SourceAuthority"
+    },
+    "authors": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Authors",
+      "type": "array"
+    },
+    "byte_count": {
+      "minimum": 0,
+      "title": "Byte Count",
+      "type": "integer"
+    },
+    "canonical_url": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "title": "Canonical Url",
+      "type": "string"
+    },
+    "content_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Content Hash",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "maxLength": 4000,
+      "title": "Description",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/SourceKind"
+    },
+    "media_type": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Media Type",
+      "type": "string"
+    },
+    "published_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Published At"
+    },
+    "publisher": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Publisher",
+      "type": "string"
+    },
+    "retrieved_at": {
+      "format": "date-time",
+      "title": "Retrieved At",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_id": {
+      "pattern": "^source-[0-9a-f]{24}$",
+      "title": "Source Id",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "untrusted": {
+      "const": true,
+      "default": true,
+      "title": "Untrusted",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "source_id",
+    "kind",
+    "authority",
+    "title",
+    "canonical_url",
+    "publisher",
+    "retrieved_at",
+    "content_hash",
+    "media_type",
+    "byte_count"
+  ],
+  "title": "SourceCard",
+  "type": "object"
+}

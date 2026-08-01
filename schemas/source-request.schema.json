@@ -1,0 +1,43 @@
+{
+  "$defs": {
+    "SourceKind": {
+      "enum": [
+        "web",
+        "github",
+        "paper"
+      ],
+      "title": "SourceKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceKind"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "url": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "title": "Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "title": "SourceRequest",
+  "type": "object"
+}
