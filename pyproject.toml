@@ -9,6 +9,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Restork contributors" }]
 dependencies = [
   "cryptography>=46,<47",
+  "defusedxml>=0.7.1,<0.8",
   "fastapi>=0.135,<0.136",
   "platformdirs>=4.3",
   "pydantic>=2.11",
@@ -29,6 +30,7 @@ dev = [
   "mypy>=1.15",
   "pytest>=8.3",
   "ruff>=0.11",
+  "types-defusedxml>=0.7.0.20260504",
 ]
 
 [tool.pytest.ini_options]

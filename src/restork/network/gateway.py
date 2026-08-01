@@ -52,6 +52,17 @@ class OutboundGateway(Protocol):
     async def dispatch(self, request: OutboundRequest) -> OutboundResponse: ...
 
 
+class OutboundTransport(Protocol):
+    """Blocking wire transport kept behind the policy-checking gateway."""
+
+    def send(
+        self,
+        request: OutboundRequest,
+        timeout_seconds: float,
+        maximum_response_bytes: int,
+    ) -> OutboundResponse: ...
+
+
 class OutboundDeniedError(PermissionError):
     """Raised before any outbound bytes are sent when policy verification fails."""
 
@@ -64,7 +75,12 @@ class _DenyRedirects(HTTPRedirectHandler):
 class UrllibTransport:
     """Small transport kept inside the gateway boundary, with redirects disabled."""
 
-    def send(self, request: OutboundRequest, timeout_seconds: float) -> OutboundResponse:
+    def send(
+        self,
+        request: OutboundRequest,
+        timeout_seconds: float,
+        maximum_response_bytes: int,
+    ) -> OutboundResponse:
         wire_request = Request(
             request.envelope.destination,
             data=request.payload or None,
@@ -74,10 +90,14 @@ class UrllibTransport:
         opener = build_opener(_DenyRedirects())
         try:
             with opener.open(wire_request, timeout=timeout_seconds) as response:
-                payload = response.read()
+                payload = response.read(maximum_response_bytes + 1)
                 return OutboundResponse(response.status, dict(response.headers.items()), payload)
         except HTTPError as error:
-            return OutboundResponse(error.code, dict(error.headers.items()), error.read())
+            return OutboundResponse(
+                error.code,
+                dict(error.headers.items()),
+                error.read(maximum_response_bytes + 1),
+            )
 
 
 class DefaultOutboundGateway:
@@ -87,7 +107,7 @@ class DefaultOutboundGateway:
         self,
         policy: OutboundPolicy,
         *,
-        transport: UrllibTransport | None = None,
+        transport: OutboundTransport | None = None,
         timeout_seconds: float = 30.0,
     ) -> None:
         self._policy = policy
@@ -108,7 +128,10 @@ class DefaultOutboundGateway:
         if len(request.payload) > self._policy.maximum_response_bytes:
             raise OutboundDeniedError("request exceeds outbound byte budget")
         response = await asyncio.to_thread(
-            self._transport.send, request, self._timeout_seconds
+            self._transport.send,
+            request,
+            self._timeout_seconds,
+            self._policy.maximum_response_bytes,
         )
         if len(response.payload) > self._policy.maximum_response_bytes:
             raise OutboundDeniedError("response exceeds outbound byte budget")

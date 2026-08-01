@@ -20,9 +20,25 @@ class RecordingTransport:
     def __init__(self) -> None:
         self.called = False
 
-    def send(self, request: OutboundRequest, timeout_seconds: float) -> OutboundResponse:
+    def send(
+        self,
+        request: OutboundRequest,
+        timeout_seconds: float,
+        maximum_response_bytes: int,
+    ) -> OutboundResponse:
         self.called = True
         return OutboundResponse(200, {}, b"{}")
+
+
+class OversizedTransport:
+    def send(
+        self,
+        request: OutboundRequest,
+        timeout_seconds: float,
+        maximum_response_bytes: int,
+    ) -> OutboundResponse:
+        del request, timeout_seconds
+        return OutboundResponse(200, {}, b"x" * (maximum_response_bytes + 1))
 
 
 def _envelope(classification: DataClass) -> OutboundEnvelope:
@@ -51,3 +67,16 @@ def test_gateway_denies_before_transport_receives_sensitive_payload() -> None:
         asyncio.run(gateway.dispatch(request))
 
     assert transport.called is False
+
+
+def test_gateway_rejects_a_response_over_the_bounded_read_budget() -> None:
+    gateway = DefaultOutboundGateway(
+        OutboundPolicy(
+            allowed_origins=frozenset({"https://api.deepseek.com"}),
+            maximum_response_bytes=32,
+        ),
+        transport=OversizedTransport(),
+    )
+
+    with pytest.raises(OutboundDeniedError, match="response"):
+        asyncio.run(gateway.dispatch(OutboundRequest(_envelope(DataClass.PUBLIC), b"{}", {})))
