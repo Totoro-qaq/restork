@@ -1,0 +1,88 @@
+{
+  "$defs": {
+    "SourceKind": {
+      "enum": [
+        "web",
+        "github",
+        "paper"
+      ],
+      "title": "SourceKind",
+      "type": "string"
+    },
+    "SourceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "url": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "SourceRequest",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "question": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Question",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/SourceRequest"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "title": "Sources",
+      "type": "array"
+    },
+    "target_note": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Note"
+    }
+  },
+  "required": [
+    "question",
+    "sources"
+  ],
+  "title": "ResearchRunRequest",
+  "type": "object"
+}

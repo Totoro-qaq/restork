@@ -1,0 +1,609 @@
+{
+  "$defs": {
+    "ClaimKind": {
+      "enum": [
+        "grounded",
+        "inference"
+      ],
+      "title": "ClaimKind",
+      "type": "string"
+    },
+    "DataClass": {
+      "enum": [
+        "public",
+        "personal",
+        "confidential",
+        "secret",
+        "credential"
+      ],
+      "title": "DataClass",
+      "type": "string"
+    },
+    "EvidenceCard": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/SourceAuthority"
+        },
+        "evidence_id": {
+          "pattern": "^evidence-[0-9a-f]{24}$",
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "excerpt": {
+          "maxLength": 3000,
+          "minLength": 1,
+          "title": "Excerpt",
+          "type": "string"
+        },
+        "excerpt_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Excerpt Hash",
+          "type": "string"
+        },
+        "locator": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Locator",
+          "type": "string"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source_ref": {
+          "pattern": "^source-[0-9a-f]{24}$",
+          "title": "Source Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "source_ref",
+        "authority",
+        "locator",
+        "excerpt",
+        "excerpt_hash",
+        "retrieved_at"
+      ],
+      "title": "EvidenceCard",
+      "type": "object"
+    },
+    "NotePreviewAction": {
+      "enum": [
+        "create",
+        "append",
+        "no_change"
+      ],
+      "title": "NotePreviewAction",
+      "type": "string"
+    },
+    "RelatedNote": {
+      "additionalProperties": false,
+      "properties": {
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "relative_path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "score": {
+          "minimum": 1,
+          "title": "Score",
+          "type": "integer"
+        },
+        "source_overlap": {
+          "default": false,
+          "title": "Source Overlap",
+          "type": "boolean"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "relative_path",
+        "title",
+        "content_hash",
+        "score"
+      ],
+      "title": "RelatedNote",
+      "type": "object"
+    },
+    "ResearchClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "pattern": "^claim-[0-9a-f]{24}$",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "inference_basis": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inference Basis"
+        },
+        "kind": {
+          "$ref": "#/$defs/ClaimKind"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "statement": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id",
+        "statement",
+        "kind"
+      ],
+      "title": "ResearchClaim",
+      "type": "object"
+    },
+    "ResearchConflict": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "description",
+        "evidence_refs"
+      ],
+      "title": "ResearchConflict",
+      "type": "object"
+    },
+    "ResearchExperiment": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Method",
+          "type": "string"
+        },
+        "question": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "success_signal": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Success Signal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question",
+        "method",
+        "success_signal"
+      ],
+      "title": "ResearchExperiment",
+      "type": "object"
+    },
+    "ResearchMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "citation_correctness": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Citation Correctness",
+          "type": "number"
+        },
+        "conflict_count": {
+          "minimum": 0,
+          "title": "Conflict Count",
+          "type": "integer"
+        },
+        "duplicate_sources": {
+          "minimum": 0,
+          "title": "Duplicate Sources",
+          "type": "integer"
+        },
+        "primary_source_ratio": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Primary Source Ratio",
+          "type": "number"
+        },
+        "related_note_count": {
+          "minimum": 0,
+          "title": "Related Note Count",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "supported_claim_rate": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Supported Claim Rate",
+          "type": "number"
+        }
+      },
+      "required": [
+        "supported_claim_rate",
+        "primary_source_ratio",
+        "citation_correctness",
+        "duplicate_sources",
+        "related_note_count",
+        "conflict_count"
+      ],
+      "title": "ResearchMetrics",
+      "type": "object"
+    },
+    "ResearchNotePreview": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/NotePreviewAction"
+        },
+        "backlinks": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Backlinks",
+          "type": "array"
+        },
+        "expected_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Hash"
+        },
+        "markdown": {
+          "maxLength": 200000,
+          "minLength": 1,
+          "title": "Markdown",
+          "type": "string"
+        },
+        "markdown_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Markdown Hash",
+          "type": "string"
+        },
+        "relative_path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "relative_path",
+        "markdown",
+        "markdown_hash"
+      ],
+      "title": "ResearchNotePreview",
+      "type": "object"
+    },
+    "SourceAuthority": {
+      "enum": [
+        "primary",
+        "secondary"
+      ],
+      "title": "SourceAuthority",
+      "type": "string"
+    },
+    "SourceCard": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "$ref": "#/$defs/SourceAuthority"
+        },
+        "authors": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Authors",
+          "type": "array"
+        },
+        "byte_count": {
+          "minimum": 0,
+          "title": "Byte Count",
+          "type": "integer"
+        },
+        "canonical_url": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Canonical Url",
+          "type": "string"
+        },
+        "content_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 4000,
+          "title": "Description",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/SourceKind"
+        },
+        "media_type": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "published_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Published At"
+        },
+        "publisher": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Publisher",
+          "type": "string"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source_id": {
+          "pattern": "^source-[0-9a-f]{24}$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "untrusted": {
+          "const": true,
+          "default": true,
+          "title": "Untrusted",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source_id",
+        "kind",
+        "authority",
+        "title",
+        "canonical_url",
+        "publisher",
+        "retrieved_at",
+        "content_hash",
+        "media_type",
+        "byte_count"
+      ],
+      "title": "SourceCard",
+      "type": "object"
+    },
+    "SourceKind": {
+      "enum": [
+        "web",
+        "github",
+        "paper"
+      ],
+      "title": "SourceKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "artifact_id": {
+      "pattern": "^research-[0-9a-f]{24}$",
+      "title": "Artifact Id",
+      "type": "string"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/ResearchClaim"
+      },
+      "minItems": 1,
+      "title": "Claims",
+      "type": "array"
+    },
+    "conflicts": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ResearchConflict"
+      },
+      "title": "Conflicts",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "evidence_cards": {
+      "items": {
+        "$ref": "#/$defs/EvidenceCard"
+      },
+      "minItems": 1,
+      "title": "Evidence Cards",
+      "type": "array"
+    },
+    "experiments": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ResearchExperiment"
+      },
+      "title": "Experiments",
+      "type": "array"
+    },
+    "metrics": {
+      "$ref": "#/$defs/ResearchMetrics"
+    },
+    "note_preview": {
+      "$ref": "#/$defs/ResearchNotePreview"
+    },
+    "question": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Question",
+      "type": "string"
+    },
+    "related_notes": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/RelatedNote"
+      },
+      "title": "Related Notes",
+      "type": "array"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "sensitivity": {
+      "$ref": "#/$defs/DataClass"
+    },
+    "source_cards": {
+      "items": {
+        "$ref": "#/$defs/SourceCard"
+      },
+      "minItems": 1,
+      "title": "Source Cards",
+      "type": "array"
+    },
+    "summary_claim_refs": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Summary Claim Refs",
+      "type": "array"
+    },
+    "unresolved_questions": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Unresolved Questions",
+      "type": "array"
+    },
+    "validation_status": {
+      "const": "valid",
+      "default": "valid",
+      "title": "Validation Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "artifact_id",
+    "run_id",
+    "question",
+    "source_cards",
+    "evidence_cards",
+    "claims",
+    "summary_claim_refs",
+    "note_preview",
+    "metrics",
+    "sensitivity",
+    "created_at"
+  ],
+  "title": "ResearchArtifact",
+  "type": "object"
+}

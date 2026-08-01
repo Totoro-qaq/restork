@@ -191,7 +191,9 @@ class ModelRuntime:
             return
         if completion.content is None:
             raise ValueError("structured model response is empty")
-        response_schema.model_validate(json.loads(completion.content))
+        # Validate from the JSON representation so strict tuple/date fields retain
+        # their documented JSON array/string forms instead of becoming Python inputs.
+        response_schema.model_validate_json(completion.content)
 
     def _store_reasoning(
         self,

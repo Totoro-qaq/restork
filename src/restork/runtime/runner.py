@@ -86,7 +86,11 @@ class Harness:
         if current.state is RunPhase.VERIFYING:
             verifying = current
         else:
-            running = self._advance(current, RunPhase.RUNNING, "run_started")
+            running = (
+                current
+                if current.state is RunPhase.RUNNING
+                else self._advance(current, RunPhase.RUNNING, "run_started")
+            )
             verifying = self._advance(running, RunPhase.VERIFYING, "verification_started")
         verify_artifacts(artifacts)
         self._emit(

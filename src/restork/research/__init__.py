@@ -1,4 +1,4 @@
-"""Evidence-first Research mode primitives."""
+"""Governed Research source, evidence, and workflow services."""
 
 from restork.research.models import (
     FetchedSource,

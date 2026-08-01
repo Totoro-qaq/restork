@@ -171,6 +171,16 @@ def initialize(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS daily_cache_expiry
             ON daily_cache (expires_at);
+
+        CREATE TABLE IF NOT EXISTS research_artifacts (
+            artifact_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL UNIQUE,
+            artifact_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS research_artifacts_created
+            ON research_artifacts (created_at, artifact_id);
         """
     )
     try:
