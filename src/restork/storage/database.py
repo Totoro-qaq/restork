@@ -120,6 +120,24 @@ def initialize(connection: sqlite3.Connection) -> None:
             ON memory_records (source_id);
         CREATE INDEX IF NOT EXISTS memory_records_retention
             ON memory_records (retention_class, expires_at, last_accessed_at);
+
+        CREATE TABLE IF NOT EXISTS radar_items (
+            item_id TEXT PRIMARY KEY,
+            lane TEXT NOT NULL,
+            title TEXT NOT NULL,
+            source TEXT NOT NULL,
+            url TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            score REAL NOT NULL,
+            published_at TEXT,
+            state TEXT NOT NULL,
+            data_class TEXT NOT NULL CHECK (data_class NOT IN ('secret', 'credential')),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS radar_items_lane_state
+            ON radar_items (lane, state, score, published_at);
         """
     )
     try:

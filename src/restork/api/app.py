@@ -2,11 +2,14 @@
 
 import json
 from collections.abc import Callable
+from hashlib import sha256
+from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.base import RequestResponseEndpoint
 
@@ -17,16 +20,22 @@ from restork.api.auth import (
     EFFECTS_RESOLVE,
     MEMORY_READ,
     MEMORY_WRITE,
+    RADAR_READ,
+    RADAR_WRITE,
     RUNS_READ,
     RUNS_WRITE,
+    TASKS_READ,
     TOKENS_MANAGE,
     WEB_AUDIENCE,
     AccessToken,
     InvalidAccessToken,
     PairingAuthority,
 )
-from restork.contracts.task import TaskSpec
+from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import ApprovalDecision, EffectPhase, Mode
+from restork.dashboard.models import RadarAction, RadarActionRequest, RadarActionResult
+from restork.dashboard.radar import SQLiteRadarStore, empty_radar_snapshot
+from restork.dashboard.tasks import MarkdownTaskBoard
 from restork.memory.models import (
     ContextSelectionRequest,
     MemoryCorrection,
@@ -38,6 +47,7 @@ from restork.memory.models import (
 from restork.memory.service import MemoryService
 from restork.runtime.runner import Harness
 from restork.storage.approvals import SQLiteApprovalStore
+from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
 from restork.storage.intents import SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
@@ -91,6 +101,10 @@ def create_app(
     approvals: SQLiteApprovalStore,
     intents: SQLiteIntentStore,
     memory: MemoryService | None = None,
+    tasks: MarkdownTaskBoard | None = None,
+    radar: SQLiteRadarStore | None = None,
+    budgets: SQLiteBudgetStore | None = None,
+    web_root: Path | None = None,
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -126,6 +140,9 @@ def create_app(
     resolve_effects = require_token(EFFECTS_RESOLVE)
     read_memory = require_token(MEMORY_READ)
     write_memory = require_token(MEMORY_WRITE)
+    read_tasks = require_token(TASKS_READ)
+    read_radar = require_token(RADAR_READ)
+    write_radar = require_token(RADAR_WRITE)
 
     def require_json(content_type: str = Header(default="")) -> None:
         if content_type.split(";", maxsplit=1)[0].strip().lower() != "application/json":
@@ -187,6 +204,13 @@ def create_app(
                 },
             )
         response = await call_next(request)
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; style-src 'self'; script-src 'self'; "
+            "connect-src 'self'; img-src 'self' data:; object-src 'none'; "
+            "base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        )
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
         if origin:
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Vary"] = "Origin"
@@ -341,6 +365,144 @@ def create_app(
             )
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+        return result.model_dump(mode="json")
+
+    @app.get("/v1/runs")
+    def list_runs(
+        _: Annotated[AccessToken, Depends(read_runs)],
+        limit: int = 50,
+    ) -> dict[str, object]:
+        try:
+            summaries = runs.list_runs(limit=limit)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        items: list[dict[str, object]] = []
+        for summary in summaries:
+            task: TaskSpec | None
+            try:
+                task = runs.get_task(summary.run_id)
+            except ValueError:
+                task = None
+            budget_status: dict[str, object] | None = None
+            if budgets is not None:
+                try:
+                    snapshot = budgets.snapshot(summary.run_id)
+                except KeyError:
+                    pass
+                else:
+                    budget_status = {
+                        "budget": snapshot.budget.model_dump(mode="json"),
+                        "usage": {
+                            "steps": snapshot.usage.steps,
+                            "retries": snapshot.usage.retries,
+                            "tokens": snapshot.usage.tokens,
+                            "cost_usd": snapshot.usage.cost_usd,
+                            "child_tasks": snapshot.usage.child_tasks,
+                        },
+                        "wall_time_exceeded": snapshot.wall_time_exceeded,
+                    }
+            items.append(
+                {
+                    "summary": summary.model_dump(mode="json"),
+                    "task": task.model_dump(mode="json") if task is not None else None,
+                    "budget": budget_status,
+                }
+            )
+        return {"runs": items}
+
+    @app.get("/v1/approvals")
+    def list_approvals(
+        _: Annotated[AccessToken, Depends(read_approvals)],
+        pending_only: bool = False,
+        limit: int = 50,
+    ) -> dict[str, object]:
+        try:
+            requests = approvals.list_requests(pending_only=pending_only, limit=limit)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return {
+            "approvals": [request.model_dump(mode="json") for request in requests]
+        }
+
+    @app.get("/v1/tasks")
+    def list_tasks(
+        _: Annotated[AccessToken, Depends(read_tasks)],
+        include_completed: bool = True,
+    ) -> dict[str, object]:
+        board = tasks or MarkdownTaskBoard()
+        return board.snapshot(include_completed=include_completed).model_dump(mode="json")
+
+    @app.get("/v1/radar")
+    def read_radar_items(
+        _: Annotated[AccessToken, Depends(read_radar)],
+        include_dismissed: bool = False,
+    ) -> dict[str, object]:
+        snapshot = (
+            radar.snapshot(include_dismissed=include_dismissed)
+            if radar is not None
+            else empty_radar_snapshot()
+        )
+        return snapshot.model_dump(mode="json")
+
+    @app.post("/v1/radar/{item_id}/action")
+    def mutate_radar_item(
+        item_id: str,
+        body: RadarActionRequest,
+        _: Annotated[AccessToken, Depends(write_radar)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if radar is None:
+            raise HTTPException(status_code=503, detail="Radar is not configured")
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        try:
+            item = radar.get(item_id)
+            run_id = None
+            if body.action is RadarAction.RESEARCH:
+                task_id = f"radar-{sha256(item.item_id.encode()).hexdigest()[:24]}"
+                research_task = TaskSpec(
+                    task_id=task_id,
+                    mode=Mode.RESEARCH,
+                    goal=f"Research Radar item: {item.title} ({item.url})",
+                    workspace_scope=f"radar:{item.item_id}",
+                    completion_criteria=[
+                        "claims reference evidence",
+                        "unresolved questions are explicit",
+                    ],
+                    data_policy=DataPolicy(
+                        maximum_outbound_class=item.data_class,
+                    ),
+                    tool_policy=ToolPolicy(
+                        allowed_tools=["vault_search", "source_read"]
+                    ),
+                    budgets=BudgetSpec(
+                        max_steps=12,
+                        max_wall_time_seconds=3600,
+                        max_tokens=120_000,
+                        max_retries=2,
+                    ),
+                    created_at=item.created_at,
+                )
+                run = Harness(runs, events).start(
+                    research_task,
+                    idempotency_key=f"radar-research:{idempotency_key}",
+                )
+                run_id = run.run_id
+            updated = radar.act(item_id, body.action, idempotency_key=idempotency_key)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Radar item not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        result = RadarActionResult(
+            item=updated,
+            run_id=run_id,
+            task_preview_available=(
+                body.action is RadarAction.MAKE_TASK
+                and tasks is not None
+                and tasks.configured
+            ),
+        )
         return result.model_dump(mode="json")
 
     @app.post("/v1/runs")
@@ -543,6 +705,16 @@ def create_app(
             "run_id": intent.run_id,
             "phase": intent.phase.value,
         }
+
+    selected_web_root = web_root or Path(__file__).resolve().parents[1] / "web"
+    asset_root = selected_web_root / "assets"
+    index_path = selected_web_root / "index.html"
+    if asset_root.is_dir() and index_path.is_file():
+        app.mount("/assets", StaticFiles(directory=asset_root), name="dashboard-assets")
+
+        @app.get("/", include_in_schema=False)
+        def dashboard_index() -> FileResponse:
+            return FileResponse(index_path, headers={"Cache-Control": "no-store"})
 
     return app
 
