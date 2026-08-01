@@ -1,9 +1,4 @@
-import "./styles.css";
-
-const greeting = "今天想研究、学习，还是完成一项工作？";
-
-function dashboardMarkup(): string {
-  return `
+(function(){const t=document.createElement("link").relList;if(t&&t.supports&&t.supports("modulepreload"))return;for(const s of document.querySelectorAll('link[rel="modulepreload"]'))l(s);new MutationObserver(s=>{for(const a of s)if(a.type==="childList")for(const r of a.addedNodes)r.tagName==="LINK"&&r.rel==="modulepreload"&&l(r)}).observe(document,{childList:!0,subtree:!0});function n(s){const a={};return s.integrity&&(a.integrity=s.integrity),s.referrerPolicy&&(a.referrerPolicy=s.referrerPolicy),s.crossOrigin==="use-credentials"?a.credentials="include":s.crossOrigin==="anonymous"?a.credentials="omit":a.credentials="same-origin",a}function l(s){if(s.ep)return;s.ep=!0;const a=n(s);fetch(s.href,a)}})();const c="今天想研究、学习，还是完成一项工作？";function i(){return`
     <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <section class="dashboard" aria-label="Restork 本地工作台">
       <aside class="sidebar">
@@ -22,7 +17,7 @@ function dashboardMarkup(): string {
         <p class="session">LOOPBACK ONLY<br>本地 Core 已配对</p>
       </aside>
       <main class="workspace">
-        <header class="topline"><p>&gt; <span id="greeting">${greeting}</span><span class="caret" aria-hidden="true"></span></p><span>127.0.0.1 · LOCAL</span></header>
+        <header class="topline"><p>&gt; <span id="greeting">${c}</span><span class="caret" aria-hidden="true"></span></p><span>127.0.0.1 · LOCAL</span></header>
         <section class="metrics" aria-label="运行概览">
           <article class="metric research"><small>进行中运行</small><strong>3</strong><span>Research ×2 · Work ×1</span></article>
           <article class="metric approval"><small>待审批</small><strong>2</strong><span>最早 14 分钟后过期</span></article>
@@ -61,28 +56,4 @@ function dashboardMarkup(): string {
           </article>
         </section>
       </main>
-    </section>`;
-}
-
-function attachInteractions(root: HTMLElement): void {
-  root.querySelectorAll<HTMLButtonElement>(".nav-item").forEach((button) => {
-    button.addEventListener("click", () => {
-      root.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("is-active"));
-      button.classList.add("is-active");
-    });
-  });
-  root.querySelectorAll<HTMLButtonElement>(".stamp").forEach((button) => {
-    button.addEventListener("click", () => {
-      const status = root.querySelector<HTMLElement>("#approval-status");
-      if (status) status.textContent = button.classList.contains("approve") ? "已在本地预览中批准，等待 Core 消费。" : "已在本地预览中拒绝，未写入任何笔记。";
-    });
-  });
-}
-
-export function mountDashboard(root: HTMLElement): void {
-  root.innerHTML = dashboardMarkup();
-  attachInteractions(root);
-}
-
-const app = document.querySelector<HTMLElement>("#app");
-if (app) mountDashboard(app);
+    </section>`}function p(e){e.querySelectorAll(".nav-item").forEach(t=>{t.addEventListener("click",()=>{e.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("is-active")),t.classList.add("is-active")})}),e.querySelectorAll(".stamp").forEach(t=>{t.addEventListener("click",()=>{const n=e.querySelector("#approval-status");n&&(n.textContent=t.classList.contains("approve")?"已在本地预览中批准，等待 Core 消费。":"已在本地预览中拒绝，未写入任何笔记。")})})}function b(e){e.innerHTML=i(),p(e)}const o=document.querySelector("#app");o&&b(o);
