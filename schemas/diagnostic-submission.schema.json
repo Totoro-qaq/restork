@@ -1,0 +1,24 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "answers": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "maxProperties": 8,
+      "minProperties": 2,
+      "title": "Answers",
+      "type": "object"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "answers"
+  ],
+  "title": "DiagnosticSubmission",
+  "type": "object"
+}
