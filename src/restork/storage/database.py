@@ -55,5 +55,11 @@ def initialize(connection: sqlite3.Connection) -> None:
             phase TEXT NOT NULL,
             retry_contract TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS event_snapshots (
+            run_id TEXT PRIMARY KEY,
+            covered_seq INTEGER NOT NULL CHECK (covered_seq >= 0),
+            snapshot_json TEXT NOT NULL
+        );
         """
     )

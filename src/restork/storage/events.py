@@ -68,3 +68,26 @@ class SQLiteEventStore:
             )
             for row in rows
         ]
+
+    def save_snapshot(self, run_id: str, *, covered_seq: int, snapshot: dict[str, object]) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO event_snapshots (run_id, covered_seq, snapshot_json)
+            VALUES (?, ?, ?)
+            ON CONFLICT(run_id) DO UPDATE SET
+                covered_seq = excluded.covered_seq,
+                snapshot_json = excluded.snapshot_json
+            """,
+            (run_id, covered_seq, json.dumps(snapshot, sort_keys=True)),
+        )
+
+    def replay(
+        self, run_id: str, *, after_seq: int
+    ) -> tuple[dict[str, object] | None, list[RunEvent]]:
+        row = self._connection.execute(
+            "SELECT covered_seq, snapshot_json FROM event_snapshots WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if row is None or after_seq >= row["covered_seq"]:
+            return None, self.read(run_id, after_seq=after_seq)
+        snapshot = json.loads(row["snapshot_json"])
+        return snapshot, self.read(run_id, after_seq=row["covered_seq"])
