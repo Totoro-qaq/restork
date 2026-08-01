@@ -10,10 +10,11 @@ from pathlib import Path
 
 from restork import __version__
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
-from restork.contracts.types import ApprovalDecision, Mode, RunPhase
+from restork.contracts.types import ApprovalDecision, EffectPhase, Mode, RunPhase
 from restork.runtime.runner import Harness
 from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.events import SQLiteEventStore
+from restork.storage.intents import SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
 
 
@@ -53,6 +54,11 @@ def _parser() -> argparse.ArgumentParser:
     reject = commands.add_parser("reject")
     reject.add_argument("approval_id")
     reject.add_argument("--by", required=True)
+    resume = commands.add_parser("resume")
+    resume.add_argument("run_id")
+    resolve = commands.add_parser("resolve-unknown")
+    resolve.add_argument("intent_id")
+    resolve.add_argument("--outcome", choices=["committed", "failed"], required=True)
     return parser
 
 
@@ -97,6 +103,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.approval_id, decision, arguments.by
         )
         print(approved.model_dump_json())
+        return 0
+    if arguments.command == "resume":
+        current = runs.get(arguments.run_id)
+        if current.state not in {RunPhase.AWAITING_APPROVAL, RunPhase.USER_ACTION_REQUIRED}:
+            raise ValueError("only paused runs can be resumed")
+        resumed = runs.transition(
+            arguments.run_id, expected_version=current.state_version, next_state=RunPhase.RUNNING
+        )
+        print(resumed.model_dump_json())
+        return 0
+    if arguments.command == "resolve-unknown":
+        intents = SQLiteIntentStore.create(arguments.state_db)
+        intent = intents.get(arguments.intent_id)
+        if intent.phase is not EffectPhase.UNKNOWN:
+            raise ValueError("only unknown effects require reconciliation")
+        print(intents.update_phase(arguments.intent_id, EffectPhase(arguments.outcome)).phase.value)
         return 0
     task = _task(arguments)
     completed = Harness(runs, events).complete(arguments.run_id, task, arguments.artifact)

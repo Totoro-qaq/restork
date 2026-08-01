@@ -74,3 +74,15 @@ class SQLiteIntentStore:
             phase=EffectPhase(row["phase"]),
             retry_contract=row["retry_contract"],
         )
+
+    def get(self, intent_id: str) -> EffectIntent:
+        row = self._connection.execute(
+            "SELECT * FROM effect_intents WHERE intent_id = ?", (intent_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(intent_id)
+        return EffectIntent(
+            intent_id=row["intent_id"], run_id=row["run_id"], tool_name=row["tool_name"],
+            input_hash=row["input_hash"], phase=EffectPhase(row["phase"]),
+            retry_contract=row["retry_contract"],
+        )
