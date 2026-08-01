@@ -10,6 +10,7 @@ from restork.contracts.types import Mode, RunPhase
 from restork.runtime.runner import Harness
 from restork.storage.events import SQLiteEventStore
 from restork.storage.runs import SQLiteRunStore
+from restork.tools.registry import ToolRegistry
 
 
 def _task() -> TaskSpec:
@@ -29,5 +30,13 @@ def test_harness_persists_ordered_events_and_requires_artifact(tmp_path: Path) -
     assert SQLiteRunStore.create(path).get(run.run_id).state is RunPhase.VERIFYING
     completed = harness.complete(run.run_id, _task(), ["artifact:report"])
     assert completed.state is RunPhase.COMPLETED
+    assert SQLiteRunStore.create(path).get(run.run_id).stop_reason is not None
     events = SQLiteEventStore.create(path).read(run.run_id, after_seq=0)
     assert [event.seq for event in events] == [1, 2, 3, 4, 5]
+
+
+def test_tool_registry_enforces_task_and_mode_policy() -> None:
+    task = _task()
+    ToolRegistry().validate(task, "vault_search")
+    with pytest.raises(PermissionError, match="mode"):
+        ToolRegistry().validate(task, "handoff_export")

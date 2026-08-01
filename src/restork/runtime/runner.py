@@ -46,12 +46,24 @@ class Harness:
             running = self._advance(current, RunPhase.RUNNING, 3, "run_started")
             verifying = self._advance(running, RunPhase.VERIFYING, 4, "verification_started")
         verify_artifacts(artifacts)
-        completed = self._advance(verifying, RunPhase.COMPLETED, 5, "run_completed")
-        return completed.model_copy(update={"stop_reason": StopReason.COMPLETED})
+        completed = self._advance(
+            verifying, RunPhase.COMPLETED, 5, "run_completed", stop_reason=StopReason.COMPLETED
+        )
+        return completed
 
-    def _advance(self, run: RunSummary, state: RunPhase, seq: int, kind: str) -> RunSummary:
+    def _advance(
+        self,
+        run: RunSummary,
+        state: RunPhase,
+        seq: int,
+        kind: str,
+        stop_reason: StopReason | None = None,
+    ) -> RunSummary:
         updated = self._runs.transition(
-            run.run_id, expected_version=run.state_version, next_state=state
+            run.run_id,
+            expected_version=run.state_version,
+            next_state=state,
+            stop_reason=stop_reason,
         )
         self._emit(run.run_id, seq, kind, {"state": state.value})
         return updated

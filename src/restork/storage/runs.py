@@ -64,7 +64,12 @@ class SQLiteRunStore:
         )
 
     def transition(
-        self, run_id: str, *, expected_version: int, next_state: RunPhase
+        self,
+        run_id: str,
+        *,
+        expected_version: int,
+        next_state: RunPhase,
+        stop_reason: StopReason | None = None,
     ) -> RunSummary:
         try:
             self._connection.execute("BEGIN IMMEDIATE")
@@ -73,15 +78,17 @@ class SQLiteRunStore:
                 raise ConcurrentRunUpdate("run state version is stale")
             transition(current.state, next_state)
             updated_at = datetime.now(UTC)
+            persisted_stop_reason = stop_reason or current.stop_reason
             cursor = self._connection.execute(
                 """
-                UPDATE runs SET state = ?, state_version = ?, updated_at = ?
+                UPDATE runs SET state = ?, state_version = ?, updated_at = ?, stop_reason = ?
                 WHERE run_id = ? AND state_version = ?
                 """,
                 (
                     next_state.value,
                     expected_version + 1,
                     updated_at.isoformat(),
+                    persisted_stop_reason.value if persisted_stop_reason is not None else None,
                     run_id,
                     expected_version,
                 ),
