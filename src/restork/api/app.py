@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -100,6 +101,22 @@ class WorkExportPayload(BaseModel):
     approval_id: str = Field(min_length=1, max_length=256)
 
 
+def _safe_validation_detail(
+    error: ValidationError | RequestValidationError,
+) -> list[dict[str, object]]:
+    """Return actionable validation metadata without echoing submitted values."""
+    safe_keys = {"type", "loc", "msg"}
+    items = (
+        error.errors()
+        if isinstance(error, RequestValidationError)
+        else error.errors(include_context=False)
+    )
+    return [
+        {key: value for key, value in item.items() if key in safe_keys}
+        for item in items
+    ]
+
+
 def _is_loopback_browser_origin(origin: str) -> bool:
     try:
         parsed = urlsplit(origin)
@@ -138,6 +155,15 @@ def create_app(
     work: WorkWorkflow | None = None,
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.exception_handler(RequestValidationError)
+    async def safe_request_validation_error(
+        _: Request, error: RequestValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": _safe_validation_detail(error)},
+        )
 
     def require_token(scope: str) -> Callable[..., AccessToken]:
         def dependency(request: Request, authorization: str = Header(default="")) -> AccessToken:
@@ -652,7 +678,7 @@ def create_app(
         except ValidationError as error:
             raise HTTPException(
                 status_code=422,
-                detail=error.errors(include_context=False),
+                detail=_safe_validation_detail(error),
             ) from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Research run not found") from error
@@ -704,7 +730,7 @@ def create_app(
         except ValidationError as error:
             raise HTTPException(
                 status_code=422,
-                detail=error.errors(include_context=False),
+                detail=_safe_validation_detail(error),
             ) from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Study run not found") from error
@@ -731,7 +757,7 @@ def create_app(
         except ValidationError as error:
             raise HTTPException(
                 status_code=422,
-                detail=error.errors(include_context=False),
+                detail=_safe_validation_detail(error),
             ) from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Study run not found") from error
@@ -767,7 +793,7 @@ def create_app(
         except ValidationError as error:
             raise HTTPException(
                 status_code=422,
-                detail=error.errors(include_context=False),
+                detail=_safe_validation_detail(error),
             ) from error
         except KeyError as error:
             raise HTTPException(
@@ -824,7 +850,7 @@ def create_app(
         except ValidationError as error:
             raise HTTPException(
                 status_code=422,
-                detail=error.errors(include_context=False),
+                detail=_safe_validation_detail(error),
             ) from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Work run not found") from error
@@ -905,7 +931,7 @@ def create_app(
         except ValidationError as error:
             raise HTTPException(
                 status_code=422,
-                detail=error.errors(include_context=False),
+                detail=_safe_validation_detail(error),
             ) from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Work run not found") from error
@@ -1000,7 +1026,7 @@ def create_app(
         except ValidationError as error:
             raise HTTPException(
                 status_code=422,
-                detail=error.errors(include_context=False),
+                detail=_safe_validation_detail(error),
             ) from error
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -1028,7 +1054,7 @@ def create_app(
         except ValidationError as error:
             raise HTTPException(
                 status_code=422,
-                detail=error.errors(include_context=False),
+                detail=_safe_validation_detail(error),
             ) from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail="parent run not found") from error

@@ -12,8 +12,8 @@ jobs:
   core:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           python-version: "3.12"
       - run: uv sync --frozen --all-groups
@@ -26,11 +26,11 @@ jobs:
   dashboard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -44,7 +44,61 @@ jobs:
   public-artifact-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - run: ./scripts/scan-public-artifacts.sh
+
+  release-blocking-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen --all-groups
+      - name: SEC-NET-001
+        run: >-
+          uv run pytest tests/network
+          tests/e2e/test_release_gates.py::test_sec_net_001_core_network_clients_stay_behind_declared_boundaries
+      - name: SEC-APPROVAL-001
+        run: >-
+          uv run pytest tests/storage/test_approvals.py
+          tests/recovery/test_writes.py::test_sec_approval_001_symlink_swap_cannot_escape_approved_note
+      - name: SEC-AUTH-001
+        run: >-
+          uv run pytest tests/api/test_auth.py tests/api/test_app.py
+          tests/e2e/test_release_gates.py::test_sec_auth_001_every_non_pairing_api_route_has_a_scoped_token_dependency
+      - name: PRIV-LABEL-001
+        run: uv run pytest tests/privacy
+      - name: REC-EFFECT-001
+        run: >-
+          uv run pytest tests/recovery/test_effects.py
+          tests/runtime/test_agent_loop.py::test_rec_effect_001_never_repeats_started_or_committed_non_pure_effects
+      - name: REL-WRITE-001
+        run: uv run pytest tests/knowledge/test_write_journal.py tests/recovery/test_writes.py
+      - name: REL-EVENT-001
+        run: >-
+          uv run pytest tests/recovery/test_event_recovery.py tests/storage/test_events.py
+          tests/storage/test_replay.py tests/storage/test_runs.py tests/storage/test_intents.py
+      - name: OSS-CLEAN-001
+        run: uv run pytest tests/test_public_artifact_scan.py && ./scripts/scan-public-artifacts.sh
+      - name: MEM-RETENTION-001
+        run: uv run pytest tests/memory tests/api/test_memory.py
+      - name: UI-CONTEXT-001
+        run: uv run pytest tests/daily tests/api/test_daily.py
+      - name: README-ASSET-001
+        run: uv run python scripts/audit_readme.py README.md
+      - name: Golden modes, rendering parity, and aggregate metrics
+        run: >-
+          uv run pytest tests/evals tests/rendering
+          && uv run python scripts/evaluate_release.py
+          tests/evals/release_observations.json --output build/release-metrics.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aggregate-release-metrics
+          path: build/release-metrics.json
+          if-no-files-found: error
+          retention-days: 14

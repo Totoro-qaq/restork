@@ -1,0 +1,3 @@
+id: 42
+event: artifact.ready
+data: {"title":"研究 <script> — café","summary":"line one\n第二行","refs":["source-a","笔记-b"]}
