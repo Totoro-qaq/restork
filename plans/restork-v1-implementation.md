@@ -1,7 +1,7 @@
 # Restork V1 Implementation Blueprint
 
-> Status: In progress — Steps 0–5 complete; Step 6 approved and in progress |
-> Version: 0.6 | Date: 2026-08-02
+> Status: In progress — Steps 0–6 complete; Step 7 is next |
+> Version: 0.7 | Date: 2026-08-02
 >
 > Objective: Build a public-ready, local-first personal agent for Research, Study, and Work without exposing private runtime data.
 >

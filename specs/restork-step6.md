@@ -1,6 +1,6 @@
 # Restork Step 6 Specification
 
-> Status: Approved for implementation | Version: 1.0 | Date: 2026-08-02
+> Status: Implemented | Version: 1.1 | Date: 2026-08-02
 >
 > Governing specification: [Restork V1](restork-v1.md)
 >

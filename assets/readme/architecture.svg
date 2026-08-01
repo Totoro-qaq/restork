@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">Restork four-layer memory and governed outbound architecture</title>
+  <desc id="desc">Four local memory layers select minimum necessary context inside Restork Core. Markdown and the private profile remain truth, SQLite stores operational state, and every cloud request crosses a policy gateway.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFFDF8"/>
+      <stop offset="1" stop-color="#F7F0E4"/>
+    </linearGradient>
+    <pattern id="rules" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M0 27.5H28" stroke="#A08F78" stroke-opacity="0.09"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="560" rx="26" fill="#FBF8F1"/>
+  <rect width="1200" height="560" rx="26" fill="url(#rules)"/>
+  <path d="M48 36V524" stroke="#C0392F" stroke-opacity="0.18"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
+    <text x="72" y="62" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="27" font-weight="800" letter-spacing="1.5">FOUR-LAYER MEMORY · LOCAL TRUTH, GOVERNED CONTEXT</text>
+    <text x="72" y="90" fill="#6B5D4B" font-size="15">四层记忆负责选择上下文，而不是制造第二份知识真相。 / Memory selects context; it does not replace your source of truth.</text>
+
+    <g transform="translate(72 122)">
+      <g>
+        <rect width="246" height="142" rx="16" fill="url(#paper)" stroke="#8B5CF6"/>
+        <rect width="246" height="8" rx="4" fill="#8B5CF6"/>
+        <text x="18" y="42" fill="#6D45D4" font-family="American Typewriter, Courier New, monospace" font-size="13" font-weight="800">L0 · WORKING</text>
+        <text x="18" y="69" fill="#3B3126" font-size="17" font-weight="700">当前多轮窗口</text>
+        <text x="18" y="93" fill="#6B5D4B" font-size="13">Recent turns · token budget</text>
+        <text x="18" y="115" fill="#6B5D4B" font-size="13">optional encrypted TTL summary</text>
+        <text x="18" y="132" fill="#A08F78" font-size="11">TRANSIENT</text>
+      </g>
+      <g transform="translate(270)">
+        <rect width="246" height="142" rx="16" fill="url(#paper)" stroke="#EC4899"/>
+        <rect width="246" height="8" rx="4" fill="#EC4899"/>
+        <text x="18" y="42" fill="#A62D68" font-family="American Typewriter, Courier New, monospace" font-size="13" font-weight="800">L1 · EPISODIC</text>
+        <text x="18" y="69" fill="#3B3126" font-size="17" font-weight="700">运行、决策与摘要</text>
+        <text x="18" y="93" fill="#6B5D4B" font-size="13">Runs · attempts · decisions</text>
+        <text x="18" y="115" fill="#6B5D4B" font-size="13">SQLite metadata + provenance</text>
+        <text x="18" y="132" fill="#A08F78" font-size="11">EXPLICIT RETENTION</text>
+      </g>
+      <g transform="translate(540)">
+        <rect width="246" height="142" rx="16" fill="url(#paper)" stroke="#22AFC6"/>
+        <rect width="246" height="8" rx="4" fill="#22D3EE"/>
+        <text x="18" y="42" fill="#167C89" font-family="American Typewriter, Courier New, monospace" font-size="13" font-weight="800">L2 · SEMANTIC</text>
+        <text x="18" y="69" fill="#3B3126" font-size="17" font-weight="700">Markdown 知识与链接</text>
+        <text x="18" y="93" fill="#6B5D4B" font-size="13">Notes · headings · wiki links</text>
+        <text x="18" y="115" fill="#6B5D4B" font-size="13">rebuildable search projection</text>
+        <text x="18" y="132" fill="#A08F78" font-size="11">MARKDOWN TRUTH</text>
+      </g>
+      <g transform="translate(810)">
+        <rect width="246" height="142" rx="16" fill="url(#paper)" stroke="#D68806"/>
+        <rect width="246" height="8" rx="4" fill="#F59E0B"/>
+        <text x="18" y="42" fill="#9B5B00" font-family="American Typewriter, Courier New, monospace" font-size="13" font-weight="800">L3 · PROFILE</text>
+        <text x="18" y="69" fill="#3B3126" font-size="17" font-weight="700">用户明确配置</text>
+        <text x="18" y="93" fill="#6B5D4B" font-size="13">Locale · preferences · rules</text>
+        <text x="18" y="115" fill="#6B5D4B" font-size="13">private TOML + instructions</text>
+        <text x="18" y="132" fill="#A08F78" font-size="11">USER-AUTHORED</text>
+      </g>
+    </g>
+
+    <g transform="translate(72 294)">
+      <path d="M123 0V24M393 0V24M663 0V24M933 0V24" stroke="#A08F78" stroke-width="2"/>
+      <path d="M123 24H933" stroke="#A08F78" stroke-width="2" stroke-dasharray="4 5"/>
+      <path d="M528 24V48" stroke="#A08F78" stroke-width="2"/>
+      <path d="M522 40L528 49L534 40" fill="none" stroke="#A08F78" stroke-width="2"/>
+      <rect y="48" width="780" height="108" rx="17" fill="#3B3126"/>
+      <text x="22" y="77" fill="#F7F0E4" font-family="American Typewriter, Courier New, monospace" font-size="13" font-weight="800" letter-spacing="1.2">CONTEXT SELECTOR · INSIDE LOCAL CORE</text>
+      <text x="22" y="106" fill="#FFFFFF" font-size="18" font-weight="700">最近窗口 + 显式 Profile + 本地检索结果</text>
+      <text x="22" y="130" fill="#D8CCBB" font-size="14">Deterministic token budget · selected IDs · source refs · maximum data class</text>
+      <rect x="604" y="69" width="150" height="58" rx="12" fill="#FFFFFF" opacity="0.10" stroke="#D8CCBB"/>
+      <text x="624" y="92" fill="#6EE7B7" font-family="American Typewriter, Courier New, monospace" font-size="11" font-weight="800">MANIFEST</text>
+      <text x="624" y="113" fill="#FFFFFF" font-size="12">reviewable before send</text>
+
+      <path d="M780 102H826" stroke="#EC4899" stroke-width="3"/>
+      <path d="M817 94L829 102L817 110" fill="none" stroke="#EC4899" stroke-width="3"/>
+      <rect x="832" y="48" width="224" height="108" rx="17" fill="#FFFDF8" stroke="#EC4899" stroke-width="2"/>
+      <text x="854" y="77" fill="#A62D68" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">OUTBOUND GATEWAY</text>
+      <text x="854" y="103" fill="#3B3126" font-size="15" font-weight="700">exact origin · scope · size</text>
+      <text x="854" y="126" fill="#6B5D4B" font-size="12">policy · approval · audit</text>
+      <text x="854" y="145" fill="#A08F78" font-size="10">CLOUD ONLY WHEN ALLOWED</text>
+    </g>
+
+    <g transform="translate(72 474)">
+      <rect width="1056" height="52" rx="14" fill="#FFFFFF" opacity="0.70" stroke="#D8CCBB"/>
+      <text x="20" y="22" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">SOURCE OF TRUTH</text>
+      <text x="20" y="41" fill="#6B5D4B" font-size="12">Markdown + private Profile</text>
+      <path d="M242 26H286" stroke="#A08F78" stroke-dasharray="3 3"/>
+      <text x="306" y="22" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">OPERATIONAL STATE</text>
+      <text x="306" y="41" fill="#6B5D4B" font-size="12">SQLite runs · approvals · cache</text>
+      <path d="M572 26H616" stroke="#A08F78" stroke-dasharray="3 3"/>
+      <text x="636" y="22" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">REBUILDABLE</text>
+      <text x="636" y="41" fill="#6B5D4B" font-size="12">FTS · links · optional vectors</text>
+      <rect x="876" y="11" width="158" height="30" rx="15" fill="#34D399" opacity="0.15" stroke="#2BAE7A"/>
+      <text x="903" y="31" fill="#1E8A56" font-family="American Typewriter, Courier New, monospace" font-size="10" font-weight="800">NO GRAPH DB REQUIRED</text>
+    </g>
+  </g>
+</svg>
