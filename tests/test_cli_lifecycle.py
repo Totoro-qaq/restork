@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 
 from restork.cli import main
+from restork.contracts.types import EffectPhase
+from restork.storage.intents import EffectIntent, SQLiteIntentStore
 
 
 def test_cli_creates_inspects_streams_completes_and_cancels(tmp_path: Path, capsys: object) -> None:
@@ -29,3 +31,14 @@ def test_cli_creates_inspects_streams_completes_and_cancels(tmp_path: Path, caps
         "artifact:x",
     ]
     assert main(complete) == 0
+
+
+def test_cli_requires_explicit_unknown_effect_reconciliation(
+    tmp_path: Path, capsys: object
+) -> None:
+    database = tmp_path / "state.db"
+    SQLiteIntentStore.create(database).create_intent(
+        EffectIntent("i", "r", "write", "hash", EffectPhase.UNKNOWN, "never")
+    )
+    assert main(["--state-db", str(database), "resolve-unknown", "i", "--outcome", "failed"]) == 0
+    assert capsys.readouterr().out.strip() == "failed"  # type: ignore[attr-defined]
