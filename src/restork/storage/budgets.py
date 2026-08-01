@@ -11,6 +11,7 @@ from typing import cast
 from restork.contracts.task import BudgetSpec
 from restork.runtime.budget import BudgetExceeded
 from restork.storage.database import connect, initialize
+from restork.storage.event_log import append_next_event
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,14 @@ class SQLiteBudgetStore:
             current = row[column]
             if maximum is not None and current + amount > maximum:
                 raise BudgetExceeded(f"{column} budget exhausted")
-            self._update_counter(column, current + amount, run_id)
+            updated = current + amount
+            self._update_counter(column, updated, run_id)
+            append_next_event(
+                self._connection,
+                run_id,
+                kind="budget.updated",
+                metadata={"counter": column, "value": updated},
+            )
         except BaseException:
             self._connection.execute("ROLLBACK")
             raise

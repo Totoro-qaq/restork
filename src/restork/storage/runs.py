@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 from restork.contracts.run import RunSummary
 from restork.contracts.task import TaskSpec
 from restork.contracts.types import EffectPhase, Mode, RunPhase, StopReason
 from restork.runtime.state_machine import transition
 from restork.storage.database import connect, initialize
+from restork.storage.event_log import append_next_event
 from restork.storage.idempotency import (
     load_idempotent_response,
     mutation_binding,
@@ -120,18 +119,21 @@ class SQLiteRunStore:
                     """,
                     (run_id, task.budgets.model_dump_json(), now.isoformat()),
                 )
-                self._append_event(
+                append_next_event(
+                    self._connection,
                     run_id,
-                    seq=1,
                     kind="run.created",
                     metadata={"mode": task.mode.value},
                     occurred_at=now,
                 )
-                self._append_event(
+                append_next_event(
+                    self._connection,
                     run_id,
-                    seq=2,
                     kind="run.state_changed",
-                    metadata={"state": RunPhase.PLANNING.value},
+                    metadata={
+                        "previous": RunPhase.CREATED.value,
+                        "state": RunPhase.PLANNING.value,
+                    },
                     occurred_at=now,
                 )
                 if idempotency_key is not None:
@@ -159,32 +161,6 @@ class SQLiteRunStore:
         if row["task_spec_json"] is None:
             raise ValueError("run was created without a persisted TaskSpec")
         return TaskSpec.model_validate_json(row["task_spec_json"])
-
-    def _append_event(
-        self,
-        run_id: str,
-        *,
-        seq: int,
-        kind: str,
-        metadata: dict[str, object],
-        occurred_at: datetime,
-    ) -> None:
-        self._connection.execute(
-            """
-            INSERT INTO events
-                (event_id, run_id, seq, occurred_at, kind, metadata_json, schema_version)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                str(uuid4()),
-                run_id,
-                seq,
-                occurred_at.isoformat(),
-                kind,
-                json.dumps(metadata, sort_keys=True),
-                1,
-            ),
-        )
 
     def get(self, run_id: str) -> RunSummary:
         row = self._connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
@@ -239,6 +215,30 @@ class SQLiteRunStore:
             )
             if cursor.rowcount != 1:
                 raise ConcurrentRunUpdate("run state version is stale")
+            append_next_event(
+                self._connection,
+                run_id,
+                kind="run.state_changed",
+                metadata={
+                    "previous": current.state.value,
+                    "state": next_state.value,
+                    "stop_reason": (
+                        persisted_stop_reason.value
+                        if persisted_stop_reason is not None
+                        else None
+                    ),
+                },
+                occurred_at=updated_at,
+            )
+            terminal_event = _terminal_event(next_state)
+            if terminal_event is not None:
+                append_next_event(
+                    self._connection,
+                    run_id,
+                    kind=terminal_event,
+                    metadata={"state": next_state.value},
+                    occurred_at=updated_at,
+                )
             if next_state in {
                 RunPhase.COMPLETED,
                 RunPhase.FAILED,
@@ -317,6 +317,25 @@ class SQLiteRunStore:
                     )
                     if cursor.rowcount != 1:
                         raise ConcurrentRunUpdate("run state version is stale")
+                    append_next_event(
+                        self._connection,
+                        run_id,
+                        kind="run.state_changed",
+                        metadata={
+                            "previous": current.state.value,
+                            "state": next_state.value,
+                        },
+                        occurred_at=updated_at,
+                    )
+                    terminal_event = _terminal_event(next_state)
+                    if terminal_event is not None:
+                        append_next_event(
+                            self._connection,
+                            run_id,
+                            kind=terminal_event,
+                            metadata={"state": next_state.value},
+                            occurred_at=updated_at,
+                        )
                     if next_state is RunPhase.CANCELLED:
                         self._connection.execute(
                             "DELETE FROM transient_blobs WHERE run_id = ?", (run_id,)
@@ -411,6 +430,16 @@ class SQLiteRunStore:
                 )
                 if cursor.rowcount != 1:
                     raise ConcurrentRunUpdate("run state version is stale")
+                append_next_event(
+                    self._connection,
+                    run_id,
+                    kind="run.state_changed",
+                    metadata={
+                        "previous": current.state.value,
+                        "state": RunPhase.RUNNING.value,
+                    },
+                    occurred_at=updated_at,
+                )
                 result = self.get(run_id)
                 save_idempotent_response(
                     self._connection,
@@ -426,3 +455,12 @@ class SQLiteRunStore:
         else:
             self._connection.execute("COMMIT")
         return ResumeOutcome(result, changed)
+
+
+def _terminal_event(state: RunPhase) -> str | None:
+    return {
+        RunPhase.COMPLETED: "run.completed",
+        RunPhase.FAILED: "run.failed",
+        RunPhase.CANCELLED: "run.cancelled",
+        RunPhase.USER_ACTION_REQUIRED: "run.user_action_required",
+    }.get(state)

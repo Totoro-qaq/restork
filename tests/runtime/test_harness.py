@@ -36,7 +36,12 @@ def test_harness_persists_ordered_events_and_requires_artifact(tmp_path: Path) -
     assert completed.state is RunPhase.COMPLETED
     assert SQLiteRunStore.create(path).get(run.run_id).stop_reason is not None
     events = SQLiteEventStore.create(path).read(run.run_id, after_seq=0)
-    assert [event.seq for event in events] == [1, 2, 3, 4, 5]
+    assert [event.seq for event in events] == list(range(1, len(events) + 1))
+    assert [event.kind for event in events][-3:] == [
+        "verification.completed",
+        "run.state_changed",
+        "run.completed",
+    ]
 
 
 def test_tool_registry_enforces_task_and_mode_policy() -> None:
@@ -84,9 +89,11 @@ def test_cancel_pauses_for_unknown_effect_until_manual_reconciliation(tmp_path: 
     assert resumed.stop_reason is None
     assert replayed == paused
     assert cancelled.state is RunPhase.CANCELLED
-    assert [event.kind for event in events.read(run.run_id, after_seq=0)][-4:] == [
-        "user_action_required",
+    assert [event.kind for event in events.read(run.run_id, after_seq=0)][-6:] == [
+        "run.state_changed",
+        "run.user_action_required",
         "effect.reconciliation_required",
-        "run_resumed",
-        "run_cancelled",
+        "run.state_changed",
+        "run.state_changed",
+        "run.cancelled",
     ]

@@ -61,6 +61,11 @@ class Harness:
             running = self._advance(current, RunPhase.RUNNING, "run_started")
             verifying = self._advance(running, RunPhase.VERIFYING, "verification_started")
         verify_artifacts(artifacts)
+        self._emit(
+            run_id,
+            "verification.completed",
+            {"artifact_count": len(artifacts)},
+        )
         completed = self._advance(
             verifying, RunPhase.COMPLETED, "run_completed", stop_reason=StopReason.COMPLETED
         )
@@ -76,22 +81,13 @@ class Harness:
         if outcome.changed and outcome.unresolved_intent_ids:
             self._emit(
                 run_id,
-                "user_action_required",
-                {"state": RunPhase.USER_ACTION_REQUIRED.value},
-            )
-            self._emit(
-                run_id,
                 "effect.reconciliation_required",
                 {"intent_ids": list(outcome.unresolved_intent_ids)},
             )
-        elif outcome.changed:
-            self._emit(run_id, "run_cancelled", {"state": RunPhase.CANCELLED.value})
         return outcome.run
 
     def resume(self, run_id: str, *, idempotency_key: str) -> RunSummary:
         outcome = self._runs.resume_idempotently(run_id, idempotency_key=idempotency_key)
-        if outcome.changed:
-            self._emit(run_id, "run_resumed", {"state": RunPhase.RUNNING.value})
         return outcome.run
 
     def decide_approval(
@@ -109,12 +105,6 @@ class Harness:
             decided_by,
             idempotency_key=idempotency_key,
         )
-        if outcome.changed:
-            self._emit(
-                outcome.request.run_id,
-                f"approval.{decision.value}",
-                {"approval_id": approval_id},
-            )
         return outcome.request
 
     def resolve_effect(
@@ -132,12 +122,6 @@ class Harness:
             phase,
             idempotency_key=idempotency_key,
         )
-        if outcome.changed:
-            self._emit(
-                run_id,
-                "effect.reconciled",
-                {"intent_id": intent_id, "outcome": phase.value},
-            )
         return outcome.intent
 
     def _advance(
@@ -153,7 +137,8 @@ class Harness:
             next_state=state,
             stop_reason=stop_reason,
         )
-        self._emit(run.run_id, kind, {"state": state.value})
+        if kind == "verification_started":
+            self._emit(run.run_id, "verification.started", {"state": state.value})
         return updated
 
     def _emit(self, run_id: str, kind: str, metadata: dict[str, object]) -> None:

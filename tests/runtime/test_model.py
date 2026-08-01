@@ -146,11 +146,15 @@ def test_model_retry_is_budgeted_and_completion_body_is_not_in_events(
 
     assert completion.content == "untrusted output"
     assert provider.calls == 2
-    assert [event.kind for event in events.read("run", after_seq=0)] == [
-        "model.requested",
+    assert [
+        event.kind
+        for event in events.read("run", after_seq=0)
+        if event.kind != "budget.updated"
+    ] == [
+        "model.started",
         "model.failed",
         "retry.scheduled",
-        "model.requested",
+        "model.started",
         "model.completed",
     ]
     assert budgets.usage("run").tokens == 3
@@ -176,8 +180,12 @@ def test_terminal_provider_error_is_not_retried(tmp_path: Path) -> None:
 
     assert error.value.kind is ProviderErrorKind.TERMINAL
     assert budgets.usage("run").retries == 0
-    assert [event.kind for event in events.read("run", after_seq=0)] == [
-        "model.requested",
+    assert [
+        event.kind
+        for event in events.read("run", after_seq=0)
+        if event.kind != "budget.updated"
+    ] == [
+        "model.started",
         "model.failed",
     ]
 
@@ -190,12 +198,14 @@ def test_provider_timeout_is_classified_and_stops_at_retry_budget(tmp_path: Path
     with pytest.raises(BudgetExceeded, match="retri"):
         asyncio.run(runtime.complete("run", _request(), SlowProvider()))
 
-    assert [event.kind for event in events.read("run", after_seq=0)] == [
-        "model.requested",
+    replay = events.read("run", after_seq=0)
+    assert [event.kind for event in replay if event.kind != "budget.updated"] == [
+        "model.started",
         "model.failed",
         "budget.exhausted",
     ]
-    assert events.read("run", after_seq=0)[1].metadata["classification"] == "retryable"
+    failed = next(event for event in replay if event.kind == "model.failed")
+    assert failed.metadata["classification"] == "retryable"
 
 
 def test_invalid_structured_output_retries_and_rebounds_token_limit(
@@ -216,12 +226,16 @@ def test_invalid_structured_output_retries_and_rebounds_token_limit(
     assert completion.content == '{"answer": 42}'
     assert provider.max_tokens == [5, 4]
     assert budgets.usage("run").tokens == 2
-    assert [event.kind for event in events.read("run", after_seq=0)] == [
-        "model.requested",
+    assert [
+        event.kind
+        for event in events.read("run", after_seq=0)
+        if event.kind != "budget.updated"
+    ] == [
+        "model.started",
         "model.failed",
         "retry.scheduled",
         "budget.clamped",
-        "model.requested",
+        "model.started",
         "model.completed",
     ]
 

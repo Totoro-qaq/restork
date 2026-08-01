@@ -244,7 +244,7 @@ def test_approval_pause_survives_restart_and_is_consumed_once(tmp_path: Path) ->
     assert kinds.count("tool.completed") == 1
 
 
-def test_restart_never_repeats_started_or_committed_non_pure_effects(
+def test_rec_effect_001_never_repeats_started_or_committed_non_pure_effects(
     tmp_path: Path,
 ) -> None:
     definition = ToolDefinition(

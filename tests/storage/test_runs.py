@@ -93,3 +93,33 @@ def test_schema_migrates_legacy_runs_without_inventing_task_spec(tmp_path: objec
         for row in store._connection.execute("PRAGMA table_info(runs)")  # noqa: SLF001
     }
     assert "task_spec_json" in columns
+
+
+def test_rel_event_001_rolls_back_state_when_event_append_fails(
+    tmp_path: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "atomic.db"  # type: ignore[operator]
+    store = SQLiteRunStore.create(path)
+    started = store.start_idempotently(_task(), run_id="run-atomic").run
+    before = store.get(started.run_id)
+    event_count = store._connection.execute(  # noqa: SLF001
+        "SELECT COUNT(*) FROM events WHERE run_id = ?", (started.run_id,)
+    ).fetchone()[0]
+
+    def fail_event(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise RuntimeError("injected event failure")
+
+    monkeypatch.setattr("restork.storage.runs.append_next_event", fail_event)
+    with pytest.raises(RuntimeError, match="injected"):
+        store.transition(
+            started.run_id,
+            expected_version=started.state_version,
+            next_state=RunPhase.RUNNING,
+        )
+
+    assert store.get(started.run_id) == before
+    assert store._connection.execute(  # noqa: SLF001
+        "SELECT COUNT(*) FROM events WHERE run_id = ?", (started.run_id,)
+    ).fetchone()[0] == event_count

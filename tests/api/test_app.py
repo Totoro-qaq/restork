@@ -107,7 +107,9 @@ def test_pairing_accepts_only_loopback_browser_origins_and_json(tmp_path: Path) 
     )
 
 
-def test_api_enforces_cli_audience_scopes_and_header_only_tokens(tmp_path: Path) -> None:
+def test_sec_auth_001_enforces_audience_scopes_origin_and_header_only_tokens(
+    tmp_path: Path,
+) -> None:
     database = tmp_path / "state.db"
     events = SQLiteEventStore.create(database)
     runs = SQLiteRunStore.create(database)

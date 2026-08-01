@@ -121,7 +121,11 @@ def test_pure_tool_retry_is_budgeted_and_visible(tmp_path: Path) -> None:
 
     assert result.status is ToolStatus.SUCCEEDED
     assert search.calls == 2
-    kinds = [event.kind for event in events.read("run", after_seq=0)]
+    kinds = [
+        event.kind
+        for event in events.read("run", after_seq=0)
+        if event.kind != "budget.updated"
+    ]
     assert kinds == [
         "tool.requested",
         "tool.started",
@@ -159,7 +163,11 @@ def test_non_pure_tool_failure_is_unknown_and_never_retried(tmp_path: Path) -> N
     assert result.error == "TimeoutError"
     first = events.read("run", after_seq=0)[0]
     assert intents.get(first.metadata["intent_id"]).phase is EffectPhase.UNKNOWN
-    assert [event.kind for event in events.read("run", after_seq=0)] == [
+    assert [
+        event.kind
+        for event in events.read("run", after_seq=0)
+        if event.kind != "budget.updated"
+    ] == [
         "tool.requested",
         "tool.started",
         "tool.outcome_unknown",
@@ -284,6 +292,11 @@ def test_local_write_consumes_exact_approval_once_immediately_before_tool(
     assert result.status is ToolStatus.SUCCEEDED
     assert approvals.get(context.approval_id).decision is ApprovalDecision.CONSUMED
     assert replay.status is ToolStatus.DENIED
-    denied_intent_id = events.read("run", after_seq=0)[-2].metadata["intent_id"]
+    denied = next(
+        event
+        for event in events.read("run", after_seq=0)
+        if event.kind == "tool.denied"
+    )
+    denied_intent_id = denied.metadata["intent_id"]
     assert intents.get(denied_intent_id).phase is EffectPhase.FAILED
     assert events.read("run", after_seq=0)[-1].kind == "tool.denied"

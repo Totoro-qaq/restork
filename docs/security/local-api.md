@@ -30,3 +30,11 @@ enabled. A CLI client sends no fabricated `Origin` header.
 Pairing does not make a local machine safe from malware with the same user privileges.
 Credentials and private runtime data therefore remain outside the public repository, and
 clients should revoke tokens when a browser profile or CLI credential is retired.
+
+## Durable event boundary
+
+Run-state changes, tool-intent phases, approval decisions and budget counters append their
+ordered event inside the same SQLite transaction as the mutation. If event allocation or
+serialization fails, the mutation rolls back. A non-pure tool is marked `started` before
+invocation and `committed` only afterwards; a restart that finds `started` or `unknown`
+requires explicit reconciliation and never retries the effect automatically.

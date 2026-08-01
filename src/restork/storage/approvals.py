@@ -10,6 +10,7 @@ from pathlib import Path
 from restork.contracts.approval import ApprovalRequest
 from restork.contracts.types import ApprovalDecision, RiskClass
 from restork.storage.database import connect, initialize
+from restork.storage.event_log import append_next_event
 from restork.storage.idempotency import (
     load_idempotent_response,
     mutation_binding,
@@ -54,6 +55,12 @@ class SQLiteApprovalStore:
                     request.model_dump_json(),
                 ),
             )
+            append_next_event(
+                self._connection,
+                request.run_id,
+                kind="approval.requested",
+                metadata={"approval_id": request.approval_id},
+            )
         except BaseException:
             self._connection.execute("ROLLBACK")
             raise
@@ -83,6 +90,15 @@ class SQLiteApprovalStore:
             self._save(updated)
             if decision is ApprovalDecision.DENIED:
                 self._delete_preview(updated)
+            append_next_event(
+                self._connection,
+                updated.run_id,
+                kind="approval.resolved",
+                metadata={
+                    "approval_id": approval_id,
+                    "decision": decision.value,
+                },
+            )
         except BaseException:
             self._connection.execute("ROLLBACK")
             raise
@@ -129,6 +145,15 @@ class SQLiteApprovalStore:
                 self._save(result)
                 if decision is ApprovalDecision.DENIED:
                     self._delete_preview(result)
+                append_next_event(
+                    self._connection,
+                    result.run_id,
+                    kind="approval.resolved",
+                    metadata={
+                        "approval_id": approval_id,
+                        "decision": decision.value,
+                    },
+                )
                 save_idempotent_response(
                     self._connection,
                     operation=operation,
@@ -151,6 +176,15 @@ class SQLiteApprovalStore:
             updated = self._consume_request(request)
             self._save(updated)
             self._delete_preview(updated)
+            append_next_event(
+                self._connection,
+                updated.run_id,
+                kind="approval.resolved",
+                metadata={
+                    "approval_id": approval_id,
+                    "decision": ApprovalDecision.CONSUMED.value,
+                },
+            )
         except BaseException:
             self._connection.execute("ROLLBACK")
             raise
@@ -191,6 +225,15 @@ class SQLiteApprovalStore:
             updated = self._consume_request(request)
             self._save(updated)
             self._delete_preview(updated)
+            append_next_event(
+                self._connection,
+                updated.run_id,
+                kind="approval.resolved",
+                metadata={
+                    "approval_id": approval_id,
+                    "decision": ApprovalDecision.CONSUMED.value,
+                },
+            )
         except BaseException:
             self._connection.execute("ROLLBACK")
             raise
@@ -219,7 +262,36 @@ class SQLiteApprovalStore:
         return ApprovalRequest.model_validate_json(row["request_json"])
 
     def get(self, approval_id: str) -> ApprovalRequest:
-        return self._load(approval_id)
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            request = self._load(approval_id)
+            if (
+                request.decision is ApprovalDecision.PENDING
+                and request.expires_at <= datetime.now(UTC)
+            ):
+                request = request.model_copy(
+                    update={
+                        "decision": ApprovalDecision.EXPIRED,
+                        "decided_at": datetime.now(UTC),
+                    }
+                )
+                self._save(request)
+                self._delete_preview(request)
+                append_next_event(
+                    self._connection,
+                    request.run_id,
+                    kind="approval.resolved",
+                    metadata={
+                        "approval_id": approval_id,
+                        "decision": ApprovalDecision.EXPIRED.value,
+                    },
+                )
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        else:
+            self._connection.execute("COMMIT")
+        return request
 
     def _save(self, request: ApprovalRequest) -> None:
         self._connection.execute(

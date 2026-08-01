@@ -66,7 +66,7 @@ class ModelRuntime:
             except BudgetExceeded:
                 self._emit(run_id, "budget.exhausted", {"kind": "model"})
                 raise
-            self._emit(run_id, "model.requested", {"attempt": attempt})
+            self._emit(run_id, "model.started", {"attempt": attempt})
             try:
                 completion = await asyncio.wait_for(
                     self._complete_provider(provider, bounded_request),
