@@ -132,9 +132,13 @@ def _audit_required_assets(root: Path) -> list[str]:
 
 def main() -> int:
     if len(sys.argv) != 2:
-        print("usage: audit_readme.py /path/to/README.md", file=sys.stderr)
+        print("usage: audit_readme.py README.md", file=sys.stderr)
         return 2
-    readme = Path(sys.argv[1]).expanduser().resolve()
+    if sys.argv[1] not in {"README.md", "./README.md"}:
+        print("ERROR: run the audit from the repository root for README.md", file=sys.stderr)
+        return 2
+    repository_root = Path.cwd().resolve()
+    readme = repository_root / "README.md"
     if not readme.is_file():
         print(f"ERROR: README not found: {readme}", file=sys.stderr)
         return 2
@@ -159,6 +163,9 @@ def main() -> int:
     for reference in references:
         target = _local_target(reference, readme.parent)
         if target is None or target in checked:
+            continue
+        if not target.is_relative_to(repository_root):
+            issues.append(f"local target escapes the repository: {reference}")
             continue
         checked.add(target)
         if not target.is_file():
