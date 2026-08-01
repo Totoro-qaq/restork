@@ -314,6 +314,11 @@ class WorkWorkflow:
             task.data_policy.maximum_outbound_class
         ):
             raise PermissionError("Work context exceeds the task data policy")
+        if (
+            request.context_data_class is not DataClass.PUBLIC
+            and not task.data_policy.allow_private_previews
+        ):
+            raise PermissionError("Work task does not allow private context previews")
         forbidden = {
             tool
             for tool in task.tool_policy.allowed_tools

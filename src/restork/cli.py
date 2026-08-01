@@ -53,6 +53,8 @@ from restork.storage.runs import SQLiteRunStore
 from restork.storage.transient_blobs import TransientBlobStore
 from restork.study.store import SQLiteStudyStore
 from restork.study.workflow import StudyWorkflow
+from restork.work.store import SQLiteWorkStore
+from restork.work.workflow import WorkWorkflow
 
 DEFAULT_API_URL = "http://127.0.0.1:7337"
 
@@ -156,6 +158,11 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--goal", required=True)
     create.add_argument("--scope", required=True)
     create.add_argument("--criterion", action="append", required=True)
+    create.add_argument(
+        "--data-class",
+        choices=["public", "personal", "confidential"],
+        default="public",
+    )
     create.add_argument("--idempotency-key", required=True)
     research = commands.add_parser("research")
     research.add_argument("run_id")
@@ -180,6 +187,45 @@ def _parser() -> argparse.ArgumentParser:
     study_practice.add_argument("--answer", required=True)
     study_practice.add_argument("--confidence", type=int, choices=range(1, 6), required=True)
     study_practice.add_argument("--idempotency-key", required=True)
+    work_child = commands.add_parser("work-child")
+    work_child.add_argument("parent_run_id")
+    work_child.add_argument("--task-id", required=True)
+    work_child.add_argument("--parent-task-id", required=True)
+    work_child.add_argument("--goal", required=True)
+    work_child.add_argument("--scope", required=True)
+    work_child.add_argument("--criterion", action="append", required=True)
+    work_child.add_argument(
+        "--data-class",
+        choices=["public", "personal", "confidential"],
+        default="public",
+    )
+    work_child.add_argument("--idempotency-key", required=True)
+    work_plan = commands.add_parser("work-plan")
+    work_plan.add_argument("run_id")
+    work_plan.add_argument("--goal", required=True)
+    work_plan.add_argument("--workspace-root", type=Path, required=True)
+    work_plan.add_argument("--target", action="append", required=True)
+    work_plan.add_argument("--context", action="append", default=[])
+    work_plan.add_argument("--constraint", action="append", default=[])
+    work_plan.add_argument("--non-goal", action="append", default=[])
+    work_plan.add_argument("--criterion", action="append", required=True)
+    work_plan.add_argument("--verify-command", action="append", default=[])
+    work_plan.add_argument(
+        "--context-data-class",
+        choices=["public", "personal", "confidential"],
+        default="public",
+    )
+    work_preview = commands.add_parser("work-handoff-preview")
+    work_preview.add_argument("run_id")
+    work_preview.add_argument("--idempotency-key", required=True)
+    work_export = commands.add_parser("work-handoff-export")
+    work_export.add_argument("run_id")
+    work_export.add_argument("approval_id")
+    work_export.add_argument("--idempotency-key", required=True)
+    work_verify = commands.add_parser("work-verify")
+    work_verify.add_argument("run_id")
+    work_verify.add_argument("--manifest", type=Path, required=True)
+    work_verify.add_argument("--idempotency-key", required=True)
     inspect = commands.add_parser("inspect")
     inspect.add_argument("run_id")
     stream = commands.add_parser("stream", aliases=["events"])
@@ -297,6 +343,7 @@ def _serve(
     )
     research_store = SQLiteResearchStore.create(database)
     study_store = SQLiteStudyStore.create(database)
+    work_store = SQLiteWorkStore.create(database)
     config_path = runtime_paths.config_dir / "config.toml"
     synthesizer: ResearchSynthesizer
     if config_path.is_file():
@@ -339,6 +386,14 @@ def _serve(
         budgets=budget_store,
         vault=selected_vault,
     )
+    work_workflow = WorkWorkflow(
+        work=work_store,
+        runs=run_store,
+        events=event_store,
+        budgets=budget_store,
+        approvals=approval_store,
+        artifact_dir=runtime_paths.data_dir / "artifacts",
+    )
     app = create_app(
         event_store,
         pairing,
@@ -355,6 +410,7 @@ def _serve(
         research_artifacts=research_store,
         study=study_workflow,
         study_artifacts=study_store,
+        work=work_workflow,
     )
     print(f"Web pairing code: {pairing.pairing_code}")
     print(f"CLI pairing code: {cli_code}", flush=True)
@@ -430,6 +486,66 @@ def _run_authenticated(client: LocalApiClient, arguments: argparse.Namespace) ->
             )
         )
         return 0
+    if arguments.command == "work-child":
+        response = client.request(
+            "POST",
+            f"/v1/runs/{arguments.parent_run_id}/work-child",
+            body=_work_child_task(arguments).model_dump(mode="json"),
+            idempotency_key=arguments.idempotency_key,
+        )
+        print(_mapping(response)["run_id"])
+        return 0
+    if arguments.command == "work-plan":
+        workspace_root = _workspace_root(arguments.workspace_root)
+        _print_json(
+            client.request(
+                "POST",
+                f"/v1/work/runs/{arguments.run_id}/plan",
+                body={
+                    "schema_version": 1,
+                    "goal": arguments.goal,
+                    "workspace_root": str(workspace_root),
+                    "target_files": arguments.target,
+                    "context_files": arguments.context,
+                    "constraints": arguments.constraint,
+                    "non_goals": arguments.non_goal,
+                    "completion_criteria": arguments.criterion,
+                    "verification_commands": arguments.verify_command,
+                    "context_data_class": arguments.context_data_class,
+                },
+            )
+        )
+        return 0
+    if arguments.command == "work-handoff-preview":
+        _print_json(
+            client.request(
+                "POST",
+                f"/v1/work/runs/{arguments.run_id}/handoff/preview",
+                body={},
+                idempotency_key=arguments.idempotency_key,
+            )
+        )
+        return 0
+    if arguments.command == "work-handoff-export":
+        _print_json(
+            client.request(
+                "POST",
+                f"/v1/work/runs/{arguments.run_id}/handoff/export",
+                body={"approval_id": arguments.approval_id},
+                idempotency_key=arguments.idempotency_key,
+            )
+        )
+        return 0
+    if arguments.command == "work-verify":
+        _print_json(
+            client.request(
+                "POST",
+                f"/v1/work/runs/{arguments.run_id}/verify",
+                body=_load_json_object(arguments.manifest),
+                idempotency_key=arguments.idempotency_key,
+            )
+        )
+        return 0
     if arguments.command == "inspect":
         _print_json(client.request("GET", f"/v1/runs/{arguments.run_id}"))
         return 0
@@ -501,8 +617,36 @@ def _task(arguments: argparse.Namespace) -> TaskSpec:
         goal=arguments.goal,
         workspace_scope=arguments.scope,
         completion_criteria=arguments.criterion,
-        data_policy=DataPolicy(),
+        data_policy=DataPolicy(
+            maximum_outbound_class=DataClass(arguments.data_class),
+            allow_private_previews=arguments.data_class != "public",
+        ),
         tool_policy=ToolPolicy(allowed_tools=tools),
+        budgets=BudgetSpec(
+            max_steps=10,
+            max_wall_time_seconds=3600,
+            max_child_tasks=1 if mode is not Mode.WORK else 0,
+        ),
+        created_at=datetime.now(UTC),
+    )
+
+
+def _work_child_task(arguments: argparse.Namespace) -> TaskSpec:
+    data_class = DataClass(arguments.data_class)
+    return TaskSpec(
+        task_id=arguments.task_id,
+        parent_task_id=arguments.parent_task_id,
+        mode=Mode.WORK,
+        goal=arguments.goal,
+        workspace_scope=arguments.scope,
+        completion_criteria=arguments.criterion,
+        data_policy=DataPolicy(
+            maximum_outbound_class=data_class,
+            allow_private_previews=data_class is not DataClass.PUBLIC,
+        ),
+        tool_policy=ToolPolicy(
+            allowed_tools=["vault_search", "handoff_export"]
+        ),
         budgets=BudgetSpec(max_steps=10, max_wall_time_seconds=3600),
         created_at=datetime.now(UTC),
     )
@@ -524,6 +668,34 @@ def _parse_answers(values: Sequence[str]) -> dict[str, str]:
             raise ValueError(f"duplicate diagnostic answer: {question_id}")
         answers[question_id] = answer
     return answers
+
+
+def _load_json_object(path: Path) -> dict[str, object]:
+    try:
+        resolved = path.expanduser().resolve(strict=True)
+        is_file = resolved.is_file()
+        size = resolved.stat().st_size
+    except OSError as error:
+        raise ValueError("Work result manifest is not a readable local file") from error
+    if not is_file or size > 2_000_000:
+        raise ValueError("Work result manifest must be a JSON file of at most 2 MB")
+    try:
+        value = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("Work result manifest is not valid UTF-8 JSON") from error
+    if not isinstance(value, dict):
+        raise ValueError("Work result manifest must contain one JSON object")
+    return cast(dict[str, object], value)
+
+
+def _workspace_root(path: Path) -> Path:
+    try:
+        resolved = path.expanduser().resolve(strict=True)
+    except OSError as error:
+        raise ValueError("Work workspace root is not a readable local directory") from error
+    if not resolved.is_dir():
+        raise ValueError("Work workspace root is not a readable local directory")
+    return resolved
 
 
 def _print_json(value: object) -> None:

@@ -77,6 +77,9 @@ def test_workspace_rejects_traversal_symlinks_and_sensitive_names(tmp_path: Path
     (root / "linked.py").symlink_to(outside)
     workspace = ReadOnlyWorkspace(root)
 
+    with pytest.raises(WorkspacePathError, match="absolute"):
+        ReadOnlyWorkspace(Path("relative-repository"))
+
     with pytest.raises(WorkspacePathError):
         workspace.read("../outside.py")
     with pytest.raises(WorkspacePathError):

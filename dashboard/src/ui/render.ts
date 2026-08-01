@@ -9,6 +9,10 @@ import type {
   RunListEntry,
   StudyArtifact,
   StudyDiagnostic,
+  WorkExportResult,
+  WorkHandoffPreview,
+  WorkPlanArtifact,
+  WorkVerificationReport,
 } from "../api/types";
 
 export function pairingMarkup(): string {
@@ -64,9 +68,28 @@ export function workspaceMarkup(snapshot: DashboardSnapshot): string {
             <div><input id="run-goal" name="goal" required maxlength="1000"><button type="submit">START</button></div>
             <label id="study-target-label" for="study-target-note" hidden>可选 Obsidian 笔记 / Optional note</label>
             <input id="study-target-note" name="target_note" maxlength="1024" hidden placeholder="Study/Topic.md">
+            <fieldset id="work-fields" class="work-fields" hidden>
+              <legend>PLANNING ONLY · RESTORK WILL NOT RUN CODE</legend>
+              <label for="work-root">本地仓库绝对路径 / Workspace root</label>
+              <input id="work-root" name="workspace_root" maxlength="4096" autocomplete="off" spellcheck="false" placeholder="/path/to/repository">
+              <label for="work-targets">目标文件 / Target files · one relative path per line</label>
+              <textarea id="work-targets" name="target_files" maxlength="16000" rows="3" spellcheck="false" placeholder="src/app.py"></textarea>
+              <label for="work-context">附加上下文 / Optional context files</label>
+              <textarea id="work-context" name="context_files" maxlength="30000" rows="2" spellcheck="false" placeholder="README.md"></textarea>
+              <label for="work-class">上下文分类 / Context class</label>
+              <select id="work-class" name="context_data_class"><option value="public">public</option><option value="personal">personal</option><option value="confidential">confidential</option></select>
+              <label for="work-constraints">约束 / Constraints · one per line</label>
+              <textarea id="work-constraints" name="constraints" maxlength="30000" rows="2"></textarea>
+              <label for="work-non-goals">非目标 / Non-goals · one per line</label>
+              <textarea id="work-non-goals" name="non_goals" maxlength="30000" rows="2"></textarea>
+              <label for="work-verification">建议验证命令 / Proposed commands · never executed by Restork</label>
+              <textarea id="work-verification" name="verification_commands" maxlength="30000" rows="2" spellcheck="false" placeholder="uv run pytest -q"></textarea>
+              <p class="fine">路径只发送到配对的本地 Core。先查看计划，再查看精确脱敏上下文，最后单独审批私有交接包。</p>
+            </fieldset>
           </form>
           <p id="action-status" class="status" role="status"></p>
           <div id="study-workspace" class="study-workspace" aria-live="polite"></div>
+          <div id="work-workspace" class="work-workspace" aria-live="polite"></div>
         </section>
         <section class="metrics" aria-label="运行概览">
           ${metric("research", "进行中运行", String(active.length), modeCounts(active))}
@@ -145,6 +168,64 @@ export function studyAttemptMarkup(result: PracticeAttemptResult): string {
     <small>${escapeHtml(result.next_review.reason)} · ${formatDate(result.next_review.due_at)}</small>
     ${result.record_preview ? `<details><summary>Progress note preview · write disabled</summary><pre>${escapeHtml(result.record_preview.markdown)}</pre></details>` : `<small>Complete another attempt before a progress preview is meaningful.</small>`}
   </section>`;
+}
+
+export function workPlanMarkup(plan: WorkPlanArtifact): string {
+  return `<article class="work-result" aria-labelledby="work-plan-title">
+    <header><div><p class="eyebrow">READ-ONLY WORK PLAN · VALIDATED</p><h3 id="work-plan-title">${escapeHtml(plan.goal)}</h3></div><span>NO EXECUTOR</span></header>
+    <dl class="work-metrics"><div><dt>WORKSPACE</dt><dd>${escapeHtml(plan.workspace_id)}</dd></div><div><dt>FILES</dt><dd>${plan.context_manifest.length}</dd></div><div><dt>TARGETS</dt><dd>${plan.target_files.length}</dd></div><div><dt>CLASS</dt><dd>${escapeHtml(plan.sensitivity)}</dd></div></dl>
+    <section><h4>Bounded plan</h4><ol class="work-plan">${plan.plan_steps.map((step) => `<li><b>${step.order}</b><span>${escapeHtml(step.title)}<small>${escapeHtml(step.intent)}</small></span></li>`).join("")}</ol></section>
+    <section><h4>Frozen context manifest</h4><ul class="work-manifest">${plan.context_manifest.map((item) => `<li><code>${escapeHtml(item.relative_path)}</code><span>${escapeHtml(item.data_class)} · ${item.byte_count} bytes · ${item.included_in_handoff ? "selected" : "reference only"}</span></li>`).join("")}</ul></section>
+    ${plan.instruction_refs.length ? `<section><h4>Untrusted repository instructions</h4><p>${plan.instruction_refs.map(escapeHtml).join(" · ")}</p></section>` : ""}
+    <ul class="work-warnings">${plan.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>
+    <button type="button" data-work-preview data-run-id="${escapeHtml(plan.run_id)}">REVIEW EXACT HANDOFF</button>
+    <p class="fine">Plan only. No source file, shell, Git state, deployment, or message was changed.</p>
+  </article>`;
+}
+
+export function workHandoffMarkup(preview: WorkHandoffPreview): string {
+  return `<article class="work-result" aria-labelledby="work-handoff-title">
+    <header><div><p class="eyebrow">EXACT LOCAL HANDOFF PREVIEW</p><h3 id="work-handoff-title">${escapeHtml(preview.envelope.goal)}</h3></div><span>APPROVAL REQUIRED</span></header>
+    <dl class="work-metrics"><div><dt>PACKAGE</dt><dd>${preview.byte_count} B</dd></div><div><dt>CONTEXTS</dt><dd>${preview.envelope.context.length}</dd></div><div><dt>HASH</dt><dd>${escapeHtml(preview.package_hash.slice(0, 12))}…</dd></div><div><dt>BOUNDARY</dt><dd>external</dd></div></dl>
+    <section><h4>Exact sanitized contexts</h4><div class="handoff-contexts">${preview.envelope.context.map((item) => `<details><summary><code>${escapeHtml(item.relative_path)}</code><span>${escapeHtml(item.data_class)} · ${item.byte_count} bytes · ${item.redactions.map(escapeHtml).join(", ") || "no redactions"}</span></summary><pre>${escapeHtml(item.content)}</pre></details>`).join("")}</div></section>
+    <section><h4>Frozen contract</h4><p><b>Targets:</b> ${preview.envelope.target_files.map(escapeHtml).join(" · ")}</p><p><b>Criteria:</b> ${preview.envelope.completion_criteria.map(escapeHtml).join(" · ")}</p><p><b>Suggested only:</b> ${preview.envelope.proposed_verification_commands.map(escapeHtml).join(" · ") || "No command proposed"}</p></section>
+    <div class="work-actions"><button type="button" data-work-export data-run-id="${escapeHtml(preview.envelope.run_id)}" data-approval-id="${escapeHtml(preview.approval.approval_id)}">APPROVE &amp; EXPORT LOCALLY</button><button class="secondary" type="button" data-work-reject data-approval-id="${escapeHtml(preview.approval.approval_id)}">REJECT</button></div>
+    <p class="fine">Approval binds this package hash and every frozen resource version. Export stays in Restork's private data directory.</p>
+  </article>`;
+}
+
+export function workExportMarkup(
+  result: WorkExportResult,
+  plan: WorkPlanArtifact,
+): string {
+  const template = JSON.stringify({
+    schema_version: 1,
+    run_id: result.run_id,
+    plan_artifact_id: plan.artifact_id,
+    base_snapshot_hash: plan.workspace_snapshot_hash,
+    changed_files: [],
+    claimed_commands: [],
+    artifacts: [],
+    summary: "Describe the external result without secrets.",
+  }, null, 2);
+  return `<article class="work-result" aria-labelledby="work-export-title">
+    <header><div><p class="eyebrow">PRIVATE HANDOFF EXPORTED</p><h3 id="work-export-title">External execution remains user-started</h3></div><span>0600 LOCAL</span></header>
+    <dl class="work-metrics"><div><dt>REFERENCE</dt><dd>${escapeHtml(result.artifact_ref)}</dd></div><div><dt>BYTES</dt><dd>${result.byte_count}</dd></div><div><dt>HASH</dt><dd>${escapeHtml(result.package_hash.slice(0, 12))}…</dd></div><div><dt>NETWORK</dt><dd>none</dd></div></dl>
+    <p class="fine">Start your external coding session independently. Restork neither launches nor supervises it.</p>
+    <form data-work-verify data-run-id="${escapeHtml(result.run_id)}"><label>导入结果清单 / Paste result manifest<textarea name="manifest" required maxlength="2000000" rows="14" autocomplete="off" spellcheck="false">${escapeHtml(template)}</textarea></label><button type="submit">VERIFY READ-ONLY EVIDENCE</button></form>
+  </article>`;
+}
+
+export function workVerificationMarkup(report: WorkVerificationReport): string {
+  const evidence = [...report.changed_files, ...report.artifacts];
+  return `<article class="work-result ${report.completion_eligible ? "is-verified" : "is-failed"}" aria-labelledby="work-verification-title">
+    <header><div><p class="eyebrow">IMPORTED RESULT · INDEPENDENT CHECK</p><h3 id="work-verification-title">${escapeHtml(report.status.toUpperCase())}</h3></div><span>${report.completion_eligible ? "ELIGIBLE" : "USER ACTION"}</span></header>
+    <section><h4>Filesystem evidence</h4><ul class="work-manifest">${evidence.map((item) => `<li><code>${escapeHtml(item.relative_path)}</code><span>${escapeHtml(item.status)} · ${escapeHtml(item.reason)}</span></li>`).join("") || "<li>No verifiable file evidence was supplied.</li>"}</ul></section>
+    ${report.commands.length ? `<section><h4>Command claims</h4><p>${report.commands.length} claim(s) remain UNVERIFIED. Restork did not execute them.</p></section>` : ""}
+    ${report.unexpected_changes.length ? `<section><h4>Unexpected changes</h4><p>${report.unexpected_changes.map(escapeHtml).join(" · ")}</p></section>` : ""}
+    ${report.task_update_preview ? `<section><h4>Markdown task update · preview only</h4><pre>${escapeHtml(report.task_update_preview.suggested_markdown)}</pre><p>Apply is disabled here; review it through the Core-owned Markdown task flow.</p></section>` : ""}
+    <p class="fine">Verification ${escapeHtml(report.verification_id)} · ${formatDate(report.created_at)}</p>
+  </article>`;
 }
 
 export function errorText(error: unknown): string {

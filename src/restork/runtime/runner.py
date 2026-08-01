@@ -36,7 +36,13 @@ class Harness:
             idempotency_key=idempotency_key,
         ).run
 
-    def start_work_child(self, parent_run_id: str, child_task: TaskSpec) -> RunSummary:
+    def start_work_child(
+        self,
+        parent_run_id: str,
+        child_task: TaskSpec,
+        *,
+        idempotency_key: str | None = None,
+    ) -> RunSummary:
         """Create a separately evaluated Work handoff without permission inheritance."""
         if self._budgets is None:
             raise RuntimeError("child creation requires the durable budget store")
@@ -55,6 +61,13 @@ class Harness:
             raise PermissionError("handoff child requested a non-Work capability")
         if not child_task.tool_policy.require_approval_for_writes:
             raise PermissionError("Work child writes must remain approval-gated")
+        if idempotency_key is not None:
+            return self._runs.start_work_child_idempotently(
+                parent_run_id,
+                child_task,
+                run_id=str(uuid4()),
+                idempotency_key=idempotency_key,
+            ).run
         self._budgets.consume_child_task(parent_run_id)
         child = self.start(child_task)
         self._emit(

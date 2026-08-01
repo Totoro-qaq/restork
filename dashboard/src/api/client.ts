@@ -13,6 +13,13 @@ import type {
   StudyDiagnostic,
   TaskApplyResult,
   TaskMutationPreview,
+  WorkDataClass,
+  WorkExportResult,
+  WorkHandoffPreview,
+  WorkPlanArtifact,
+  WorkResultManifest,
+  WorkStartInput,
+  WorkVerificationReport,
 } from "./types";
 
 export class LocalApiClient implements DashboardApi {
@@ -52,7 +59,11 @@ export class LocalApiClient implements DashboardApi {
     };
   }
 
-  async createRun(mode: Mode, goal: string): Promise<RunSummary> {
+  async createRun(
+    mode: Mode,
+    goal: string,
+    dataClass: WorkDataClass = "public",
+  ): Promise<RunSummary> {
     const identity = crypto.randomUUID();
     const tools = mode === "research"
       ? ["vault_search", "source_read"]
@@ -73,8 +84,8 @@ export class LocalApiClient implements DashboardApi {
         completion_criteria: ["produce a reviewable verified artifact"],
         data_policy: {
           schema_version: 1,
-          maximum_outbound_class: "public",
-          allow_private_previews: false,
+          maximum_outbound_class: dataClass,
+          allow_private_previews: dataClass !== "public",
         },
         tool_policy: {
           schema_version: 1,
@@ -137,6 +148,50 @@ export class LocalApiClient implements DashboardApi {
       { answer, confidence },
       true,
       `dashboard-study-attempt-${crypto.randomUUID()}`,
+    );
+  }
+
+  async planWork(runId: string, input: WorkStartInput): Promise<WorkPlanArtifact> {
+    return this.#request<WorkPlanArtifact>(
+      "POST",
+      `/v1/work/runs/${encodeURIComponent(runId)}/plan`,
+      input,
+    );
+  }
+
+  async previewWorkHandoff(runId: string): Promise<WorkHandoffPreview> {
+    return this.#request<WorkHandoffPreview>(
+      "POST",
+      `/v1/work/runs/${encodeURIComponent(runId)}/handoff/preview`,
+      {},
+      true,
+      `dashboard-work-preview-${crypto.randomUUID()}`,
+    );
+  }
+
+  async exportWorkHandoff(
+    runId: string,
+    approvalId: string,
+  ): Promise<WorkExportResult> {
+    return this.#request<WorkExportResult>(
+      "POST",
+      `/v1/work/runs/${encodeURIComponent(runId)}/handoff/export`,
+      { approval_id: approvalId },
+      true,
+      `dashboard-work-export-${crypto.randomUUID()}`,
+    );
+  }
+
+  async verifyWorkResult(
+    runId: string,
+    manifest: WorkResultManifest,
+  ): Promise<WorkVerificationReport> {
+    return this.#request<WorkVerificationReport>(
+      "POST",
+      `/v1/work/runs/${encodeURIComponent(runId)}/verify`,
+      manifest,
+      true,
+      `dashboard-work-verify-${crypto.randomUUID()}`,
     );
   }
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -149,6 +150,14 @@ class CommandVerification(ContractModel):
     reason: str = "Restork Work V1 never executes commands."
 
 
+class WorkTaskUpdatePreview(ContractModel):
+    run_id: str = Field(min_length=1)
+    action: Literal["mark_complete"] = "mark_complete"
+    suggested_markdown: str = Field(min_length=1, max_length=1_000)
+    evidence_ref: str = Field(pattern=r"^work-verification-[0-9a-f]{24}$")
+    apply_available: Literal[False] = False
+
+
 class WorkVerificationReport(ContractModel):
     verification_id: str = Field(pattern=r"^work-verification-[0-9a-f]{24}$")
     run_id: str = Field(min_length=1)
@@ -159,6 +168,7 @@ class WorkVerificationReport(ContractModel):
     commands: tuple[CommandVerification, ...]
     unexpected_changes: tuple[str, ...] = ()
     completion_eligible: bool
+    task_update_preview: WorkTaskUpdatePreview | None = None
     created_at: datetime
 
     @model_validator(mode="after")
@@ -173,4 +183,11 @@ class WorkVerificationReport(ContractModel):
             or self.status is VerificationStatus.FAILED
         ):
             raise ValueError("failed Work evidence cannot become completion-eligible")
+        if self.task_update_preview is not None and not self.completion_eligible:
+            raise ValueError("Work task previews require independently verified evidence")
+        if (
+            self.task_update_preview is not None
+            and self.task_update_preview.run_id != self.run_id
+        ):
+            raise ValueError("Work task preview belongs to another run")
         return self

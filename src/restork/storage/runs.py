@@ -8,8 +8,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from restork.contracts.run import RunSummary
-from restork.contracts.task import TaskSpec
+from restork.contracts.task import BudgetSpec, TaskSpec
 from restork.contracts.types import EffectPhase, Mode, RunPhase, StopReason
+from restork.runtime.budget import BudgetExceeded
 from restork.runtime.state_machine import transition
 from restork.storage.database import connect, initialize
 from restork.storage.event_log import append_next_event
@@ -144,6 +145,117 @@ class SQLiteRunStore:
                         binding=binding,
                         response_json=result.model_dump_json(),
                     )
+                changed = True
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        else:
+            self._connection.execute("COMMIT")
+        return RunStartOutcome(result, changed)
+
+    def start_work_child_idempotently(
+        self,
+        parent_run_id: str,
+        task: TaskSpec,
+        *,
+        run_id: str,
+        idempotency_key: str,
+    ) -> RunStartOutcome:
+        """Atomically consume one parent child budget and create one Work run."""
+        operation = "run.create_work_child"
+        binding = mutation_binding(parent_run_id, task.model_dump_json())
+        changed = False
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            replay = load_idempotent_response(
+                self._connection,
+                operation=operation,
+                idempotency_key=idempotency_key,
+                binding=binding,
+            )
+            if replay is not None:
+                result = RunSummary.model_validate_json(replay)
+            else:
+                parent = self.get(parent_run_id)
+                budget_row = self._connection.execute(
+                    "SELECT * FROM run_budgets WHERE run_id = ?",
+                    (parent_run_id,),
+                ).fetchone()
+                if budget_row is None:
+                    raise KeyError(parent_run_id)
+                parent_budget = BudgetSpec.model_validate_json(budget_row["budget_json"])
+                started_at = datetime.fromisoformat(budget_row["started_at"])
+                if (
+                    datetime.now(UTC) - started_at
+                ).total_seconds() > parent_budget.max_wall_time_seconds:
+                    raise BudgetExceeded("wall-time budget exhausted")
+                child_count = int(budget_row["child_tasks"])
+                if child_count + 1 > parent_budget.max_child_tasks:
+                    raise BudgetExceeded("child_tasks budget exhausted")
+                updated_children = child_count + 1
+                self._connection.execute(
+                    "UPDATE run_budgets SET child_tasks = ? WHERE run_id = ?",
+                    (updated_children, parent_run_id),
+                )
+                append_next_event(
+                    self._connection,
+                    parent_run_id,
+                    kind="budget.updated",
+                    metadata={"counter": "child_tasks", "value": updated_children},
+                )
+                now = datetime.now(UTC)
+                result = RunSummary(
+                    run_id=run_id,
+                    task_id=task.task_id,
+                    mode=task.mode,
+                    state=RunPhase.PLANNING,
+                    state_version=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                self.create_run(result, task)
+                self._connection.execute(
+                    """
+                    INSERT INTO run_budgets (run_id, budget_json, started_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (run_id, task.budgets.model_dump_json(), now.isoformat()),
+                )
+                append_next_event(
+                    self._connection,
+                    run_id,
+                    kind="run.created",
+                    metadata={"mode": task.mode.value, "parent_run_id": parent_run_id},
+                    occurred_at=now,
+                )
+                append_next_event(
+                    self._connection,
+                    run_id,
+                    kind="run.state_changed",
+                    metadata={
+                        "previous": RunPhase.CREATED.value,
+                        "state": RunPhase.PLANNING.value,
+                    },
+                    occurred_at=now,
+                )
+                append_next_event(
+                    self._connection,
+                    parent_run_id,
+                    kind="run.child_created",
+                    metadata={
+                        "child_run_id": result.run_id,
+                        "mode": result.mode.value,
+                        "parent_state": parent.state.value,
+                    },
+                    occurred_at=now,
+                )
+                save_idempotent_response(
+                    self._connection,
+                    operation=operation,
+                    idempotency_key=idempotency_key,
+                    binding=binding,
+                    response_json=result.model_dump_json(),
+                )
                 changed = True
         except BaseException:
             self._connection.execute("ROLLBACK")

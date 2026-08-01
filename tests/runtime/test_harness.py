@@ -88,15 +88,26 @@ def test_handoff_creates_a_separately_budgeted_work_child_without_inheritance(
         created_at=datetime.now(UTC),
     )
 
-    child = harness.start_work_child(parent.run_id, child_task)
+    child = harness.start_work_child(
+        parent.run_id,
+        child_task,
+        idempotency_key="work-child-1",
+    )
+    replay = harness.start_work_child(
+        parent.run_id,
+        child_task,
+        idempotency_key="work-child-1",
+    )
 
     assert child.mode is Mode.WORK
+    assert replay == child
     assert runs.get_task(child.run_id) == child_task
     assert budgets.usage(parent.run_id).child_tasks == 1
     with pytest.raises(BudgetExceeded, match="child"):
         harness.start_work_child(
             parent.run_id,
             child_task.model_copy(update={"task_id": "two"}),
+            idempotency_key="work-child-2",
         )
     with pytest.raises(PermissionError, match="Work mode"):
         harness.start_work_child(

@@ -232,6 +232,157 @@ def test_cli_requires_pairing_before_authenticated_commands(
     assert "restork pair" in capsys.readouterr().err
 
 
+def test_cli_work_commands_keep_execution_external_and_load_a_bounded_manifest(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    calls: list[tuple[str, str, dict[str, object]]] = []
+
+    def fake_request(
+        self: LocalApiClient,
+        method: str,
+        path: str,
+        **kwargs: object,
+    ) -> object:
+        del self
+        calls.append((method, path, kwargs))
+        if path == "/v1/runs" or path.endswith("/work-child"):
+            return {"run_id": "run-work"}
+        return {"ok": True}
+
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    (workspace / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+    manifest = tmp_path / "result.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": "run-work",
+                "plan_artifact_id": "work-plan-" + "1" * 24,
+                "base_snapshot_hash": "2" * 64,
+                "changed_files": [],
+                "claimed_commands": [],
+                "artifacts": [],
+                "summary": "Synthetic imported result.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("RESTORK_CLI_TOKEN", "cli-token")
+    monkeypatch.setattr(LocalApiClient, "request", fake_request)
+    base = ["--api-url", "http://127.0.0.1:7337"]
+
+    assert main(
+        [
+            *base,
+            "create",
+            "--task-id",
+            "work-task",
+            "--mode",
+            "work",
+            "--goal",
+            "Bounded change",
+            "--scope",
+            "selected-local-workspace",
+            "--criterion",
+            "verify changed-file hashes",
+            "--data-class",
+            "confidential",
+            "--idempotency-key",
+            "work-create",
+        ]
+    ) == 0
+    assert main(
+        [
+            *base,
+            "work-child",
+            "run-research",
+            "--task-id",
+            "work-child",
+            "--parent-task-id",
+            "research-task",
+            "--goal",
+            "Bounded change",
+            "--scope",
+            "selected-local-workspace",
+            "--criterion",
+            "verify changed-file hashes",
+            "--data-class",
+            "confidential",
+            "--idempotency-key",
+            "work-child-create",
+        ]
+    ) == 0
+    assert main(
+        [
+            *base,
+            "work-plan",
+            "run-work",
+            "--goal",
+            "Bounded change",
+            "--workspace-root",
+            str(workspace),
+            "--target",
+            "app.py",
+            "--criterion",
+            "verify changed-file hashes",
+            "--context-data-class",
+            "confidential",
+        ]
+    ) == 0
+    assert main(
+        [
+            *base,
+            "work-handoff-preview",
+            "run-work",
+            "--idempotency-key",
+            "work-preview",
+        ]
+    ) == 0
+    assert main(
+        [
+            *base,
+            "work-handoff-export",
+            "run-work",
+            "approval-work",
+            "--idempotency-key",
+            "work-export",
+        ]
+    ) == 0
+    assert main(
+        [
+            *base,
+            "work-verify",
+            "run-work",
+            "--manifest",
+            str(manifest),
+            "--idempotency-key",
+            "work-verify",
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    create_body = calls[0][2]["body"]
+    assert isinstance(create_body, dict)
+    assert create_body["data_policy"]["maximum_outbound_class"] == "confidential"
+    assert create_body["data_policy"]["allow_private_previews"] is True
+    assert calls[1][1] == "/v1/runs/run-research/work-child"
+    child_body = calls[1][2]["body"]
+    assert isinstance(child_body, dict)
+    assert child_body["mode"] == "work"
+    assert child_body["parent_task_id"] == "research-task"
+    assert calls[2][1] == "/v1/work/runs/run-work/plan"
+    assert str(workspace.resolve()) == calls[2][2]["body"]["workspace_root"]
+    assert calls[3][1].endswith("/handoff/preview")
+    assert calls[3][2]["body"] == {}
+    assert calls[4][1].endswith("/handoff/export")
+    assert calls[4][2]["body"] == {"approval_id": "approval-work"}
+    assert calls[5][1].endswith("/verify")
+    assert calls[5][2]["body"] == json.loads(manifest.read_text())
+
+
 def test_serve_displays_separate_pairing_codes_without_touching_design_assets(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,

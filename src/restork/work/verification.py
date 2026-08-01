@@ -12,6 +12,7 @@ from restork.work.models import (
     FileVerification,
     VerificationStatus,
     WorkResultManifest,
+    WorkTaskUpdatePreview,
     WorkVerificationReport,
 )
 from restork.work.workspace import ReadOnlyWorkspace, WorkspaceSnapshot
@@ -127,6 +128,18 @@ def verify_work_result(
     verification_id = "work-verification-" + sha256(
         f"{plan.run_id}\0{manifest_hash}".encode()
     ).hexdigest()[:24]
+    task_preview = (
+        WorkTaskUpdatePreview(
+            run_id=plan.run_id,
+            suggested_markdown=(
+                "- [x] Verified Work result "
+                f"[run:: {plan.run_id}] [evidence:: {verification_id}]"
+            ),
+            evidence_ref=verification_id,
+        )
+        if completion_eligible
+        else None
+    )
     return WorkVerificationReport(
         verification_id=verification_id,
         run_id=plan.run_id,
@@ -137,6 +150,7 @@ def verify_work_result(
         commands=commands,
         unexpected_changes=unexpected,
         completion_eligible=completion_eligible,
+        task_update_preview=task_preview,
         created_at=created_at,
     )
 

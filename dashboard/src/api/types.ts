@@ -210,6 +210,152 @@ export interface PracticeAttemptResult {
   created_at: string;
 }
 
+export type WorkDataClass = "public" | "personal" | "confidential";
+
+export interface WorkStartInput {
+  goal: string;
+  workspace_root: string;
+  target_files: string[];
+  context_files: string[];
+  constraints: string[];
+  non_goals: string[];
+  completion_criteria: string[];
+  verification_commands: string[];
+  context_data_class: WorkDataClass;
+}
+
+export interface WorkPlanArtifact {
+  artifact_id: string;
+  run_id: string;
+  request_hash: string;
+  workspace_id: string;
+  workspace_snapshot_hash: string;
+  goal: string;
+  scope_summary: string;
+  target_files: string[];
+  context_manifest: Array<{
+    relative_path: string;
+    content_hash: string | null;
+    byte_count: number;
+    language: string;
+    data_class: WorkDataClass;
+    included_in_handoff: boolean;
+    exists_at_plan: boolean;
+    redactions: string[];
+  }>;
+  instruction_refs: string[];
+  constraints: string[];
+  non_goals: string[];
+  completion_criteria: string[];
+  plan_steps: Array<{
+    step_id: string;
+    order: number;
+    title: string;
+    intent: string;
+    target_files: string[];
+    verification: string[];
+  }>;
+  verification_commands: string[];
+  warnings: string[];
+  sensitivity: WorkDataClass;
+  created_at: string;
+  validation_status: "valid";
+}
+
+export interface WorkHandoffPreview {
+  plan: WorkPlanArtifact;
+  envelope: {
+    handoff_id: string;
+    run_id: string;
+    plan_ref: string;
+    workspace_id: string;
+    base_snapshot_hash: string;
+    goal: string;
+    target_files: string[];
+    constraints: string[];
+    non_goals: string[];
+    completion_criteria: string[];
+    proposed_verification_commands: string[];
+    context: Array<{
+      relative_path: string;
+      content_hash: string | null;
+      byte_count: number;
+      data_class: WorkDataClass;
+      content: string;
+      exists_at_plan: boolean;
+      redactions: string[];
+    }>;
+    executor_boundary: "external_user_started_no_restork_executor";
+    created_at: string;
+    validation_status: "valid";
+  };
+  package_hash: string;
+  byte_count: number;
+  approval: ApprovalRequest;
+}
+
+export interface WorkExportResult {
+  run_id: string;
+  approval_id: string;
+  artifact_ref: string;
+  package_hash: string;
+  byte_count: number;
+  applied: true;
+  exported_at: string;
+}
+
+export interface WorkResultManifest {
+  schema_version?: number;
+  run_id: string;
+  plan_artifact_id: string;
+  base_snapshot_hash: string;
+  changed_files: Array<{
+    relative_path: string;
+    before_hash: string | null;
+    after_hash: string | null;
+  }>;
+  claimed_commands: Array<{ command: string; exit_code: number }>;
+  artifacts: Array<{ relative_path: string; content_hash: string }>;
+  summary: string;
+}
+
+export interface WorkVerificationReport {
+  verification_id: string;
+  run_id: string;
+  manifest_hash: string;
+  status: "verified" | "partial" | "failed";
+  changed_files: Array<{
+    relative_path: string;
+    status: "matched" | "mismatched" | "unverified";
+    expected_hash: string | null;
+    observed_hash: string | null;
+    reason: string;
+  }>;
+  artifacts: Array<{
+    relative_path: string;
+    status: "matched" | "mismatched" | "unverified";
+    expected_hash: string | null;
+    observed_hash: string | null;
+    reason: string;
+  }>;
+  commands: Array<{
+    command_hash: string;
+    claimed_exit_code: number;
+    status: "unverified";
+    reason: string;
+  }>;
+  unexpected_changes: string[];
+  completion_eligible: boolean;
+  task_update_preview: {
+    run_id: string;
+    action: "mark_complete";
+    suggested_markdown: string;
+    evidence_ref: string;
+    apply_available: false;
+  } | null;
+  created_at: string;
+}
+
 export interface RadarActionResult {
   item: RadarItem;
   run_id: string | null;
@@ -305,7 +451,7 @@ export interface RunEvent {
 export interface DashboardApi {
   pair(code: string): Promise<void>;
   loadDashboard(): Promise<DashboardSnapshot>;
-  createRun(mode: Mode, goal: string): Promise<RunSummary>;
+  createRun(mode: Mode, goal: string, dataClass?: WorkDataClass): Promise<RunSummary>;
   prepareStudy(
     runId: string,
     objective: string,
@@ -321,6 +467,13 @@ export interface DashboardApi {
     answer: string,
     confidence: number,
   ): Promise<PracticeAttemptResult>;
+  planWork(runId: string, input: WorkStartInput): Promise<WorkPlanArtifact>;
+  previewWorkHandoff(runId: string): Promise<WorkHandoffPreview>;
+  exportWorkHandoff(runId: string, approvalId: string): Promise<WorkExportResult>;
+  verifyWorkResult(
+    runId: string,
+    manifest: WorkResultManifest,
+  ): Promise<WorkVerificationReport>;
   decideApproval(
     approvalId: string,
     decision: "approve" | "reject",

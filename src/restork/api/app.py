@@ -57,6 +57,7 @@ from restork.memory.service import MemoryService
 from restork.research.models import SourceRequest
 from restork.research.store import SQLiteResearchStore
 from restork.research.workflow import ResearchRunRequest, ResearchWorkflow
+from restork.runtime.budget import BudgetExceeded
 from restork.runtime.runner import Harness
 from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.budgets import SQLiteBudgetStore
@@ -67,6 +68,8 @@ from restork.study.models import DiagnosticSubmission, PracticeSubmission, Study
 from restork.study.store import SQLiteStudyStore
 from restork.study.workflow import StudyWorkflow
 from restork.tools.registry import DEFAULT_TOOL_DEFINITIONS
+from restork.work.models import WorkResultManifest, WorkStartRequest
+from restork.work.workflow import WorkWorkflow
 
 
 class PairPayload(BaseModel):
@@ -89,6 +92,12 @@ class EffectResolutionPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     outcome: Literal["committed", "failed"]
+
+
+class WorkExportPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approval_id: str = Field(min_length=1, max_length=256)
 
 
 def _is_loopback_browser_origin(origin: str) -> bool:
@@ -126,6 +135,7 @@ def create_app(
     research_artifacts: SQLiteResearchStore | None = None,
     study: StudyWorkflow | None = None,
     study_artifacts: SQLiteStudyStore | None = None,
+    work: WorkWorkflow | None = None,
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -799,6 +809,157 @@ def create_app(
             raise HTTPException(status_code=404, detail="Study artifact not found")
         return artifact.model_dump(mode="json")
 
+    @app.post("/v1/work/runs/{run_id}/plan")
+    async def plan_work_run(
+        run_id: str,
+        request: Request,
+        _: Annotated[AccessToken, Depends(write_runs)],
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if work is None:
+            raise HTTPException(status_code=503, detail="Work workflow is not configured")
+        try:
+            body = WorkStartRequest.model_validate_json(await request.body())
+            artifact = work.plan(run_id, body)
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=error.errors(include_context=False),
+            ) from error
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Work run not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail="Work planning failed") from error
+        return artifact.model_dump(mode="json")
+
+    @app.post("/v1/work/runs/{run_id}/handoff/preview")
+    def preview_work_handoff(
+        run_id: str,
+        _: Annotated[AccessToken, Depends(write_runs)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if work is None:
+            raise HTTPException(status_code=503, detail="Work workflow is not configured")
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        try:
+            preview = work.preview_handoff(run_id, idempotency_key=idempotency_key)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Work plan not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail="Work handoff preview failed") from error
+        return preview.model_dump(mode="json")
+
+    @app.post("/v1/work/runs/{run_id}/handoff/export")
+    def export_work_handoff(
+        run_id: str,
+        body: WorkExportPayload,
+        _: Annotated[AccessToken, Depends(write_runs)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if work is None:
+            raise HTTPException(status_code=503, detail="Work workflow is not configured")
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        try:
+            result = work.export_handoff(
+                run_id,
+                body.approval_id,
+                idempotency_key=idempotency_key,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Work handoff not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail="Work handoff export failed") from error
+        return result.model_dump(mode="json")
+
+    @app.post("/v1/work/runs/{run_id}/verify")
+    async def verify_work_result(
+        run_id: str,
+        request: Request,
+        _: Annotated[AccessToken, Depends(write_runs)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if work is None:
+            raise HTTPException(status_code=503, detail="Work workflow is not configured")
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        try:
+            body = WorkResultManifest.model_validate_json(await request.body())
+            report = work.verify(run_id, body, idempotency_key=idempotency_key)
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=error.errors(include_context=False),
+            ) from error
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Work run not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail="Work verification failed") from error
+        return report.model_dump(mode="json")
+
+    @app.get("/v1/work/runs/{run_id}/artifact")
+    def inspect_work_artifact(
+        run_id: str,
+        _: Annotated[AccessToken, Depends(read_runs)],
+    ) -> dict[str, object]:
+        if work is None:
+            raise HTTPException(status_code=503, detail="Work workflow is not configured")
+        try:
+            artifact = work.artifact(run_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Work artifact not found") from error
+        return artifact.model_dump(mode="json")
+
+    @app.get("/v1/work/runs/{run_id}/handoff")
+    def inspect_work_handoff(
+        run_id: str,
+        _: Annotated[AccessToken, Depends(read_runs)],
+    ) -> dict[str, object]:
+        if work is None:
+            raise HTTPException(status_code=503, detail="Work workflow is not configured")
+        try:
+            preview = work.handoff_preview(run_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Work run not found") from error
+        if preview is None:
+            raise HTTPException(status_code=404, detail="Work handoff not found")
+        return preview.model_dump(mode="json")
+
+    @app.get("/v1/work/runs/{run_id}/verification")
+    def inspect_work_verification(
+        run_id: str,
+        _: Annotated[AccessToken, Depends(read_runs)],
+    ) -> dict[str, object]:
+        if work is None:
+            raise HTTPException(status_code=503, detail="Work workflow is not configured")
+        try:
+            report = work.latest_verification(run_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Work run not found") from error
+        if report is None:
+            raise HTTPException(status_code=404, detail="Work verification not found")
+        return report.model_dump(mode="json")
+
     @app.get("/v1/daily")
     async def read_daily_context(
         _: Annotated[AccessToken, Depends(read_daily)],
@@ -844,6 +1005,38 @@ def create_app(
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         return run.model_dump(mode="json")
+
+    @app.post("/v1/runs/{parent_run_id}/work-child")
+    async def create_work_child(
+        parent_run_id: str,
+        request: Request,
+        _: Annotated[AccessToken, Depends(write_runs)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if budgets is None:
+            raise HTTPException(status_code=503, detail="durable budgets are not configured")
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        try:
+            child_task = TaskSpec.model_validate_json(await request.body())
+            child = Harness(runs, events, budgets).start_work_child(
+                parent_run_id,
+                child_task,
+                idempotency_key=idempotency_key,
+            )
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=error.errors(include_context=False),
+            ) from error
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="parent run not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except (BudgetExceeded, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return child.model_dump(mode="json")
 
     @app.get("/v1/runs/{run_id}/events")
     def stream_events(

@@ -122,9 +122,16 @@ class ReadOnlyWorkspace:
 
     def __init__(self, root: Path) -> None:
         expanded = root.expanduser()
+        if not expanded.is_absolute():
+            raise WorkspacePathError("workspace root must be an absolute path")
         if expanded.is_symlink():
             raise WorkspacePathError("workspace root cannot be a symbolic link")
-        resolved = expanded.resolve(strict=True)
+        try:
+            resolved = expanded.resolve(strict=True)
+        except OSError as error:
+            raise WorkspacePathError(
+                "workspace root must be an existing readable directory"
+            ) from error
         if not resolved.is_dir():
             raise WorkspacePathError("workspace root must be an existing directory")
         self._root = resolved
