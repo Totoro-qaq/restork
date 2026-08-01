@@ -70,5 +70,12 @@ def initialize(connection: sqlite3.Connection) -> None:
             response_json TEXT NOT NULL,
             PRIMARY KEY (operation, idempotency_key)
         );
+
+        CREATE TABLE IF NOT EXISTS transient_blobs (
+            blob_id TEXT PRIMARY KEY,
+            source_id TEXT,
+            expires_at TEXT NOT NULL,
+            payload BLOB NOT NULL
+        );
         """
     )
