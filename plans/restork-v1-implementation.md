@@ -1,7 +1,7 @@
 # Restork V1 Implementation Blueprint
 
-> Status: In progress — Steps 0–9 complete; Step 10 release hardening is next |
-> Version: 0.7 | Date: 2026-08-02
+> Status: Complete — Steps 0–10; V1 release candidate |
+> Version: 1.0 | Date: 2026-08-02
 >
 > Objective: Build a public-ready, local-first personal agent for Research, Study, and Work without exposing private runtime data.
 >
@@ -31,7 +31,7 @@ At V1 completion, the repository will provide:
 
 - a Python 3.12 Restork Core;
 - a reimplemented TypeScript local Web Dashboard as the primary UI;
-- an optional TypeScript Obsidian context bridge;
+- direct runtime integration with an external Obsidian Vault; no V1 plugin required or shipped;
 - one shared Harness with Research, Study, and Work profiles;
 - a persisted explicit state machine with uncertain-effect recovery;
 - the official DeepSeek API behind an interface, defaulting to `deepseek-v4-pro` over OpenAI Chat Completions;
@@ -52,7 +52,7 @@ Every step must preserve these invariants:
 
 1. **Markdown truth**: Obsidian Markdown owns durable notes and user tasks.
 2. **Operational truth**: SQLite owns run, step, approval, and event state.
-3. **Thin UI clients**: the local Web Dashboard and optional Obsidian plugin never own model credentials, run truth, or general shell execution.
+3. **Thin UI clients**: the local Web Dashboard and CLI never own model credentials, run truth, or general shell execution; V1 ships no Obsidian plugin.
 4. **Single outbound path**: no Core-initiated or managed-child outbound request bypasses `OutboundGateway`; network connectors receive single-purpose capabilities and future executor processes are network-denied by default.
 5. **Code-gated tools**: prompts cannot grant permissions.
 6. **Read-only default**: vault writes require policy and single-use approval; Work V1 prepares handoffs but launches no shell, Git mutation, deployment, message, or executor.
@@ -123,7 +123,7 @@ The numbered steps are delivery milestones, not single pull requests. Each slice
 | 3 | `3A` OutboundGateway and network-policy tests; `3B` provider adapter and model-specific policy |
 | 4 | `4A` read-only parser/index; `4B` deterministic link/task projection; `4C` journaled single-file mutation and recovery |
 | 5 | `5A` runtime, budgets, and tool policy; `5B` local API/auth/SSE; `5C` CLI and recovery integration |
-| 6 | `6A` four-layer memory contracts/storage/API; `6B` paired Dashboard transport and run/approval views; `6C` Markdown task and generic Radar actions; `6D` daily context widgets/services; `6E` bilingual README SVG/GIF visual refresh; optional non-blocking `6F` Obsidian bridge |
+| 6 | `6A` four-layer memory contracts/storage/API; `6B` paired Dashboard transport and run/approval views; `6C` Markdown task and generic Radar actions; `6D` daily context widgets/services; `6E` bilingual README SVG/GIF visual refresh; `6F` Obsidian bridge deferred beyond V1 |
 | 7 | `7A` source/evidence adapters; `7B` research workflow/artifacts/evals; `7C` Dashboard/Radar integration |
 | 8 | `8A` diagnostic/path/practice workflow; `8B` review state and evals |
 | 9 | `9A` read-only repository context and handoff contract; `9B` imported-result verification; `9C` Dashboard/CLI integration |
@@ -368,7 +368,7 @@ tests/runtime/test_recovery.py
 6. Implement optimistic concurrency or transaction locking for run and approval updates.
 7. Implement cancel, fail, complete, approval-wait, and `user_action_required` recovery.
 8. Reconstruct a run from a snapshot and ordered events without persisting message/document bodies.
-9. Implement a local encrypted transient-blob interface with OS-key reference, TTL, deletion-on-resolution/expiry, and a hard prohibition on `secret` payloads; SQLite stores only blob IDs and hashes.
+9. Implement a local encrypted transient-blob interface with a durable user-only local key, TTL, deletion-on-resolution/expiry, and a hard prohibition on `secret` and `credential` payloads; SQLite stores only encrypted payloads and references.
 10. Model reconciliation interfaces with fakes; defer concrete provider, filesystem, and integrated runtime crash proof to Steps 3B, 4C, and 5C.
 
 ### Verification
@@ -618,9 +618,9 @@ tests/api/
 5. Produce sequenced events for model, tool, approval, retry, fallback, verification, unknown effect, and user-action-required transitions.
 6. Require artifacts and verification before completion; retrieved notes/webpages/repositories/papers and all model/tool output remain untrusted data that cannot change policy.
 7. Implement loopback-only FastAPI endpoints and snapshot/cursor SSE with `Last-Event-ID` replay and de-duplication.
-8. Implement interactive single-use pairing, audience/scope/TTL-bound tokens, rotation/revocation, Authorization-header-only transport, strict CORS/content types, browser/plugin Origin checks, separately scoped CLI authentication, and idempotency keys on mutation endpoints.
+8. Implement interactive single-use pairing, audience/scope/TTL-bound tokens, rotation/revocation, Authorization-header-only transport, strict CORS/content types, browser Origin checks, separately scoped CLI authentication, and idempotency keys on mutation endpoints.
 9. Implement CLI create, inspect, stream, approve, reject, cancel, resume, and resolve-unknown commands.
-10. Store sensitive restart payloads only in the encrypted TTL blob store and delete them on completion, rejection, expiry, or source purge; `secret` is never eligible.
+10. Store sensitive restart payloads only in the encrypted TTL blob store and delete them on completion, rejection, expiry, or source purge; `secret` and `credential` are never eligible.
 11. Add fault injection for provider timeout, tool timeout, invalid schema, restart, cancellation, approval replay/concurrency, and unknown effect reconciliation.
 12. Keep LangGraph out while preserving the `WorkflowRuntime` interface.
 
@@ -648,15 +648,15 @@ Run a synthetic end-to-end task through create, model call, tool request, single
 
 Disable agent execution and retain read-only API capabilities. Persisted schema remains compatible with Step 2.
 
-## Step 6 — Local Web Dashboard and optional Obsidian bridge
+## Step 6 — Local Web Dashboard and direct Vault integration
 
 ### Context brief
 
-The primary UI is a new local Web Dashboard served by Core. The private legacy Dashboard is reference for approved information architecture and design direction only; no source, settings, cache, backup, credential, or asset is migrated. Restork must work without Obsidian running, while an optional thin plugin may add current-note context and navigation.
+The primary UI is a new local Web Dashboard served by Core. The private legacy Dashboard is reference for approved information architecture and design direction only; no source, settings, cache, backup, credential, or asset is migrated. Restork works without Obsidian running and V1 ships no plugin; the configured Vault remains the Markdown source of truth.
 
 ### Goal
 
-Deliver the local Web control center for mode selection, runs, approvals, Markdown tasks, and Radar without moving runtime authority into the browser. Add the Obsidian bridge only as a non-blocking integration slice.
+Deliver the local Web control center for mode selection, runs, approvals, Markdown tasks, and Radar without moving runtime authority into the browser. Read the configured Vault directly and defer any Obsidian bridge beyond V1.
 
 ### Dependencies
 
@@ -672,7 +672,7 @@ Default tier for implementation; strongest tier for security review and transpor
 
 ### Estimated effort
 
-5–7 engineering days for the required Dashboard, plus 1–2 optional days for the thin Obsidian bridge.
+5–7 engineering days for the required Dashboard; an Obsidian bridge is a post-V1 decision.
 
 ### Expected files
 
@@ -694,7 +694,6 @@ tests/daily/
 assets/readme/hero.svg
 assets/readme/demo-hd.gif
 src/restork/web/static/          # generated release assets
-plugin/                          # optional 6F bridge only
 ```
 
 ### Tasks
@@ -717,7 +716,7 @@ plugin/                          # optional 6F bridge only
 16. Refresh the bilingual README in project-native visual order (`Value -> Proof -> Mechanism -> First use -> Detail`) with maintainable GitHub-safe SVG and an HD GIF captured only from synthetic Dashboard data.
 17. Keep provider credentials, durable state, and shell execution out of Dashboard code and browser storage.
 18. Build reproducible static assets into the Python wheel and verify that runtime installation needs no Node.js.
-19. Optional slice 6F: add an Obsidian plugin limited to `Open Restork`, current-note/selection handoff, note/heading/block navigation, and lightweight notifications. It must not duplicate the Dashboard.
+19. Defer slice 6F. V1 ships no Obsidian plugin; any later bridge must remain limited to `Open Restork`, current-note/selection handoff, note/heading/block navigation, and lightweight notifications, and must not duplicate the Dashboard.
 
 ### Verification
 
@@ -731,13 +730,13 @@ uv build --no-sources
 python3 scripts/audit_readme.py README.md
 ```
 
-Run automated transport/auth tests for cursor reconnect, hostile Origin, missing/wrong-audience token, query-token rejection, and approval replay. Install the built wheel in a clean environment and open its bundled Dashboard. Perform manual browser QA only for focus, keyboard navigation, reduced motion, visual streaming, disconnect/reconnect, approval comprehension, and Markdown task presentation. If 6F is built, run its separate build/auth/navigation checks.
+Run automated transport/auth tests for cursor reconnect, hostile Origin, missing/wrong-audience token, query-token rejection, and approval replay. Install the built wheel in a clean environment and open its bundled Dashboard. Perform manual browser QA only for focus, keyboard navigation, reduced motion, visual streaming, disconnect/reconnect, approval comprehension, and Markdown task presentation.
 
 ### Exit criteria
 
 - Dashboard works when Obsidian and Node.js are not running.
-- Dashboard assets, browser storage, and optional plugin contain no provider or GitHub token value.
-- Browser/plugin data is non-sensitive and non-canonical.
+- Dashboard assets and browser storage contain no provider or GitHub token value.
+- Browser data is non-sensitive and non-canonical.
 - Run events and final artifacts render consistently with CLI output.
 - Completing a Dashboard task updates its source Markdown.
 - Memory records are inspectable and deletable according to retention class; protected truth/audit data are never evicted by TTL/LRU.
@@ -749,7 +748,7 @@ Run automated transport/auth tests for cursor reconnect, hostile Origin, missing
 
 ### Rollback
 
-Disable Dashboard serving and retain Core/Markdown access through CLI. The optional Obsidian bridge can be uninstalled independently and owns no state.
+Disable Dashboard serving and retain Core/Markdown access through CLI. There is no V1 Obsidian plugin or plugin-owned state to roll back.
 
 ## Step 7 — Research vertical slice
 
@@ -1012,7 +1011,6 @@ tests/evals/
 docs/operations.md
 docs/privacy.md
 docs/dashboard-usage.md
-docs/obsidian-bridge.md          # only if optional slice 6F ships
 docs/release-checklist.md
 .github/workflows/release.yml
 CHANGELOG.md
@@ -1023,13 +1021,13 @@ CHANGELOG.md
 1. Implement every release-blocking Spec test ID as an automated CI gate. Manual checks may cover only UI usability, platform integration, and visual inspection and cannot waive a security/privacy invariant.
 2. Add source-label leakage checks across raw outbound bytes, URLs, requests, encrypted transient blobs, logs, traces, snapshots, packages, screenshots, diagnostics, and CI artifacts, including encoded/chunked/Unicode/archive/derived variants.
 3. Add restart, timeout, cancellation, effect reconciliation, approval replay/expiry/concurrency, policy/resource staleness, and crash-before/after-effect tests.
-4. Compare CLI and Dashboard outputs to detect transport/rendering mutation; include the optional plugin only if slice 6F ships.
+4. Compare CLI and Dashboard outputs to detect transport/rendering mutation.
 5. Exercise memory compaction, protected-retention, user correction/export/deletion, source purge, and zero-network empty-state behavior.
 6. Add golden Research, Study, and planning-only Work/handoff cases.
 7. Measure retrieval, citation, cost, latency, retry, verification, memory-context reduction, and purge completeness metrics.
 8. Run a complete repository and Git-history secret scan.
 9. Confirm no private path, username, incident metadata, asset, profile, note, database, transient blob, screenshot, diagnostic bundle, playlist, calendar, location, or log is included.
-10. Document Keychain setup, local directories, DeepSeek provider settings, Dashboard usage, memory retention/deletion, daily-context configuration, optional plugin installation, backup, and recovery.
+10. Document Keychain setup, local directories, DeepSeek provider settings, Dashboard usage, memory retention/deletion, daily-context configuration, backup, and recovery.
 11. Validate README SVG/GIF dimensions, GitHub-safe markup, alt text, public/synthetic provenance, and release-package inclusion.
 12. Produce signed or reproducible release artifacts where practical.
 13. Complete a final adversarial architecture and security review.
@@ -1082,7 +1080,7 @@ Do not publish. Keep the release candidate private, disable affected capabilitie
 | Research evidence | Yes | Golden cases | Public-source journey |
 | Study progression | Yes | Golden cases | Learning journey |
 | Work planning/handoff verification | Yes | Synthetic repo | Local handoff journey |
-| Rendering integrity | Snapshot | Transport comparison | CLI/Dashboard comparison; optional plugin if shipped |
+| Rendering integrity | Snapshot | Transport comparison | CLI/Dashboard comparison |
 | Secret leakage | Scanner | Canary | Release-artifact inspection |
 
 ## 10. Deferred technology decision gates
@@ -1119,11 +1117,11 @@ Restork V1 is planning-and-handoff only. A post-V1 executor RFC must define OS-e
 | Critical | Credential enters Git | Keychain, ignore rules, pre-commit scan | GitHub Push Protection and history scan |
 | High | Side effect repeats after restart | Durable intent, per-tool reconcile, unknown outcome state | `REC-EFFECT-001` |
 | High | Model self-report is accepted as truth | Artifact and verification gates | Synthetic mismatch tests |
-| High | Plugin bypasses Core | Thin client and loopback API | Source and integration audit |
+| High | A future plugin bypasses Core | No plugin in V1; any future bridge must remain a thin client | Source and integration audit |
 | High | Workspace path escapes scope | Realpath allowlist and symlink checks | Security property tests |
 | High | Hostile local page/API client controls Core | Scoped pairing tokens, strict CORS/Origin/content types | `SEC-AUTH-001` |
 | Medium | Three profiles drift | Shared contracts and tool registry | Profile-diff tests |
-| Medium | Streaming mutates output | Typed event envelopes | CLI/Dashboard comparison; optional plugin if shipped |
+| Medium | Streaming mutates output | Typed event envelopes | CLI/Dashboard comparison |
 | Medium | Graph projection becomes stale truth | Rebuildable derived index | Rebuild equivalence test |
 | Medium | Framework or language creep | Explicit adoption gates | Dependency and architecture review |
 
@@ -1189,10 +1187,10 @@ The following is an engineering-effort estimate, not a calendar commitment:
 | Scope | Estimated effort |
 |---|---:|
 | Steps 0–5: safe read-only Core | 18–27 days |
-| Steps 6–8: Dashboard, Research, Study | 12–18 days, plus 1–2 optional plugin days |
+| Steps 6–8: Dashboard, Research, Study | 12–18 days |
 | Step 9: planning-only Work | 3–5 days |
 | Step 10: hardening and release | 4–6 days |
-| Total V1 | 37–56 mandatory engineering days, plus 1–2 optional plugin days |
+| Total V1 | 37–56 engineering days |
 
 For one experienced full-stack developer using agent assistance:
 
@@ -1208,9 +1206,9 @@ Closed by the owner:
 
 1. Official DeepSeek API with default `deepseek-v4-pro` over OpenAI Chat Completions.
 2. MIT license.
-3. Reimplement the local Web Dashboard; import no legacy source. Obsidian remains an optional thin bridge.
+3. Reimplement the local Web Dashboard; import no legacy source. V1 reads the configured Vault directly and ships no Obsidian plugin.
 4. Canonical Todo syntax: standard checkbox plus `#todo`, explicit inline fields, and stable lowercase `^restork-...` block ID.
-5. Core packaging: Python wheel with bundled Dashboard assets, installed using `uv tool install restork`; `restork init` and foreground `restork start`; no default daemon/native wrapper in V1.
+5. Core packaging: Python wheel with bundled Dashboard assets, installed using `uv tool install restork`; foreground `restork serve`; no default daemon/native wrapper in V1.
 
 Remaining implementation-time decision:
 
@@ -1218,4 +1216,4 @@ Remaining implementation-time decision:
 
 Work V1 planning-and-handoff-only is a closed safety decision. Managed execution requires the post-V1 gate in Section 10.5.
 
-Implementation remains unstarted and requires a separate explicit authorization from the owner.
+Implementation is complete through Step 10 and the repository is a V1 release candidate. Publication still follows the protected release checklist and reviewed tag workflow.

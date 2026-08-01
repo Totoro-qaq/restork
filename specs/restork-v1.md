@@ -1,6 +1,6 @@
 # Restork V1 Product & Technical Specification
 
-> Status: Approved for implementation | Version: 0.5 | Date: 2026-08-02
+> Status: Implemented — V1 release candidate | Version: 1.0 | Date: 2026-08-02
 >
 > Scope: V1 local-first personal agent for Research, Study, and Work
 >
@@ -18,7 +18,7 @@ Restork is not three independent agents. It is one shared runtime with three mod
 - **Study** builds learning paths, teaches from existing knowledge, generates practice, and tracks review progress.
 - **Work** turns goals into tasks, inspects repositories, prepares bounded executor handoffs, and verifies imported results.
 
-The primary interface is a local Web Dashboard served on loopback by the Python Core. It is not a hosted SaaS: the browser is only the local UI. An optional first-party Obsidian plugin acts as a thin context bridge for current-note/selection actions and precise note navigation. Obsidian Markdown remains the durable human-readable knowledge and task store; SQLite stores operational run state.
+The primary interface is a local Web Dashboard served on loopback by the Python Core. It is not a hosted SaaS: the browser is only the local UI. V1 ships no Obsidian plugin and requires none; Core reads a configured Vault directly while Obsidian remains the user's editor. Obsidian Markdown remains the durable human-readable knowledge and task store; SQLite stores operational run state.
 
 ## 2. Decision summary
 
@@ -28,7 +28,7 @@ The primary interface is a local Web Dashboard served on loopback by the Python 
 | Knowledge repository | The user's Obsidian vault, configured at runtime and never vendored into Restork |
 | Core language | Python 3.12 |
 | Primary UI | Reimplemented local Web Dashboard in TypeScript; no legacy Dashboard source is copied |
-| Obsidian integration | Optional first-party thin plugin; Restork remains fully usable without it |
+| Obsidian integration | Direct configured-Vault access; no V1 plugin shipped or required |
 | Agent topology | One Restork Core with Research, Study, and Work profiles |
 | Mode routing | Explicit user selection first; inference may recommend but not silently switch |
 | Orchestration | Explicit persisted state machine |
@@ -37,7 +37,7 @@ The primary interface is a local Web Dashboard served on loopback by the Python 
 | Outbound network | One `OutboundGateway` for models and every network-enabled connector |
 | Durable knowledge | Obsidian Markdown |
 | User-facing tasks | Canonical Markdown checkbox grammar with `#todo`, explicit inline fields, and stable `^restork-...` block IDs |
-| Core distribution | Python wheel with bundled Dashboard assets; install with `uv tool install restork`, run with `restork start` |
+| Core distribution | Python wheel with bundled Dashboard assets; install with `uv tool install restork`, run with `restork serve` |
 | Operational state | SQLite outside the repository and vault |
 | Memory architecture | Four local layers: ephemeral working context, SQLite episodic memory, Markdown-backed semantic knowledge, and explicit private profiles |
 | Conversation cache | In-process sliding window and token budget; no Valkey in single-process V1 |
@@ -125,7 +125,7 @@ V1 will not provide:
 - A vector database as a baseline dependency.
 - A graph database, global ontology, OpenSPG, or production KAG pipeline.
 - A native Tauri/Electron desktop wrapper; the V1 local Web Dashboard can be wrapped later without rewriting its UI.
-- Mobile support.
+- A native mobile application; the local Dashboard still provides a responsive browser layout.
 - Email integration, calendar writes, or OAuth-based account synchronization.
 
 ## 7. Product model
@@ -383,7 +383,7 @@ Rules:
 - **FR-UI-001**: A reimplemented TypeScript local Web Dashboard is the primary V1 interface, served by Core on loopback and usable without Obsidian running.
 - **FR-UI-002**: Dashboard shows active runs, approval requests, Markdown tasks, and radar items.
 - **FR-UI-003**: Run detail shows state, events, sources, tool use, cost, artifacts, and verification.
-- **FR-UI-004**: The optional Obsidian plugin is a thin bridge for current note/selection, quick mode actions, approval notification, and note/heading/block navigation. It does not hold model credentials, own run state, duplicate Dashboard features, or execute general shell commands.
+- **FR-UI-004**: V1 ships no Obsidian plugin. Any post-V1 bridge must remain limited to current note/selection, quick mode actions, approval notification, and note/heading/block navigation; it must not hold model credentials, own run state, duplicate Dashboard features, or execute general shell commands.
 - **FR-UI-005**: CLI and Dashboard use the same local API and contracts.
 - **FR-UI-006**: Streaming delivery must not mutate the structured final artifact.
 - **FR-UI-007**: The Core wheel includes the production Dashboard static assets; end users do not need Node.js at runtime.
@@ -452,10 +452,9 @@ The OpenSPG KAG framework itself targets logical-form-guided retrieval and reaso
 ```mermaid
 flowchart LR
   User["User"] --> Dashboard["Local Web Dashboard"]
-  User --> Plugin["Optional Obsidian bridge"]
+  User --> Editor["Obsidian editor"]
   User --> CLI["Restork CLI"]
   Dashboard -->|"same-origin loopback HTTP + SSE"| API["Local API"]
-  Plugin -->|"scoped loopback API"| API
   CLI --> API
 
   subgraph Core["Restork Core - Python"]
@@ -470,6 +469,7 @@ flowchart LR
 
   Context --> Index["Local knowledge index"]
   Index --> Vault["Obsidian Markdown"]
+  Editor --> Vault
   Index --> Graph["Disposable graph projection"]
   Policy --> LocalTools["Vault and read-only repo tools"]
   Policy --> Connectors["Web / GitHub / paper / feed connectors"]
@@ -500,9 +500,11 @@ Responsibilities:
 
 The Dashboard is rebuilt as public-safe TypeScript source and production static assets. It is served by Core on loopback, works when Obsidian is closed, and contains no provider credential or canonical state.
 
-### 12.2 Optional Obsidian plugin
+### 12.2 Obsidian interoperability
 
-Responsibilities:
+V1 ships no Obsidian plugin. Obsidian remains the editor while Core reads the configured Vault and
+serves the Dashboard independently. A future bridge may be considered only as a post-V1 thin client
+with these bounded responsibilities:
 
 - send the current note, heading, block, or selection reference to a new Restork run;
 - expose small commands such as `Research current note`, `Study selection`, and `Open Restork`;
@@ -586,11 +588,10 @@ The V1 private-alpha and open-source package is a Python wheel named `restork`, 
 
 ```bash
 uv tool install restork
-restork init
-restork start
+restork serve
 ```
 
-`restork start` runs Core in the foreground on loopback and opens the local Dashboard. The wheel contains the prebuilt Dashboard static files, so Node.js is a build-time dependency only. Configuration, data, Keychain references, indexes, and artifacts remain outside the wheel and Git checkout.
+`restork serve` runs Core in the foreground on loopback and serves the local Dashboard. The wheel contains the prebuilt Dashboard static files, so Node.js is a build-time dependency only. Configuration, data, Keychain references, indexes, and artifacts remain outside the wheel and Git checkout.
 
 V1 does not install an always-running daemon by default and does not ship a Tauri/Electron wrapper. After the foreground lifecycle is stable, an optional `restork service install` may register a platform service; a native desktop wrapper can later reuse the same Dashboard without changing Core contracts.
 
@@ -705,7 +706,7 @@ Required fields:
 
 Decision timestamps/actors are nullable while pending, and `consumed_at` is nullable until use. The canonical action digest covers the exact input hash, destination/target, workspace identity, resource versions, policy version, and nonce. Approval is a single-use capability: execution atomically compare-and-swaps `approved` to `consumed`. Expiry, replay, concurrent consumption, path or symlink changes, resource changes, and policy changes invalidate it and require a fresh preview.
 
-Persisted approvals contain metadata and hashes, not sensitive bodies. A private preview that must survive restart is held in an encrypted local transient blob with a TTL and deletion-on-resolution. `secret` data is never eligible for that blob or for an action.
+Persisted approvals contain metadata and hashes, not sensitive bodies. A private preview that must survive restart is held in an encrypted local transient blob with a TTL and deletion-on-resolution. `secret` and `credential` data are never eligible for that blob or for an action payload.
 
 ### 14.6 OutboundEnvelope
 
@@ -842,10 +843,10 @@ Classification originates from configured roots, paths, source adapters, and sch
 ### 16.4 Local service security
 
 - Bind to loopback only; this protects against network exposure but not malware running as the same OS user.
-- Bootstrap each Dashboard browser profile and Obsidian plugin installation with an interactive, single-use pairing code.
+- Bootstrap each Dashboard browser profile with an interactive, single-use pairing code; the CLI receives a separate audience and code.
 - Issue audience- and scope-bound client tokens with TTL, rotation, and revocation; store long-lived material in the OS keychain or a user-only (`0600`) file.
 - Send tokens only in an `Authorization` header, never a URL or SSE query parameter.
-- Require authentication on every endpoint and SSE connection. Use strict CORS, Origin checks for browser/plugin clients, accepted content types, and CSRF-resistant non-cookie authentication.
+- Require authentication on every endpoint and SSE connection. Use strict CORS, Origin checks for browser clients, accepted content types, and CSRF-resistant non-cookie authentication.
 - Give the CLI its own audience and scopes; non-browser clients do not fabricate an Origin header.
 - Resolve real paths and apply workspace allowlists.
 - Reject traversal and symlink escapes.
@@ -1046,7 +1047,7 @@ Evaluate only through the bounded pilot and quality gate in Section 10.3. Do not
 | Untrusted content requests more privilege | Treat all retrieved/model content as data; capability policy is immutable from content |
 | Three modes drift into three products | Shared contracts, state, memory, provider, and tools |
 | Framework lock-in | Provider and workflow runtime interfaces; no LangGraph in V1 |
-| Dashboard and Core both own state | Dashboard and plugin are presentation/bridge clients; Core owns runs; Markdown owns tasks |
+| Dashboard and Core both own state | Dashboard and CLI are thin clients; Core owns runs; Markdown owns tasks |
 | Duplicate or low-quality notes | Identity scan, backlink validation, preview, and journaled single-file recovery |
 | Agent claims success without proof | Required artifacts and external verification |
 | Public repository receives private files | External runtime directories, synthetic fixtures, secret scanning |
@@ -1059,9 +1060,9 @@ Closed by the owner:
 
 1. Provider: official DeepSeek API, default model `deepseek-v4-pro`, OpenAI Chat Completions protocol.
 2. License: MIT.
-3. UI: reimplement a local Web Dashboard; do not migrate legacy source. The Obsidian plugin is optional and thin.
+3. UI: reimplement a local Web Dashboard; do not migrate legacy source. V1 ships no Obsidian plugin and reads a configured Vault directly.
 4. Todo grammar: standard Markdown checkbox plus `#todo`, explicit inline fields, and stable `^restork-...` block ID as specified in Section 9.4.
-5. Core packaging: Python wheel with bundled Dashboard assets; `uv tool install restork`, `restork init`, and foreground `restork start`; no default daemon or native wrapper in V1.
+5. Core packaging: Python wheel with bundled Dashboard assets; `uv tool install restork` and foreground `restork serve`; no default daemon or native wrapper in V1.
 6. Memory: four local layers; TOML for structured profile values plus optional Markdown instructions, SQLite episodic metadata, and Markdown-backed semantic memory. No Valkey or Memory MCP dependency in V1.
 7. Daily context: optional weather, local read-only ICS calendar, and user-imported generic playlist; genre and locale preferences remain private configuration.
 8. README: bilingual visual refresh with project-native GitHub-safe SVG and an HD synthetic product GIF matching the approved light typewriter UI.

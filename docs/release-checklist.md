@@ -28,13 +28,27 @@ Manual checks may supplement, but never waive, a security/privacy gate.
 - [x] Source archive includes all public README assets; wheel includes the Dashboard.
 - [x] Release workflow emits `SHA256SUMS`, a manifest, and GitHub provenance attestations.
 
-## Manual release-only checks
+## Release-candidate checks
 
-- [ ] Inspect desktop and mobile layouts, focus order, keyboard flow, contrast, and reduced motion.
-- [ ] Start from a clean private directory and complete Web plus CLI pairing.
-- [ ] Verify macOS Keychain lookup without displaying the API key.
-- [ ] Back up and restore config, database, transient key, artifacts, and a synthetic Vault.
-- [ ] Confirm the tag version matches `pyproject.toml`, `src/restork/__init__.py`, and changelog.
+- [x] Inspect 1600×1000 desktop and 375×812 mobile layouts with no horizontal overflow or
+  browser console errors; verify semantic controls, visible focus styles, and reduced-motion CSS.
+- [x] Start from mode-`0700` clean private config/data/cache directories and complete independent
+  Web plus CLI pairing against the loopback Core.
+- [x] Verify the macOS Keychain adapter command contract with a synthetic subprocess: fixed absolute
+  binary, bounded argument list, no shell, and no secret or command output in failures.
+- [x] Stop Core, back up, and restore config, SQLite state, mode-`0600` transient key, private
+  artifact, and a synthetic Vault; compare every file, load the restored key, and pass SQLite
+  integrity checking.
+- [x] Confirm version `0.1.0` matches `pyproject.toml`, `src/restork/__init__.py`, and changelog.
+
+## Owner-machine publication checks
+
+These depend on the owner's private machine or the final public tag, not on source completeness.
+They must not expose credentials and cannot be replaced by repository fixtures.
+
+- [ ] Confirm the configured Generic Password item exists in the owner's Keychain without `-w`.
+- [ ] Create the reviewed `v0.1.0` tag only after the protected `main` release commit is selected.
+- [ ] Verify the downloaded GitHub attestation and checksums before distributing that tagged build.
 
 ## Candidate procedure
 

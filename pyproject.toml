@@ -31,6 +31,7 @@ dev = [
   "bandit>=1.8",
   "httpx>=0.28",
   "mypy>=1.15",
+  "pillow>=11.3",
   "pytest>=8.3",
   "ruff>=0.11",
   "types-defusedxml>=0.7.0.20260504",

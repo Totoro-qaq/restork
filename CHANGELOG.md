@@ -15,5 +15,7 @@ All notable changes to Restork are documented here.
 - Added evidence-backed Research, diagnostic-first Study, and approval-bound local Work handoffs.
 - Added all mandatory security/privacy/reliability gates, public-history scans, aggregate evaluations,
   reproducible packages, checksums, and provenance-attested release workflow.
+- Refreshed the synthetic 1600×1000 README poster and HD workflow animation through the final Work
+  handoff state, matching the shipped light typewriter Dashboard.
 - Kept private Vaults, profiles, databases, logs, artifacts, locations, calendars, playlists, and
   credentials outside Git and release packages.
