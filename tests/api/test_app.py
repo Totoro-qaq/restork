@@ -6,7 +6,13 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from restork.api.app import create_app
-from restork.api.auth import PairingAuthority
+from restork.api.auth import (
+    CLI_AUDIENCE,
+    CLI_SCOPES,
+    RUNS_READ,
+    WEB_AUDIENCE,
+    PairingAuthority,
+)
 from restork.api.server import LOOPBACK_HOST, make_server
 from restork.contracts.event import RunEvent
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
@@ -54,7 +60,20 @@ def test_pairing_accepts_only_loopback_browser_origins_and_json(tmp_path: Path) 
     paired = client.post("/api/pair", json={"code": pairing.pairing_code}, headers=headers)
     assert paired.status_code == 200
     assert paired.headers["access-control-allow-origin"] == headers["Origin"]
-    assert client.options("/api/pair", headers=headers).status_code == 204
+    preflight_headers = {
+        **headers,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+    }
+    assert client.options("/api/pair", headers=preflight_headers).status_code == 204
+    assert client.options(
+        "/api/pair",
+        headers={**preflight_headers, "Access-Control-Request-Headers": "x-unsafe"},
+    ).status_code == 400
+    assert client.options(
+        "/api/pair",
+        headers={**preflight_headers, "Access-Control-Request-Method": "DELETE"},
+    ).status_code == 405
 
     second_pairing = PairingAuthority()
     second_database = tmp_path / "second.db"
@@ -70,6 +89,60 @@ def test_pairing_accepts_only_loopback_browser_origins_and_json(tmp_path: Path) 
     assert second.post(
         "/api/pair", json={"code": second_pairing.pairing_code, "unexpected": "value"}
     ).status_code == 422
+
+
+def test_api_enforces_cli_audience_scopes_and_header_only_tokens(tmp_path: Path) -> None:
+    database = tmp_path / "state.db"
+    events = SQLiteEventStore.create(database)
+    runs = SQLiteRunStore.create(database)
+    pairing = PairingAuthority()
+    client = TestClient(create_app(events, pairing, runs))
+
+    cli_code = pairing.new_pairing_code(CLI_AUDIENCE, CLI_SCOPES)
+    cli_pair = client.post("/api/cli/pair", json={"code": cli_code})
+    assert cli_pair.status_code == 200
+    assert cli_pair.json()["audience"] == CLI_AUDIENCE
+    cli_token = cli_pair.json()["access_token"]
+    cli_headers = {"Authorization": f"Bearer {cli_token}"}
+    assert client.get("/api/runs/r/events", headers=cli_headers).status_code == 200
+    assert client.get(
+        "/api/runs/r/events",
+        headers={**cli_headers, "Origin": "http://127.0.0.1:5173"},
+    ).status_code == 403
+
+    limited_code = pairing.new_pairing_code(WEB_AUDIENCE, {RUNS_READ})
+    limited_token = client.post("/api/pair", json={"code": limited_code}).json()[
+        "access_token"
+    ]
+    limited_headers = {
+        "Authorization": f"Bearer {limited_token}",
+        "Idempotency-Key": "cancel-limited",
+    }
+    assert client.post("/api/runs/r/cancel", headers=limited_headers).status_code == 403
+    assert client.get(
+        f"/api/runs/r/events?access_token={cli_token}", headers=cli_headers
+    ).status_code == 400
+
+
+def test_cli_pairing_rejects_browser_origin_and_wrong_audience(tmp_path: Path) -> None:
+    database = tmp_path / "state.db"
+    pairing = PairingAuthority()
+    client = TestClient(
+        create_app(
+            SQLiteEventStore.create(database),
+            pairing,
+            SQLiteRunStore.create(database),
+        )
+    )
+    cli_code = pairing.new_pairing_code(CLI_AUDIENCE, CLI_SCOPES)
+    assert client.post(
+        "/api/cli/pair",
+        json={"code": cli_code},
+        headers={"Origin": "http://localhost:5173"},
+    ).status_code == 403
+
+    wrong_audience_code = pairing.new_pairing_code(CLI_AUDIENCE, CLI_SCOPES)
+    assert client.post("/api/pair", json={"code": wrong_audience_code}).status_code == 401
 
 
 def test_sse_replay_uses_snapshot_then_only_events_after_its_cursor(tmp_path: Path) -> None:
