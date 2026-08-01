@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from uuid import uuid4
-
-from restork.contracts.event import RunEvent
 from restork.providers.base import ChatCompletion, ChatCompletionRequest, ProviderResponseError
 from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
@@ -82,15 +78,4 @@ class ModelRuntime:
         return completion
 
     def _emit(self, run_id: str, kind: str, metadata: dict[str, object]) -> None:
-        existing = self._events.read(run_id, after_seq=0)
-        sequence = existing[-1].seq + 1 if existing else 1
-        self._events.append(
-            RunEvent(
-                event_id=str(uuid4()),
-                run_id=run_id,
-                seq=sequence,
-                occurred_at=datetime.now(UTC),
-                kind=kind,
-                metadata=metadata,
-            )
-        )
+        self._events.append_next(run_id, kind=kind, metadata=metadata)
