@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.middleware.base import RequestResponseEndpoint
 
 from restork.api.auth import (
@@ -23,6 +23,7 @@ from restork.api.auth import (
     InvalidAccessToken,
     PairingAuthority,
 )
+from restork.contracts.task import TaskSpec
 from restork.contracts.types import ApprovalDecision, EffectPhase
 from restork.runtime.runner import Harness
 from restork.storage.approvals import SQLiteApprovalStore
@@ -77,14 +78,10 @@ def create_app(
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
     def require_token(scope: str) -> Callable[..., AccessToken]:
-        def dependency(
-            request: Request, authorization: str = Header(default="")
-        ) -> AccessToken:
+        def dependency(request: Request, authorization: str = Header(default="")) -> AccessToken:
             scheme, _, token_value = authorization.partition(" ")
             if scheme != "Bearer" or not token_value:
-                raise HTTPException(
-                    status_code=401, detail="Bearer authorization is required"
-                )
+                raise HTTPException(status_code=401, detail="Bearer authorization is required")
             try:
                 token = pairing.verify(
                     token_value,
@@ -126,7 +123,7 @@ def create_app(
         origin = request.headers.get("origin")
         if origin and not _is_loopback_browser_origin(origin):
             return JSONResponse(status_code=403, content={"detail": "cross-origin request denied"})
-        if origin and request.url.path.startswith("/api/cli/"):
+        if origin and request.url.path.startswith("/v1/cli/"):
             return JSONResponse(
                 status_code=403,
                 content={"detail": "CLI pairing rejects browser origins"},
@@ -146,9 +143,7 @@ def create_app(
             }
             requested_headers = {
                 header.strip().lower()
-                for header in request.headers.get(
-                    "access-control-request-headers", ""
-                ).split(",")
+                for header in request.headers.get("access-control-request-headers", "").split(",")
                 if header.strip()
             }
             if not requested_headers <= allowed_headers:
@@ -173,7 +168,7 @@ def create_app(
             response.headers["Vary"] = "Origin"
         return response
 
-    @app.post("/api/pair")
+    @app.post("/v1/pair")
     def pair(body: PairPayload, _: None = Depends(require_json)) -> dict[str, str]:
         try:
             token = pairing.pair(body.code, WEB_AUDIENCE)
@@ -181,7 +176,7 @@ def create_app(
             raise HTTPException(status_code=401, detail=str(error)) from error
         return _token_payload(token)
 
-    @app.post("/api/cli/pair")
+    @app.post("/v1/cli/pair")
     def pair_cli(body: PairPayload, _: None = Depends(require_json)) -> dict[str, str]:
         try:
             token = pairing.pair(body.code, CLI_AUDIENCE)
@@ -189,21 +184,42 @@ def create_app(
             raise HTTPException(status_code=401, detail=str(error)) from error
         return _token_payload(token)
 
-    @app.post("/api/token/rotate")
+    @app.post("/v1/token/rotate")
     def rotate_token(
         token: Annotated[AccessToken, Depends(manage_token)],
     ) -> dict[str, str]:
         replacement = pairing.rotate(token.value, token.audience)
         return _token_payload(replacement)
 
-    @app.post("/api/token/revoke")
+    @app.post("/v1/token/revoke")
     def revoke_token(
         token: Annotated[AccessToken, Depends(manage_token)],
     ) -> Response:
         pairing.revoke(token.value)
         return Response(status_code=204)
 
-    @app.get("/api/runs/{run_id}/events")
+    @app.post("/v1/runs")
+    async def create_run(
+        request: Request,
+        _: Annotated[AccessToken, Depends(write_runs)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        try:
+            body = TaskSpec.model_validate_json(await request.body())
+            run = Harness(runs, events).start(body, idempotency_key=idempotency_key)
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=error.errors(include_context=False),
+            ) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return run.model_dump(mode="json")
+
+    @app.get("/v1/runs/{run_id}/events")
     def stream_events(
         run_id: str,
         _: Annotated[AccessToken, Depends(read_runs)],
@@ -219,10 +235,7 @@ def create_app(
         frames: list[str] = []
         if snapshot is not None and covered_seq is not None:
             frames.append(
-                "id: "
-                f"{covered_seq}\n"
-                "event: run.snapshot\n"
-                f"data: {json.dumps(snapshot)}\n\n"
+                f"id: {covered_seq}\nevent: run.snapshot\ndata: {json.dumps(snapshot)}\n\n"
             )
         frames.extend(
             f"id: {event.seq}\nevent: {event.kind}\ndata: {json.dumps(event.metadata)}\n\n"
@@ -231,7 +244,7 @@ def create_app(
         payload = "".join(frames)
         return StreamingResponse(iter([payload]), media_type="text/event-stream")
 
-    @app.get("/api/runs/{run_id}")
+    @app.get("/v1/runs/{run_id}")
     def inspect_run(
         run_id: str,
         _: Annotated[AccessToken, Depends(read_runs)],
@@ -242,7 +255,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="run not found") from error
         return run.model_dump(mode="json")
 
-    @app.get("/api/approvals/{approval_id}")
+    @app.get("/v1/approvals/{approval_id}")
     def inspect_approval(
         approval_id: str,
         _: Annotated[AccessToken, Depends(read_approvals)],
@@ -253,7 +266,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="approval not found") from error
         return approval.model_dump(mode="json")
 
-    @app.post("/api/runs/{run_id}/cancel")
+    @app.post("/v1/runs/{run_id}/cancel")
     def cancel_run(
         run_id: str,
         _: Annotated[AccessToken, Depends(write_runs)],
@@ -269,7 +282,7 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(error)) from error
         return cancelled.model_dump(mode="json")
 
-    @app.post("/api/runs/{run_id}/resume")
+    @app.post("/v1/runs/{run_id}/resume")
     def resume_run(
         run_id: str,
         _: Annotated[AccessToken, Depends(write_runs)],
@@ -278,9 +291,7 @@ def create_app(
         if not idempotency_key:
             raise HTTPException(status_code=400, detail="Idempotency-Key is required")
         try:
-            resumed = Harness(runs, events).resume(
-                run_id, idempotency_key=idempotency_key
-            )
+            resumed = Harness(runs, events).resume(run_id, idempotency_key=idempotency_key)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="run not found") from error
         except ValueError as error:
@@ -309,7 +320,7 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(error)) from error
         return result.model_dump(mode="json")
 
-    @app.post("/api/approvals/{approval_id}/approve")
+    @app.post("/v1/approvals/{approval_id}/approve")
     def approve(
         approval_id: str,
         body: ApprovalDecisionPayload,
@@ -324,7 +335,7 @@ def create_app(
             idempotency_key,
         )
 
-    @app.post("/api/approvals/{approval_id}/reject")
+    @app.post("/v1/approvals/{approval_id}/reject")
     def reject(
         approval_id: str,
         body: ApprovalDecisionPayload,
@@ -339,7 +350,7 @@ def create_app(
             idempotency_key,
         )
 
-    @app.post("/api/runs/{run_id}/effects/{intent_id}/resolve")
+    @app.post("/v1/runs/{run_id}/effects/{intent_id}/resolve")
     def resolve_effect(
         run_id: str,
         intent_id: str,

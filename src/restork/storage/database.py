@@ -31,6 +31,7 @@ def initialize(connection: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS runs (
             run_id TEXT PRIMARY KEY,
             task_id TEXT NOT NULL,
+            task_spec_json TEXT,
             mode TEXT NOT NULL,
             state TEXT NOT NULL,
             state_version INTEGER NOT NULL CHECK (state_version >= 0),
@@ -104,6 +105,9 @@ def initialize(connection: sqlite3.Connection) -> None:
         connection.execute(
             "CREATE INDEX IF NOT EXISTS transient_blobs_source_id ON transient_blobs (source_id)"
         )
+        run_columns = {row["name"] for row in connection.execute("PRAGMA table_info(runs)")}
+        if "task_spec_json" not in run_columns:
+            connection.execute("ALTER TABLE runs ADD COLUMN task_spec_json TEXT")
     except BaseException:
         connection.execute("ROLLBACK")
         raise

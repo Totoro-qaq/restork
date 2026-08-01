@@ -7,7 +7,7 @@ must still authenticate unless it is exchanging an interactive, single-use pairi
 ## Pairing and tokens
 
 - The foreground Core displays a high-entropy, short-lived pairing code.
-- `/api/pair` exchanges a Web code; `/api/cli/pair` exchanges a separately issued CLI
+- `/v1/pair` exchanges a Web code; `/v1/cli/pair` exchanges a separately issued CLI
   code and rejects requests carrying a browser `Origin`.
 - A pairing code is bound to one audience and an allowed scope set. It is consumed on its
   first exchange attempt, including a wrong-audience attempt.
