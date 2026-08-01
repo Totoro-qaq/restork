@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node
+dashboard/node_modules/
+dashboard/dist/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Private runtime state and user data
+.restork/
+restork-data/
+vault/
+obsidian-vault/
+.obsidian/
+plugins/**/data.json
+*.sqlite
+*.sqlite3
+*.db
+*.log
+logs/
+indexes/
+cache/
+artifacts/
+profiles/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

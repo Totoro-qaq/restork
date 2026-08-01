@@ -1,0 +1,47 @@
+[project]
+name = "restork"
+version = "0.1.0"
+description = "A local-first agent workspace for research, study, and work."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Restork contributors" }]
+dependencies = [
+  "pydantic>=2.11",
+]
+
+[project.scripts]
+restork = "restork.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.26,<0.12"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+  "bandit>=1.8",
+  "mypy>=1.15",
+  "pytest>=8.3",
+  "ruff>=0.11",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra -q"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+
+[tool.bandit]
+targets = ["src"]
+skips = ["B101"]
