@@ -38,19 +38,27 @@ class SQLiteApprovalStore:
         return cls(connection)
 
     def create(self, request: ApprovalRequest) -> None:
-        self._connection.execute(
-            """
-            INSERT INTO approvals (approval_id, run_id, expires_at, decision, request_json)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                request.approval_id,
-                request.run_id,
-                request.expires_at.isoformat(),
-                request.decision.value,
-                request.model_dump_json(),
-            ),
-        )
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            self._bind_preview(request)
+            self._connection.execute(
+                """
+                INSERT INTO approvals (approval_id, run_id, expires_at, decision, request_json)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    request.approval_id,
+                    request.run_id,
+                    request.expires_at.isoformat(),
+                    request.decision.value,
+                    request.model_dump_json(),
+                ),
+            )
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        else:
+            self._connection.execute("COMMIT")
 
     def decide(
         self, approval_id: str, decision: ApprovalDecision, decided_by: str
@@ -58,13 +66,28 @@ class SQLiteApprovalStore:
         if decision not in {ApprovalDecision.APPROVED, ApprovalDecision.DENIED}:
             msg = "approvals can only be approved or denied by a decision"
             raise ValueError(msg)
-        request = self._load(approval_id)
-        if request.decision is not ApprovalDecision.PENDING:
-            raise ValueError("approval is no longer pending")
-        updated = request.model_copy(
-            update={"decision": decision, "decided_by": decided_by, "decided_at": datetime.now(UTC)}
-        )
-        self._save(updated)
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            request = self._load(approval_id)
+            if request.decision is not ApprovalDecision.PENDING:
+                raise ValueError("approval is no longer pending")
+            if request.expires_at <= datetime.now(UTC):
+                raise ValueError("approval capability has expired")
+            updated = request.model_copy(
+                update={
+                    "decision": decision,
+                    "decided_by": decided_by,
+                    "decided_at": datetime.now(UTC),
+                }
+            )
+            self._save(updated)
+            if decision is ApprovalDecision.DENIED:
+                self._delete_preview(updated)
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        else:
+            self._connection.execute("COMMIT")
         return updated
 
     def decide_idempotently(
@@ -104,6 +127,8 @@ class SQLiteApprovalStore:
                     }
                 )
                 self._save(result)
+                if decision is ApprovalDecision.DENIED:
+                    self._delete_preview(result)
                 save_idempotent_response(
                     self._connection,
                     operation=operation,
@@ -125,6 +150,7 @@ class SQLiteApprovalStore:
             request = self._load(approval_id)
             updated = self._consume_request(request)
             self._save(updated)
+            self._delete_preview(updated)
         except BaseException:
             self._connection.execute("ROLLBACK")
             raise
@@ -158,6 +184,7 @@ class SQLiteApprovalStore:
                 raise PermissionError("approval nonce does not match")
             updated = self._consume_request(request)
             self._save(updated)
+            self._delete_preview(updated)
         except BaseException:
             self._connection.execute("ROLLBACK")
             raise
@@ -201,3 +228,27 @@ class SQLiteApprovalStore:
                 request.approval_id,
             ),
         )
+
+    def _bind_preview(self, request: ApprovalRequest) -> None:
+        if request.preview_ref is None:
+            return
+        row = self._connection.execute(
+            "SELECT run_id, expires_at FROM transient_blobs WHERE blob_id = ?",
+            (request.preview_ref,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("approval preview blob does not exist")
+        if row["run_id"] is not None and row["run_id"] != request.run_id:
+            raise ValueError("approval preview belongs to another run")
+        blob_expiry = datetime.fromisoformat(row["expires_at"])
+        expires_at = min(blob_expiry, request.expires_at)
+        self._connection.execute(
+            "UPDATE transient_blobs SET run_id = ?, expires_at = ? WHERE blob_id = ?",
+            (request.run_id, expires_at.isoformat(), request.preview_ref),
+        )
+
+    def _delete_preview(self, request: ApprovalRequest) -> None:
+        if request.preview_ref is not None:
+            self._connection.execute(
+                "DELETE FROM transient_blobs WHERE blob_id = ?", (request.preview_ref,)
+            )

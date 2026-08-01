@@ -32,19 +32,22 @@ class TransientBlobStore:
         *,
         expires_at: datetime,
         data_class: DataClass,
+        run_id: str | None = None,
         source_id: str | None = None,
     ) -> None:
         if data_class is DataClass.SECRET:
             raise PermissionError("secret data is never eligible for transient storage")
         if expires_at <= datetime.now(UTC):
             raise ValueError("transient payload expiry must be in the future")
+        if run_id is None and source_id is None:
+            raise ValueError("transient payload requires a run or source owner")
         encrypted = self._cipher.encrypt(payload)
         self._connection.execute(
             """
-            INSERT INTO transient_blobs (blob_id, source_id, expires_at, payload)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO transient_blobs (blob_id, run_id, source_id, expires_at, payload)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (blob_id, source_id, expires_at.isoformat(), encrypted),
+            (blob_id, run_id, source_id, expires_at.isoformat(), encrypted),
         )
 
     def get(self, blob_id: str) -> bytes | None:
@@ -73,5 +76,11 @@ class TransientBlobStore:
     def purge_source(self, source_id: str) -> int:
         cursor = self._connection.execute(
             "DELETE FROM transient_blobs WHERE source_id = ?", (source_id,)
+        )
+        return cursor.rowcount
+
+    def purge_run(self, run_id: str) -> int:
+        cursor = self._connection.execute(
+            "DELETE FROM transient_blobs WHERE run_id = ?", (run_id,)
         )
         return cursor.rowcount
