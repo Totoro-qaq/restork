@@ -8,6 +8,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Restork contributors" }]
 dependencies = [
+  "platformdirs>=4.3",
   "pydantic>=2.11",
 ]
 

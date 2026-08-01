@@ -1,6 +1,6 @@
 # Restork V1 Implementation Blueprint
 
-> Status: In progress — Step 0 completed locally | Version: 0.4 | Date: 2026-08-01
+> Status: In progress — Steps 0–1 completed locally | Version: 0.4 | Date: 2026-08-01
 >
 > Objective: Build a public-ready, local-first personal agent for Research, Study, and Work without exposing private runtime data.
 >
@@ -12,7 +12,7 @@
 Current public-safe repository facts at plan creation:
 
 - Repository root: `<repo-root>`
-- Initial implementation baseline: Step 0 foundation created locally; not yet committed or published
+- Initial implementation baseline: Steps 0–1 created locally; Step 0 is published, while later slices await their PR sequence
 - Private machine paths, accounts, authentication state, vault inventory, and migration incidents are intentionally excluded from this tracked plan.
 
 Execution mode:
@@ -265,10 +265,13 @@ src/restork/contracts/artifact.py
 src/restork/contracts/approval.py
 src/restork/contracts/event.py
 src/restork/contracts/outbound.py
+src/restork/contracts/interfaces.py
 src/restork/config/models.py
 src/restork/config/loader.py
 src/restork/paths.py
-schemas/
+src/restork/schemas.py
+schemas/                         # generated JSON Schema exports
+scripts/generate-contract-schemas.py
 tests/contracts/
 tests/config/
 ```
