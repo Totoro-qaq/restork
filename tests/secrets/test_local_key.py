@@ -33,8 +33,11 @@ def test_local_encryption_key_rejects_symlinks_and_permissive_files(
         LocalEncryptionKeyStore().load_or_create(linked)
 
     permissive = tmp_path / "permissive.key"
-    permissive.write_bytes(Fernet.generate_key())
-    os.chmod(permissive, 0o644)
+    previous_umask = os.umask(0o027)
+    try:
+        permissive.write_bytes(Fernet.generate_key())
+    finally:
+        os.umask(previous_umask)
     with pytest.raises(PermissionError, match="0600"):
         LocalEncryptionKeyStore().load_or_create(permissive)
 
