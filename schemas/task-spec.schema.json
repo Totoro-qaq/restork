@@ -1,0 +1,222 @@
+{
+  "$defs": {
+    "BudgetSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "max_child_tasks": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Max Child Tasks",
+          "type": "integer"
+        },
+        "max_cost_usd": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cost Usd"
+        },
+        "max_retries": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Max Retries",
+          "type": "integer"
+        },
+        "max_steps": {
+          "minimum": 1,
+          "title": "Max Steps",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "max_wall_time_seconds": {
+          "minimum": 1,
+          "title": "Max Wall Time Seconds",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_steps",
+        "max_wall_time_seconds"
+      ],
+      "title": "BudgetSpec",
+      "type": "object"
+    },
+    "DataClass": {
+      "enum": [
+        "public",
+        "personal",
+        "confidential",
+        "secret",
+        "credential"
+      ],
+      "title": "DataClass",
+      "type": "string"
+    },
+    "DataPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_private_previews": {
+          "default": false,
+          "title": "Allow Private Previews",
+          "type": "boolean"
+        },
+        "maximum_outbound_class": {
+          "$ref": "#/$defs/DataClass",
+          "default": "public"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "title": "DataPolicy",
+      "type": "object"
+    },
+    "Mode": {
+      "enum": [
+        "research",
+        "study",
+        "work"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "ToolPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_tools": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Allowed Tools",
+          "type": "array"
+        },
+        "require_approval_for_external_actions": {
+          "default": true,
+          "title": "Require Approval For External Actions",
+          "type": "boolean"
+        },
+        "require_approval_for_writes": {
+          "default": true,
+          "title": "Require Approval For Writes",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "allowed_tools"
+      ],
+      "title": "ToolPolicy",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "budgets": {
+      "$ref": "#/$defs/BudgetSpec"
+    },
+    "completion_criteria": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Completion Criteria",
+      "type": "array"
+    },
+    "constraints": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Constraints",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "data_policy": {
+      "$ref": "#/$defs/DataPolicy"
+    },
+    "goal": {
+      "minLength": 1,
+      "title": "Goal",
+      "type": "string"
+    },
+    "mode": {
+      "$ref": "#/$defs/Mode"
+    },
+    "parent_task_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Task Id"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "task_id": {
+      "minLength": 1,
+      "title": "Task Id",
+      "type": "string"
+    },
+    "tool_policy": {
+      "$ref": "#/$defs/ToolPolicy"
+    },
+    "workspace_scope": {
+      "minLength": 1,
+      "title": "Workspace Scope",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_id",
+    "mode",
+    "goal",
+    "workspace_scope",
+    "completion_criteria",
+    "data_policy",
+    "tool_policy",
+    "budgets",
+    "created_at"
+  ],
+  "title": "TaskSpec",
+  "type": "object"
+}
