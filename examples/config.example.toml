@@ -1,0 +1,7 @@
+[provider]
+name = "deepseek"
+model = "deepseek-v4-pro"
+base_url = "https://api.deepseek.com"
+api_key_ref = "keychain:restork/provider/deepseek"
+thinking_enabled = true
+reasoning_effort = "high"

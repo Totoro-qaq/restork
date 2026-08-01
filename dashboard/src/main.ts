@@ -5,6 +5,7 @@ import type { DashboardApi, DashboardSnapshot, Mode, RadarAction } from "./api/t
 import {
   errorText,
   pairingMarkup,
+  researchPreviewMarkup,
   runEventsMarkup,
   workspaceMarkup,
 } from "./ui/render";
@@ -144,11 +145,15 @@ async function actOnRadar(root: HTMLElement, api: DashboardApi, button: HTMLButt
   button.disabled = true;
   try {
     const action = button.dataset.radarAction as RadarAction;
-    await api.radarAction(
+    const result = await api.radarAction(
       button.dataset.radarId ?? "",
       action,
     );
     await refresh(root, api, action === "make_task" ? "approvals" : "radar");
+    if (result.research_artifact) {
+      const target = root.querySelector<HTMLElement>("#research-result");
+      if (target) target.innerHTML = researchPreviewMarkup(result.research_artifact);
+    }
   } catch (error) {
     button.disabled = false;
     announce(root, errorText(error));

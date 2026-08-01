@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
 
+from restork.artifacts.research import ResearchArtifact
 from restork.contracts.approval import ApprovalRequest
 from restork.contracts.base import ContractModel
 from restork.contracts.types import DataClass
@@ -151,5 +152,6 @@ class RadarActionRequest(ContractModel):
 class RadarActionResult(ContractModel):
     item: RadarItem
     run_id: str | None = None
+    research_artifact: ResearchArtifact | None = None
     task_preview_available: bool = False
     task_approval_id: str | None = None

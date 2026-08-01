@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -13,12 +14,33 @@ from restork.dashboard.models import RadarItem, RadarLane
 from restork.dashboard.radar import SQLiteRadarStore
 from restork.dashboard.tasks import MarkdownTaskBoard, MarkdownTaskMutator
 from restork.knowledge.vault import Vault
+from restork.research.evidence import DeterministicResearchSynthesizer
+from restork.research.models import (
+    FetchedSource,
+    SourceAuthority,
+    SourceCard,
+    SourceKind,
+    SourceRequest,
+)
+from restork.research.store import SQLiteResearchStore
+from restork.research.workflow import ResearchWorkflow
 from restork.runtime.runner import Harness
 from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
 from restork.storage.intents import SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
+
+
+class _ResearchSources:
+    def __init__(self, source: FetchedSource) -> None:
+        self.source = source
+        self.calls = 0
+
+    async def fetch(self, request: SourceRequest) -> FetchedSource:
+        assert request.url == self.source.card.canonical_url
+        self.calls += 1
+        return self.source
 
 
 def _task() -> TaskSpec:
@@ -66,6 +88,34 @@ def _client(tmp_path: Path) -> tuple[TestClient, dict[str, str], SQLiteRunStore]
     pairing = PairingAuthority()
     approvals = SQLiteApprovalStore.open(database)
     task_board = MarkdownTaskBoard(Vault(vault_root))
+    budgets = SQLiteBudgetStore.create(database)
+    research_store = SQLiteResearchStore.create(database)
+    source_text = "A public synthetic discussion reports a reproducible local-first result."
+    source = FetchedSource(
+        card=SourceCard(
+            source_id="source-" + "a" * 24,
+            kind=SourceKind.WEB,
+            authority=SourceAuthority.SECONDARY,
+            title="Synthetic local-first discussion",
+            canonical_url="https://example.com/discussion",
+            publisher="example.com",
+            retrieved_at=now,
+            content_hash=sha256(source_text.encode()).hexdigest(),
+            media_type="text/plain",
+            byte_count=len(source_text.encode()),
+        ),
+        text=source_text,
+    )
+    research = ResearchWorkflow(
+        sources=_ResearchSources(source),
+        synthesizer=DeterministicResearchSynthesizer(),
+        artifacts=research_store,
+        runs=runs,
+        events=events,
+        budgets=budgets,
+        vault=Vault(vault_root),
+        now=lambda: now,
+    )
     client = TestClient(
         create_app(
             events,
@@ -81,7 +131,9 @@ def _client(tmp_path: Path) -> tuple[TestClient, dict[str, str], SQLiteRunStore]
                 tmp_path / "journal",
             ),
             radar=radar,
-            budgets=SQLiteBudgetStore.create(database),
+            budgets=budgets,
+            research=research,
+            research_artifacts=research_store,
         )
     )
     token = client.post("/v1/pair", json={"code": pairing.pairing_code}).json()[
@@ -128,6 +180,31 @@ def test_radar_research_action_creates_idempotent_research_run(tmp_path: Path) -
     created = runs.get(first.json()["run_id"])
     assert created.mode is Mode.RESEARCH
     assert first.json()["item"]["state"] == "research_queued"
+    assert first.json()["research_artifact"]["note_preview"]["action"] == "create"
+    assert first.json()["research_artifact"]["metrics"]["citation_correctness"] == 1
+    artifact = client.get(
+        f"/v1/research/runs/{created.run_id}/artifact", headers=auth
+    )
+    assert artifact.status_code == 200
+    assert artifact.json()["artifact_id"] == first.json()["research_artifact"]["artifact_id"]
+    executed = client.post(
+        f"/v1/research/runs/{created.run_id}/execute",
+        headers=auth,
+        json={
+            "question": "Investigate: Synthetic local-first discussion",
+            "sources": [{"url": "https://example.com/discussion"}],
+        },
+    )
+    mismatch = client.post(
+        f"/v1/research/runs/{created.run_id}/execute",
+        headers=auth,
+        json={
+            "question": "A different request",
+            "sources": [{"url": "https://example.com/discussion"}],
+        },
+    )
+    assert executed.status_code == 200
+    assert mismatch.status_code == 409
 
 
 def test_core_serves_dashboard_with_security_headers(tmp_path: Path) -> None:

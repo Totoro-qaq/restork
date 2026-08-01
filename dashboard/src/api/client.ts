@@ -5,6 +5,7 @@ import type {
   DashboardSnapshot,
   Mode,
   RadarAction,
+  RadarActionResult,
   RunEvent,
   RunSummary,
   TaskApplyResult,
@@ -50,7 +51,11 @@ export class LocalApiClient implements DashboardApi {
 
   async createRun(mode: Mode, goal: string): Promise<RunSummary> {
     const identity = crypto.randomUUID();
-    const tool = mode === "research" ? "vault_search" : mode === "study" ? "practice" : "handoff_export";
+    const tools = mode === "research"
+      ? ["vault_search", "source_read"]
+      : mode === "study"
+        ? ["vault_search", "practice"]
+        : ["vault_search", "handoff_export"];
     return this.#request<RunSummary>(
       "POST",
       "/v1/runs",
@@ -70,7 +75,7 @@ export class LocalApiClient implements DashboardApi {
         },
         tool_policy: {
           schema_version: 1,
-          allowed_tools: [tool],
+          allowed_tools: tools,
           require_approval_for_writes: true,
           require_approval_for_external_actions: true,
         },
@@ -104,8 +109,8 @@ export class LocalApiClient implements DashboardApi {
     );
   }
 
-  async radarAction(itemId: string, action: RadarAction): Promise<void> {
-    await this.#request(
+  async radarAction(itemId: string, action: RadarAction): Promise<RadarActionResult> {
+    return this.#request<RadarActionResult>(
       "POST",
       `/v1/radar/${encodeURIComponent(itemId)}/action`,
       { action },

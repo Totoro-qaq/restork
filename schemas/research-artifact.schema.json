@@ -547,6 +547,11 @@
       "title": "Related Notes",
       "type": "array"
     },
+    "request_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Request Hash",
+      "type": "string"
+    },
     "run_id": {
       "minLength": 1,
       "title": "Run Id",
@@ -594,6 +599,7 @@
   "required": [
     "artifact_id",
     "run_id",
+    "request_hash",
     "question",
     "source_cards",
     "evidence_cards",

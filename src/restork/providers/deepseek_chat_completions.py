@@ -199,7 +199,7 @@ class DeepSeekChatCompletionsProvider:
                 "DeepSeek request was denied by outbound policy",
                 kind=ProviderErrorKind.POLICY_DENIED,
             ) from error
-        except (KeyError, PermissionError) as error:
+        except (KeyError, LookupError, PermissionError) as error:
             raise ProviderResponseError(
                 "DeepSeek credential requires user action",
                 kind=ProviderErrorKind.USER_ACTION_REQUIRED,

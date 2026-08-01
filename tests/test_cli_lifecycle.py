@@ -122,6 +122,20 @@ def test_cli_commands_use_the_v1_api_contract(
             "resolve-1",
         ]
     ) == 0
+    capsys.readouterr()
+    assert main(
+        [
+            *base,
+            "research",
+            "run-1",
+            "--question",
+            "What does the source report?",
+            "--source",
+            "https://example.com/source",
+            "--target-note",
+            "Research/Source.md",
+        ]
+    ) == 0
 
     create_call = calls[0]
     assert create_call[:2] == ("POST", "/v1/runs")
@@ -137,6 +151,19 @@ def test_cli_commands_use_the_v1_api_contract(
         "decided_by": "local-user",
     }
     assert calls[3][1] == "/v1/runs/run-1/effects/intent-1/resolve"
+    assert calls[4][1] == "/v1/research/runs/run-1/execute"
+    assert calls[4][2]["body"] == {
+        "schema_version": 1,
+        "question": "What does the source report?",
+        "sources": [
+            {
+                "schema_version": 1,
+                "url": "https://example.com/source",
+                "kind": None,
+            }
+        ],
+        "target_note": "Research/Source.md",
+    }
     assert json.loads(capsys.readouterr().out)["ok"] is True
 
 

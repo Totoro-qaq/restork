@@ -54,6 +54,9 @@ from restork.memory.models import (
     SourcePurgeRequest,
 )
 from restork.memory.service import MemoryService
+from restork.research.models import SourceRequest
+from restork.research.store import SQLiteResearchStore
+from restork.research.workflow import ResearchRunRequest, ResearchWorkflow
 from restork.runtime.runner import Harness
 from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.budgets import SQLiteBudgetStore
@@ -116,6 +119,8 @@ def create_app(
     budgets: SQLiteBudgetStore | None = None,
     web_root: Path | None = None,
     daily: DailyContextService | None = None,
+    research: ResearchWorkflow | None = None,
+    research_artifacts: SQLiteResearchStore | None = None,
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -534,7 +539,7 @@ def create_app(
         return snapshot.model_dump(mode="json")
 
     @app.post("/v1/radar/{item_id}/action")
-    def mutate_radar_item(
+    async def mutate_radar_item(
         item_id: str,
         body: RadarActionRequest,
         _: Annotated[AccessToken, Depends(write_radar)],
@@ -548,8 +553,13 @@ def create_app(
         try:
             item = radar.get(item_id)
             run_id = None
+            research_artifact = None
             task_approval_id = None
             if body.action is RadarAction.RESEARCH:
+                research_request = ResearchRunRequest(
+                    question=f"Investigate: {item.title}",
+                    sources=(SourceRequest(url=item.url),),
+                )
                 task_id = f"radar-{sha256(item.item_id.encode()).hexdigest()[:24]}"
                 research_task = TaskSpec(
                     task_id=task_id,
@@ -574,11 +584,13 @@ def create_app(
                     ),
                     created_at=item.created_at,
                 )
-                run = Harness(runs, events).start(
+                run = Harness(runs, events, budgets).start(
                     research_task,
                     idempotency_key=f"radar-research:{idempotency_key}",
                 )
                 run_id = run.run_id
+                if research is not None:
+                    research_artifact = await research.execute(run.run_id, research_request)
             elif body.action is RadarAction.MAKE_TASK and task_mutations is not None:
                 preview = task_mutations.preview_capture(
                     TaskCaptureRequest(
@@ -592,11 +604,16 @@ def create_app(
             updated = radar.act(item_id, body.action, idempotency_key=idempotency_key)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Radar item not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail="Research execution failed") from error
         result = RadarActionResult(
             item=updated,
             run_id=run_id,
+            research_artifact=research_artifact,
             task_preview_available=(
                 body.action is RadarAction.MAKE_TASK
                 and task_approval_id is not None
@@ -604,6 +621,58 @@ def create_app(
             task_approval_id=task_approval_id,
         )
         return result.model_dump(mode="json")
+
+    @app.post("/v1/research/runs/{run_id}/execute")
+    async def execute_research_run(
+        run_id: str,
+        request: Request,
+        _: Annotated[AccessToken, Depends(write_runs)],
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if research is None:
+            raise HTTPException(status_code=503, detail="Research workflow is not configured")
+        try:
+            body = ResearchRunRequest.model_validate_json(await request.body())
+            artifact = await research.execute(run_id, body)
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=error.errors(include_context=False),
+            ) from error
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Research run not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=502, detail="Research execution failed") from error
+        return artifact.model_dump(mode="json")
+
+    @app.get("/v1/research/runs/{run_id}/artifact")
+    def inspect_research_run_artifact(
+        run_id: str,
+        _: Annotated[AccessToken, Depends(read_runs)],
+    ) -> dict[str, object]:
+        if research_artifacts is None:
+            raise HTTPException(status_code=503, detail="Research artifacts are not configured")
+        artifact = research_artifacts.for_run(run_id)
+        if artifact is None:
+            raise HTTPException(status_code=404, detail="Research artifact not found")
+        return artifact.model_dump(mode="json")
+
+    @app.get("/v1/research/artifacts/{artifact_id}")
+    def inspect_research_artifact(
+        artifact_id: str,
+        _: Annotated[AccessToken, Depends(read_runs)],
+    ) -> dict[str, object]:
+        if research_artifacts is None:
+            raise HTTPException(status_code=503, detail="Research artifacts are not configured")
+        try:
+            artifact = research_artifacts.get(artifact_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Research artifact not found") from error
+        return artifact.model_dump(mode="json")
 
     @app.get("/v1/daily")
     async def read_daily_context(
