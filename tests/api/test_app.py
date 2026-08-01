@@ -109,6 +109,10 @@ def test_cancel_requires_idempotency_and_is_replay_safe(tmp_path: Path) -> None:
     token = client.post("/api/pair", json={"code": pairing.pairing_code}).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": "cancel-1"}
     first = client.post(f"/api/runs/{run.run_id}/cancel", headers=headers)
-    second = client.post(f"/api/runs/{run.run_id}/cancel", headers=headers)
+    restarted_client = TestClient(create_app(events, pairing, SQLiteRunStore.create(database)))
+    second = restarted_client.post(f"/api/runs/{run.run_id}/cancel", headers=headers)
     assert first.status_code == second.status_code == 200
     assert first.json()["state_version"] == second.json()["state_version"]
+    assert first.json()["stop_reason"] == "cancelled"
+    conflicting = client.post("/api/runs/other/cancel", headers=headers)
+    assert conflicting.status_code == 409

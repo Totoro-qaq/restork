@@ -9,7 +9,6 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.middleware.base import RequestResponseEndpoint
 
 from restork.api.auth import PairingAuthority
-from restork.contracts.types import RunPhase
 from restork.storage.events import SQLiteEventStore
 from restork.storage.runs import SQLiteRunStore
 
@@ -18,7 +17,6 @@ def create_app(
     events: SQLiteEventStore, pairing: PairingAuthority, runs: SQLiteRunStore
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    idempotency: dict[str, dict[str, object]] = {}
 
     def require_token(authorization: str = Header(default="")) -> str:
         scheme, _, token = authorization.partition(" ")
@@ -91,14 +89,10 @@ def create_app(
     ) -> dict[str, object]:
         if not idempotency_key:
             raise HTTPException(status_code=400, detail="Idempotency-Key is required")
-        if idempotency_key in idempotency:
-            return idempotency[idempotency_key]
-        current = runs.get(run_id)
-        cancelled = runs.transition(
-            run_id, expected_version=current.state_version, next_state=RunPhase.CANCELLED
-        )
-        response = cancelled.model_dump(mode="json")
-        idempotency[idempotency_key] = response
-        return response
+        try:
+            cancelled = runs.cancel_idempotently(run_id, idempotency_key=idempotency_key)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return cancelled.model_dump(mode="json")
 
     return app

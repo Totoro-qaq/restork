@@ -101,3 +101,59 @@ class SQLiteRunStore:
         else:
             self._connection.execute("COMMIT")
         return self.get(run_id)
+
+    def cancel_idempotently(self, run_id: str, *, idempotency_key: str) -> RunSummary:
+        """Cancel exactly once and persist the response for safe request retries."""
+        operation = "run.cancel"
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            record = self._connection.execute(
+                """
+                SELECT resource_id, response_json FROM idempotency_records
+                WHERE operation = ? AND idempotency_key = ?
+                """,
+                (operation, idempotency_key),
+            ).fetchone()
+            if record is not None:
+                if record["resource_id"] != run_id:
+                    raise ValueError("Idempotency-Key is already bound to another run")
+                result = RunSummary.model_validate_json(record["response_json"])
+            else:
+                current = self.get(run_id)
+                if current.state is RunPhase.CANCELLED:
+                    result = current
+                else:
+                    transition(current.state, RunPhase.CANCELLED)
+                    updated_at = datetime.now(UTC)
+                    cursor = self._connection.execute(
+                        """
+                        UPDATE runs
+                        SET state = ?, state_version = ?, updated_at = ?, stop_reason = ?
+                        WHERE run_id = ? AND state_version = ?
+                        """,
+                        (
+                            RunPhase.CANCELLED.value,
+                            current.state_version + 1,
+                            updated_at.isoformat(),
+                            StopReason.CANCELLED.value,
+                            run_id,
+                            current.state_version,
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise ConcurrentRunUpdate("run state version is stale")
+                    result = self.get(run_id)
+                self._connection.execute(
+                    """
+                    INSERT INTO idempotency_records
+                        (operation, idempotency_key, resource_id, response_json)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (operation, idempotency_key, run_id, result.model_dump_json()),
+                )
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        else:
+            self._connection.execute("COMMIT")
+        return result
