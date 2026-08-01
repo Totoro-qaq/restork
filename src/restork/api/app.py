@@ -3,14 +3,40 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from pydantic import BaseModel, ConfigDict
 from starlette.middleware.base import RequestResponseEndpoint
 
 from restork.api.auth import PairingAuthority
 from restork.storage.events import SQLiteEventStore
 from restork.storage.runs import SQLiteRunStore
+
+
+class PairPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+
+
+def _is_loopback_browser_origin(origin: str) -> bool:
+    try:
+        parsed = urlsplit(origin)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "http"
+        and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+        and parsed.username is None
+        and parsed.password is None
+        and port is not None
+        and not parsed.path
+        and not parsed.query
+        and not parsed.fragment
+    )
 
 
 def create_app(
@@ -28,17 +54,37 @@ def create_app(
             raise HTTPException(status_code=401, detail=str(error)) from error
         return token
 
+    def require_json(content_type: str = Header(default="")) -> None:
+        if content_type.split(";", maxsplit=1)[0].strip().lower() != "application/json":
+            raise HTTPException(status_code=415, detail="Content-Type must be application/json")
+
     @app.middleware("http")
     async def local_origin_only(request: Request, call_next: RequestResponseEndpoint) -> Response:
         origin = request.headers.get("origin")
-        if origin and origin not in {"http://127.0.0.1", "http://localhost"}:
+        if origin and not _is_loopback_browser_origin(origin):
             return JSONResponse(status_code=403, content={"detail": "cross-origin request denied"})
-        return await call_next(request)
+        if request.method == "OPTIONS" and origin:
+            return Response(
+                status_code=204,
+                headers={
+                    "Access-Control-Allow-Origin": origin,
+                    "Access-Control-Allow-Headers": (
+                        "Authorization, Content-Type, Idempotency-Key, Last-Event-ID"
+                    ),
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Vary": "Origin",
+                },
+            )
+        response = await call_next(request)
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Vary"] = "Origin"
+        return response
 
     @app.post("/api/pair")
-    def pair(body: dict[str, str]) -> dict[str, str]:
+    def pair(body: PairPayload, _: None = Depends(require_json)) -> dict[str, str]:
         try:
-            token = pairing.pair(body.get("code", ""), "restork-web")
+            token = pairing.pair(body.code, "restork-web")
         except PermissionError as error:
             raise HTTPException(status_code=401, detail=str(error)) from error
         return {"access_token": token.value, "token_type": "bearer"}  # nosec B105
