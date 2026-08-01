@@ -1,44 +1,94 @@
-# Restork
+<p align="center">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Restork 是一个本地优先的智能工作空间：一个 Core 连接研究、学习与工作，私有知识始终留在本地。 Restork is a local-first workspace with one Core for Research, Study, and Work while private knowledge stays local.">
+</p>
 
-Restork is a local-first agent workspace for **research**, **study**, and
-**work**. It pairs a privacy-preserving Python Core with a local web dashboard
-and an optional Obsidian bridge.
+<p align="center">
+  <a href="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0ea5e9.svg" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/python-3.12-3776ab.svg" alt="Python 3.12">
+</p>
 
-> Status: foundation in progress. The current CLI intentionally exposes only
-> its identity and help; it does not yet read a Vault, call a model, or make
-> network requests.
+Restork 是面向工程师的开源、本地优先智能工作空间，把研究、学习和日常工作通过同一个 Core 连接起来，而不是把上下文分散在互不相干的助手中。\
+Restork is an open-source, local-first agent workspace for engineers who move
+between research, study, and day-to-day work. It connects those modes through
+one Core instead of splitting your context across unrelated assistants.
 
-## Principles
+> **当前状态 / Current status — foundation.** 仓库目前可构建本地 Dashboard
+> 骨架和 Python CLI；它刻意尚不读取 Obsidian Vault、不调用模型、也不发起运行时网络请求。\
+> The repository already builds a local Dashboard shell and a Python CLI. It
+> deliberately does **not** yet read an Obsidian Vault, call a model, or make
+> runtime network requests.
 
-- Your Obsidian Vault remains outside this repository and is selected only at
-  runtime.
-- Secrets live in the operating-system credential store, never in notes,
-  configuration files, logs, or prompts.
-- Research, Study, and Work are explicit modes on one Core, rather than three
-  disconnected agents.
-- Every write to a Vault and every external action is reviewable and requires
-  approval.
+## 为什么是 Restork / Why Restork
 
-## Development
+- **一个上下文，三种模式 / One context, three modes.** 研究沉淀证据，学习将其
+  转化为可持续练习，工作产出可审阅的计划与交接物。 Research captures evidence,
+  Study turns it into durable practice, and Work produces reviewable plans and handoffs.
+- **知识始终在本地 / Local knowledge remains local.** Obsidian Vault 仅在运行时
+  由你选择，绝不会被复制进本仓库或发布物。 Your Vault is selected only at runtime.
+- **影响发生前先审批 / Approval before impact.** 所有 Vault 写入和外部动作都应
+  在发生前保持可见、可审阅。 Proposed writes and external actions stay reviewable.
 
-This project targets Python 3.12 and uses `uv` for the Core, plus a separate
-TypeScript/Vite dashboard.
+## 工作方式 / How it will work
+
+```text
+Private Obsidian Vault ──► Restork Core ──► Research / Study / Work
+                               │
+                               └──► Local Web Dashboard
+```
+
+规划中的 Core 基于 Python 3.12，Dashboard 是本地服务的 TypeScript/Vite 客户端。
+Obsidian 插件会保持可选且轻量：不持有凭据、agent 状态或通用执行权限。\
+The planned Core is Python 3.12; the Dashboard is a bundled TypeScript/Vite
+client served locally. An Obsidian plugin is intentionally optional and thin:
+it will not own credentials, agent state, or general execution authority.
+
+## 试用基础版本 / Try the foundation
 
 ```bash
+git clone https://github.com/Totoro-qaq/restork.git
+cd restork
+
 uv sync
-uv run pytest
 uv run restork --help
+```
+
+构建随附的 Dashboard 骨架 / Build the bundled Dashboard shell:
+
+```bash
 npm --prefix dashboard ci
 npm --prefix dashboard test
 npm --prefix dashboard run build
 ```
 
-The project is licensed under [MIT](LICENSE). Read the current
-[security policy](SECURITY.md), [V1 specification](specs/restork-v1.md), and
-[implementation plan](plans/restork-v1-implementation.md) before contributing.
+## 开发检查 / Development checks
 
-## Repository boundary
+```bash
+uv run pytest
+uv run ruff check .
+uv run mypy src
+uv run bandit -q -r src
+./scripts/scan-public-artifacts.sh
+```
 
-This public repository contains reusable software only. It must not contain a
-personal Vault, generated SQLite indexes, model credentials, chat logs, or
-private GitHub/Work content. See [the threat model](docs/security/threat-model.md).
+## 隐私边界 / Privacy boundary
+
+本公开仓库仅包含可复用源代码，绝不能提交个人 Vault、生成索引、API Key、对话记录、
+私有 GitHub 内容或工作产物。可执行的边界和信任假设见[威胁模型](docs/security/threat-model.md)，
+漏洞报告流程见[安全策略](SECURITY.md)。\
+This public repository contains reusable source only. It must never contain a
+personal Vault, generated indexes, API keys, chat logs, private GitHub content,
+or work artifacts. See the [threat model](docs/security/threat-model.md) and
+[security policy](SECURITY.md).
+
+## 路线图与贡献 / Roadmap and contributing
+
+产品约定记录在 [V1 specification](specs/restork-v1.md)；交付步骤记录在
+[implementation blueprint](plans/restork-v1-implementation.md)，从安全的运行时
+contracts 与本地配置开始。提交 PR 前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。\
+The [V1 specification](specs/restork-v1.md) records the product contract. The
+[implementation blueprint](plans/restork-v1-implementation.md) tracks delivery
+steps, beginning with safe runtime contracts and local configuration. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+Restork 基于 [MIT License](LICENSE) 发布。 / Restork is released under the MIT License.
