@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from restork.artifacts.verification import verify_artifacts
-from restork.contracts.event import RunEvent
 from restork.contracts.run import RunSummary
 from restork.contracts.task import TaskSpec
 from restork.contracts.types import RunPhase, StopReason
@@ -37,8 +36,8 @@ class Harness:
         self._runs.create_run(run)
         if self._budgets is not None:
             self._budgets.create_budget(run.run_id, task.budgets, started_at=now)
-        self._emit(run.run_id, 1, "run_created", {"mode": task.mode.value})
-        return self._advance(run, RunPhase.PLANNING, 2, "planning_started")
+        self._emit(run.run_id, "run_created", {"mode": task.mode.value})
+        return self._advance(run, RunPhase.PLANNING, "planning_started")
 
     def complete(self, run_id: str, task: TaskSpec, artifacts: list[str]) -> RunSummary:
         profile = profile_for(task.mode)
@@ -56,18 +55,17 @@ class Harness:
             return self._advance(
                 current,
                 RunPhase.FAILED,
-                0,
                 "budget_exhausted",
                 stop_reason=StopReason.BUDGET_EXHAUSTED,
             )
         if current.state is RunPhase.VERIFYING:
             verifying = current
         else:
-            running = self._advance(current, RunPhase.RUNNING, 3, "run_started")
-            verifying = self._advance(running, RunPhase.VERIFYING, 4, "verification_started")
+            running = self._advance(current, RunPhase.RUNNING, "run_started")
+            verifying = self._advance(running, RunPhase.VERIFYING, "verification_started")
         verify_artifacts(artifacts)
         completed = self._advance(
-            verifying, RunPhase.COMPLETED, 5, "run_completed", stop_reason=StopReason.COMPLETED
+            verifying, RunPhase.COMPLETED, "run_completed", stop_reason=StopReason.COMPLETED
         )
         return completed
 
@@ -75,7 +73,6 @@ class Harness:
         self,
         run: RunSummary,
         state: RunPhase,
-        seq: int,
         kind: str,
         stop_reason: StopReason | None = None,
     ) -> RunSummary:
@@ -85,17 +82,8 @@ class Harness:
             next_state=state,
             stop_reason=stop_reason,
         )
-        self._emit(run.run_id, seq, kind, {"state": state.value})
+        self._emit(run.run_id, kind, {"state": state.value})
         return updated
 
-    def _emit(self, run_id: str, seq: int, kind: str, metadata: dict[str, object]) -> None:
-        self._events.append(
-            RunEvent(
-                event_id=str(uuid4()),
-                run_id=run_id,
-                seq=seq,
-                occurred_at=datetime.now(UTC),
-                kind=kind,
-                metadata=metadata,
-            )
-        )
+    def _emit(self, run_id: str, kind: str, metadata: dict[str, object]) -> None:
+        self._events.append_next(run_id, kind=kind, metadata=metadata)
