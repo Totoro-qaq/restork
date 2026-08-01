@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
 from restork.contracts.types import EffectPhase
 from restork.storage.database import connect, initialize
+from restork.storage.idempotency import (
+    load_idempotent_response,
+    mutation_binding,
+    save_idempotent_response,
+)
 
 
 @dataclass(frozen=True)
@@ -18,6 +24,12 @@ class EffectIntent:
     input_hash: str
     phase: EffectPhase
     retry_contract: str
+
+
+@dataclass(frozen=True)
+class EffectResolutionOutcome:
+    intent: EffectIntent
+    changed: bool
 
 
 def may_retry(intent: EffectIntent) -> bool:
@@ -107,3 +119,74 @@ class SQLiteIntentStore:
             )
             for row in rows
         ]
+
+    def resolve_idempotently(
+        self,
+        run_id: str,
+        intent_id: str,
+        phase: EffectPhase,
+        *,
+        idempotency_key: str,
+    ) -> EffectResolutionOutcome:
+        if phase not in {EffectPhase.COMMITTED, EffectPhase.FAILED}:
+            raise ValueError("unknown effects resolve only as committed or failed")
+        operation = "effect.resolve"
+        binding = mutation_binding(run_id, intent_id, phase.value)
+        changed = False
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            replay = load_idempotent_response(
+                self._connection,
+                operation=operation,
+                idempotency_key=idempotency_key,
+                binding=binding,
+            )
+            if replay is not None:
+                result = _intent_from_json(replay)
+            else:
+                current = self.get(intent_id)
+                if current.run_id != run_id:
+                    raise ValueError("effect intent belongs to another run")
+                if current.phase is not EffectPhase.UNKNOWN:
+                    raise ValueError("only unknown effects require reconciliation")
+                result = self.update_phase(intent_id, phase)
+                save_idempotent_response(
+                    self._connection,
+                    operation=operation,
+                    idempotency_key=idempotency_key,
+                    binding=binding,
+                    response_json=_intent_to_json(result),
+                )
+                changed = True
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        else:
+            self._connection.execute("COMMIT")
+        return EffectResolutionOutcome(result, changed)
+
+
+def _intent_to_json(intent: EffectIntent) -> str:
+    return json.dumps(
+        {
+            "intent_id": intent.intent_id,
+            "run_id": intent.run_id,
+            "tool_name": intent.tool_name,
+            "input_hash": intent.input_hash,
+            "phase": intent.phase.value,
+            "retry_contract": intent.retry_contract,
+        },
+        sort_keys=True,
+    )
+
+
+def _intent_from_json(payload: str) -> EffectIntent:
+    value = json.loads(payload)
+    return EffectIntent(
+        intent_id=value["intent_id"],
+        run_id=value["run_id"],
+        tool_name=value["tool_name"],
+        input_hash=value["input_hash"],
+        phase=EffectPhase(value["phase"]),
+        retry_contract=value["retry_contract"],
+    )

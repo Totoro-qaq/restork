@@ -2,16 +2,19 @@
 
 import json
 from collections.abc import Callable
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.base import RequestResponseEndpoint
 
 from restork.api.auth import (
+    APPROVALS_DECIDE,
+    APPROVALS_READ,
     CLI_AUDIENCE,
+    EFFECTS_RESOLVE,
     RUNS_READ,
     RUNS_WRITE,
     TOKENS_MANAGE,
@@ -20,15 +23,30 @@ from restork.api.auth import (
     InvalidAccessToken,
     PairingAuthority,
 )
+from restork.contracts.types import ApprovalDecision, EffectPhase
 from restork.runtime.runner import Harness
+from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.events import SQLiteEventStore
+from restork.storage.intents import SQLiteIntentStore
 from restork.storage.runs import SQLiteRunStore
 
 
 class PairPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    code: str
+    code: str = Field(min_length=1, max_length=256)
+
+
+class ApprovalDecisionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decided_by: str = Field(min_length=1, max_length=128)
+
+
+class EffectResolutionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal["committed", "failed"]
 
 
 def _is_loopback_browser_origin(origin: str) -> bool:
@@ -53,6 +71,8 @@ def create_app(
     events: SQLiteEventStore,
     pairing: PairingAuthority,
     runs: SQLiteRunStore,
+    approvals: SQLiteApprovalStore,
+    intents: SQLiteIntentStore,
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -87,6 +107,9 @@ def create_app(
     manage_token = require_token(TOKENS_MANAGE)
     read_runs = require_token(RUNS_READ)
     write_runs = require_token(RUNS_WRITE)
+    read_approvals = require_token(APPROVALS_READ)
+    decide_approvals = require_token(APPROVALS_DECIDE)
+    resolve_effects = require_token(EFFECTS_RESOLVE)
 
     def require_json(content_type: str = Header(default="")) -> None:
         if content_type.split(";", maxsplit=1)[0].strip().lower() != "application/json":
@@ -208,6 +231,28 @@ def create_app(
         payload = "".join(frames)
         return StreamingResponse(iter([payload]), media_type="text/event-stream")
 
+    @app.get("/api/runs/{run_id}")
+    def inspect_run(
+        run_id: str,
+        _: Annotated[AccessToken, Depends(read_runs)],
+    ) -> dict[str, object]:
+        try:
+            run = runs.get(run_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="run not found") from error
+        return run.model_dump(mode="json")
+
+    @app.get("/api/approvals/{approval_id}")
+    def inspect_approval(
+        approval_id: str,
+        _: Annotated[AccessToken, Depends(read_approvals)],
+    ) -> dict[str, object]:
+        try:
+            approval = approvals.get(approval_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="approval not found") from error
+        return approval.model_dump(mode="json")
+
     @app.post("/api/runs/{run_id}/cancel")
     def cancel_run(
         run_id: str,
@@ -223,6 +268,105 @@ def create_app(
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         return cancelled.model_dump(mode="json")
+
+    @app.post("/api/runs/{run_id}/resume")
+    def resume_run(
+        run_id: str,
+        _: Annotated[AccessToken, Depends(write_runs)],
+        idempotency_key: str = Header(default=""),
+    ) -> dict[str, object]:
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        try:
+            resumed = Harness(runs, events).resume(
+                run_id, idempotency_key=idempotency_key
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="run not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return resumed.model_dump(mode="json")
+
+    def decide_approval(
+        approval_id: str,
+        decision: ApprovalDecision,
+        body: ApprovalDecisionPayload,
+        idempotency_key: str,
+    ) -> dict[str, object]:
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        try:
+            result = Harness(runs, events).decide_approval(
+                approvals,
+                approval_id,
+                decision,
+                body.decided_by,
+                idempotency_key=idempotency_key,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="approval not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return result.model_dump(mode="json")
+
+    @app.post("/api/approvals/{approval_id}/approve")
+    def approve(
+        approval_id: str,
+        body: ApprovalDecisionPayload,
+        _: Annotated[AccessToken, Depends(decide_approvals)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        return decide_approval(
+            approval_id,
+            ApprovalDecision.APPROVED,
+            body,
+            idempotency_key,
+        )
+
+    @app.post("/api/approvals/{approval_id}/reject")
+    def reject(
+        approval_id: str,
+        body: ApprovalDecisionPayload,
+        _: Annotated[AccessToken, Depends(decide_approvals)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        return decide_approval(
+            approval_id,
+            ApprovalDecision.DENIED,
+            body,
+            idempotency_key,
+        )
+
+    @app.post("/api/runs/{run_id}/effects/{intent_id}/resolve")
+    def resolve_effect(
+        run_id: str,
+        intent_id: str,
+        body: EffectResolutionPayload,
+        _: Annotated[AccessToken, Depends(resolve_effects)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        try:
+            intent = Harness(runs, events).resolve_effect(
+                intents,
+                run_id,
+                intent_id,
+                EffectPhase(body.outcome),
+                idempotency_key=idempotency_key,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="effect intent not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return {
+            "intent_id": intent.intent_id,
+            "run_id": intent.run_id,
+            "phase": intent.phase.value,
+        }
 
     return app
 

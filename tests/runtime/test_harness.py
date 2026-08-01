@@ -69,9 +69,10 @@ def test_cancel_pauses_for_unknown_effect_until_manual_reconciliation(tmp_path: 
     assert paused.stop_reason is StopReason.USER_ACTION_REQUIRED
     assert harness.cancel(run.run_id, idempotency_key="cancel-1") == paused
     with pytest.raises(ValueError, match="reconciled"):
-        harness.resume(run.run_id, intents)
+        harness.resume(run.run_id, idempotency_key="resume-1")
     intents.update_phase("intent-1", EffectPhase.FAILED)
-    resumed = harness.resume(run.run_id, intents)
+    resumed = harness.resume(run.run_id, idempotency_key="resume-2")
+    assert harness.resume(run.run_id, idempotency_key="resume-2") == resumed
     replayed = harness.cancel(run.run_id, idempotency_key="cancel-1")
     cancelled = harness.cancel(run.run_id, idempotency_key="cancel-2")
     assert resumed.state is RunPhase.RUNNING

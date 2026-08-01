@@ -3,16 +3,28 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from restork.contracts.approval import ApprovalRequest
 from restork.contracts.types import ApprovalDecision
 from restork.storage.database import connect, initialize
+from restork.storage.idempotency import (
+    load_idempotent_response,
+    mutation_binding,
+    save_idempotent_response,
+)
 
 
 class ApprovalAlreadyConsumed(ValueError):
     """Raised when a consumed approval capability is replayed."""
+
+
+@dataclass(frozen=True)
+class ApprovalDecisionOutcome:
+    request: ApprovalRequest
+    changed: bool
 
 
 class SQLiteApprovalStore:
@@ -54,6 +66,58 @@ class SQLiteApprovalStore:
         )
         self._save(updated)
         return updated
+
+    def decide_idempotently(
+        self,
+        approval_id: str,
+        decision: ApprovalDecision,
+        decided_by: str,
+        *,
+        idempotency_key: str,
+    ) -> ApprovalDecisionOutcome:
+        if decision not in {ApprovalDecision.APPROVED, ApprovalDecision.DENIED}:
+            raise ValueError("approvals can only be approved or denied by a decision")
+        operation = "approval.decide"
+        binding = mutation_binding(approval_id, decision.value, decided_by)
+        changed = False
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            replay = load_idempotent_response(
+                self._connection,
+                operation=operation,
+                idempotency_key=idempotency_key,
+                binding=binding,
+            )
+            if replay is not None:
+                result = ApprovalRequest.model_validate_json(replay)
+            else:
+                request = self._load(approval_id)
+                if request.decision is not ApprovalDecision.PENDING:
+                    raise ValueError("approval is no longer pending")
+                if request.expires_at <= datetime.now(UTC):
+                    raise ValueError("approval capability has expired")
+                result = request.model_copy(
+                    update={
+                        "decision": decision,
+                        "decided_by": decided_by,
+                        "decided_at": datetime.now(UTC),
+                    }
+                )
+                self._save(result)
+                save_idempotent_response(
+                    self._connection,
+                    operation=operation,
+                    idempotency_key=idempotency_key,
+                    binding=binding,
+                    response_json=result.model_dump_json(),
+                )
+                changed = True
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        else:
+            self._connection.execute("COMMIT")
+        return ApprovalDecisionOutcome(result, changed)
 
     def consume(self, approval_id: str) -> ApprovalRequest:
         try:
@@ -120,6 +184,9 @@ class SQLiteApprovalStore:
         if row is None:
             raise KeyError(approval_id)
         return ApprovalRequest.model_validate_json(row["request_json"])
+
+    def get(self, approval_id: str) -> ApprovalRequest:
+        return self._load(approval_id)
 
     def _save(self, request: ApprovalRequest) -> None:
         self._connection.execute(
