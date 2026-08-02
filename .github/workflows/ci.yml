@@ -41,6 +41,38 @@ jobs:
       - run: npm --prefix dashboard run build
       - run: uv build --no-sources
 
+  desktop-macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            dashboard/package-lock.json
+            desktop/package-lock.json
+      - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+      - run: rustup default 1.97.1
+      - run: uv sync --frozen --all-groups
+      - run: npm --prefix dashboard ci
+      - run: npm --prefix desktop ci
+      - run: npm --prefix desktop run fmt:check
+      - run: ./scripts/build-desktop-core.sh
+      - run: npm --prefix desktop run clippy
+      - run: npm --prefix desktop test
+      - run: ./scripts/smoke-desktop-core.sh
+      - run: npm --prefix desktop run build:app
+      - name: Ad-hoc sign internal test bundle
+        run: >-
+          codesign --force --deep --sign - --timestamp=none
+          desktop/src-tauri/target/release/bundle/macos/Restork.app
+      - run: codesign --verify --deep --strict --verbose=2 desktop/src-tauri/target/release/bundle/macos/Restork.app
+
   public-artifact-scan:
     runs-on: ubuntu-latest
     steps:
@@ -71,6 +103,17 @@ jobs:
         run: >-
           uv run pytest tests/api/test_auth.py tests/api/test_app.py tests/api/test_provider.py
           tests/e2e/test_release_gates.py::test_sec_auth_001_every_non_pairing_api_route_has_a_scoped_token_dependency
+      - name: SEC-SQL-001
+        run: >-
+          uv run pytest
+          tests/security/test_prompt_and_sql_gates.py::test_sec_sql_001_sqlite_calls_cannot_build_queries_from_dynamic_expressions
+      - name: SEC-PROMPT-001
+        run: >-
+          uv run pytest
+          tests/security/test_prompt_and_sql_gates.py
+          tests/conversation/test_conversation_service.py::test_run_conversation_is_idempotent_toolless_and_prompt_versioned
+      - name: CONV-BOUNDARY-001
+        run: uv run pytest tests/conversation tests/api/test_conversation.py
       - name: PRIV-LABEL-001
         run: uv run pytest tests/privacy
       - name: REC-EFFECT-001
@@ -89,6 +132,8 @@ jobs:
         run: uv run pytest tests/memory tests/api/test_memory.py
       - name: UI-CONTEXT-001
         run: uv run pytest tests/daily tests/api/test_daily.py
+      - name: DESKTOP-BOUNDARY-001
+        run: uv run pytest tests/desktop
       - name: README-ASSET-001
         run: uv run python scripts/audit_readme.py README.md README.zh-CN.md
       - name: Golden modes, rendering parity, and aggregate metrics

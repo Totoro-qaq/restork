@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { mountDashboard } from "../src/main";
 import type {
+  ConversationTurn,
   DashboardApi,
   DashboardSnapshot,
   ProviderDiagnostic,
@@ -107,7 +108,18 @@ function fakeApi(): DashboardApi {
     applyTask: vi.fn(async () => {
       throw new Error("not used");
     }),
-    configureWeather: vi.fn(async () => undefined),
+    configureWeather: vi.fn(async () => ({
+      configured: true,
+      location_label: "Synthetic location",
+      latitude: 0,
+      longitude: 0,
+    })),
+    configureCalendar: vi.fn(async () => ({
+      configured: false,
+      status: "not_configured" as const,
+      events: [],
+      message: "",
+    })),
     providerDiagnostics: vi.fn(async () => {
       throw new Error("not used");
     }),
@@ -251,10 +263,15 @@ describe("authenticated workspace", () => {
     expect(root.querySelector("[data-music-disc]")?.classList).toContain("is-playing");
   });
 
-  it("configures weather only from manual fields and never requests location", async () => {
+  it("configures weather from a city without requesting browser location", async () => {
     const root = document.createElement("main");
     const api = fakeApi();
-    const configure = vi.spyOn(api, "configureWeather").mockResolvedValue(undefined);
+    const configure = vi.spyOn(api, "configureWeather").mockResolvedValue({
+      configured: true,
+      location_label: "Guangzhou, Guangdong, China",
+      latitude: 23.13,
+      longitude: 113.26,
+    });
     const getCurrentPosition = vi.fn();
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
@@ -287,25 +304,87 @@ describe("authenticated workspace", () => {
     });
 
     const form = root.querySelector<HTMLFormElement>("#weather-form");
-    const label = root.querySelector<HTMLInputElement>("#weather-label");
-    const latitude = root.querySelector<HTMLInputElement>("#weather-latitude");
-    const longitude = root.querySelector<HTMLInputElement>("#weather-longitude");
-    if (label && latitude && longitude && form) {
-      label.value = "Home";
-      latitude.value = "31.2304";
-      longitude.value = "121.4737";
+    const query = root.querySelector<HTMLInputElement>("#weather-query");
+    if (query && form) {
+      query.value = "Guangzhou";
       form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     }
 
     await vi.waitFor(() => expect(configure).toHaveBeenCalledWith({
       enabled: true,
-      label: "Home",
-      latitude: 31.2304,
-      longitude: 121.4737,
+      mode: "query",
+      query: "Guangzhou",
+      language: "en",
     }));
     expect(getCurrentPosition).not.toHaveBeenCalled();
     expect(localStorage).toHaveLength(0);
     expect(sessionStorage).toHaveLength(0);
+  });
+
+  it("requests browser location only after the user presses the location button", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const configure = vi.spyOn(api, "configureWeather").mockResolvedValue({
+      configured: true,
+      location_label: "Current location",
+      latitude: 31.2304,
+      longitude: 121.4737,
+    });
+    const getCurrentPosition = vi.fn((success: PositionCallback) => success({
+      coords: {
+        latitude: 31.2304,
+        longitude: 121.4737,
+        accuracy: 20,
+        altitude: null,
+        altitudeAccuracy: null,
+        heading: null,
+        speed: null,
+        toJSON: () => ({}),
+      },
+      timestamp: Date.now(),
+      toJSON: () => ({}),
+    }));
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: { getCurrentPosition },
+    });
+    mountDashboard(root, {
+      api,
+      snapshot: {
+        ...snapshot,
+        daily: {
+          weather: {
+            configured: false,
+            status: "not_configured",
+            provider: "",
+            location_label: "",
+            condition: "",
+            temperature_c: null,
+            apparent_temperature_c: null,
+            relative_humidity_percent: null,
+            is_day: null,
+            observed_at: null,
+            expires_at: null,
+            attribution: "",
+            message: "Weather is off.",
+          },
+          calendar: { configured: false, status: "not_configured", events: [], message: "" },
+          music: { configured: false, status: "not_configured", recommendation: null, message: "" },
+        },
+      },
+    });
+
+    expect(getCurrentPosition).not.toHaveBeenCalled();
+    root.querySelector<HTMLButtonElement>("[data-weather-locate]")?.click();
+
+    await vi.waitFor(() => expect(configure).toHaveBeenCalledWith({
+      enabled: true,
+      mode: "coordinates",
+      label: "Current location",
+      latitude: 31.2304,
+      longitude: 121.4737,
+    }));
+    expect(getCurrentPosition).toHaveBeenCalledTimes(1);
   });
 
   it("turns a checkbox change into a Core preview instead of browser-owned state", async () => {
@@ -753,5 +832,102 @@ describe("authenticated workspace", () => {
     expect(root.textContent).toContain("UNVERIFIED");
     expect(localStorage).toHaveLength(0);
     expect(sessionStorage).toHaveLength(0);
+  });
+
+  it("keeps run conversation in a bounded scroll region with a visible wait state", async () => {
+    const root = document.createElement("main");
+    document.body.append(root);
+    const api = fakeApi();
+    const runSnapshot: DashboardSnapshot = {
+      ...snapshot,
+      runs: [{
+        summary: {
+          run_id: "run-chat",
+          task_id: "task-chat",
+          mode: "research",
+          state: "completed",
+          state_version: 2,
+          stop_reason: "completed",
+          created_at: "2026-08-02T00:00:00Z",
+          updated_at: "2026-08-02T00:01:00Z",
+        },
+        task: {
+          task_id: "task-chat",
+          mode: "research",
+          goal: "Explain a synthetic result",
+          workspace_scope: "synthetic",
+          completion_criteria: ["answer clearly"],
+          budgets: {
+            max_steps: 8,
+            max_wall_time_seconds: 120,
+            max_tokens: 2_000,
+          },
+        },
+        budget: null,
+      }],
+    };
+    api.eventPage = vi.fn(async () => ({
+      events: [],
+      page: { limit: 50, has_more: false, next_cursor: null },
+    }));
+    api.conversationPage = vi.fn(async () => ({
+      turns: [],
+      page: { limit: 24, has_more: false, next_cursor: null },
+    }));
+    let finish: ((value: ConversationTurn) => void) | undefined;
+    api.sendConversation = vi.fn(
+      () => new Promise<ConversationTurn>((resolve) => { finish = resolve; }),
+    );
+    mountDashboard(root, { api, snapshot: runSnapshot });
+
+    root.querySelector<HTMLButtonElement>('[data-view="runs"]')?.click();
+    root.querySelector<HTMLButtonElement>('[data-run-id="run-chat"]')?.click();
+    await vi.waitFor(() => expect(root.querySelector(".conversation-composer")).not.toBeNull());
+
+    const input = root.querySelector<HTMLTextAreaElement>("#conversation-input");
+    if (input) input.value = "What does this result mean?";
+    root.querySelector<HTMLFormElement>("[data-conversation-form]")?.requestSubmit();
+
+    await vi.waitFor(() => expect(root.querySelector(".conversation-wait")).not.toBeNull());
+    expect(root.querySelector(".conversation-history")?.getAttribute("role")).toBe("log");
+    expect(root.querySelector<HTMLTextAreaElement>("#conversation-input")?.disabled).toBe(true);
+    finish?.({
+      turn_id: "turn-chat",
+      run_id: "run-chat",
+      sequence: 1,
+      mode: "research",
+      user: {
+        message_id: "message-user",
+        run_id: "run-chat",
+        turn_sequence: 1,
+        role: "user",
+        content: "What does this result mean?",
+        created_at: "2026-08-02T00:02:00Z",
+        data_class: "public",
+      },
+      assistant: {
+        message_id: "message-assistant",
+        run_id: "run-chat",
+        turn_sequence: 1,
+        role: "assistant",
+        content: "It is a bounded synthetic explanation.",
+        created_at: "2026-08-02T00:02:01Z",
+        data_class: "public",
+      },
+      prompt_id: "conversation.research.system",
+      prompt_version: "1.0.0",
+      prompt_hash: "a".repeat(64),
+      dropped_messages: 0,
+      estimated_context_tokens: 40,
+      total_tokens: 12,
+    });
+
+    await vi.waitFor(() => expect(root.textContent).toContain("bounded synthetic explanation"));
+    expect(api.sendConversation).toHaveBeenCalledWith(
+      "run-chat",
+      "What does this result mean?",
+    );
+    expect(root.querySelector(".conversation-wait")).toBeNull();
+    root.remove();
   });
 });

@@ -89,6 +89,44 @@ class SQLiteEventStore:
             for row in rows
         ]
 
+    def read_latest(
+        self, run_id: str, *, before_seq: int | None = None, limit: int = 50
+    ) -> list[RunEvent]:
+        """Return the latest bounded historical page in chronological order."""
+        if not 1 <= limit <= 200:
+            raise ValueError("event page limit must be between 1 and 200")
+        if before_seq is not None and before_seq < 1:
+            raise ValueError("event page cursor must be positive")
+        if before_seq is None:
+            rows = self._connection.execute(
+                """
+                SELECT event_id, run_id, seq, occurred_at, kind, metadata_json, schema_version
+                FROM events WHERE run_id = ? ORDER BY seq DESC LIMIT ?
+                """,
+                (run_id, limit),
+            ).fetchall()
+        else:
+            rows = self._connection.execute(
+                """
+                SELECT event_id, run_id, seq, occurred_at, kind, metadata_json, schema_version
+                FROM events WHERE run_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?
+                """,
+                (run_id, before_seq, limit),
+            ).fetchall()
+        rows.reverse()
+        return [
+            RunEvent(
+                event_id=row["event_id"],
+                run_id=row["run_id"],
+                seq=row["seq"],
+                occurred_at=datetime.fromisoformat(row["occurred_at"]),
+                kind=row["kind"],
+                metadata=json.loads(row["metadata_json"]),
+                schema_version=row["schema_version"],
+            )
+            for row in rows
+        ]
+
     def save_snapshot(self, run_id: str, *, covered_seq: int, snapshot: dict[str, object]) -> None:
         self._connection.execute(
             """

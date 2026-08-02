@@ -66,7 +66,16 @@ class ModelRuntime:
             except BudgetExceeded:
                 self._emit(run_id, "budget.exhausted", {"kind": "model"})
                 raise
-            self._emit(run_id, "model.started", {"attempt": attempt})
+            started_metadata: dict[str, object] = {"attempt": attempt}
+            if bounded_request.prompt_id is not None:
+                started_metadata.update(
+                    {
+                        "prompt_id": bounded_request.prompt_id,
+                        "prompt_version": bounded_request.prompt_version or "",
+                        "prompt_hash": bounded_request.prompt_hash or "",
+                    }
+                )
+            self._emit(run_id, "model.started", started_metadata)
             try:
                 completion = await asyncio.wait_for(
                     self._complete_provider(provider, bounded_request),

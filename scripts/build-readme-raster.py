@@ -28,6 +28,7 @@ def parser() -> argparse.ArgumentParser:
     )
     command.add_argument("--frames", type=Path, required=True)
     command.add_argument("--output", type=Path, default=Path("assets/readme"))
+    command.add_argument("--locale", choices=("en", "zh-CN"), required=True)
     return command
 
 
@@ -35,6 +36,9 @@ def main() -> int:
     arguments = parser().parse_args()
     frame_dir = arguments.frames.expanduser().resolve()
     output_dir = arguments.output.expanduser().resolve()
+    suffix = "" if arguments.locale == "en" else ".zh-CN"
+    poster_output = output_dir / f"demo-poster{suffix}.webp"
+    gif_output = output_dir / f"demo-hd{suffix}.gif"
     sources = [frame_dir / name for name in FRAME_NAMES]
     poster_source = frame_dir / "poster.png"
     missing = [path.name for path in (*sources, poster_source) if not path.is_file()]
@@ -53,7 +57,7 @@ def main() -> int:
         raise SystemExit(f"poster must be at least {MINIMUM_WIDTH}x{MINIMUM_HEIGHT}")
     output_dir.mkdir(parents=True, exist_ok=True)
     poster.save(
-        output_dir / "demo-poster.webp",
+        poster_output,
         "WEBP",
         quality=88,
         method=6,
@@ -85,7 +89,7 @@ def main() -> int:
         for frame in sequence
     ]
     indexed[0].save(
-        output_dir / "demo-hd.gif",
+        gif_output,
         "GIF",
         save_all=True,
         append_images=indexed[1:],
@@ -93,12 +97,12 @@ def main() -> int:
         loop=0,
         disposal=2,
         optimize=True,
-        comment=b"Restork public synthetic Dashboard demo",
+        comment=f"Restork public synthetic Dashboard demo ({arguments.locale})".encode(),
     )
-    _verify(output_dir / "demo-poster.webp", minimum_height=MINIMUM_HEIGHT)
-    _verify(output_dir / "demo-hd.gif", minimum_height=MINIMUM_HEIGHT)
-    print(f"Wrote {output_dir / 'demo-poster.webp'}")
-    print(f"Wrote {output_dir / 'demo-hd.gif'} ({len(indexed)} frames)")
+    _verify(poster_output, minimum_height=MINIMUM_HEIGHT)
+    _verify(gif_output, minimum_height=MINIMUM_HEIGHT)
+    print(f"Wrote {poster_output}")
+    print(f"Wrote {gif_output} ({len(indexed)} frames)")
     return 0
 
 

@@ -1,5 +1,13 @@
 export type Mode = "research" | "study" | "work";
 
+export interface PageInfo {
+  limit: number;
+  has_more: boolean;
+  next_cursor: string | null;
+}
+
+export type DashboardListKind = "runs" | "approvals" | "tasks" | "radar" | "memory";
+
 export interface RunSummary {
   run_id: string;
   task_id: string;
@@ -394,12 +402,27 @@ export interface WeatherSnapshot {
   message: string;
 }
 
-export interface WeatherConfigurationInput {
-  enabled: boolean;
-  label: string;
-  latitude: number;
-  longitude: number;
+export type WeatherConfigurationInput =
+  | { enabled: false }
+  | { enabled: true; mode: "query"; query: string; language: "en" | "zh" }
+  | {
+      enabled: true;
+      mode: "coordinates";
+      label: string;
+      latitude: number;
+      longitude: number;
+    };
+
+export interface WeatherConfigurationResult {
+  configured: boolean;
+  location_label: string;
+  latitude: number | null;
+  longitude: number | null;
 }
+
+export type CalendarConfigurationInput =
+  | { enabled: false; timezone: string }
+  | { enabled: true; filename: string; content: string; timezone: string };
 
 export interface CalendarEvent {
   event_id: string;
@@ -487,6 +510,55 @@ export interface DashboardSnapshot {
   } | null;
   daily: DailySnapshot | null;
   provider: ProviderDiagnostic | null;
+  pagination?: Partial<Record<DashboardListKind, PageInfo>>;
+}
+
+export type DashboardListPage =
+  | { kind: "runs"; items: RunListEntry[]; page: PageInfo }
+  | { kind: "approvals"; items: ApprovalRequest[]; page: PageInfo }
+  | { kind: "tasks"; items: MarkdownTask[]; page: PageInfo; configured: boolean }
+  | { kind: "radar"; items: RadarItem[]; page: PageInfo; configured: boolean }
+  | {
+      kind: "memory";
+      items: MemoryRecord[];
+      page: PageInfo;
+      counts: Record<string, number>;
+      architecture: string[];
+    };
+
+export interface RunEventPage {
+  events: RunEvent[];
+  page: PageInfo;
+}
+
+export interface ConversationMessage {
+  message_id: string;
+  run_id: string;
+  turn_sequence: number;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+  data_class: WorkDataClass;
+}
+
+export interface ConversationTurn {
+  turn_id: string;
+  run_id: string;
+  sequence: number;
+  mode: Mode;
+  user: ConversationMessage;
+  assistant: ConversationMessage | null;
+  prompt_id: string;
+  prompt_version: string;
+  prompt_hash: string;
+  dropped_messages: number;
+  estimated_context_tokens: number;
+  total_tokens: number | null;
+}
+
+export interface ConversationPage {
+  turns: ConversationTurn[];
+  page: PageInfo;
 }
 
 export interface RunEvent {
@@ -529,7 +601,8 @@ export interface DashboardApi {
   previewTask(taskId: string, completed: boolean): Promise<TaskMutationPreview>;
   captureTask(text: string, priority: string): Promise<TaskMutationPreview>;
   applyTask(approvalId: string): Promise<TaskApplyResult>;
-  configureWeather(input: WeatherConfigurationInput): Promise<void>;
+  configureWeather(input: WeatherConfigurationInput): Promise<WeatherConfigurationResult>;
+  configureCalendar(input: CalendarConfigurationInput): Promise<DailySnapshot["calendar"]>;
   providerDiagnostics(smoke: boolean): Promise<ProviderDiagnostic>;
   musicCover(): Promise<Blob | null>;
   events(runId: string, after: number): Promise<RunEvent[]>;
@@ -539,4 +612,8 @@ export interface DashboardApi {
     onEvent: (event: RunEvent) => void,
     signal: AbortSignal,
   ): Promise<void>;
+  loadPage?(kind: DashboardListKind, cursor: string): Promise<DashboardListPage>;
+  eventPage?(runId: string, before?: string): Promise<RunEventPage>;
+  conversationPage?(runId: string, before?: string): Promise<ConversationPage>;
+  sendConversation?(runId: string, content: string): Promise<ConversationTurn>;
 }

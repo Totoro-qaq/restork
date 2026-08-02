@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from pytest import CaptureFixture, MonkeyPatch
@@ -87,6 +88,44 @@ def test_doctor_is_local_by_default_and_network_is_explicit(
     assert main(["doctor", "--smoke"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "smoke_passed"
     assert smoke_values == [False, True]
+
+
+def test_desktop_serve_writes_bootstrap_pipe_without_printing_pairing_codes(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    bootstrap_reader, bootstrap_writer = os.pipe()
+    ran: list[bool] = []
+
+    class FakeServer:
+        def run(self) -> None:
+            ran.append(True)
+
+    monkeypatch.setattr("restork.cli.make_server", lambda app, port: FakeServer())
+    monkeypatch.setenv("RESTORK_DESKTOP_BOOTSTRAP_FD", str(bootstrap_writer))
+    monkeypatch.setenv("RESTORK_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("RESTORK_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("RESTORK_CACHE_DIR", str(tmp_path / "cache"))
+
+    assert main(
+        [
+            "--state-db",
+            str(tmp_path / "data" / "state.db"),
+            "serve",
+            "--port",
+            "49153",
+        ]
+    ) == 0
+
+    try:
+        payload = json.loads(os.read(bootstrap_reader, 4096))
+    finally:
+        os.close(bootstrap_reader)
+    assert payload["port"] == 49153
+    assert len(payload["pairing_code"]) >= 16
+    assert ran == [True]
+    assert capsys.readouterr().out == ""
 
 
 def _diagnostic_report(

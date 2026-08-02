@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, date, datetime, time, timedelta
 from hashlib import sha256
 from pathlib import Path
+from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from restork.daily.files import resolve_private_file
 from restork.daily.models import CalendarEvent, CalendarSnapshot, DailyStatus
+
+_MANAGED_CALENDAR_NAME = "calendar.ics"
+_MAXIMUM_CALENDAR_BYTES = 2_000_000
+_MAXIMUM_EVENTS = 10_000
 
 
 class LocalCalendar:
@@ -63,9 +69,53 @@ class LocalCalendar:
                 message="The local calendar could not be read safely.",
             )
 
+    def import_ics(self, filename: str, content: str, timezone_name: str) -> str:
+        """Validate and atomically import a user-selected calendar snapshot."""
+
+        selected_name = Path(filename)
+        if selected_name.name != filename or selected_name.suffix.casefold() != ".ics":
+            raise ValueError("Calendar import requires one .ics file.")
+        payload = content.encode("utf-8")
+        if not payload or len(payload) > _MAXIMUM_CALENDAR_BYTES or "\x00" in content:
+            raise ValueError("Calendar import is empty or exceeds the 2 MB limit.")
+        try:
+            timezone = ZoneInfo(timezone_name or "UTC")
+        except ZoneInfoNotFoundError as error:
+            raise ValueError("Calendar timezone is invalid.") from error
+        self._profile_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            self._profile_root.chmod(0o700)
+        except OSError:
+            pass
+        target = self._profile_root / _MANAGED_CALENDAR_NAME
+        temporary = self._profile_root / f".calendar-import-{uuid4().hex}.ics"
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb") as output:
+                output.write(payload)
+                output.flush()
+                os.fsync(output.fileno())
+            _parse_calendar(temporary, timezone)
+            os.replace(temporary, target)
+            target.chmod(0o600)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+        return _MANAGED_CALENDAR_NAME
+
+    def clear_managed_import(self) -> None:
+        """Remove only the Core-owned import, never an external user file."""
+
+        target = self._profile_root / _MANAGED_CALENDAR_NAME
+        if target.is_symlink():
+            raise ValueError("Managed calendar import cannot be a symlink.")
+        target.unlink(missing_ok=True)
+
 
 def _parse_calendar(path: Path, default_timezone: ZoneInfo) -> tuple[CalendarEvent, ...]:
     lines = _unfold(path.read_text(encoding="utf-8").splitlines())
+    if "BEGIN:VCALENDAR" not in lines or "END:VCALENDAR" not in lines:
+        raise ValueError("calendar container is invalid")
     raw_events: list[list[str]] = []
     current: list[str] | None = None
     for line in lines:
@@ -77,6 +127,8 @@ def _parse_calendar(path: Path, default_timezone: ZoneInfo) -> tuple[CalendarEve
             if current is None:
                 raise ValueError("unexpected VEVENT terminator")
             raw_events.append(current)
+            if len(raw_events) > _MAXIMUM_EVENTS:
+                raise ValueError("calendar contains too many events")
             current = None
         elif current is not None:
             current.append(line)

@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "dashboard-capability",
+  "description": "The exact Restork loopback Dashboard may exchange only its short-lived browser session.",
+  "local": false,
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*"]
+  },
+  "permissions": [
+    "allow-desktop-session",
+    "allow-desktop-store-session"
+  ]
+}

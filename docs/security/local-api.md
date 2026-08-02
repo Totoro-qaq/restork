@@ -47,6 +47,28 @@ The provider surfaces are:
 The POST is intentionally ordinary bounded request/response traffic. Run-event SSE is unnecessary for
 these short diagnostics, and neither polling nor WebSocket is exposed.
 
+## Desktop session bridge
+
+The macOS shell does not bypass local API authentication. Core writes the desktop Web pairing code
+once to an inherited anonymous-pipe descriptor; the Rust supervisor bounds the payload, validates
+its schema, PID, port, shape, and deadline, and retains the code only in memory. The loopback
+Dashboard exchanges it through the ordinary `/v1/pair` endpoint.
+
+Tauri exposes two separate generated capability allowlists. The bundled loader can request only
+desktop status, retry, and quit. A remote capability matching `http://127.0.0.1:*` can request or
+store only the short-lived Dashboard session. Each session call also checks the `main` window label,
+the exact randomly selected runtime origin, and `/` path in Rust. The token is retained only in Rust
+and WebView memory so reload and scheduled rotation work without Web Storage. Application quit clears
+the session and terminates the owned Core child.
+
+The Rust supervisor also owns Core availability without broadening API authority. It retains the
+direct child and process group and probes the public metadata-only `/v1/readiness` route every two
+seconds. Three consecutive failures invalidate the in-memory desktop session and trigger bounded
+group termination before the native retry surface is shown. A separate anonymous-pipe lease has one
+writer held only by Rust; kernel EOF makes Core stop its process group if the desktop parent crashes
+or is killed. Neither mechanism carries a port, token, prompt, response body, or user payload in
+diagnostics.
+
 ## CLI flow
 
 The CLI is an API client and never opens the runtime SQLite database for lifecycle

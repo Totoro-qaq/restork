@@ -22,7 +22,9 @@ _README_ASSETS = {
     "assets/readme/architecture.svg",
     "assets/readme/architecture.zh-CN.svg",
     "assets/readme/demo-hd.gif",
+    "assets/readme/demo-hd.zh-CN.gif",
     "assets/readme/demo-poster.webp",
+    "assets/readme/demo-poster.zh-CN.webp",
     "assets/readme/hero.svg",
     "assets/readme/hero.zh-CN.svg",
 }

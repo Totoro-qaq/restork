@@ -55,10 +55,17 @@ The Roman-numeral clock is browser-local. Weather is optional and gateway-backed
 are read-only local imports. The record rotates only after user interaction and honors reduced-motion
 preferences. Empty configuration renders setup states and performs no daily-context request.
 
-Weather can be enabled from its Dashboard card by manually entering a display name, latitude, and
-longitude. There is deliberately no “use current location” action: the Dashboard never calls browser
-geolocation and Core never infers a location from an IP address. Disabling weather clears both its
-provider and saved location. The browser does not retain the form values.
+Weather can be enabled from its settings dialog by entering a city/place name or by explicitly
+pressing **Use current location**. A city submit performs a governed Open-Meteo geocoding request;
+the location button calls browser geolocation only after that click and the browser/system consent
+prompt. Restork never infers a location from an IP address, and denying permission leaves city input
+usable. Disabling weather clears its provider and saved location. The browser does not retain the
+form values.
+
+Calendar setup is also explicit: select one local `.ics` file in the Calendar dialog. Core keeps a
+private managed read-only import and interprets it using the browser's current IANA system time zone,
+so it follows the same device time as the clock. Disabling calendar removes only Restork's managed
+copy, never the source file.
 
 The Overview uses a compact two-by-two content matrix on wide screens: latest run and approval above
 Markdown tasks and Radar. It collapses to one column on narrow screens instead of leaving a blank

@@ -1,25 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LocalApiClient } from "../src/api/client";
-import type { MemoryRecord } from "../src/api/types";
-
-const HASH_A = "a".repeat(64);
-const HASH_B = "b".repeat(64);
-const HASH_C = "c".repeat(64);
-
-function profileRecord(memoryId: string, contentHash: string): MemoryRecord {
-  return {
-    memory_id: memoryId,
-    layer: "profile",
-    kind: memoryId.split(".").at(-1) ?? "profile",
-    summary: "",
-    provenance: "user",
-    data_class: "personal",
-    retention_class: "durable",
-    updated_at: "2026-08-02T00:00:00Z",
-    content_hash: contentHash,
-  };
-}
+import { LocalApiClient, systemTimeZone } from "../src/api/client";
 
 function jsonResponse(payload: object): Response {
   return new Response(JSON.stringify(payload), {
@@ -33,15 +14,15 @@ afterEach(() => {
 });
 
 describe("LocalApiClient weather configuration", () => {
-  it("disables the provider before changing coordinates and reenables it last", async () => {
-    const provider = profileRecord("profile:daily.weather_provider", HASH_A);
-    const location = profileRecord("profile:daily.weather_location", HASH_B);
+  it("sends a manual city only through the paired Core configuration endpoint", async () => {
     const responses = [
       jsonResponse({ access_token: "paired-token" }),
-      jsonResponse({ records: [provider, location] }),
-      jsonResponse({ ...provider, content_hash: HASH_C }),
-      jsonResponse({ ...location, content_hash: HASH_C }),
-      jsonResponse({ ...provider, content_hash: HASH_B }),
+      jsonResponse({
+        configured: true,
+        location_label: "Guangzhou, Guangdong, China",
+        latitude: 23.13,
+        longitude: 113.26,
+      }),
     ];
     const fetchMock = vi.fn<typeof fetch>(async () => {
       const response = responses.shift();
@@ -54,26 +35,90 @@ describe("LocalApiClient weather configuration", () => {
     await client.pair("pairing-code");
     await client.configureWeather({
       enabled: true,
-      label: "Home",
-      latitude: 31.2304,
-      longitude: 121.4737,
+      mode: "query",
+      query: "Guangzhou",
+      language: "en",
     });
 
-    const requests = fetchMock.mock.calls.slice(2).map(([, init]) => {
-      if (!init) throw new Error("missing request options");
-      return {
-        body: JSON.parse(String(init.body)) as Record<string, unknown>,
-        headers: new Headers(init.headers),
-      };
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/daily/weather");
+    const request = fetchMock.mock.calls[1][1];
+    expect(JSON.parse(String(request?.body))).toEqual({
+      enabled: true,
+      mode: "query",
+      query: "Guangzhou",
+      language: "en",
     });
-    expect(requests.map(({ body }) => body.value)).toEqual([
-      "",
-      "Home|31.2304,121.4737",
-      "open-meteo",
-    ]);
-    expect(requests[2].body.expected_content_hash).toBe(HASH_C);
-    expect(requests.every(({ headers }) => headers.get("Authorization") === "Bearer paired-token"))
-      .toBe(true);
+    const headers = new Headers(request?.headers);
+    expect(headers.get("Authorization")).toBe("Bearer paired-token");
+    expect(headers.get("Idempotency-Key")).toMatch(/^dashboard-weather-/);
+  });
+});
+
+describe("LocalApiClient calendar configuration", () => {
+  it("imports ICS content through the paired local Core", async () => {
+    const responses = [
+      jsonResponse({ access_token: "paired-token" }),
+      jsonResponse({ configured: true, status: "ready", events: [], message: "" }),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+
+    await client.pair("pairing-code");
+    await client.configureCalendar({
+      enabled: true,
+      filename: "calendar.ics",
+      content: "BEGIN:VCALENDAR\nEND:VCALENDAR\n",
+      timezone: "Asia/Shanghai",
+    });
+
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/daily/calendar");
+    const request = fetchMock.mock.calls[1][1];
+    expect(JSON.parse(String(request?.body))).toEqual({
+      enabled: true,
+      filename: "calendar.ics",
+      content: "BEGIN:VCALENDAR\nEND:VCALENDAR\n",
+      timezone: "Asia/Shanghai",
+    });
+    expect(new Headers(request?.headers).get("Authorization")).toBe("Bearer paired-token");
+  });
+});
+
+describe("LocalApiClient daily timezone", () => {
+  it("requests daily context using the browser system timezone", async () => {
+    const responses = [
+      jsonResponse({ access_token: "paired-token" }),
+      jsonResponse({ runs: [] }),
+      jsonResponse({ approvals: [] }),
+      jsonResponse({ configured: false, tasks: [] }),
+      jsonResponse({ configured: false, items: [] }),
+      jsonResponse({ records: [], counts: {}, architecture: [] }),
+      jsonResponse({
+        weather: { configured: false, status: "not_configured" },
+        calendar: { configured: false, status: "not_configured", events: [], message: "" },
+        music: { configured: false, status: "not_configured", recommendation: null },
+      }),
+      jsonResponse({ status: "ready" }),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+
+    await client.pair("pairing-code");
+    await client.loadDashboard();
+
+    const dailyPath = fetchMock.mock.calls
+      .map(([path]) => String(path))
+      .find((path) => path.startsWith("/v1/daily?"));
+    expect(dailyPath).toBe(`/v1/daily?timezone=${encodeURIComponent(systemTimeZone())}`);
   });
 });
 

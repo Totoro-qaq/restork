@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from urllib.parse import urlencode
@@ -16,6 +17,7 @@ from restork.network.gateway import OutboundGateway, OutboundRequest
 from restork.weather_location import parse_weather_location
 
 _ENDPOINT = "https://api.open-meteo.com/v1/forecast"
+_GEOCODING_ENDPOINT = "https://geocoding-api.open-meteo.com/v1/search"
 _TTL = timedelta(minutes=30)
 
 _WMO = {
@@ -43,10 +45,100 @@ _WMO = {
 }
 
 
+@dataclass(frozen=True)
+class ResolvedWeatherLocation:
+    label: str
+    latitude: float
+    longitude: float
+    timezone: str
+
+
 class OpenMeteoWeather:
     def __init__(self, gateway: OutboundGateway, cache: SQLiteDailyCache) -> None:
         self._gateway = gateway
         self._cache = cache
+
+    async def resolve_location(
+        self,
+        query: str,
+        *,
+        language: str = "en",
+    ) -> ResolvedWeatherLocation:
+        """Resolve an explicitly submitted place name without browser or IP location."""
+
+        normalized = " ".join(query.split())
+        if not 2 <= len(normalized) <= 120 or any(ord(character) < 32 for character in normalized):
+            raise ValueError("Weather location must contain 2 to 120 printable characters.")
+        selected_language = language.casefold()
+        if selected_language not in {"en", "zh"}:
+            selected_language = "en"
+        query_string = urlencode(
+            {
+                "name": normalized,
+                "count": "1",
+                "language": selected_language,
+                "format": "json",
+            }
+        )
+        destination = f"{_GEOCODING_ENDPOINT}?{query_string}"
+        envelope = OutboundEnvelope(
+            destination=destination,
+            resolved_address_class="public",
+            method="GET",
+            purpose="daily_weather_location_lookup",
+            source_refs=["dashboard:manual_weather_location"],
+            payload_hash=sha256(b"").hexdigest(),
+            classification=DataClass.PERSONAL,
+            redaction_summary="the manually submitted place name is used only for this lookup",
+            policy_version="v1",
+            policy_decision=PolicyDecision.ALLOWED,
+        )
+        response = await self._gateway.dispatch(
+            OutboundRequest(
+                envelope=envelope,
+                payload=b"",
+                headers={"Accept": "application/json"},
+            )
+        )
+        if response.status_code != 200:
+            raise ValueError("Weather location lookup returned an error.")
+        document = json.loads(response.payload)
+        results = document.get("results")
+        if not isinstance(results, list) or not results or not isinstance(results[0], dict):
+            raise ValueError("No matching weather location was found.")
+        match = results[0]
+        name = match.get("name")
+        latitude = match.get("latitude")
+        longitude = match.get("longitude")
+        if (
+            not isinstance(name, str)
+            or not isinstance(latitude, (int, float))
+            or isinstance(latitude, bool)
+            or not isinstance(longitude, (int, float))
+            or isinstance(longitude, bool)
+        ):
+            raise ValueError("Weather location lookup returned invalid data.")
+        try:
+            numeric_latitude = float(latitude)
+            numeric_longitude = float(longitude)
+        except (TypeError, ValueError) as error:
+            raise ValueError("Weather location lookup returned invalid coordinates.") from error
+        label_parts = [name.strip()]
+        for key in ("admin1", "country"):
+            value = match.get(key)
+            if isinstance(value, str) and value.strip() and value.strip() not in label_parts:
+                label_parts.append(value.strip())
+        label = ", ".join(label_parts)[:120]
+        label, numeric_latitude, numeric_longitude = parse_weather_location(
+            f"{label}|{numeric_latitude},{numeric_longitude}"
+        )
+        timezone = match.get("timezone")
+        return ResolvedWeatherLocation(
+            label=label,
+            latitude=numeric_latitude,
+            longitude=numeric_longitude,
+            timezone=timezone if isinstance(timezone, str) else "",
+        )
 
     async def snapshot(
         self,

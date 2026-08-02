@@ -25,8 +25,21 @@ REQUIRED_ASSETS = {
     "assets/readme/architecture.svg": (1200, 560),
     "assets/readme/architecture.zh-CN.svg": (1200, 560),
     "assets/readme/demo-hd.gif": (1600, 1000),
+    "assets/readme/demo-hd.zh-CN.gif": (1600, 1000),
     "assets/readme/demo-poster.webp": (1600, 1000),
+    "assets/readme/demo-poster.zh-CN.webp": (1600, 1000),
 }
+GIF_LOCALE_MARKERS = {
+    "assets/readme/demo-hd.gif": b"Restork public synthetic Dashboard demo (en)",
+    "assets/readme/demo-hd.zh-CN.gif": b"Restork public synthetic Dashboard demo (zh-CN)",
+}
+SVG_LOCALES = {
+    "assets/readme/hero.svg": "en",
+    "assets/readme/architecture.svg": "en",
+    "assets/readme/hero.zh-CN.svg": "zh-CN",
+    "assets/readme/architecture.zh-CN.svg": "zh-CN",
+}
+CJK_TEXT = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 README_RULES = {
     "README.md": {
         "headings": (
@@ -40,6 +53,8 @@ README_RULES = {
         "counterpart": "./README.zh-CN.md",
         "hero": "./assets/readme/hero.svg",
         "architecture": "./assets/readme/architecture.svg",
+        "demo": "./assets/readme/demo-hd.gif",
+        "poster": "./assets/readme/demo-poster.webp",
         "quickstart": "./scripts/quickstart.sh",
     },
     "README.zh-CN.md": {
@@ -54,6 +69,8 @@ README_RULES = {
         "counterpart": "./README.md",
         "hero": "./assets/readme/hero.zh-CN.svg",
         "architecture": "./assets/readme/architecture.zh-CN.svg",
+        "demo": "./assets/readme/demo-hd.zh-CN.gif",
+        "poster": "./assets/readme/demo-poster.zh-CN.webp",
         "quickstart": "./scripts/quickstart.sh",
     },
 }
@@ -146,12 +163,20 @@ def _audit_required_assets(root: Path) -> list[str]:
             continue
         if path.suffix == ".svg":
             issues.extend(f"{relative}: {issue}" for issue in _audit_svg(path, minimum))
+            source = path.read_text(encoding="utf-8")
+            locale = SVG_LOCALES[relative]
+            if locale == "en" and CJK_TEXT.search(source):
+                issues.append(f"{relative}: English SVG contains CJK text")
+            if locale == "zh-CN" and not CJK_TEXT.search(source):
+                issues.append(f"{relative}: Chinese SVG contains no CJK text")
             continue
         try:
             if path.suffix == ".gif":
                 width, height, frames = _gif_dimensions(path)
                 if frames < 2:
                     issues.append(f"{relative}: demonstration GIF is not animated")
+                if GIF_LOCALE_MARKERS[relative] not in path.read_bytes():
+                    issues.append(f"{relative}: demonstration GIF locale marker is missing")
             else:
                 width, height = _webp_dimensions(path)
         except ValueError as error:
@@ -210,7 +235,7 @@ def _audit_readme(readme: Path, repository_root: Path) -> tuple[list[str], int]:
     assert isinstance(provenance, str)
     if provenance.lower() not in source.lower():
         issues.append(f"must state its {provenance!r} public-demo provenance")
-    for key in ("counterpart", "hero", "architecture", "quickstart"):
+    for key in ("counterpart", "hero", "architecture", "demo", "poster", "quickstart"):
         required_reference = rules[key]
         assert isinstance(required_reference, str)
         if required_reference not in source:

@@ -517,7 +517,15 @@ class DemoApi implements DashboardApi {
   async applyTask(approvalId: string): Promise<TaskApplyResult> {
     return { approval_id: approvalId, task_id: "synthetic", relative_path: "Tasks.md", content_hash: "d".repeat(64), applied: true };
   }
-  async configureWeather(): Promise<void> {}
+  async configureWeather() {
+    return {
+      configured: true,
+      location_label: "Synthetic location",
+      latitude: 0,
+      longitude: 0,
+    };
+  }
+  async configureCalendar() { return snapshot.daily!.calendar; }
   async providerDiagnostics(smoke: boolean): Promise<ProviderDiagnostic> {
     return {
       ...snapshot.provider as ProviderDiagnostic,

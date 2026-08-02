@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <title>Restork · Starting Core</title>
+    <link rel="stylesheet" href="./loading.css" />
+  </head>
+  <body>
+    <main class="loader" aria-labelledby="loader-title">
+      <div class="brand" aria-hidden="true">
+        <span>R</span><span>E</span><span>S</span><span>T</span><span>O</span><span>R</span><span>K</span>
+      </div>
+      <p class="eyebrow">LOCAL-FIRST AGENT · MACOS</p>
+      <h1 id="loader-title">Starting Restork Core</h1>
+      <p id="loader-detail" class="detail" role="status">Preparing the private local workspace…</p>
+      <div class="typewriter" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div id="loader-actions" class="actions" hidden>
+        <button id="retry" type="button">Retry</button>
+        <button id="quit" type="button" class="quiet">Quit</button>
+      </div>
+      <p class="privacy">No model request is made during startup.</p>
+    </main>
+    <script src="./loading.js"></script>
+  </body>
+</html>

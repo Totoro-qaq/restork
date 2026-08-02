@@ -15,6 +15,8 @@ Manual checks may supplement, but never waive, a security/privacy gate.
 - [x] `MEM-RETENTION-001` — compaction, protected retention, correction, export, deletion, purge.
 - [x] `UI-CONTEXT-001` — zero-network empty state and gateway/local read-only configured state.
 - [x] `README-ASSET-001` — safe SVG, useful alt text, HD animated GIF, synthetic provenance.
+- [x] `DESKTOP-LIFECYCLE-001` — retained child/process group, three-miss heartbeat, bounded
+  TERM/KILL/reap, and kernel parent-lease EOF leave no Core after injected faults.
 
 ## Build evidence
 
@@ -27,6 +29,8 @@ Manual checks may supplement, but never waive, a security/privacy gate.
 - [x] Two builds with the same `SOURCE_DATE_EPOCH` produce identical wheel/source hashes.
 - [x] Source archive includes all public README assets; wheel includes the Dashboard.
 - [x] Release workflow emits `SHA256SUMS`, a manifest, and GitHub provenance attestations.
+- [x] Ten local bundled release launches reach an authenticated Dashboard session at 791 ms p95;
+  the protected release runner still owns the publishable cold-start measurement.
 
 ## Release checks
 

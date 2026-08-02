@@ -122,6 +122,33 @@ def initialize(connection: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS memory_records_retention
             ON memory_records (retention_class, expires_at, last_accessed_at);
 
+        CREATE TABLE IF NOT EXISTS conversation_turns (
+            turn_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            sequence INTEGER NOT NULL CHECK (sequence > 0),
+            mode TEXT NOT NULL,
+            user_message_id TEXT NOT NULL UNIQUE,
+            user_content TEXT NOT NULL,
+            assistant_message_id TEXT UNIQUE,
+            assistant_content TEXT,
+            data_class TEXT NOT NULL CHECK (data_class NOT IN ('secret', 'credential')),
+            prompt_id TEXT NOT NULL,
+            prompt_version TEXT NOT NULL,
+            prompt_hash TEXT NOT NULL,
+            dropped_messages INTEGER NOT NULL DEFAULT 0 CHECK (dropped_messages >= 0),
+            estimated_context_tokens INTEGER NOT NULL DEFAULT 0
+                CHECK (estimated_context_tokens >= 0),
+            total_tokens INTEGER CHECK (total_tokens >= 0),
+            created_at TEXT NOT NULL,
+            completed_at TEXT,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            binding TEXT NOT NULL,
+            UNIQUE (run_id, sequence)
+        );
+
+        CREATE INDEX IF NOT EXISTS conversation_turns_run_sequence
+            ON conversation_turns (run_id, sequence);
+
         CREATE TABLE IF NOT EXISTS radar_items (
             item_id TEXT PRIMARY KEY,
             lane TEXT NOT NULL,

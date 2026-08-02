@@ -20,5 +20,12 @@ in a report. Revoke a credential first if it may have been exposed.
 
 The Core is designed to keep private runtime data outside the public source
 tree. Security-sensitive areas include credential handling, Vault path access,
-outbound network controls, approval gates, logs, release artifacts, and CI.
+outbound network controls, SQL persistence, prompt/content injection, approval
+gates, logs, desktop lifecycle, release artifacts, and CI.
 The detailed boundary is in [docs/security/threat-model.md](docs/security/threat-model.md).
+
+Release-blocking controls include scoped loopback authentication, parameterized
+SQLite access plus a dynamic-SQL AST gate, versioned prompt hashes and injection
+canaries, code-owned tool permissions, Bandit, CodeQL `security-extended`, public
+artifact scanning, and effect-recovery tests. A prompt alone is never treated as
+an authorization boundary.

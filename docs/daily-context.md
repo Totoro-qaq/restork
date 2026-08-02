@@ -26,26 +26,31 @@ calendar_ics = "/path/to/private/calendar.ics"
 playlist = "/path/to/private/playlist.json"
 ```
 
-The same two weather fields can be managed from the paired Dashboard. Open the Weather card, enter a
-display name plus latitude and longitude manually, then choose **Save & enable**. Restork provides no
-browser-location button, never calls `navigator.geolocation`, and never infers coordinates from an IP
-address. Leaving weather unconfigured keeps it fully disabled; choosing **Disable** clears both the
-provider and stored location.
+The same two weather fields can be managed from the paired Dashboard without asking a user to know
+coordinates. Open the Weather settings, enter a city or place name, and choose **Save & enable**.
+That explicit submit sends the place name through `OutboundGateway` to Open-Meteo's geocoding
+endpoint, chooses one bounded match, and stores the resolved label and coordinates only in the
+private Profile. Alternatively, **Use current location** calls `navigator.geolocation` only after
+that click and after the browser/system permission prompt. Restork never infers location from an IP
+address or requests location on startup. Denying permission leaves city input usable. Leaving
+weather unconfigured keeps it fully disabled; choosing **Disable** clears the provider and stored
+location.
 
-Coordinates occur only in the ephemeral Core request to the configured provider. The Dashboard
-receives the display label and weather fields after saving, never the coordinates on later reads.
-The entry form sends coordinates only to the paired loopback Core and does not retain them in Web
-Storage. Requests use the governed
-outbound gateway, an exact `https://api.open-meteo.com` origin, an explicit query-key allowlist, a
-response-size limit, and a 30-minute redacted display cache. Weather attribution and parameters
-follow the [official Open-Meteo forecast documentation](https://open-meteo.com/en/docs).
+Coordinates occur in the private Profile and ephemeral Core request to the configured provider. The
+Dashboard receives the display label and weather fields after saving, never the coordinates on
+later reads. City text or approved coordinates travel only from the paired WebView to loopback Core
+and are not retained in Web Storage. Requests use the governed outbound gateway, exact Open-Meteo
+forecast/geocoding origins, explicit query-key allowlists, response-size limits, and a 30-minute
+redacted display cache. Weather attribution and parameters follow the
+[official Open-Meteo forecast documentation](https://open-meteo.com/en/docs).
 
 ## Local calendar
 
-Calendar input is one explicitly selected, regular, non-symlink `.ics` file. Restork reads it only;
-there is no OAuth, calendar account, or write endpoint. Relative paths stay inside the private
-profile directory. Absolute paths select exactly one file. Upcoming events are bounded, and
-`CLASS:PRIVATE` or `CLASS:CONFIDENTIAL` summaries appear as `Busy`.
+Calendar input is one explicitly selected `.ics` file of at most 2 MB. The Dashboard imports a
+managed private copy over the authenticated loopback API; Core parses it read-only and never writes
+back to the source calendar. There is no OAuth or calendar account. The browser supplies its IANA
+system time zone with each import/read so calendar dates match the Roman-numeral local clock.
+Upcoming events are bounded, and `CLASS:PRIVATE` or `CLASS:CONFIDENTIAL` summaries appear as `Busy`.
 
 ## Private playlist
 

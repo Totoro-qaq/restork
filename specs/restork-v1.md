@@ -1,12 +1,14 @@
 # Restork V1 Product & Technical Specification
 
-> Status: Implemented — V1 | Version: 1.1 | Date: 2026-08-02
+> Status: Implemented — V1 and Step 11 macOS internal alpha; Step 12 cross-platform is planned | Version: 1.4 | Date: 2026-08-02
 >
 > Scope: V1 local-first personal agent for Research, Study, and Work
 >
 > Review: independent adversarial architecture pass completed; blocking findings incorporated
 > Implementation blueprint: [plans/restork-v1-implementation.md](../plans/restork-v1-implementation.md)
 > Step 6 detail: [specs/restork-step6.md](restork-step6.md)
+> Step 11 detail: [specs/restork-step11-desktop.md](restork-step11-desktop.md)
+> Step 12 detail: [specs/restork-step12-cross-platform.md](restork-step12-cross-platform.md)
 
 ## 1. Executive summary
 
@@ -50,6 +52,7 @@ The primary interface is a local Web Dashboard served on loopback by the Python 
 | Write policy | Read-only by default; preview, approve, then apply |
 | Work execution | Read-only planning and local handoff in V1; managed execution is post-V1 behind an OS-sandbox gate |
 | Daily context | Local clock plus user-configured weather, read-only calendar, and generic daily music recommendation modules |
+| Desktop distribution | Post-V1 Tauri 2 Rust supervisor with the same PyInstaller `onedir` Python Core and Dashboard; no Go or Core rewrite |
 
 ## 3. Context and current-state constraints
 
@@ -124,7 +127,8 @@ V1 will not provide:
 - Local LLM inference as a required runtime.
 - A vector database as a baseline dependency.
 - A graph database, global ontology, OpenSPG, or production KAG pipeline.
-- A native Tauri/Electron desktop wrapper; the V1 local Web Dashboard can be wrapped later without rewriting its UI.
+- A native wrapper inside the base V1 scope; the same Dashboard is now reused by the additive Step 11
+  macOS shell rather than being rewritten.
 - A native mobile application; the local Dashboard still provides a responsive browser layout.
 - Email integration, calendar writes, or OAuth-based account synchronization.
 
@@ -275,8 +279,9 @@ Changing from Research or Study to Work always creates a new child run. A run's 
 3. A generic music recommender selects one item from a user-imported private playlist and explains the selection from user-provided metadata or an approved model artifact.
 4. Missing providers, location, calendar, playlist, or cover art produce explicit empty states rather than hidden outbound traffic.
 5. The Dashboard renders cover art inside a rotating CD treatment, with pause and reduced-motion behavior.
-6. Weather location is entered manually or left disabled; Restork does not request browser location or
-   infer it from an IP address.
+6. Weather stays disabled until the user submits a city/place name or explicitly clicks the current
+   location button. Browser location is never requested on launch, and IP-derived location is never
+   used.
 
 ## 9. Functional requirements
 
@@ -313,6 +318,17 @@ Changing from Research or Study to Work always creates a new child run. A run's 
 - **FR-MODEL-013**: Provider diagnostics expose only status, latency, safe request ID, and token usage.
   They do not expose credentials, authorization headers, model response text, Vault, memory, task,
   Profile, location, calendar, playlist, or daily-context content.
+- **FR-MODEL-014**: Every production prompt is selected from an immutable registry by stable ID and
+  semantic version. A content change creates a new version; previous versions remain available for
+  replay and evaluation.
+- **FR-MODEL-015**: Model events record only prompt ID, version, and SHA-256 content hash. Rendered
+  prompt text, user content, retrieved content, and model answers are excluded from events and logs.
+- **FR-MODEL-016**: Retrieved pages, notes, repository files, task metadata, tool output, and user
+  messages are untrusted data. They cannot change mode, data classification, tool exposure, outbound
+  policy, approval policy, or system prompt selection.
+- **FR-MODEL-017**: Prompt-injection resistance is enforced by code-owned tool schemas and policy,
+  not by prompt wording alone. Conversation requests expose zero tools; structured workflow outputs
+  remain schema-validated and all model output is treated as untrusted.
 
 ### 9.3 Vault and knowledge
 
@@ -396,29 +412,42 @@ Rules:
 - **FR-UI-003**: Run detail shows state, events, sources, tool use, cost, artifacts, and verification.
 - **FR-UI-004**: V1 ships no Obsidian plugin. Any post-V1 bridge must remain limited to current note/selection, quick mode actions, approval notification, and note/heading/block navigation; it must not hold model credentials, own run state, duplicate Dashboard features, or execute general shell commands.
 - **FR-UI-005**: CLI and Dashboard use the same local API and contracts.
-- **FR-UI-006**: Streaming delivery must not mutate the structured final artifact.
-- **FR-UI-007**: The Core wheel includes the production Dashboard static assets; end users do not need Node.js at runtime.
-- **FR-UI-008**: Dashboard includes an accessible Roman-numeral analog clock in the approved old-print/typewriter visual language and honors `prefers-reduced-motion`.
-- **FR-UI-009**: Weather is optional, location/provider configuration is private, responses are TTL-cached, and every fetch originates in Core through `OutboundGateway`.
-- **FR-UI-010**: Calendar V1 reads local ICS data only. It performs no calendar write, account login, or browser-side file access.
-- **FR-UI-011**: Daily music is genre-neutral public functionality driven by a user-imported private playlist/profile. Genre and locale preferences remain private configuration, not repository defaults.
-- **FR-UI-012**: Album art is optional and never bundled from a copyrighted catalog. The rotating-CD presentation supports pause, a static fallback, lazy loading, and safe missing-image behavior.
-- **FR-UI-013**: The repository offers separate, selectable English and Simplified Chinese READMEs with localized GitHub-safe project-native SVGs plus an HD product demonstration GIF generated only from synthetic public data.
-- **FR-UI-014**: Dashboard detects the browser locale, defaults non-Chinese locales to English, and exposes an explicit English/Chinese switch. Only the literal non-sensitive locale preference may be persisted in Web Storage; no canonical or private state may be persisted there.
-- **FR-UI-015**: Dashboard follows run events through header-authenticated `fetch` SSE with incremental
+- **FR-UI-006**: Each run has an optional durable multi-turn conversation. It inherits the run's
+  immutable mode and data policy, uses a bounded sliding context window, and cannot invoke tools or
+  bypass a separate effect approval.
+- **FR-UI-007**: Runs, approvals, Markdown tasks, Radar, memory, event history, and conversation
+  history are fetched in bounded pages with opaque or monotonic cursors; the initial Dashboard never
+  loads an unbounded accumulated list.
+- **FR-UI-008**: Conversation history has its own keyboard-accessible scroll region and a fixed
+  composer. Loading earlier messages preserves reading position; new messages auto-follow only when
+  the user is already near the bottom or explicitly sends a message.
+- **FR-UI-009**: A model wait uses the existing old-print motion language and textual status. Run
+  progress remains authenticated SSE; the chat response uses a bounded authenticated request and no
+  polling or WebSocket.
+- **FR-UI-010**: Streaming delivery must not mutate the structured final artifact.
+- **FR-UI-011**: The Core wheel includes the production Dashboard static assets; end users do not need Node.js at runtime.
+- **FR-UI-012**: Dashboard includes an accessible Roman-numeral analog clock in the approved old-print/typewriter visual language and honors `prefers-reduced-motion`.
+- **FR-UI-013**: Weather is optional, location/provider configuration is private, responses are TTL-cached, and every fetch originates in Core through `OutboundGateway`.
+- **FR-UI-014**: Calendar reads one explicitly selected local ICS snapshot through the authenticated
+  loopback API. It performs no calendar write or account login and follows the device IANA time zone.
+- **FR-UI-015**: Daily music is genre-neutral public functionality driven by a user-imported private playlist/profile. Genre and locale preferences remain private configuration, not repository defaults.
+- **FR-UI-016**: Album art is optional and never bundled from a copyrighted catalog. The rotating-CD presentation supports pause, a static fallback, lazy loading, and safe missing-image behavior.
+- **FR-UI-017**: The repository offers separate, selectable English and Simplified Chinese READMEs with localized GitHub-safe project-native SVGs plus an HD product demonstration GIF generated only from synthetic public data.
+- **FR-UI-018**: Dashboard detects the browser locale, defaults non-Chinese locales to English, and exposes an explicit English/Chinese switch. Only the literal non-sensitive locale preference may be persisted in Web Storage; no canonical or private state may be persisted there.
+- **FR-UI-019**: Dashboard follows run events through header-authenticated `fetch` SSE with incremental
   UTF-8 decoding, comment heartbeats, `Last-Event-ID` reconnect, event-ID de-duplication, and terminal
   closure. Tokens never enter the SSE URL; polling and WebSocket are not required.
-- **FR-UI-016**: Long-running actions show accessible bounded-context/source/synthesis/validation phases
+- **FR-UI-020**: Long-running actions show accessible bounded-context/source/synthesis/validation phases
   in the approved visual language without fabricated percentages or streamed private reasoning.
-- **FR-UI-017**: Weather is off by default and accepts only explicit manual label/latitude/longitude
-  configuration. Dashboard does not call geolocation or IP-location services; disabling weather clears
-  provider and location.
-- **FR-UI-018**: The wide Overview uses a balanced two-by-two content matrix and collapses without
+- **FR-UI-021**: Weather is off by default. It accepts an explicitly submitted city/place name or
+  coordinates obtained only after the dedicated current-location click and browser/system consent.
+  It never uses IP-derived location; disabling weather clears provider and saved location.
+- **FR-UI-022**: The wide Overview uses a balanced two-by-two content matrix and collapses without
   horizontal overflow on narrow screens.
-- **FR-UI-019**: The bilingual Overview exposes a discoverable Model access card with the exact secure
+- **FR-UI-023**: The bilingual Overview exposes a discoverable Model access card with the exact secure
   terminal setup command, redacted local provider status, explicit connection/smoke actions, complete
   waiting/success/failure states, and no API-key or password field.
-- **FR-UI-020**: Short provider diagnostics use one bounded authenticated POST. SSE remains reserved
+- **FR-UI-024**: Short provider diagnostics use one bounded authenticated POST. SSE remains reserved
   for long-running Core events; diagnostics require neither polling nor WebSocket.
 
 ## 10. Knowledge indexing and graph readiness
@@ -621,7 +650,10 @@ restork serve
 
 `restork serve` runs Core in the foreground on loopback and serves the local Dashboard. The wheel contains the prebuilt Dashboard static files, so Node.js is a build-time dependency only. Configuration, data, Keychain references, indexes, and artifacts remain outside the wheel and Git checkout.
 
-V1 does not install an always-running daemon by default and does not ship a Tauri/Electron wrapper. After the foreground lifecycle is stable, an optional `restork service install` may register a platform service; a native desktop wrapper can later reuse the same Dashboard without changing Core contracts.
+The base V1 wheel does not install an always-running daemon or require a desktop wrapper. The
+additive Step 11 distribution now packages the same wheel-owned Core and Dashboard in a Tauri 2
+macOS shell; it does not change the foreground browser/CLI contract. Step 12 adds Windows and Linux
+only after their native secret-store, lifecycle, installer, and updater gates pass.
 
 ## 13. Data ownership
 
@@ -768,6 +800,9 @@ The exact wire schema is versioned under `/v1`.
 | `POST` | `/v1/runs` | Create a run from a TaskSpec |
 | `GET` | `/v1/runs/{run_id}` | Read current state and summary |
 | `GET` | `/v1/runs/{run_id}/events` | Stream ordered, cursor-resumable SSE events |
+| `GET` | `/v1/runs/{run_id}/event-page` | Read a bounded page of earlier event history |
+| `GET` | `/v1/runs/{run_id}/conversation` | Read a bounded page of local visible turns |
+| `POST` | `/v1/runs/{run_id}/conversation` | Add one idempotent tool-free run conversation turn |
 | `POST` | `/v1/runs/{run_id}/cancel` | Cancel a run |
 | `POST` | `/v1/approvals/{approval_id}` | Approve or reject the immutable action digest |
 | `POST` | `/v1/approvals/{approval_id}/revision` | Reject the old digest and request a newly previewed action |
@@ -776,6 +811,7 @@ The exact wire schema is versioned under `/v1`.
 | `GET` | `/v1/radar` | Read ranked feed items |
 | `POST` | `/v1/radar/{item_id}/action` | Dismiss, save, research, or create task |
 | `GET` | `/v1/capabilities` | Report configured modes, providers, and tools |
+| `GET` | `/v1/readiness` | Metadata-only process readiness for the desktop supervisor |
 | `GET` | `/v1/health` | Local health and readiness |
 | `GET` | `/v1/memory` | Inspect memory layers, retention, and provenance metadata |
 | `POST` | `/v1/memory/context` | Build a bounded policy-reviewed context selection |
@@ -792,6 +828,9 @@ SSE event types include:
 - `run.state_changed`
 - `model.started`
 - `model.completed`
+- `prompt.selected`
+- `conversation.user_added`
+- `conversation.assistant_added`
 - `tool.requested`
 - `tool.started`
 - `tool.completed`
@@ -881,8 +920,26 @@ Classification originates from configured roots, paths, source adapters, and sch
 - Resolve real paths and apply workspace allowlists.
 - Reject traversal and symlink escapes.
 - Do not expose a general unauthenticated local REST API.
+- Every SQLite value is bound through DB-API parameters. Table/column identifiers are selected only
+  from code allowlists; user input cannot provide SQL syntax. CI parses every SQLite execution call
+  and rejects dynamic, formatted, concatenated, or unresolved SQL expressions.
+- Conversation writes require scoped auth, JSON content type, strict bounded validation, and an
+  idempotency key. Visible chat text is local SQLite data and is never copied into audit-event bodies.
 
-### 16.5 Logging and tracing
+### 16.5 Prompt and content-injection boundary
+
+- System prompts are code-reviewed, versioned registry entries with stable hashes and change notes.
+- Untrusted content is passed only in user/tool data positions and cannot register a tool, alter a
+  schema, select another mode, or broaden the outbound data class.
+- Tool access is computed from `TaskSpec`, mode profile, run phase, and registry code before a model
+  call. A model-emitted undeclared tool call is rejected.
+- Prompt-injection canaries include requests to reveal instructions, call a shell, change modes,
+  suppress approvals, and exfiltrate credentials. Tests assert the malicious text remains user data,
+  the system prompt hash stays fixed, and the effective tool set does not change.
+- Provider answers remain untrusted claims. Effects require deterministic policy, approval, and
+  post-effect verification even when a model says an action succeeded.
+
+### 16.6 Logging and tracing
 
 Default records include only:
 
@@ -896,7 +953,7 @@ Default records include only:
 
 Prompt text, response text, source excerpts, command output, email, absolute paths, and document bodies are excluded by default. Debug content capture is explicit, time-limited, encrypted locally, TTL-deleted, never remote, visibly marked, and still prohibited for `secret` content.
 
-### 16.6 Repository leak prevention
+### 16.7 Repository leak prevention
 
 - Never copy an existing `.obsidian/plugins/...` directory wholesale.
 - Never commit plugin `data.json`, vault data, database files, traces, or caches.
@@ -997,8 +1054,10 @@ A multi-turn run compacts its working window without losing referenced source id
 
 With synthetic local configuration, Dashboard renders a Roman-numeral clock, weather, read-only calendar events, and a deterministic daily music recommendation with a reduced-motion CD. With no configuration it renders safe setup states and performs zero outbound requests.
 
-Weather can be enabled only from manually supplied coordinates and can be disabled with both provider
-and saved location cleared. The Dashboard never invokes browser/IP geolocation.
+Weather can be enabled from a manually entered city or coordinates. Browser geolocation is optional,
+never runs on launch, and is requested only after the user presses the location button; declining it
+leaves manual city entry usable. Disabling weather clears the configured provider and saved location.
+IP-derived location is never used.
 
 ### AC-12. One-command first run and live status
 
@@ -1023,13 +1082,17 @@ The following are mandatory CI gates; they cannot be replaced by a documented ma
 | `SEC-NET-001` | No direct network client outside `OutboundGateway`; localhost/private/link-local targets, unsafe redirects, DNS rebinding, and URL-payload exfiltration are denied |
 | `SEC-APPROVAL-001` | Expired, replayed, concurrent, policy-stale, resource-stale, and symlink-swapped approvals cannot execute |
 | `SEC-AUTH-001` | Every endpoint and SSE stream rejects missing/wrong-audience tokens, hostile Origins, query tokens, and invalid content types |
+| `SEC-SQL-001` | SQLite values remain parameter-bound and CI rejects dynamic SQL construction at every execution entry point |
+| `SEC-PROMPT-001` | Prompt IDs/versions/hashes are immutable; injection canaries cannot change the selected system prompt, tool set, mode, data class, or approval requirements |
+| `CONV-BOUNDARY-001` | Run conversation is authenticated, idempotent, tool-free, bounded by the sliding window, locally paginated, and absent from event/log payloads |
+| `CODEQL-001` | CodeQL security-extended analysis passes for Python, JavaScript/TypeScript, and GitHub Actions |
 | `PRIV-LABEL-001` | Labeled secret variants are absent from captured raw outbound bytes and every persisted/exported artifact |
 | `REC-EFFECT-001` | Crash before/after each effect boundary yields a reconciled state or `user_action_required`, never an automatic unsafe retry |
 | `REL-WRITE-001` | Fault injection at journal, stage, flush, rename, validation, and recovery boundaries preserves either the preimage or the approved new single-file state |
 | `REL-EVENT-001` | Authenticated follow SSE, snapshot/cursor reconnect, UTF-8 chunking, and heartbeats lose and duplicate no logical event |
 | `OSS-CLEAN-001` | Clean checkout, packages, screenshots, diagnostics, docs, and full Git history contain only synthetic/public data |
 | `MEM-RETENTION-001` | Sliding-window compaction, retention, correction, export, deletion, and source purge preserve provenance and never evict protected truth or audit records |
-| `UI-CONTEXT-001` | Missing daily-context configuration causes no outbound traffic; weather is manual-only/no-geolocation and uses the gateway; calendar/playlist remain local and read-only |
+| `UI-CONTEXT-001` | Missing daily-context configuration causes no outbound traffic; weather uses an explicit city submit or consented location click through the gateway, never IP inference; calendar/playlist remain local and read-only |
 | `README-ASSET-001` | README SVG/GIF assets are GitHub-safe, legible, HD where rasterized, and contain only synthetic/public content |
 
 Manual release checks are limited to UI usability, platform integration, and visual inspection; they may supplement but not waive these gates.

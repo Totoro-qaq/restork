@@ -1,0 +1,21 @@
+{
+  "name": "@restork/desktop",
+  "version": "0.1.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "check": "cargo check --manifest-path src-tauri/Cargo.toml --locked",
+    "clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --release --locked -- -D warnings",
+    "fmt:check": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml --locked",
+    "build:app": "tauri build --bundles app",
+    "build:dmg": "tauri build --bundles app,dmg"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  }
+}
