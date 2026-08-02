@@ -139,7 +139,8 @@ jobs:
       - run: node scripts/smoke-desktop-runtime.mjs
       - run: npm --prefix desktop run clippy
       - run: npm --prefix desktop test
-      - run: npm --prefix desktop exec tauri build -- --config ${{ matrix.config }}
+      - run: npm exec tauri build -- --config ${{ matrix.config }}
+        working-directory: desktop
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: restork-desktop-${{ matrix.platform }}-unsigned-candidate
