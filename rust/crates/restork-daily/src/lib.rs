@@ -223,6 +223,9 @@ pub fn native_calendar_capability() -> NativeCalendarCapability {
 /// This must only be called after an explicit user action because it may show an
 /// operating-system permission dialog.
 pub fn connect_native_calendar(include_titles: bool) -> Result<CalendarSnapshot, DailyError> {
+    #[cfg(not(target_os = "macos"))]
+    let _ = include_titles;
+
     #[cfg(target_os = "macos")]
     {
         use eventkit::{
@@ -302,6 +305,7 @@ pub fn connect_native_calendar(include_titles: bool) -> Result<CalendarSnapshot,
     })
 }
 
+#[cfg(target_os = "macos")]
 fn native_calendar_denied(message: &str) -> CalendarSnapshot {
     CalendarSnapshot {
         configured: false,
@@ -311,6 +315,7 @@ fn native_calendar_denied(message: &str) -> CalendarSnapshot {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn digest_parts(parts: &[&str]) -> String {
     let mut digest = Sha256::new();
     for part in parts {
