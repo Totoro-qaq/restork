@@ -241,6 +241,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam-queue"
+version = "0.3.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "803d13fb3b09d88be9f4dbc29062c66b19bf7170867ceb746d2a8689bf6c7a26"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-utils"
+version = "0.8.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61803da095bee82a81bb1a452ecc25d3b2f1416d1897eb86430c6159ef717c17"
+
+[[package]]
 name = "crypto-common"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -281,6 +296,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "doom-fish-utils"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c801f6c2a0db1a1909d89fc395b9dccc594de9ef599659fbde9bb3b55ef67f9f"
+dependencies = [
+ "crossbeam-queue",
+ "futures-util",
+]
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -294,6 +319,17 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "eventkit"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "123ba8b94228a95e7941b09119d57c4966cf052e6f5730b9e3cff74e5c03a860"
+dependencies = [
+ "doom-fish-utils",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1097,7 +1133,9 @@ dependencies = [
  "restork-extension",
  "restork-personal",
  "restork-provider",
+ "restork-render",
  "restork-storage",
+ "restork-worker",
  "rust-embed",
  "serde",
  "serde_json",
@@ -1106,6 +1144,7 @@ dependencies = [
  "tokio",
  "tower",
  "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1132,6 +1171,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "eventkit",
  "futures-util",
  "reqwest",
  "serde",
@@ -1187,6 +1227,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "restork-render"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "restork-storage"
 version = "0.1.0"
 dependencies = [
@@ -1204,6 +1253,7 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
+ "restork-extension",
  "serde",
  "serde_json",
  "sha2",

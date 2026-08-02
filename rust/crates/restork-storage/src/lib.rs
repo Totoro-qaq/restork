@@ -16,15 +16,22 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 mod automation;
 mod catalog;
 mod daily;
+mod mcp;
+mod operation;
 mod workspace;
 
-pub use automation::{CheckpointRecord, EvaluationRecord, SubtaskRecord};
+pub use automation::{CheckpointFileBlob, CheckpointRecord, EvaluationRecord, SubtaskRecord};
 pub use catalog::{
-    CatalogCursor, DeliverablePage, DeliverableRecord, ExtensionPage, ExtensionRecord,
-    SchedulePage, ScheduleRecord, ScheduleRunRecord,
+    CatalogCursor, DeliverableExportRecord, DeliverablePage, DeliverableRecord, ExtensionPage,
+    ExtensionRecord, ExtensionRevisionRecord, SchedulePage, ScheduleRecord, ScheduleRunRecord,
 };
 pub use daily::{
     CalendarIntervalRecord, DailyCacheRecord, DailySourceRecord, MusicPreferenceRecord,
+};
+pub use mcp::{McpExecutionCreateResult, McpExecutionRecord, NewMcpExecution};
+pub use operation::{
+    ContextPreviewRecord, ConversationOperationRecord, NewContextPreview, NewConversationOperation,
+    OperationCreateResult, OperationEventRecord,
 };
 pub use workspace::{
     ConfigurationProfileRecord, MessagePage, NewSession, NewSessionMessage, PersonalSettingsRecord,
@@ -32,7 +39,7 @@ pub use workspace::{
     SessionSearchHit, StoredSessionMessage,
 };
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 10;
 
 const MIGRATION_LEDGER: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -297,6 +304,9 @@ const WORKSPACE: &str = include_str!("../migrations/0004_workspace.sql");
 const EXTENSIONS: &str = include_str!("../migrations/0005_extensions.sql");
 const DELIVERABLES: &str = include_str!("../migrations/0006_deliverables.sql");
 const AUTOMATION: &str = include_str!("../migrations/0007_automation.sql");
+const INTERACTIVE_CORE: &str = include_str!("../migrations/0008_interactive_core.sql");
+const EXTENSION_RUNTIME: &str = include_str!("../migrations/0009_extension_runtime.sql");
+const ARTIFACT_RECOVERY: &str = include_str!("../migrations/0010_artifact_recovery.sql");
 
 #[derive(Clone, Copy)]
 struct Migration {
@@ -305,7 +315,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 7] = [
+const MIGRATIONS: [Migration; 10] = [
     Migration {
         version: 1,
         name: "v1_schema_adoption",
@@ -340,6 +350,21 @@ const MIGRATIONS: [Migration; 7] = [
         version: 7,
         name: "automation_recovery",
         sql: AUTOMATION,
+    },
+    Migration {
+        version: 8,
+        name: "interactive_core",
+        sql: INTERACTIVE_CORE,
+    },
+    Migration {
+        version: 9,
+        name: "extension_runtime",
+        sql: EXTENSION_RUNTIME,
+    },
+    Migration {
+        version: 10,
+        name: "artifact_recovery",
+        sql: ARTIFACT_RECOVERY,
     },
 ];
 
@@ -477,11 +502,16 @@ impl Database {
         };
         migrate(&mut connection, previous)?;
         validate_migration_history(&connection)?;
-        Ok(Self {
+        let database = Self {
             path,
             connection: Mutex::new(connection),
             migration_backup,
-        })
+        };
+        let restarted_at = OffsetDateTime::now_utc().format(&Rfc3339).map_err(|_| {
+            StorageError::Invalid("system time is unavailable during operation recovery")
+        })?;
+        database.fail_abandoned_operations(&restarted_at)?;
+        Ok(database)
     }
 
     #[must_use]
@@ -843,13 +873,39 @@ fn validate_migration_history(connection: &Connection) -> Result<(), StorageErro
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        if recorded.as_ref() != Some(&(migration.name.to_owned(), checksum)) {
+        let matches = recorded.as_ref().is_some_and(|(name, recorded_checksum)| {
+            name == migration.name
+                && (recorded_checksum == &checksum
+                    || legacy_equivalent_checksum(migration.version, recorded_checksum))
+        });
+        if !matches {
             return Err(StorageError::Conflict(
                 "database migration history does not match this Core",
             ));
         }
     }
     Ok(())
+}
+
+fn legacy_equivalent_checksum(version: i64, checksum: &str) -> bool {
+    // These checksums shipped in pre-release desktop builds. Their SQL differs
+    // from the frozen migration only by one trailing blank line; both variants
+    // produce byte-for-byte identical sqlite_schema rows. Keep the allowlist
+    // exact so arbitrary ledger edits and genuinely drifted migrations still
+    // fail closed.
+    matches!(
+        (version, checksum),
+        (
+            3,
+            "97581e498ba21a4e921ba3829d06be87f9cc22a711e564072b133343be554f0a"
+        ) | (
+            5,
+            "5b123f947c66bf0e9fa381c61de1fdd32394758953659cd6477c4e60b1af8256"
+        ) | (
+            7,
+            "c708cd1c349f281ecbe342bc8b4b5d3eebb5104e3bbd15fc1c54bec0bf85d3fb"
+        )
+    )
 }
 
 fn table_columns(

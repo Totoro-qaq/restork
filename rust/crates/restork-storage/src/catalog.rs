@@ -32,6 +32,17 @@ pub struct ExtensionPage {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ExtensionRevisionRecord {
+    pub package_id: String,
+    pub package_kind: String,
+    pub manifest: Value,
+    pub manifest_hash: String,
+    pub state: String,
+    pub installed_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DeliverableRecord {
     pub deliverable_id: String,
     pub kind: String,
@@ -47,6 +58,20 @@ pub struct DeliverableRecord {
 pub struct DeliverablePage {
     pub items: Vec<DeliverableRecord>,
     pub next: Option<CatalogCursor>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct DeliverableExportRecord {
+    pub export_id: String,
+    pub deliverable_id: String,
+    pub revision: i64,
+    pub format: String,
+    pub manifest: Value,
+    pub output_hash: String,
+    pub approved_at: String,
+    pub created_at: String,
+    pub idempotency_key: String,
+    pub replayed: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -91,13 +116,73 @@ impl Database {
         validate_timestamp(occurred_at)?;
         let document = serde_json::to_string(manifest)?;
         let manifest_hash = json_hash(&document);
-        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
-        connection.execute(
+        let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current: Option<(String, String, String)> = transaction
+            .query_row(
+                "SELECT package_kind, manifest_hash, installed_at FROM extension_packages \
+                 WHERE package_id = ?1",
+                [package_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        if let Some((current_kind, current_hash, _)) = &current {
+            if current_kind != package_kind {
+                return Err(StorageError::Conflict(
+                    "extension package kind cannot change across revisions",
+                ));
+            }
+            if current_hash == &manifest_hash {
+                drop(transaction);
+                drop(connection);
+                return self
+                    .extension(package_id)?
+                    .ok_or(StorageError::Invalid("extension does not exist"));
+            }
+            transaction.execute(
+                "UPDATE extension_package_revisions SET state = 'superseded', updated_at = ?2 \
+                 WHERE package_id = ?1 AND state = 'enabled'",
+                params![package_id, occurred_at],
+            )?;
+        }
+        transaction.execute(
+            "INSERT INTO extension_package_revisions \
+             (package_id, manifest_hash, package_kind, manifest_json, state, installed_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, 'quarantined', ?5, ?5) \
+             ON CONFLICT(package_id, manifest_hash) DO UPDATE SET \
+             state = 'quarantined', updated_at = excluded.updated_at",
+            params![package_id, manifest_hash, package_kind, document, occurred_at],
+        )?;
+        let installed_at = current
+            .as_ref()
+            .map_or(occurred_at, |(_, _, installed_at)| installed_at.as_str());
+        transaction.execute(
             "INSERT INTO extension_packages \
              (package_id, package_kind, manifest_json, manifest_hash, state, installed_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, 'quarantined', ?5, ?5)",
-            params![package_id, package_kind, document, manifest_hash, occurred_at],
+             VALUES (?1, ?2, ?3, ?4, 'quarantined', ?5, ?6) \
+             ON CONFLICT(package_id) DO UPDATE SET manifest_json = excluded.manifest_json, \
+             manifest_hash = excluded.manifest_hash, state = 'quarantined', \
+             updated_at = excluded.updated_at",
+            params![
+                package_id,
+                package_kind,
+                document,
+                manifest_hash,
+                installed_at,
+                occurred_at
+            ],
         )?;
+        let event_kind = if current.is_some() {
+            "update_staged"
+        } else {
+            "installed"
+        };
+        transaction.execute(
+            "INSERT INTO extension_audit_events (package_id, event_kind, detail_json, occurred_at) \
+             VALUES (?1, ?2, json_object('manifest_hash', ?3), ?4)",
+            params![package_id, event_kind, manifest_hash, occurred_at],
+        )?;
+        transaction.commit()?;
         Ok(ExtensionRecord {
             package_id: package_id.to_owned(),
             package_kind: package_kind.to_owned(),
@@ -122,8 +207,9 @@ impl Database {
             return Err(StorageError::Invalid("extension state is invalid"));
         }
         validate_timestamp(updated_at)?;
-        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
-        let changed = connection.execute(
+        let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = transaction.execute(
             "UPDATE extension_packages SET state = ?3, updated_at = ?4 \
              WHERE package_id = ?1 AND manifest_hash = ?2",
             params![package_id, expected_hash, state, updated_at],
@@ -133,6 +219,102 @@ impl Database {
                 "extension changed since it was reviewed",
             ));
         }
+        transaction.execute(
+            "UPDATE extension_package_revisions SET state = ?3, updated_at = ?4 \
+             WHERE package_id = ?1 AND manifest_hash = ?2",
+            params![package_id, expected_hash, state, updated_at],
+        )?;
+        transaction.execute(
+            "INSERT INTO extension_audit_events (package_id, event_kind, detail_json, occurred_at) \
+             VALUES (?1, ?2, json_object('manifest_hash', ?3), ?4)",
+            params![package_id, state, expected_hash, updated_at],
+        )?;
+        transaction.commit()?;
+        drop(connection);
+        self.extension(package_id)?
+            .ok_or(StorageError::Invalid("extension does not exist"))
+    }
+
+    pub fn extension_revisions(
+        &self,
+        package_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ExtensionRevisionRecord>, StorageError> {
+        validate_identifier(package_id)?;
+        if !(1..=100).contains(&limit) {
+            return Err(StorageError::Invalid(
+                "extension revision bounds are invalid",
+            ));
+        }
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT package_id, package_kind, manifest_json, manifest_hash, state, installed_at, \
+             updated_at FROM extension_package_revisions WHERE package_id = ?1 \
+             ORDER BY installed_at DESC, manifest_hash DESC LIMIT ?2",
+        )?;
+        let rows = statement.query_map(
+            params![package_id, i64::try_from(limit).expect("bounded limit")],
+            extension_revision_from_row,
+        )?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn rollback_extension(
+        &self,
+        package_id: &str,
+        expected_hash: &str,
+        target_hash: &str,
+        occurred_at: &str,
+    ) -> Result<ExtensionRecord, StorageError> {
+        validate_identifier(package_id)?;
+        validate_digest(expected_hash)?;
+        validate_digest(target_hash)?;
+        validate_timestamp(occurred_at)?;
+        if expected_hash == target_hash {
+            return Err(StorageError::Invalid("rollback target is already current"));
+        }
+        let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let target: Option<(String, String)> = transaction
+            .query_row(
+                "SELECT package_kind, manifest_json FROM extension_package_revisions \
+                 WHERE package_id = ?1 AND manifest_hash = ?2",
+                params![package_id, target_hash],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((package_kind, manifest_json)) = target else {
+            return Err(StorageError::Invalid("rollback revision does not exist"));
+        };
+        let changed = transaction.execute(
+            "UPDATE extension_packages SET package_kind = ?3, manifest_json = ?4, \
+             manifest_hash = ?2, state = 'quarantined', updated_at = ?5 \
+             WHERE package_id = ?1 AND manifest_hash = ?6",
+            params![
+                package_id,
+                target_hash,
+                package_kind,
+                manifest_json,
+                occurred_at,
+                expected_hash
+            ],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::Conflict(
+                "extension changed since rollback was reviewed",
+            ));
+        }
+        transaction.execute(
+            "UPDATE extension_package_revisions SET state = 'quarantined', updated_at = ?3 \
+             WHERE package_id = ?1 AND manifest_hash = ?2",
+            params![package_id, target_hash, occurred_at],
+        )?;
+        transaction.execute(
+            "INSERT INTO extension_audit_events (package_id, event_kind, detail_json, occurred_at) \
+             VALUES (?1, 'rollback_staged', json_object('from_hash', ?2, 'to_hash', ?3), ?4)",
+            params![package_id, expected_hash, target_hash, occurred_at],
+        )?;
+        transaction.commit()?;
         drop(connection);
         self.extension(package_id)?
             .ok_or(StorageError::Invalid("extension does not exist"))
@@ -294,6 +476,88 @@ impl Database {
             )
             .optional()
             .map_err(StorageError::from)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_deliverable_export(
+        &self,
+        export_id: &str,
+        deliverable_id: &str,
+        revision: i64,
+        format: &str,
+        manifest: &Value,
+        output_hash: &str,
+        idempotency_key: &str,
+        occurred_at: &str,
+    ) -> Result<DeliverableExportRecord, StorageError> {
+        validate_identifier(export_id)?;
+        validate_identifier(deliverable_id)?;
+        if revision < 1 || !matches!(format, "pptx" | "pdf") {
+            return Err(StorageError::Invalid(
+                "deliverable export identity is invalid",
+            ));
+        }
+        validate_object(
+            manifest,
+            "deliverable export manifest must be a JSON object",
+        )?;
+        validate_digest(output_hash)?;
+        validate_text(idempotency_key, 256)?;
+        validate_timestamp(occurred_at)?;
+        let document = serde_json::to_string(manifest)?;
+        let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let existing = transaction
+            .query_row(
+                "SELECT export_id, deliverable_id, revision, format, manifest_json, output_hash, \
+                 approved_at, created_at, idempotency_key FROM deliverable_exports \
+                 WHERE idempotency_key = ?1",
+                [idempotency_key],
+                deliverable_export_from_row,
+            )
+            .optional()?;
+        if let Some(mut existing) = existing {
+            if existing.deliverable_id != deliverable_id
+                || existing.revision != revision
+                || existing.format != format
+                || existing.output_hash != output_hash
+                || existing.manifest != *manifest
+            {
+                return Err(StorageError::Conflict(
+                    "idempotency key is bound to another deliverable export",
+                ));
+            }
+            existing.replayed = true;
+            return Ok(existing);
+        }
+        transaction.execute(
+            "INSERT INTO deliverable_exports \
+             (export_id, deliverable_id, revision, format, manifest_json, output_hash, approved_at, \
+              created_at, idempotency_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)",
+            params![
+                export_id,
+                deliverable_id,
+                revision,
+                format,
+                document,
+                output_hash,
+                occurred_at,
+                idempotency_key
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(DeliverableExportRecord {
+            export_id: export_id.to_owned(),
+            deliverable_id: deliverable_id.to_owned(),
+            revision,
+            format: format.to_owned(),
+            manifest: manifest.clone(),
+            output_hash: output_hash.to_owned(),
+            approved_at: occurred_at.to_owned(),
+            created_at: occurred_at.to_owned(),
+            idempotency_key: idempotency_key.to_owned(),
+            replayed: false,
+        })
     }
 
     pub fn put_schedule(
@@ -608,6 +872,29 @@ fn extension_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExtensionReco
     })
 }
 
+fn extension_revision_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<ExtensionRevisionRecord> {
+    let document: String = row.get(2)?;
+    Ok(ExtensionRevisionRecord {
+        package_id: row.get(0)?,
+        package_kind: row.get(1)?,
+        manifest: json_from_sql(&document)?,
+        manifest_hash: row.get(3)?,
+        state: row.get(4)?,
+        installed_at: row.get(5)?,
+        updated_at: row.get(6)?,
+    })
+}
+
+fn validate_digest(value: &str) -> Result<(), StorageError> {
+    if value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Ok(())
+    } else {
+        Err(StorageError::Invalid("digest is invalid"))
+    }
+}
+
 fn deliverable_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DeliverableRecord> {
     let document: String = row.get(3)?;
     Ok(DeliverableRecord {
@@ -619,6 +906,24 @@ fn deliverable_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Deliverable
         state: row.get(5)?,
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
+    })
+}
+
+fn deliverable_export_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<DeliverableExportRecord> {
+    let manifest: String = row.get(4)?;
+    Ok(DeliverableExportRecord {
+        export_id: row.get(0)?,
+        deliverable_id: row.get(1)?,
+        revision: row.get(2)?,
+        format: row.get(3)?,
+        manifest: json_from_sql(&manifest)?,
+        output_hash: row.get(5)?,
+        approved_at: row.get(6)?,
+        created_at: row.get(7)?,
+        idempotency_key: row.get(8)?,
+        replayed: false,
     })
 }
 

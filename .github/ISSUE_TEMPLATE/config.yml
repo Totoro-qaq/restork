@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/Totoro-qaq/restork/discussions
+    about: Ask for help, share a workflow, or explore an idea before filing an issue.
+  - name: Security report
+    url: https://github.com/Totoro-qaq/restork/security/advisories/new
+    about: Privately report a vulnerability or possible secret exposure.

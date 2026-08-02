@@ -283,7 +283,7 @@ pub struct SandboxPolicy {
 }
 
 impl SandboxPolicy {
-    fn validate(&self, permissions: &PermissionSet) -> Result<(), ExtensionError> {
+    pub(crate) fn validate(&self, permissions: &PermissionSet) -> Result<(), ExtensionError> {
         if self.max_runtime_ms == 0
             || self.max_runtime_ms > 3_600_000
             || self.max_output_bytes == 0

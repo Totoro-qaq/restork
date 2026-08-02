@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 libc.workspace = true
+restork-extension = { path = "../restork-extension" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2.workspace = true

@@ -384,7 +384,15 @@ export interface MemoryRecord {
   content_hash: string;
 }
 
-export type DailyStatus = "not_configured" | "ready" | "fresh" | "stale" | "error";
+export type DailyStatus =
+  | "not_configured"
+  | "ready"
+  | "fresh"
+  | "stale"
+  | "denied"
+  | "restricted"
+  | "unsupported"
+  | "error";
 
 export interface WeatherSnapshot {
   configured: boolean;
@@ -455,6 +463,14 @@ export interface DailySnapshot {
     events: CalendarEvent[];
     message: string;
   };
+  native_calendar?: {
+    platform: string;
+    adapter: string;
+    available: boolean;
+    status: string;
+    detail_scopes: Array<"busy_only" | "titles">;
+    message: string;
+  };
   music: {
     configured: boolean;
     status: DailyStatus;
@@ -469,6 +485,7 @@ export type ProviderStatus =
   | "credential_missing"
   | "ready"
   | "connected"
+  | "manual_model_ready"
   | "smoke_passed"
   | "authentication_failed"
   | "insufficient_balance"
@@ -615,6 +632,7 @@ export interface ToolCallPreviewV2 {
   state: "review_required";
   execution_started: false;
   output_is_untrusted: true;
+  call_digest: string;
   resolved_call: {
     real_tool_id: string;
     package_id: string;
@@ -623,6 +641,44 @@ export interface ToolCallPreviewV2 {
     required_permissions: string[];
     input: Record<string, unknown>;
   };
+}
+
+export interface ToolExecutionV2 {
+  execution_id: string;
+  session_id: string;
+  tool_id: string;
+  package_id: string;
+  package_hash: string;
+  catalog_fingerprint: string;
+  call_digest: string;
+  state: "running" | "succeeded" | "failed" | "cancelled";
+  result: Record<string, unknown> | null;
+  error_code: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
+export interface RenderPreviewV2 {
+  state: "review_required";
+  download_started: false;
+  manifest: {
+    renderer_id: string;
+    renderer_version: string;
+    format: "pptx" | "pdf";
+    deck_id: string;
+    deck_revision: number;
+    deck_spec_hash: string;
+    artifact_hash: string;
+    byte_count: number;
+    macro_free: boolean;
+    deterministic: boolean;
+  };
+}
+
+export interface RenderDownloadV2 {
+  blob: Blob;
+  filename: string;
+  artifactHash: string;
 }
 
 export interface ManualReportInputV2 {
@@ -678,14 +734,70 @@ export interface ProviderProfileRecordV2 {
     profile_id: string;
     version: number;
     display_name: string;
-    kind: "deepseek" | "ollama" | "open_ai_compatible";
+    kind: ProviderKindV2;
     base_url: string;
     model: string;
     secret_ref: string | null;
     fallback: "disabled" | { require_confirmation: { provider_profile_id: string } };
+    reasoning: ReasoningConfigV2;
   };
   revision: number;
   updated_at: string;
+}
+
+export type ReasoningEffortV2 =
+  | "auto"
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+export interface ReasoningConfigV2 {
+  effort: ReasoningEffortV2;
+  max_tokens: number | null;
+}
+
+export type ProviderKindV2 =
+  | "deepseek"
+  | "glm"
+  | "kimi"
+  | "qwen"
+  | "ollama"
+  | "open_ai_compatible"
+  | "openrouter";
+
+export interface ProviderDefinitionV2 {
+  registry_version: number;
+  kind: ProviderKindV2;
+  id: ProviderKindV2;
+  display_name: string;
+  protocol: "open_ai_chat_completions" | "ollama_chat";
+  default_base_url: string;
+  endpoint_policy: "exact_official" | "public_https" | "loopback_only";
+  auth_kind: "none" | "bearer";
+  model_discovery: "open_ai_models" | "ollama_tags" | "manual_only";
+  request_adapter: string;
+  capabilities: {
+    streaming: boolean;
+    tool_calls: boolean;
+    json_output: boolean;
+    reasoning: boolean;
+    vision: boolean;
+  };
+  reasoning: {
+    can_disable: boolean;
+    supported_efforts: ReasoningEffortV2[];
+    supports_token_budget: boolean;
+  };
+  docs_url: string;
+}
+
+export interface ProviderRegistryV2 {
+  registry_version: number;
+  items: ProviderDefinitionV2[];
 }
 
 export interface ConfigurationProfileRecordV2 {
@@ -729,6 +841,7 @@ export interface RustWorkspaceSnapshot {
   deliverables: CatalogRecordV2[];
   schedules: CatalogRecordV2[];
   providers?: ProviderProfileRecordV2[];
+  providerRegistry?: ProviderRegistryV2;
   profiles?: ConfigurationProfileRecordV2[];
   prompts?: PromptRevisionRecordV2[];
 }
@@ -803,6 +916,51 @@ export interface RunEvent {
   data: Record<string, unknown>;
 }
 
+export interface ConversationOperationV2 {
+  operation_id: string;
+  session_id: string;
+  user_message_id: string;
+  assistant_message_id: string | null;
+  state: "queued" | "preparing" | "streaming" | "validating" | "cancel_requested" | "completed" | "cancelled" | "failed";
+  phase: string;
+  context_preview_hash: string | null;
+  provider_binding: Record<string, unknown>;
+  cancel_requested: boolean;
+  error_code: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface ConversationOperationCreateResultV2 {
+  operation: ConversationOperationV2;
+  user_message: SessionMessageV2;
+  replayed: boolean;
+}
+
+export interface ContextPreviewRecordV2 {
+  preview_id: string;
+  session_id: string;
+  content_hash: string;
+  manifest: {
+    schema_version: number;
+    boundary: string;
+    untrusted: boolean;
+    entries: Array<{
+      name: string;
+      content_hash: string;
+      byte_count: number;
+      content: string;
+    }>;
+  };
+  data_class: WorkDataClass;
+  byte_count: number;
+  estimated_tokens: number;
+  created_at: string;
+  expires_at: string;
+  used_operation_id: string | null;
+}
+
 export interface DashboardApi {
   pair(code: string): Promise<void>;
   loadDashboard(): Promise<DashboardSnapshot>;
@@ -839,6 +997,10 @@ export interface DashboardApi {
   applyTask(approvalId: string): Promise<TaskApplyResult>;
   configureWeather(input: WeatherConfigurationInput): Promise<WeatherConfigurationResult>;
   configureCalendar(input: CalendarConfigurationInput): Promise<DailySnapshot["calendar"]>;
+  connectNativeCalendar?(
+    detailScope: "busy_only" | "titles",
+  ): Promise<DailySnapshot["calendar"]>;
+  disconnectNativeCalendar?(): Promise<DailySnapshot["calendar"]>;
   configureMusic?(input: MusicConfigurationInput): Promise<DailySnapshot["music"]>;
   providerDiagnostics(smoke: boolean): Promise<ProviderDiagnostic>;
   musicCover(): Promise<Blob | null>;
@@ -860,6 +1022,24 @@ export interface DashboardApi {
     content: string,
     dataClass?: WorkDataClass,
   ): Promise<SessionMessageV2>;
+  createConversationTurn?(
+    sessionId: string,
+    content: string,
+    dataClass?: WorkDataClass,
+    contextPreviewHash?: string | null,
+  ): Promise<ConversationOperationCreateResultV2>;
+  createContextPreview?(
+    sessionId: string,
+    dataClass: WorkDataClass,
+    items: Array<{ name: string; content: string }>,
+  ): Promise<ContextPreviewRecordV2>;
+  streamConversationOperation?(
+    operationId: string,
+    after: number,
+    onEvent: (event: RunEvent) => void,
+    signal: AbortSignal,
+  ): Promise<void>;
+  cancelConversationOperation?(operationId: string): Promise<ConversationOperationV2>;
   createSessionProposal?(
     sessionId: string,
     mode: Mode,
@@ -902,12 +1082,28 @@ export interface DashboardApi {
     action: "enable" | "disable",
     expectedHash: string,
   ): Promise<CatalogRecordV2>;
+  extensionRevisions?(packageId: string): Promise<CatalogRecordV2[]>;
+  rollbackExtension?(
+    packageId: string,
+    expectedHash: string,
+    targetHash: string,
+  ): Promise<CatalogRecordV2>;
   searchSessionTools?(sessionId: string, query: string): Promise<ToolSearchResultV2>;
   previewSessionToolCall?(
     sessionId: string,
     toolId: string,
     input: Record<string, unknown>,
   ): Promise<ToolCallPreviewV2>;
+  executeSessionToolCall?(
+    sessionId: string,
+    preview: ToolCallPreviewV2,
+  ): Promise<ToolExecutionV2>;
+  previewDeliverableRender?(
+    deliverableId: string,
+    revision: number,
+    format: "pptx" | "pdf",
+  ): Promise<RenderPreviewV2>;
+  exportDeliverableRender?(preview: RenderPreviewV2): Promise<RenderDownloadV2>;
   composeManualReport?(input: ManualReportInputV2): Promise<CatalogRecordV2>;
   composeDeckFromReport?(input: DeckFromReportInputV2): Promise<CatalogRecordV2>;
   createSchedule?(schedule: ScheduleSpecV2): Promise<CatalogRecordV2>;

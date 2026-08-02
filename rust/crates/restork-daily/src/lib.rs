@@ -130,6 +130,202 @@ impl CalendarSnapshot {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct NativeCalendarCapability {
+    pub platform: String,
+    pub adapter: String,
+    pub available: bool,
+    pub status: String,
+    pub detail_scopes: Vec<String>,
+    pub message: String,
+}
+
+/// Inspect native calendar capability without triggering an operating-system prompt.
+#[must_use]
+pub fn native_calendar_capability() -> NativeCalendarCapability {
+    #[cfg(target_os = "macos")]
+    {
+        use eventkit::{EKAuthorizationStatus, event_store::EKEntityType};
+
+        let authorization =
+            eventkit::event_store::EKEventStore::authorization_status(EKEntityType::Event);
+        let (status, message) = match authorization {
+            EKAuthorizationStatus::NotDetermined => (
+                "not_determined",
+                "Press Connect to let macOS ask for Calendar access.",
+            ),
+            EKAuthorizationStatus::FullAccess => (
+                "authorized",
+                "macOS Calendar access is available; Restork still defaults to busy-only fields.",
+            ),
+            EKAuthorizationStatus::Denied => (
+                "denied",
+                "Calendar access was denied. You can change it in System Settings.",
+            ),
+            EKAuthorizationStatus::Restricted | EKAuthorizationStatus::WriteOnly => (
+                "restricted",
+                "The current Calendar permission cannot read events.",
+            ),
+            EKAuthorizationStatus::Unknown(_) => (
+                "unavailable",
+                "The current Calendar authorization state is unavailable.",
+            ),
+            _ => (
+                "unavailable",
+                "The current Calendar authorization state is unavailable.",
+            ),
+        };
+        return NativeCalendarCapability {
+            platform: "macos".to_owned(),
+            adapter: "eventkit".to_owned(),
+            available: true,
+            status: status.to_owned(),
+            detail_scopes: vec!["busy_only".to_owned(), "titles".to_owned()],
+            message: message.to_owned(),
+        };
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return NativeCalendarCapability {
+            platform: "windows".to_owned(),
+            adapter: "windows_appointments".to_owned(),
+            available: false,
+            status: "adapter_unavailable".to_owned(),
+            detail_scopes: vec!["busy_only".to_owned(), "titles".to_owned()],
+            message: "The Windows appointment capability is not available in this build; ICS remains optional fallback.".to_owned(),
+        };
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        return NativeCalendarCapability {
+            platform: "linux".to_owned(),
+            adapter: "desktop_calendar".to_owned(),
+            available: false,
+            status: "unsupported".to_owned(),
+            detail_scopes: vec!["busy_only".to_owned(), "titles".to_owned()],
+            message: "Linux has no standard XDG Calendar portal; use the optional read-only ICS fallback.".to_owned(),
+        };
+    }
+
+    #[allow(unreachable_code)]
+    NativeCalendarCapability {
+        platform: std::env::consts::OS.to_owned(),
+        adapter: "none".to_owned(),
+        available: false,
+        status: "unsupported".to_owned(),
+        detail_scopes: Vec::new(),
+        message: "Native Calendar access is unsupported on this platform.".to_owned(),
+    }
+}
+
+/// Request native Calendar permission and return a bounded read-only snapshot.
+/// This must only be called after an explicit user action because it may show an
+/// operating-system permission dialog.
+pub fn connect_native_calendar(include_titles: bool) -> Result<CalendarSnapshot, DailyError> {
+    #[cfg(target_os = "macos")]
+    {
+        use eventkit::{
+            EKAuthorizationStatus,
+            event_store::{EKEntityType, EKEventStore},
+        };
+
+        let store = EKEventStore::new().map_err(|_| DailyError::Unavailable)?;
+        let mut authorization = EKEventStore::authorization_status(EKEntityType::Event);
+        if authorization == EKAuthorizationStatus::NotDetermined {
+            let granted = store
+                .request_full_access_to_events()
+                .map_err(|_| DailyError::Unavailable)?;
+            if !granted {
+                return Ok(native_calendar_denied("Calendar access was not granted."));
+            }
+            authorization = EKEventStore::authorization_status(EKEntityType::Event);
+        }
+        if authorization != EKAuthorizationStatus::FullAccess {
+            return Ok(native_calendar_denied(match authorization {
+                EKAuthorizationStatus::Denied => "Calendar access is denied in System Settings.",
+                EKAuthorizationStatus::Restricted | EKAuthorizationStatus::WriteOnly => {
+                    "The current Calendar permission cannot read events."
+                }
+                _ => "Calendar access is unavailable.",
+            }));
+        }
+        let start = Utc::now();
+        let end = start + ChronoDuration::days(30);
+        let predicate = store.predicate_for_events(start.to_rfc3339(), end.to_rfc3339(), None);
+        let mut native_events = store
+            .events_matching(&predicate)
+            .map_err(|_| DailyError::Unavailable)?;
+        native_events.sort_by(|left, right| left.start_date.cmp(&right.start_date));
+        let events = native_events
+            .into_iter()
+            .take(100)
+            .map(|event| {
+                let fallback_id = digest_parts(&[
+                    event.start_date.as_str(),
+                    event.end_date.as_str(),
+                    event.title.as_str(),
+                ]);
+                CalendarEvent {
+                    event_id: event.identifier.unwrap_or(fallback_id),
+                    title: if include_titles {
+                        event.title
+                    } else {
+                        "Busy".to_owned()
+                    },
+                    starts_at: event.start_date,
+                    ends_at: event.end_date,
+                    all_day: event.all_day,
+                    redacted: !include_titles,
+                }
+            })
+            .collect();
+        return Ok(CalendarSnapshot {
+            configured: true,
+            status: "ready".to_owned(),
+            events,
+            message: if include_titles {
+                "Showing a bounded read-only EventKit snapshot with explicitly approved titles."
+                    .to_owned()
+            } else {
+                "Showing a bounded read-only EventKit snapshot with titles redacted.".to_owned()
+            },
+        });
+    }
+
+    #[allow(unreachable_code)]
+    Ok(CalendarSnapshot {
+        configured: false,
+        status: "unsupported".to_owned(),
+        events: Vec::new(),
+        message: native_calendar_capability().message,
+    })
+}
+
+fn native_calendar_denied(message: &str) -> CalendarSnapshot {
+    CalendarSnapshot {
+        configured: false,
+        status: "denied".to_owned(),
+        events: Vec::new(),
+        message: message.to_owned(),
+    }
+}
+
+fn digest_parts(parts: &[&str]) -> String {
+    let mut digest = Sha256::new();
+    for part in parts {
+        digest.update(part.as_bytes());
+        digest.update([0]);
+    }
+    let encoded = digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("native-{encoded}")
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlaylistItem {
     pub item_id: String,

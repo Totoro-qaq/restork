@@ -9,6 +9,7 @@
   },
   "permissions": [
     "allow-desktop-session",
-    "allow-desktop-store-session"
+    "allow-desktop-store-session",
+    "allow-desktop-update-recovery"
   ]
 }

@@ -35,7 +35,7 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
     let directory = TestDirectory::new("schema");
     let database = Database::open(directory.database()).expect("open database");
 
-    assert_eq!(database.schema_version().expect("schema version"), 7);
+    assert_eq!(database.schema_version().expect("schema version"), 10);
     let history = database.migration_history().expect("migration history");
     assert_eq!(
         history
@@ -50,6 +50,9 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
             (5, "extension_center"),
             (6, "deliverables"),
             (7, "automation_recovery"),
+            (8, "interactive_core"),
+            (9, "extension_runtime"),
+            (10, "artifact_recovery"),
         ]
     );
     assert_ne!(history[0].checksum, history[1].checksum);
@@ -77,6 +80,10 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
         "schedules",
         "evaluation_batches",
         "subtasks",
+        "context_previews",
+        "conversation_operations",
+        "operation_events",
+        "native_calendar_connections",
         "schema_migrations",
     ] {
         assert!(tables.contains(required), "missing {required}");
@@ -174,7 +181,7 @@ fn migration_creates_a_consistent_backup_and_is_idempotent_on_reopen() {
 
     let reopened = Database::open(&path).expect("reopen migrated database");
     assert!(reopened.migration_backup().is_none());
-    assert_eq!(reopened.migration_history().expect("history").len(), 7);
+    assert_eq!(reopened.migration_history().expect("history").len(), 10);
 }
 
 #[test]
@@ -203,6 +210,38 @@ fn future_corrupt_and_drifted_databases_fail_closed() {
         .expect("mutate fixture");
     drop(connection);
     assert!(Database::open(path).is_err());
+}
+
+#[test]
+fn known_pre_release_trailing_newline_checksums_remain_compatible() {
+    let directory = TestDirectory::new("legacy-checksums");
+    let path = directory.database();
+    drop(Database::open(&path).expect("initial database"));
+    let connection = Connection::open(&path).expect("open migrated database");
+    for (version, checksum) in [
+        (
+            3,
+            "97581e498ba21a4e921ba3829d06be87f9cc22a711e564072b133343be554f0a",
+        ),
+        (
+            5,
+            "5b123f947c66bf0e9fa381c61de1fdd32394758953659cd6477c4e60b1af8256",
+        ),
+        (
+            7,
+            "c708cd1c349f281ecbe342bc8b4b5d3eebb5104e3bbd15fc1c54bec0bf85d3fb",
+        ),
+    ] {
+        connection
+            .execute(
+                "UPDATE schema_migrations SET checksum = ?1 WHERE version = ?2",
+                (checksum, version),
+            )
+            .expect("install legacy checksum fixture");
+    }
+    drop(connection);
+
+    Database::open(path).expect("known equivalent migration history should open");
 }
 
 #[test]

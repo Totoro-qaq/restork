@@ -3,6 +3,12 @@
 </p>
 
 <p align="center">
+  <a href="https://totoro-qaq.github.io/restork/">Website</a> ·
+  <a href="https://github.com/Totoro-qaq/restork/discussions">Discussions</a> ·
+  <a href="https://github.com/Totoro-qaq/restork/releases">Releases</a>
+</p>
+
+<p align="center">
   <img src="./assets/readme/hero.svg" width="100%" alt="Restork — a local-first agent workspace for research, study, and work.">
 </p>
 
@@ -110,26 +116,30 @@ synthesizer lets you explore the product without sending a model request.
 
 ### Try the Rust-first workspace
 
-The Step 12–17 alpha runs the native Core and the same embedded Dashboard. It needs Rust only when
-started from source; desktop packages include the binary.
+The native Core runs the same embedded Dashboard and now includes the Steps 18–22 production
+surfaces. It needs Rust only when started from source; desktop packages include the binary.
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- \
   serve --port 7337 --state-db ./build/restork-alpha.db
 ```
 
-Open the `base_url` printed in the readiness record and enter its one-time pairing code. This alpha
-contains personal daily context, global conversations, model/Profile/Prompt settings, the governed
-Extension Center, report/deck drafts, checkpoints, bounded schedules, evaluation manifests, and
-delegation contracts. The V1 Research/Study/Work execution routes are still being cut over, so use
-`./scripts/quickstart.sh` when you need those complete workflows today.
+Open the `base_url` printed in the readiness record and enter its one-time pairing code. The native
+workspace includes cancellable conversations and context preview; multi-provider Profiles and
+versioned Prompts; governed MCP execution and extension rollback; deterministic PPTX/PDF exports;
+real hash-bound file restore; bounded child execution; schedules, memory, and daily context. Use
+`./scripts/quickstart.sh` when you specifically need a V1 workflow that has not yet reached Rust
+behavioral parity.
 
 ### Desktop installers
 
-The source now builds macOS, Windows, and Linux candidates. When a signed installer appears on the
-[Releases page](https://github.com/Totoro-qaq/restork/releases), installing and launching it needs no
-Python, Node.js, Rust, `uv`, or package manager. Unsigned CI candidates are for testing only; see the
-[desktop guide](docs/desktop.md) for one-command builds and exact signing gates.
+The source builds macOS, Windows, and Linux candidates. The protected release workflow signs each
+platform, notarizes and staples macOS, verifies updater signatures, generates an SBOM and provenance,
+and tests the downloaded installers on clean runners before publication. It fails closed until the
+owner configures real signing identities. Once a signed installer appears on the
+[Releases page](https://github.com/Totoro-qaq/restork/releases), the target machine needs no Python,
+Node.js, Rust, `uv`, or package manager. See the [desktop guide](docs/desktop.md) for exact status and
+one-command contributor builds.
 
 ### Connect only what you want
 
@@ -137,7 +147,7 @@ Python, Node.js, Rust, `uv`, or package manager. Unsigned CI candidates are for 
 |---|---|---|
 | Explore the Dashboard | Nothing else | No model call and no Vault access |
 | Read my Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | Local read access; every write still needs a preview and approval |
-| Use DeepSeek V4 Pro | `cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure` | The key goes directly to native credential storage; direct DeepSeek conversations are public-only unless you create a stricter governed Profile |
+| Use a cloud or local model | Open **Settings → Providers**; use the native credential command for a cloud key | Choose DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, or a compatible endpoint; only supported reasoning levels appear |
 | See weather | Enter a city in Weather settings, or press **Use current location** yourself | The feature stays off until enabled; there is no IP-based location lookup |
 | Add calendar or music | Select one local ICS file or a private JSON/CSV playlist | Read-only local import; no account login |
 
@@ -147,7 +157,17 @@ Use a different local port without editing a file:
 RESTORK_PORT=7444 ./scripts/quickstart.sh
 ```
 
-### Add DeepSeek when you are ready
+### Add a model when you are ready
+
+Open **Settings → Providers** to choose an exact model and its supported reasoning intensity. Restork
+ships definitions for DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, and OpenAI-compatible endpoints.
+Profiles are model-specific, so you can use a quicker model for a bounded child task and a stronger
+one for synthesis without a silent fallback. See the [provider guide](docs/providers.md) for the
+capability table and endpoint rules.
+
+For a cloud key, use the native credential flow. The current CLI command configures the built-in
+DeepSeek credential; additional packaged native onboarding is release-gated rather than putting a
+secret field in the Dashboard:
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
@@ -155,7 +175,8 @@ cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
 
 The platform-native prompt writes the key to macOS Keychain, Windows Credential Manager, or Linux
 Secret Service. The value never enters the browser, TOML, command arguments, environment variables,
-shell history, Vault, SQLite, logs, or this repository.
+shell history, Vault, SQLite, logs, or this repository. Dashboard stores only a native secret
+reference.
 
 Restart Restork, then choose how far you want the Rust check to go:
 
@@ -187,31 +208,33 @@ off. The formats and privacy behavior are documented in [Daily context](docs/dai
 
 | Area | What you can use now |
 |---|---|
-| **Runs and approvals** | Persisted run state, budgets, explicit retries, recovery, single-use approvals, and replayable SSE updates |
+| **Runs and approvals** | Persisted run state, budgets, explicit retries, recovery, single-use approvals, cancellable conversations, and replayable SSE updates |
 | **Dashboard and local API** | Responsive English/Chinese UI, loopback-only `/v1` API, separate Web/CLI pairing, and short-lived sessions |
 | **Knowledge and tasks** | Read-only Vault retrieval, deterministic wiki-link projection, journaled single-file writes, and preview/approve/apply Markdown tasks |
 | **Research, Study, Work** | Evidence-backed research, guided study and practice, and planning-only repository handoffs |
-| **Memory and daily context** | Four inspectable memory layers, optional weather, one local read-only ICS calendar, and private playlist import |
-| **Rust-first workspace alpha** | Native storage/API/provider foundations; personal context; global conversations; Profiles and versioned Prompts; quarantined extensions and frozen tool discovery; report/deck drafts; schedules, recovery, evaluation, and bounded-delegation contracts |
-| **Cross-platform desktop source** | Tauri packages `restorkd` and the Dashboard, owns Unix process groups or a Windows Job Object, and builds macOS, Windows, and Linux candidates without a target-machine runtime |
+| **Memory and daily context** | Four inspectable memory layers, optional weather, system date/month without permission, explicit macOS EventKit access, universal read-only ICS fallback, and private playlist import |
+| **Models and extensions** | DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, and generic endpoints; provider-scoped reasoning; versioned Prompts; real bounded MCP stdio execution; immutable extension revisions and rollback |
+| **Artifacts and recovery** | Deterministic macro-free PPTX/PDF, exact artifact hashes, content-bearing checkpoints, preview-bound filesystem restore, schedules, evaluations, and depth-one bounded child execution |
+| **Cross-platform desktop source** | Tauri packages `restorkd` and the Dashboard, owns Unix process groups or a Windows Job Object, verifies signed updates, keeps bounded recovery copies, and builds macOS, Windows, and Linux candidates without a target-machine runtime |
 
-The Step 12–17 implementation batch has reached the Step 17 API/domain surface, but it is not being
-mislabelled as a production release. Remaining exit gates include V1 route cutover, native calendar
-onboarding, cancellable conversation SSE, full extension update/rollback/uninstall, approved
-PPTX/PDF rendering, real file restore, packaged credential setup, clean-machine matrices, and
-Windows/Linux signing. Current scope and evidence are tracked in the
-[Steps 12–17 specification](specs/restork-steps12-17.md) and
-[delivery plan](plans/restork-steps12-17.md).
+Steps 18–22 are implemented in source and covered by deterministic local gates. A source-complete
+release is not the same as a signed public build: real Developer ID, Authenticode, Linux GPG, updater
+keys, notarization, and clean-runner results remain protected owner credentials and workflow evidence.
+The workflow will not publish without them. Exact contracts and remaining credential-dependent proof
+live in the [Steps 18–22 specification](specs/restork-steps18-22.md) and
+[delivery plan](plans/restork-steps18-22.md).
 
 ## Guides
 
 - [Dashboard and CLI](docs/dashboard-usage.md)
+- [Providers and reasoning intensity](docs/providers.md)
 - [Memory](docs/memory.md)
 - [Markdown tasks](docs/markdown-tasks.md)
 - [Research](docs/research-workflow.md)
 - [Study](docs/study.md)
 - [Work](docs/work.md)
 - [Cross-platform desktop alpha](docs/desktop.md)
+- [Restork and Hermes Agent](docs/restork-vs-hermes.md)
 - [Privacy](docs/privacy.md) and [security model](docs/security/threat-model.md)
 
 <details>
@@ -259,9 +282,9 @@ The provider-free [runtime benchmark](benchmarks/README.md) records readiness, i
 size, and loopback latency without sending a prompt. The V1 source quickstart stays available until
 each remaining execution route reaches compatibility and recovery parity in Rust.
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. The implemented contract lives in
-the [V1 specification](specs/restork-v1.md); the accepted future architecture lives in the
-[Steps 12–17 specification](specs/restork-steps12-17.md). Release history is in
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. The implemented product contracts
+live in the [V1 specification](specs/restork-v1.md) and
+[Steps 18–22 specification](specs/restork-steps18-22.md). Release history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 </details>

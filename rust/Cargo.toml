@@ -8,6 +8,7 @@ members = [
     "crates/restork-extension",
     "crates/restork-personal",
     "crates/restork-provider",
+    "crates/restork-render",
     "crates/restork-storage",
     "crates/restork-worker",
     "crates/restorkd",

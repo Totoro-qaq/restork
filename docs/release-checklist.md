@@ -17,6 +17,16 @@ Manual checks may supplement, but never waive, a security/privacy gate.
 - [x] `README-ASSET-001` — safe SVG, useful alt text, HD animated GIF, synthetic provenance.
 - [x] `DESKTOP-LIFECYCLE-001` — retained child/process group, three-miss heartbeat, bounded
   TERM/KILL/reap, and kernel parent-lease EOF leave no Core after injected faults.
+- [x] `PROVIDER-REGISTRY-001` — provider-scoped endpoints, capabilities, reasoning levels, secret
+  references, and no invisible fallback.
+- [x] `MCP-EXEC-001` — exact-argv stdio, no shell, cleared environment, negotiated catalog,
+  bounded output/deadline, cancellation, and immutable execution audit.
+- [x] `ARTIFACT-RENDER-001` — deterministic macro-free PPTX/PDF with CJK fixtures, exact hashes,
+  evidence/theme/renderer bindings, and idempotent export records.
+- [x] `CHECKPOINT-APPLY-001` — content-bearing checkpoints, explicit root, symlink rejection,
+  current-state precondition, preview hash, sibling staging, fsync, and atomic file replacement.
+- [x] `UPDATER-TRUST-001` — HTTPS/no-credential endpoint, Tauri signature, target/version/replay
+  checks, and bounded verified recovery packages.
 
 ## Build evidence
 
@@ -29,6 +39,9 @@ Manual checks may supplement, but never waive, a security/privacy gate.
 - [x] Two builds with the same `SOURCE_DATE_EPOCH` produce identical wheel/source hashes.
 - [x] Source archive includes all public README assets; wheel includes the Dashboard.
 - [x] Release workflow emits `SHA256SUMS`, a manifest, and GitHub provenance attestations.
+- [x] Protected release workflow defines Developer ID/notarization, Authenticode/timestamping,
+  Linux GPG, updater signing, clean-machine gates, CycloneDX SBOM, signed checksums, and provenance
+  before publication.
 - [x] Ten local bundled release launches reach an authenticated Dashboard session at 791 ms p95;
   the protected release runner still owns the publishable cold-start measurement.
 
@@ -55,8 +68,14 @@ These depend on the owner's private machine or the final public tag, not on sour
 They must not expose credentials and cannot be replaced by repository fixtures.
 
 - [ ] Confirm the configured Generic Password item exists in the owner's Keychain without `-w`.
+- [ ] Configure protected `release-macos`, `release-windows`, `release-linux`, and
+  `release-publish` environments with required reviewers.
+- [ ] Configure Developer ID/notarization, Authenticode/timestamp, Linux GPG, and dedicated Tauri
+  updater credentials; confirm no private key is exposed through repository variables or logs.
 - [ ] Create the reviewed `v0.1.2` tag only after the protected `main` release commit is selected.
-- [ ] Verify the downloaded GitHub attestation and checksums before distributing that tagged build.
+- [ ] Confirm macOS, Windows, and Linux clean-machine jobs pass against downloaded signed artifacts.
+- [ ] Verify the downloaded GitHub attestations, signed checksums, SBOM, and updater target entries
+  before distributing that tagged build.
 
 ## Release procedure
 

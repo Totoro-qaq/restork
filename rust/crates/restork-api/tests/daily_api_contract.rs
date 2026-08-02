@@ -110,6 +110,21 @@ async fn daily_context_is_zero_configuration_and_all_optional_sources_require_ex
     assert_eq!(snapshot["weather"]["configured"], false);
     assert_eq!(snapshot["calendar"]["configured"], false);
     assert_eq!(snapshot["music"]["configured"], false);
+    assert!(snapshot["native_calendar"]["adapter"].as_str().is_some());
+
+    let (status, capability) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/daily/calendar/native",
+        None,
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let capability = capability.expect("native calendar capability");
+    assert!(capability["status"].as_str().is_some());
+    assert_eq!(capability["detail_scopes"][0], "busy_only");
 
     let (status, _) = call(
         app.clone(),

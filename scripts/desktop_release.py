@@ -22,15 +22,22 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     config = commands.add_parser("config")
     config.add_argument("--output", type=Path, required=True)
+    config.add_argument(
+        "--platform", choices=("generic", "macos", "windows", "linux"), default="generic"
+    )
     manifest = commands.add_parser("manifest")
     manifest.add_argument("--directory", type=Path, required=True)
     manifest.add_argument("--repository", required=True)
     manifest.add_argument("--tag", required=True)
     manifest.add_argument("--version", required=True)
+    manifest.add_argument("--commit", default=os.environ.get("GITHUB_SHA", "unknown"))
+    manifest.add_argument("--channel", choices=("alpha", "stable"), default="alpha")
     return parser
 
 
-def _updater_config(output: Path, *, public_key: str, endpoint: str) -> None:
+def _updater_config(
+    output: Path, *, public_key: str, endpoint: str, platform: str = "generic"
+) -> None:
     key = public_key.strip()
     if not 32 <= len(key) <= 4096 or "PRIVATE KEY" in key.upper() or "\x00" in key:
         raise ValueError("RESTORK_UPDATER_PUBLIC_KEY is missing or invalid")
@@ -44,8 +51,31 @@ def _updater_config(output: Path, *, public_key: str, endpoint: str) -> None:
         or parsed.fragment
     ):
         raise ValueError("RESTORK_UPDATER_ENDPOINT must be a credential-free HTTPS URL")
+    bundle: dict[str, object] = {"createUpdaterArtifacts": True}
+    if platform == "macos":
+        bundle["targets"] = ["app", "dmg"]
+    elif platform == "linux":
+        bundle["targets"] = ["appimage", "deb"]
+    elif platform == "windows":
+        thumbprint = os.environ.get("RESTORK_WINDOWS_CERTIFICATE_THUMBPRINT", "").strip()
+        timestamp_url = os.environ.get("RESTORK_WINDOWS_TIMESTAMP_URL", "").strip()
+        parsed_timestamp = urlsplit(timestamp_url)
+        if not re.fullmatch(r"[A-Fa-f0-9]{40,128}", thumbprint):
+            raise ValueError("RESTORK_WINDOWS_CERTIFICATE_THUMBPRINT is missing or invalid")
+        if parsed_timestamp.scheme != "https" or not parsed_timestamp.hostname:
+            raise ValueError("RESTORK_WINDOWS_TIMESTAMP_URL must be HTTPS")
+        bundle.update(
+            {
+                "targets": ["nsis", "msi"],
+                "windows": {
+                    "certificateThumbprint": thumbprint,
+                    "digestAlgorithm": "sha256",
+                    "timestampUrl": timestamp_url,
+                },
+            }
+        )
     payload = {
-        "bundle": {"createUpdaterArtifacts": True},
+        "bundle": bundle,
         "plugins": {"updater": {"endpoints": [endpoint], "pubkey": key}},
     }
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -60,40 +90,104 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _update_manifest(directory: Path, *, repository: str, tag: str, version: str) -> None:
+def _signed_updater(directory: Path, patterns: tuple[str, ...]) -> tuple[Path, str] | None:
+    candidates: list[Path] = []
+    for pattern in patterns:
+        candidates.extend(directory.glob(pattern))
+    candidates = sorted(
+        path for path in set(candidates) if path.is_file() and not path.name.endswith(".sig")
+    )
+    if not candidates:
+        return None
+    if len(candidates) != 1:
+        raise ValueError(f"expected exactly one updater artifact for {patterns!r}")
+    artifact = candidates[0]
+    signature_path = artifact.with_name(f"{artifact.name}.sig")
+    if not signature_path.is_file():
+        raise ValueError(f"desktop updater signature is missing for {artifact.name}")
+    signature = signature_path.read_text(encoding="utf-8").strip()
+    if not 32 <= len(signature) <= 4096 or any(character.isspace() for character in signature):
+        raise ValueError(f"desktop updater signature is invalid for {artifact.name}")
+    return artifact, signature
+
+
+def _download_url(repository: str, tag: str, path: Path) -> str:
+    return (
+        f"https://github.com/{repository}/releases/download/{quote(tag, safe='')}/"
+        f"{quote(path.name, safe='')}"
+    )
+
+
+def _update_manifest(
+    directory: Path,
+    *,
+    repository: str,
+    tag: str,
+    version: str,
+    commit: str = "unknown",
+    channel: str = "alpha",
+) -> None:
     if not _REPOSITORY.fullmatch(repository):
         raise ValueError("repository must use OWNER/NAME")
     if not _RELEASE_TAG.fullmatch(tag) or not _VERSION.fullmatch(version):
         raise ValueError("release tag or application version is invalid")
-    archives = sorted(directory.glob("*.app.tar.gz"))
-    disks = sorted(directory.glob("*.dmg"))
-    if len(archives) != 1 or len(disks) != 1:
-        raise ValueError("desktop release needs exactly one app archive and one DMG")
-    archive = archives[0]
-    signature_path = archive.with_name(f"{archive.name}.sig")
-    if not signature_path.is_file():
-        raise ValueError("desktop updater signature is missing")
-    signature = signature_path.read_text(encoding="utf-8").strip()
-    if not 32 <= len(signature) <= 4096 or any(character.isspace() for character in signature):
-        raise ValueError("desktop updater signature is invalid")
-    download_url = (
-        f"https://github.com/{repository}/releases/download/{quote(tag, safe='')}/"
-        f"{quote(archive.name, safe='')}"
-    )
+    if channel not in {"alpha", "stable"}:
+        raise ValueError("release channel is invalid")
+    if commit != "unknown" and not re.fullmatch(r"[A-Fa-f0-9]{40}", commit):
+        raise ValueError("release commit must be a full Git commit SHA")
+    signed = {
+        "darwin-aarch64": _signed_updater(directory, ("*.app.tar.gz",)),
+        "windows-x86_64": _signed_updater(directory, ("*-setup.exe", "*_setup.exe")),
+        "linux-x86_64": _signed_updater(directory, ("*.AppImage",)),
+    }
+    platforms = {
+        platform: {
+            "signature": updater[1],
+            "url": _download_url(repository, tag, updater[0]),
+        }
+        for platform, updater in signed.items()
+        if updater is not None
+    }
+    if not platforms:
+        raise ValueError("desktop release has no signed updater artifacts")
     payload = {
         "version": version,
         "notes": f"Restork {tag}. See the GitHub release for verified release notes.",
         "pub_date": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-        "platforms": {
-            "darwin-aarch64": {
-                "signature": signature,
-                "url": download_url,
-            }
-        },
+        "platforms": platforms,
     }
     latest = directory / "latest.json"
     latest.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    artifacts = [*archives, *disks, signature_path, latest]
+    artifacts = sorted(
+        path
+        for path in directory.iterdir()
+        if path.is_file()
+        and path.name not in {"SHA256SUMS", "SHA256SUMS.asc", "release-manifest.json"}
+    )
+    artifact_records = [
+        {
+            "name": path.name,
+            "sha256": _sha256(path),
+            "bytes": path.stat().st_size,
+            "url": _download_url(repository, tag, path),
+        }
+        for path in artifacts
+    ]
+    release_manifest = {
+        "schema_version": 1,
+        "repository": repository,
+        "tag": tag,
+        "version": version,
+        "commit": commit,
+        "channel": channel,
+        "workflow_run": os.environ.get("GITHUB_RUN_ID", "local"),
+        "updater_targets": sorted(platforms),
+        "artifacts": artifact_records,
+    }
+    (directory / "release-manifest.json").write_text(
+        json.dumps(release_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    artifacts.extend([directory / "release-manifest.json"])
     (directory / "SHA256SUMS").write_text(
         "".join(f"{_sha256(path)}  {path.name}\n" for path in sorted(artifacts)),
         encoding="utf-8",
@@ -108,6 +202,7 @@ def main() -> int:
                 arguments.output,
                 public_key=os.environ.get("RESTORK_UPDATER_PUBLIC_KEY", ""),
                 endpoint=os.environ.get("RESTORK_UPDATER_ENDPOINT", ""),
+                platform=arguments.platform,
             )
         else:
             _update_manifest(
@@ -115,6 +210,8 @@ def main() -> int:
                 repository=arguments.repository,
                 tag=arguments.tag,
                 version=arguments.version,
+                commit=arguments.commit,
+                channel=arguments.channel,
             )
     except (OSError, UnicodeError, ValueError) as error:
         raise SystemExit(f"desktop release: {error}") from error

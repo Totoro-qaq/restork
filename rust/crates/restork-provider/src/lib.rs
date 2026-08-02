@@ -8,7 +8,10 @@ mod secrets;
 use std::time::{Duration, Instant};
 
 use reqwest::{Client, StatusCode, redirect::Policy};
-use restork_personal::{ProviderKind, ProviderProfile};
+use restork_personal::{
+    ModelDiscovery, ProviderAuthKind, ProviderProfile, ProviderProtocol, ProviderRequestAdapter,
+    ReasoningEffort,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -70,6 +73,21 @@ pub struct ProviderDiagnostic {
     pub total_tokens: Option<u64>,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ProviderModel {
+    pub id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ProviderModelCatalog {
+    pub registry_version: u16,
+    pub provider_kind: String,
+    pub discovery: String,
+    pub manual_entry: bool,
+    pub models: Vec<ProviderModel>,
+    pub latency_ms: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ChatMessage {
     pub role: String,
@@ -123,6 +141,8 @@ impl ProviderClient {
                 prompt_tokens: completion.prompt_tokens,
                 completion_tokens: completion.completion_tokens,
                 total_tokens: completion.total_tokens,
+                connection_checked: true,
+                model_available: Some(true),
             })
         } else {
             self.check_models(profile).await
@@ -132,20 +152,29 @@ impl ProviderClient {
                 schema_version: 1,
                 provider: profile.profile_id().to_owned(),
                 model: profile.model().to_owned(),
-                status: if smoke { "smoke_passed" } else { "connected" }.to_owned(),
+                status: if smoke {
+                    "smoke_passed"
+                } else if success.connection_checked {
+                    "connected"
+                } else {
+                    "manual_model_ready"
+                }
+                .to_owned(),
                 message: if smoke {
                     "The fixed public low-token completion passed."
-                } else {
+                } else if success.connection_checked {
                     "Authentication succeeded and the configured model is available."
+                } else {
+                    "This provider uses manual model entry; run the optional smoke test to verify it."
                 }
                 .to_owned(),
                 setup_command: "restorkd provider configure".to_owned(),
                 config_present: true,
                 config_valid: true,
                 credential_present: profile.secret_ref().is_some(),
-                connection_checked: true,
-                connection_ok: Some(true),
-                model_available: Some(true),
+                connection_checked: success.connection_checked,
+                connection_ok: success.connection_checked.then_some(true),
+                model_available: success.model_available,
                 smoke_checked: smoke,
                 smoke_ok: smoke.then_some(true),
                 restart_required: false,
@@ -192,9 +221,9 @@ impl ProviderClient {
 
     /// Check native credential availability without exposing the credential to callers.
     pub async fn credential_present(&self, profile: &ProviderProfile) -> bool {
-        match profile.kind() {
-            ProviderKind::Ollama => true,
-            ProviderKind::DeepSeek | ProviderKind::OpenAiCompatible => {
+        match profile.kind().definition().auth_kind {
+            ProviderAuthKind::None => true,
+            ProviderAuthKind::Bearer => {
                 let Some(reference) = profile.secret_ref() else {
                     return false;
                 };
@@ -221,58 +250,99 @@ impl ProviderClient {
         {
             return Err(ProviderError::PolicyDenied);
         }
-        match profile.kind() {
-            ProviderKind::Ollama => self.chat_ollama(profile, messages, max_tokens).await,
-            ProviderKind::DeepSeek | ProviderKind::OpenAiCompatible => {
+        match profile.kind().definition().protocol {
+            ProviderProtocol::OllamaChat => self.chat_ollama(profile, messages, max_tokens).await,
+            ProviderProtocol::OpenAiChatCompletions => {
                 self.chat_openai(profile, messages, max_tokens).await
             }
         }
+    }
+
+    pub async fn models(
+        &self,
+        profile: &ProviderProfile,
+    ) -> Result<ProviderModelCatalog, ProviderError> {
+        let started = Instant::now();
+        let definition = profile.kind().definition();
+        let models = match definition.model_discovery {
+            ModelDiscovery::ManualOnly => Vec::new(),
+            ModelDiscovery::OllamaTags => {
+                let response = self
+                    .client
+                    .get(format!("{}/api/tags", profile.base_url()))
+                    .send()
+                    .await
+                    .map_err(map_transport)?;
+                let status = response.status();
+                let payload: Value = response
+                    .json()
+                    .await
+                    .map_err(|_| ProviderError::InvalidResponse)?;
+                map_status(status, &payload)?;
+                parse_ollama_models(&payload)?
+            }
+            ModelDiscovery::OpenAiModels => {
+                let secret = self.resolve_secret(profile).await?;
+                let response = self
+                    .client
+                    .get(format!("{}/models", profile.base_url()))
+                    .bearer_auth(secret.expose())
+                    .send()
+                    .await
+                    .map_err(map_transport)?;
+                let status = response.status();
+                let payload: Value = response
+                    .json()
+                    .await
+                    .map_err(|_| ProviderError::InvalidResponse)?;
+                map_status(status, &payload)?;
+                parse_openai_models(&payload)?
+            }
+        };
+        Ok(ProviderModelCatalog {
+            registry_version: definition.registry_version,
+            provider_kind: definition.id.to_owned(),
+            discovery: match definition.model_discovery {
+                ModelDiscovery::OpenAiModels => "open_ai_models",
+                ModelDiscovery::OllamaTags => "ollama_tags",
+                ModelDiscovery::ManualOnly => "manual_only",
+            }
+            .to_owned(),
+            manual_entry: matches!(definition.model_discovery, ModelDiscovery::ManualOnly),
+            models,
+            latency_ms: elapsed_ms(started),
+        })
     }
 
     async fn check_models(
         &self,
         profile: &ProviderProfile,
     ) -> Result<DiagnosticSuccess, ProviderError> {
-        let request = match profile.kind() {
-            ProviderKind::Ollama => self.client.get(format!("{}/api/tags", profile.base_url())),
-            ProviderKind::DeepSeek | ProviderKind::OpenAiCompatible => {
-                let secret = self.resolve_secret(profile).await?;
-                self.client
-                    .get(format!("{}/models", profile.base_url()))
-                    .bearer_auth(secret.expose())
-            }
-        };
-        let response = request.send().await.map_err(map_transport)?;
-        let request_id = request_id(&response);
-        let status = response.status();
-        let payload: Value = response
-            .json()
-            .await
-            .map_err(|_| ProviderError::InvalidResponse)?;
-        map_status(status, &payload)?;
-        let available = match profile.kind() {
-            ProviderKind::Ollama => payload["models"].as_array().is_some_and(|models| {
-                models.iter().any(|model| {
-                    model["name"].as_str() == Some(profile.model())
-                        || model["model"].as_str() == Some(profile.model())
-                })
-            }),
-            ProviderKind::DeepSeek | ProviderKind::OpenAiCompatible => {
-                payload["data"].as_array().is_some_and(|models| {
-                    models
-                        .iter()
-                        .any(|model| model["id"].as_str() == Some(profile.model()))
-                })
-            }
-        };
-        if !available {
+        let catalog = self.models(profile).await?;
+        if catalog.manual_entry {
+            return Ok(DiagnosticSuccess {
+                request_id: None,
+                prompt_tokens: None,
+                completion_tokens: None,
+                total_tokens: None,
+                connection_checked: false,
+                model_available: None,
+            });
+        }
+        if !catalog
+            .models
+            .iter()
+            .any(|model| model.id == profile.model())
+        {
             return Err(ProviderError::ModelUnavailable);
         }
         Ok(DiagnosticSuccess {
-            request_id,
+            request_id: None,
             prompt_tokens: None,
             completion_tokens: None,
             total_tokens: None,
+            connection_checked: true,
+            model_available: Some(true),
         })
     }
 
@@ -288,16 +358,7 @@ impl ProviderClient {
             .client
             .post(format!("{}/chat/completions", profile.base_url()))
             .bearer_auth(secret.expose())
-            .json(&json!({
-                "model": profile.model(),
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "stream": false,
-                // DeepSeek V4 enables thinking by default. Restork's standard
-                // bounded chat profile prefers predictable first-response latency;
-                // an explicit future profile may opt into governed thinking.
-                "thinking": {"type": "disabled"}
-            }))
+            .json(&build_openai_chat_request(profile, messages, max_tokens)?)
             .send()
             .await
             .map_err(map_transport)?;
@@ -334,12 +395,7 @@ impl ProviderClient {
         let response = self
             .client
             .post(format!("{}/api/chat", profile.base_url()))
-            .json(&json!({
-                "model": profile.model(),
-                "messages": messages,
-                "stream": false,
-                "options": {"num_predict": max_tokens}
-            }))
+            .json(&build_ollama_chat_request(profile, messages, max_tokens)?)
             .send()
             .await
             .map_err(map_transport)?;
@@ -387,6 +443,147 @@ struct DiagnosticSuccess {
     prompt_tokens: Option<u64>,
     completion_tokens: Option<u64>,
     total_tokens: Option<u64>,
+    connection_checked: bool,
+    model_available: Option<bool>,
+}
+
+/// Build a vendor-scoped request. Vendor-only fields must never leak into the
+/// shared OpenAI-compatible request shape.
+pub fn build_openai_chat_request(
+    profile: &ProviderProfile,
+    messages: &[ChatMessage],
+    max_tokens: u32,
+) -> Result<Value, ProviderError> {
+    if !matches!(
+        profile.kind().definition().protocol,
+        ProviderProtocol::OpenAiChatCompletions
+    ) {
+        return Err(ProviderError::Configuration);
+    }
+    let mut body = json!({
+        "model": profile.model(),
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "stream": false
+    });
+    match profile.kind().definition().request_adapter {
+        ProviderRequestAdapter::DeepSeek => {
+            apply_toggle_and_effort(&mut body, profile.reasoning());
+        }
+        ProviderRequestAdapter::Glm => {
+            apply_toggle_and_effort(&mut body, profile.reasoning());
+        }
+        ProviderRequestAdapter::Kimi => match profile.reasoning().effort() {
+            ReasoningEffort::Auto => {}
+            ReasoningEffort::Off => body["thinking"] = json!({"type": "disabled"}),
+            _ => return Err(ProviderError::Configuration),
+        },
+        ProviderRequestAdapter::Qwen => {
+            let reasoning = profile.reasoning();
+            match reasoning.effort() {
+                ReasoningEffort::Auto => {}
+                ReasoningEffort::Off => body["enable_thinking"] = Value::Bool(false),
+                effort => {
+                    body["enable_thinking"] = Value::Bool(true);
+                    body["reasoning_effort"] = Value::String(effort.as_wire_value().to_owned());
+                }
+            }
+            if let Some(max_tokens) = reasoning.max_tokens() {
+                body["thinking_budget"] = json!(max_tokens);
+            }
+        }
+        ProviderRequestAdapter::OpenRouter => {
+            let reasoning = profile.reasoning();
+            if reasoning.effort() != ReasoningEffort::Auto {
+                body["reasoning"] = json!({
+                    "effort": reasoning.effort().as_wire_value(),
+                    "exclude": true
+                });
+                if let Some(max_tokens) = reasoning.max_tokens() {
+                    body["reasoning"]["max_tokens"] = json!(max_tokens);
+                }
+            }
+        }
+        ProviderRequestAdapter::StandardOpenAi => {
+            let effort = profile.reasoning().effort();
+            if effort != ReasoningEffort::Auto {
+                body["reasoning_effort"] = Value::String(effort.as_wire_value().to_owned());
+            }
+        }
+        ProviderRequestAdapter::Ollama => return Err(ProviderError::Configuration),
+    }
+    Ok(body)
+}
+
+pub fn build_ollama_chat_request(
+    profile: &ProviderProfile,
+    messages: &[ChatMessage],
+    max_tokens: u32,
+) -> Result<Value, ProviderError> {
+    if !matches!(
+        profile.kind().definition().protocol,
+        ProviderProtocol::OllamaChat
+    ) {
+        return Err(ProviderError::Configuration);
+    }
+    let mut body = json!({
+        "model": profile.model(),
+        "messages": messages,
+        "stream": false,
+        "options": {"num_predict": max_tokens}
+    });
+    match profile.reasoning().effort() {
+        ReasoningEffort::Auto => {}
+        ReasoningEffort::Off => body["think"] = Value::Bool(false),
+        ReasoningEffort::Low | ReasoningEffort::Medium | ReasoningEffort::High => {
+            body["think"] = Value::String(profile.reasoning().effort().as_wire_value().to_owned());
+        }
+        _ => return Err(ProviderError::Configuration),
+    }
+    Ok(body)
+}
+
+fn apply_toggle_and_effort(body: &mut Value, reasoning: restork_personal::ReasoningConfig) {
+    match reasoning.effort() {
+        ReasoningEffort::Auto => {}
+        ReasoningEffort::Off => body["thinking"] = json!({"type": "disabled"}),
+        effort => {
+            body["thinking"] = json!({"type": "enabled"});
+            body["reasoning_effort"] = Value::String(effort.as_wire_value().to_owned());
+        }
+    }
+}
+
+fn parse_openai_models(payload: &Value) -> Result<Vec<ProviderModel>, ProviderError> {
+    let items = payload["data"]
+        .as_array()
+        .ok_or(ProviderError::InvalidResponse)?;
+    let mut models = items
+        .iter()
+        .filter_map(|model| model["id"].as_str())
+        .filter(|id| !id.is_empty() && id.len() <= 256 && !id.contains('\0'))
+        .map(|id| ProviderModel { id: id.to_owned() })
+        .take(10_000)
+        .collect::<Vec<_>>();
+    models.sort_by(|left, right| left.id.cmp(&right.id));
+    models.dedup();
+    Ok(models)
+}
+
+fn parse_ollama_models(payload: &Value) -> Result<Vec<ProviderModel>, ProviderError> {
+    let items = payload["models"]
+        .as_array()
+        .ok_or(ProviderError::InvalidResponse)?;
+    let mut models = items
+        .iter()
+        .filter_map(|model| model["name"].as_str().or_else(|| model["model"].as_str()))
+        .filter(|id| !id.is_empty() && id.len() <= 256 && !id.contains('\0'))
+        .map(|id| ProviderModel { id: id.to_owned() })
+        .take(10_000)
+        .collect::<Vec<_>>();
+    models.sort_by(|left, right| left.id.cmp(&right.id));
+    models.dedup();
+    Ok(models)
 }
 
 fn elapsed_ms(started: Instant) -> u64 {
@@ -441,5 +638,138 @@ fn safe_message(error: &ProviderError) -> &'static str {
         ProviderError::ModelUnavailable => "The configured model is unavailable.",
         ProviderError::InvalidResponse => "The provider returned an invalid response.",
         ProviderError::PolicyDenied => "The provider request was denied by local policy.",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restork_personal::{FallbackPolicy, ProviderKind, ReasoningEffort};
+
+    fn profile(kind: ProviderKind) -> ProviderProfile {
+        let definition = kind.definition();
+        ProviderProfile::try_new(
+            definition.id,
+            1,
+            definition.display_name,
+            kind,
+            definition.default_base_url,
+            "fixture-model",
+            Some("keychain:restork/provider/fixture"),
+            FallbackPolicy::Disabled,
+        )
+        .expect("valid cloud fixture")
+    }
+
+    fn reasoning_profile(
+        kind: ProviderKind,
+        effort: ReasoningEffort,
+        budget: Option<u32>,
+    ) -> ProviderProfile {
+        profile(kind)
+            .with_reasoning(effort, budget)
+            .expect("supported reasoning fixture")
+    }
+
+    #[test]
+    fn reasoning_fields_are_provider_scoped_and_auto_is_not_overridden() {
+        let messages = [ChatMessage {
+            role: "user".to_owned(),
+            content: "hello".to_owned(),
+        }];
+        let automatic = build_openai_chat_request(&profile(ProviderKind::DeepSeek), &messages, 32)
+            .expect("automatic deepseek request");
+        assert!(automatic.get("thinking").is_none());
+
+        let deepseek = build_openai_chat_request(
+            &reasoning_profile(ProviderKind::DeepSeek, ReasoningEffort::Max, None),
+            &messages,
+            32,
+        )
+        .expect("deepseek request");
+        assert_eq!(deepseek["thinking"]["type"], "enabled");
+        assert_eq!(deepseek["reasoning_effort"], "max");
+
+        let glm = build_openai_chat_request(
+            &reasoning_profile(ProviderKind::Glm, ReasoningEffort::High, None),
+            &messages,
+            32,
+        )
+        .expect("GLM request");
+        assert_eq!(glm["thinking"]["type"], "enabled");
+        assert_eq!(glm["reasoning_effort"], "high");
+
+        let qwen = build_openai_chat_request(
+            &reasoning_profile(ProviderKind::Qwen, ReasoningEffort::Medium, Some(2_048)),
+            &messages,
+            32,
+        )
+        .expect("Qwen request");
+        assert_eq!(qwen["enable_thinking"], true);
+        assert_eq!(qwen["reasoning_effort"], "medium");
+        assert_eq!(qwen["thinking_budget"], 2_048);
+
+        let openrouter = build_openai_chat_request(
+            &reasoning_profile(ProviderKind::OpenRouter, ReasoningEffort::Low, Some(1_024)),
+            &messages,
+            32,
+        )
+        .expect("OpenRouter request");
+        assert_eq!(openrouter["reasoning"]["effort"], "low");
+        assert_eq!(openrouter["reasoning"]["max_tokens"], 1_024);
+        assert_eq!(openrouter["reasoning"]["exclude"], true);
+
+        for kind in [
+            ProviderKind::Glm,
+            ProviderKind::Kimi,
+            ProviderKind::Qwen,
+            ProviderKind::OpenAiCompatible,
+            ProviderKind::OpenRouter,
+        ] {
+            let request = build_openai_chat_request(&profile(kind), &messages, 32)
+                .expect("OpenAI-compatible request");
+            assert!(request.get("thinking").is_none());
+            assert!(request.get("reasoning_effort").is_none());
+            assert_eq!(request["model"], "fixture-model");
+            assert_eq!(request["max_tokens"], 32);
+        }
+
+        let ollama_profile = ProviderProfile::try_new(
+            "ollama",
+            1,
+            "Ollama",
+            ProviderKind::Ollama,
+            "http://127.0.0.1:11434",
+            "gpt-oss",
+            None,
+            FallbackPolicy::Disabled,
+        )
+        .expect("Ollama profile")
+        .with_reasoning(ReasoningEffort::High, None)
+        .expect("Ollama reasoning");
+        let ollama =
+            build_ollama_chat_request(&ollama_profile, &messages, 32).expect("Ollama request");
+        assert_eq!(ollama["think"], "high");
+    }
+
+    #[test]
+    fn model_payloads_are_bounded_sorted_and_deduplicated() {
+        let payload = json!({"data": [
+            {"id": "z-model"},
+            {"id": "a-model"},
+            {"id": "a-model"},
+            {"id": "bad\0model"}
+        ]});
+        assert_eq!(
+            parse_openai_models(&payload).expect("model catalog"),
+            vec![
+                ProviderModel {
+                    id: "a-model".to_owned()
+                },
+                ProviderModel {
+                    id: "z-model".to_owned()
+                },
+            ]
+        );
     }
 }

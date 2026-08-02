@@ -21,5 +21,10 @@ pub use manifest::{BudgetLimits, FrozenRunManifestV2, PolicyRef, SourceBinding, 
 pub use personal::{DailyContext, PersonalSettings, Theme, TimeBand, WeekStart};
 pub use profile::{ConfigurationProfile, DataClass, Mode};
 pub use prompt::{PromptLayer, PromptManifest, PromptRef, PromptRevision};
-pub use provider::{ExplicitFallback, FallbackPolicy, ProviderKind, ProviderProfile};
+pub use provider::{
+    EndpointPolicy, ExplicitFallback, FallbackPolicy, ModelDiscovery, PROVIDER_REGISTRY_VERSION,
+    ProviderAuthKind, ProviderCapabilities, ProviderDefinition, ProviderKind, ProviderProfile,
+    ProviderProtocol, ProviderRequestAdapter, ReasoningCapabilities, ReasoningConfig,
+    ReasoningEffort, provider_definitions,
+};
 pub use validation::content_hash;

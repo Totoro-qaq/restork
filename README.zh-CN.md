@@ -3,6 +3,12 @@
 </p>
 
 <p align="center">
+  <a href="https://totoro-qaq.github.io/restork/zh-CN.html">项目主页</a> ·
+  <a href="https://github.com/Totoro-qaq/restork/discussions">Discussions</a> ·
+  <a href="https://github.com/Totoro-qaq/restork/releases">Releases</a>
+</p>
+
+<p align="center">
   <img src="./assets/readme/hero.zh-CN.svg" width="100%" alt="Restork——服务于研究、学习与工作的本地优先智能工作台。">
 </p>
 
@@ -105,25 +111,27 @@ Restork 会在 `http://127.0.0.1:7337` 启动，并在终端打印一次性 Web 
 
 ### 体验 Rust-first 工作台
 
-Step 12–17 内测版运行原生 Core 与同一套内嵌 Dashboard。从源码启动时需要 Rust；桌面安装包会
-直接包含二进制。
+原生 Core 运行同一套内嵌 Dashboard，现在已经包含 Steps 18–22 的生产化能力表面。从源码启动
+时需要 Rust；桌面安装包会直接包含二进制。
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- \
   serve --port 7337 --state-db ./build/restork-alpha.db
 ```
 
-打开 readiness 记录中的 `base_url`，输入其中的一次性配对码。这个内测版已经包含个人每日
-上下文、全局对话、模型/Profile/Prompt 设置、受控扩展中心、报告与演示草稿、检查点、有界
-调度、评估清单和委派契约。V1 的 Research/Study/Work 执行路由仍在逐项迁移；现在需要完整
-工作流时请继续使用 `./scripts/quickstart.sh`。
+打开 readiness 记录中的 `base_url`，输入其中的一次性配对码。原生工作台包含可取消对话与
+上下文预览、多供应商 Profile 与版本化 Prompt、受控 MCP 执行和扩展回滚、确定性 PPTX/PDF、
+真正绑定预览哈希的文件恢复、有界子任务、调度、记忆与每日上下文。只有在需要尚未达到 Rust
+行为对等的某条 V1 工作流时，才继续使用 `./scripts/quickstart.sh`。
 
 ### 桌面安装包
 
-源码已能生成 macOS、Windows 与 Linux 候选包。当
-[Releases 页面](https://github.com/Totoro-qaq/restork/releases)出现已签名安装包后，目标电脑
-无需 Python、Node.js、Rust、`uv` 或包管理器即可安装启动。未签名 CI 候选包只用于测试；
-一条命令构建方式和签名门禁见[桌面端指南](docs/desktop.zh-CN.md)。
+源码可以生成 macOS、Windows 与 Linux 候选包。受保护的发布工作流会分别签名三平台、完成
+macOS 公证与 stapling、验证更新签名、生成 SBOM/provenance，并在干净 runner 上重新下载、安装
+和启动后才发布；仓库所有者未配置真实签名身份时会失败关闭。当
+[Releases 页面](https://github.com/Totoro-qaq/restork/releases)出现已签名安装包后，目标电脑无需
+Python、Node.js、Rust、`uv` 或包管理器。精确状态与一条命令构建方式见
+[桌面端指南](docs/desktop.zh-CN.md)。
 
 ### 只连接你真正需要的东西
 
@@ -131,7 +139,7 @@ cargo run --manifest-path rust/Cargo.toml -p restorkd -- \
 |---|---|---|
 | 先看看 Dashboard | 不用额外配置 | 不调用模型，也不读取 Vault |
 | 读取我的 Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | 仅在本地读取；任何写入仍要先预览并审批 |
-| 使用 DeepSeek V4 Pro | `cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure` | Key 直接进入系统凭据存储；DeepSeek 直连对话仅允许公开数据，私有数据需建立更严格的受控 Profile |
+| 使用云端或本地模型 | 打开**设置 → 模型供应商**；云端 Key 使用原生凭据命令 | 可选 DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter 或兼容端点；只显示真正支持的思考档位 |
 | 查看天气 | 在天气设置中输入城市，或自己点击**使用当前位置** | 启用前始终关闭；不会通过 IP 猜测位置 |
 | 加入日历或音乐 | 选择一个本地 ICS 文件，或私有 JSON/CSV 歌单 | 只读本地导入，不要求登录账号 |
 
@@ -141,7 +149,15 @@ cargo run --manifest-path rust/Cargo.toml -p restorkd -- \
 RESTORK_PORT=7444 ./scripts/quickstart.sh
 ```
 
-### 准备好后再接入 DeepSeek
+### 准备好后再接入模型
+
+打开**设置 → 模型供应商**，选择精确模型和它支持的思考强度。Restork 内置 DeepSeek、GLM、
+Kimi、Qwen、Ollama、OpenRouter 和 OpenAI-compatible 定义。Profile 与具体模型绑定，因此有界
+子任务可以用更快的模型、综合任务可以用更强模型，同时不会发生隐藏回退。能力表与端点规则见
+[模型供应商指南](docs/providers.zh-CN.md)。
+
+云端 Key 使用原生凭据流程。当前 CLI 命令配置内置 DeepSeek 凭据；更多安装包内的原生引导会
+作为发布门禁补齐，而不是在 Dashboard 放一个明文 Key 输入框：
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
@@ -149,7 +165,7 @@ cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
 
 系统原生提示会把 Key 写入 macOS Keychain、Windows Credential Manager 或 Linux Secret
 Service。Key 不会进入浏览器、TOML、命令行参数、环境变量、shell history、Vault、SQLite、
-日志或本仓库。
+日志或本仓库；Dashboard 只保存原生密钥引用。
 
 重启 Restork 后，可以自己决定检查到哪一步：
 
@@ -179,29 +195,31 @@ uv run restork \
 
 | 区域 | 当前可以做什么 |
 |---|---|
-| **运行与审批** | 持久运行状态、预算、显式重试、恢复、单次审批与可重放 SSE 更新 |
+| **运行与审批** | 持久运行状态、预算、显式重试、恢复、单次审批、可取消对话与可重放 SSE 更新 |
 | **Dashboard 与本地 API** | 响应式中英文界面、仅监听 loopback 的 `/v1` API、独立 Web/CLI 配对与短期会话 |
 | **知识与任务** | 只读 Vault 检索、确定性 wiki-link 投影、日志化单文件写入，以及 Markdown 任务的预览/审批/应用 |
 | **Research、Study、Work** | 带证据的研究、引导式学习与练习，以及只做规划的仓库交接 |
-| **记忆与每日上下文** | 四层可检查记忆、可选天气、一个本地只读 ICS 日历与私有歌单导入 |
-| **Rust-first 工作台内测版** | 原生存储/API/Provider 基础、个人上下文、全局对话、Profile 与版本化 Prompt、隔离扩展和冻结工具发现、报告/演示草稿、调度、恢复、评估与有界委派契约 |
-| **跨平台桌面源码** | Tauri 打包 `restorkd` 与 Dashboard，使用 Unix 进程组或 Windows Job Object 管理生命周期，并生成无需目标机运行时的 macOS、Windows 与 Linux 候选包 |
+| **记忆与每日上下文** | 四层可检查记忆、可选天气、无需权限的系统日期/月历、显式 macOS EventKit 接入、通用只读 ICS 后备与私有歌单导入 |
+| **模型与扩展** | DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter 与通用端点；供应商范围内思考强度；版本化 Prompt；真实有界 MCP stdio 执行；不可变扩展修订和回滚 |
+| **产物与恢复** | 确定性无宏 PPTX/PDF、精确产物哈希、包含真实内容的检查点、绑定预览的文件系统恢复、调度、评估与深度一有界子任务 |
+| **跨平台桌面源码** | Tauri 打包 `restorkd` 与 Dashboard，使用 Unix 进程组或 Windows Job Object 管理生命周期，验证签名更新并保留有限恢复副本，同时生成无需目标机运行时的三平台候选包 |
 
-Step 12–17 实现批次已经覆盖到 Step 17 的 API 与领域表面，但不会冒充生产版。仍待完成的退出
-门禁包括 V1 路由切换、原生日历引导、可取消的对话 SSE、扩展更新/回滚/卸载、获批的 PPTX/PDF
-渲染器、真实文件恢复、安装包内的凭据配置、干净机器矩阵以及 Windows/Linux 签名。当前范围与
-证据见 [Steps 12–17 规格](specs/restork-steps12-17.md)和
-[交付计划](plans/restork-steps12-17.md)。
+Steps 18–22 已在源码中实现，并有确定性本地门禁覆盖。但源码完成不等于已经发布签名安装包：
+Developer ID、Authenticode、Linux GPG、更新密钥、公证和干净 runner 结果都属于仓库所有者的
+受保护凭据与工作流证据；缺少任何一项都不会发布。精确契约与仍依赖凭据的证明见
+[Steps 18–22 规格](specs/restork-steps18-22.md)和[交付计划](plans/restork-steps18-22.md)。
 
 ## 使用指南
 
 - [Dashboard 与 CLI](docs/dashboard-usage.md)
+- [模型供应商与思考强度](docs/providers.zh-CN.md)
 - [记忆](docs/memory.md)
 - [Markdown 任务](docs/markdown-tasks.md)
 - [Research](docs/research-workflow.md)
 - [Study](docs/study.md)
 - [Work](docs/work.md)
 - [跨平台桌面端内测版](docs/desktop.zh-CN.md)
+- [Restork 与 Hermes Agent](docs/restork-vs-hermes.zh-CN.md)
 - [隐私](docs/privacy.md)与[安全模型](docs/security/threat-model.md)
 
 <details>
@@ -250,8 +268,8 @@ loopback 延迟，全程不发送 Prompt。在剩余执行路由达到 Rust 兼�
 启动会继续保留。
 
 提交改动前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。已实现的产品契约位于
-[`V1 规格`](specs/restork-v1.md)；已批准的后续架构位于
-[Steps 12–17 规格](specs/restork-steps12-17.md)。发布历史记录在 [`CHANGELOG.md`](CHANGELOG.md)。
+[`V1 规格`](specs/restork-v1.md)与[Steps 18–22 规格](specs/restork-steps18-22.md)。发布历史记录在
+[`CHANGELOG.md`](CHANGELOG.md)。
 
 </details>
 

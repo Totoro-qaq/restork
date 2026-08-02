@@ -10,6 +10,7 @@ import type {
   DashboardSnapshot,
   Mode,
   RadarAction,
+  ReasoningEffortV2,
   RunEvent,
   WorkDataClass,
   WorkHandoffPreview,
@@ -17,6 +18,7 @@ import type {
 } from "./api/types";
 import {
   agentWaitMarkup,
+  conversationOperationWaitMarkup,
   errorText,
   pairingMarkup,
   providerDiagnosticMarkup,
@@ -56,6 +58,39 @@ interface MountOptions {
 
 const coverUrls = new WeakMap<HTMLElement, string>();
 const eventStreams = new WeakMap<HTMLElement, AbortController>();
+const conversationStreams = new WeakMap<HTMLElement, {
+  controller: AbortController;
+  operationId: string;
+}>();
+
+function syncReasoningControls(form: HTMLFormElement): void {
+  const kind = form.elements.namedItem("kind") as HTMLSelectElement | null;
+  const effort = form.elements.namedItem("reasoning_effort") as HTMLSelectElement | null;
+  const budget = form.elements.namedItem("reasoning_max_tokens") as HTMLInputElement | null;
+  const budgetField = form.querySelector<HTMLElement>("[data-reasoning-budget-field]");
+  const selected = kind?.selectedOptions[0];
+  if (!effort || !selected) return;
+  const supported = new Set(
+    (selected.dataset.reasoningEfforts ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+  supported.add("auto");
+  if (selected.dataset.reasoningCanDisable === "true") supported.add("none");
+  for (const option of effort.options) {
+    const available = supported.has(option.value);
+    option.disabled = !available;
+    option.hidden = !available;
+  }
+  if (!supported.has(effort.value)) effort.value = "auto";
+  const supportsBudget = selected.dataset.reasoningBudget === "true";
+  if (budgetField) budgetField.hidden = !supportsBudget;
+  if (budget) {
+    budget.disabled = !supportsBudget || ["auto", "none"].includes(effort.value);
+    if (!supportsBudget) budget.value = "";
+  }
+}
 
 export function mountDashboard(root: HTMLElement, options: MountOptions = {}): void {
   const api = options.api ?? new LocalApiClient();
@@ -176,6 +211,10 @@ function configureRustWorkspace(
     root.querySelectorAll<HTMLFormElement>("#session-message-form, #proposal-form").forEach(
       (form) => { form.hidden = false; },
     );
+    const contextPreview = root.querySelector<HTMLDetailsElement>(".context-preview");
+    if (contextPreview) contextPreview.hidden = profileId === "safe-mode";
+    delete pane.dataset.contextPreviewHash;
+    delete pane.dataset.contextPreviewClass;
     root.querySelectorAll<HTMLButtonElement>("[data-session-export], [data-session-archive], [data-session-delete]")
       .forEach((button) => { button.disabled = false; });
     const dataClass = root.querySelector<HTMLSelectElement>('#session-message-form [name="data_class"]');
@@ -185,6 +224,16 @@ function configureRustWorkspace(
         option.disabled = publicOnly && option.value !== "public";
       }
       if (publicOnly) dataClass.value = "public";
+    }
+    const contextDataClass = root.querySelector<HTMLSelectElement>(
+      '#context-preview-form [name="data_class"]',
+    );
+    if (contextDataClass) {
+      const publicOnly = profileId === "deepseek";
+      for (const option of contextDataClass.options) {
+        option.disabled = publicOnly && option.value !== "public";
+      }
+      if (publicOnly) contextDataClass.value = "public";
     }
     host.setAttribute("aria-busy", "true");
     host.innerHTML = `<p class="empty">${tr(localeOf(root), "Loading local messages…", "正在加载本地消息…")}</p>`;
@@ -282,6 +331,89 @@ function configureRustWorkspace(
     },
   );
 
+  root.querySelector<HTMLFormElement>("#context-preview-form")?.addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+      const form = event.currentTarget as HTMLFormElement;
+      const pane = root.querySelector<HTMLElement>(".conversation-pane");
+      const result = root.querySelector<HTMLElement>("#context-preview-result");
+      const sessionId = pane?.dataset.activeSession ?? "";
+      const files = Array.from(
+        (form.elements.namedItem("files") as HTMLInputElement | null)?.files ?? [],
+      );
+      const dataClass = String(
+        (form.elements.namedItem("data_class") as HTMLSelectElement | null)?.value ?? "public",
+      ) as WorkDataClass;
+      if (!sessionId || !result || !api.createContextPreview) return;
+      if (!files.length || files.length > 16 || files.some((file) => file.size > 128_000)) {
+        result.textContent = tr(
+          localeOf(root),
+          "Choose 1–16 UTF-8 text files, at most 128 KB each.",
+          "请选择 1–16 个 UTF-8 文本文件，每个不超过 128 KB。",
+        );
+        return;
+      }
+      const totalBytes = files.reduce((total, file) => total + file.size, 0);
+      if (totalBytes > 256_000) {
+        result.textContent = tr(
+          localeOf(root),
+          "The selected context exceeds 256 KB.",
+          "所选上下文超过 256 KB。",
+        );
+        return;
+      }
+      form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
+        "input, select, button",
+      ).forEach((control) => { control.disabled = true; });
+      result.textContent = tr(
+        localeOf(root),
+        "Reading only the files you selected…",
+        "正在读取你明确选择的文件…",
+      );
+      void Promise.all(files.map(async (file) => ({ name: file.name, content: await file.text() })))
+        .then((items) => api.createContextPreview?.(sessionId, dataClass, items))
+        .then((preview) => {
+          if (!preview || !pane) return;
+          pane.dataset.contextPreviewHash = preview.content_hash;
+          pane.dataset.contextPreviewClass = preview.data_class;
+          const messageClass = root.querySelector<HTMLSelectElement>(
+            '#session-message-form [name="data_class"]',
+          );
+          if (messageClass) messageClass.value = preview.data_class;
+          const heading = document.createElement("p");
+          heading.className = "fine";
+          heading.textContent = tr(
+            localeOf(root),
+            `${preview.manifest.entries.length} files · ${preview.byte_count} bytes · about ${preview.estimated_tokens} tokens · attached once`,
+            `${preview.manifest.entries.length} 个文件 · ${preview.byte_count} 字节 · 约 ${preview.estimated_tokens} tokens · 单次附加`,
+          );
+          const filesHost = document.createElement("div");
+          filesHost.className = "context-preview-files";
+          for (const entry of preview.manifest.entries) {
+            const card = document.createElement("article");
+            const name = document.createElement("strong");
+            name.textContent = entry.name;
+            const metadata = document.createElement("small");
+            metadata.textContent = `${entry.byte_count} B · ${entry.content_hash.slice(0, 12)}…`;
+            const excerpt = document.createElement("pre");
+            excerpt.textContent = entry.content.slice(0, 1_200);
+            card.append(name, metadata, excerpt);
+            filesHost.append(card);
+          }
+          result.replaceChildren(heading, filesHost);
+        })
+        .catch((error) => {
+          result.textContent = errorText(error, localeOf(root));
+        })
+        .finally(() => {
+          form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
+            "input, select, button",
+          ).forEach((control) => { control.disabled = false; });
+        });
+    },
+  );
+
   const messageForm = root.querySelector<HTMLFormElement>("#session-message-form");
   const messageText = messageForm?.querySelector<HTMLTextAreaElement>("textarea");
   messageText?.addEventListener("keydown", (event) => {
@@ -299,35 +431,25 @@ function configureRustWorkspace(
     const data = new FormData(form);
     const content = String(data.get("content") ?? "").trim();
     const dataClass = String(data.get("data_class") ?? "public") as WorkDataClass;
+    const contextPreviewHash = pane?.dataset.contextPreviewHash ?? null;
+    const contextPreviewClass = pane?.dataset.contextPreviewClass;
     const activeProfileId = snapshot.workspaceV2?.sessions.find(
       (session) => session.session_id === sessionId,
     )?.profile_id ?? pane?.dataset.activeProfile ?? "safe-mode";
-    if (!sessionId || !content || !api.sendSessionMessage) return;
+    if (!sessionId || !content || (!api.sendSessionMessage && !api.createConversationTurn)) return;
+    if (contextPreviewHash && contextPreviewClass !== dataClass) {
+      announce(root, tr(
+        localeOf(root),
+        "The message data class must match the attached context preview.",
+        "消息的数据分类必须与附加的上下文预览一致。",
+      ));
+      return;
+    }
     form.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement | HTMLSelectElement>(
       "button, textarea, select",
     ).forEach((control) => { control.disabled = true; });
     const modelBacked = activeProfileId !== "safe-mode";
-    if (wait) {
-      wait.setAttribute("aria-busy", "true");
-      wait.innerHTML = `<div class="conversation-wait"><i></i><span>${modelBacked
-        ? tr(localeOf(root), "Waiting for the configured model · tools remain off…", "正在等待已配置的模型 · 工具仍保持关闭…")
-        : tr(localeOf(root), "Saving this message to the local session…", "正在将消息保存到本地会话…")}</span></div>`;
-    }
-    void api.sendSessionMessage(sessionId, content, dataClass).then(() => {
-      form.reset();
-      return selectSession(
-        sessionId,
-        root.querySelector<HTMLElement>("#conversation-title")?.textContent ?? "",
-        activeProfileId,
-      );
-    }).catch((error) => {
-      announce(root, errorText(error, localeOf(root)));
-      return selectSession(
-        sessionId,
-        root.querySelector<HTMLElement>("#conversation-title")?.textContent ?? "",
-        activeProfileId,
-      );
-    }).finally(() => {
+    const restoreComposer = (): void => {
       if (wait) {
         wait.innerHTML = "";
         wait.removeAttribute("aria-busy");
@@ -336,7 +458,99 @@ function configureRustWorkspace(
         "button, textarea, select",
       ).forEach((control) => { control.disabled = false; });
       messageText?.focus();
-    });
+    };
+    const reloadMessages = (): Promise<void> => selectSession(
+      sessionId,
+      root.querySelector<HTMLElement>("#conversation-title")?.textContent ?? "",
+      activeProfileId,
+    );
+    if (
+      modelBacked
+      && api.createConversationTurn
+      && api.streamConversationOperation
+      && api.cancelConversationOperation
+    ) {
+      conversationStreams.get(root)?.controller.abort();
+      if (wait) {
+        wait.setAttribute("aria-busy", "true");
+        wait.innerHTML = conversationOperationWaitMarkup("queued", localeOf(root));
+      }
+      void api.createConversationTurn(
+        sessionId,
+        content,
+        dataClass,
+        contextPreviewHash,
+      ).then((created) => {
+        form.reset();
+        if (pane) {
+          delete pane.dataset.contextPreviewHash;
+          delete pane.dataset.contextPreviewClass;
+        }
+        const operationId = created.operation.operation_id;
+        const controller = new AbortController();
+        conversationStreams.set(root, { controller, operationId });
+        const showPhase = (phase: string, canCancel = true): void => {
+          if (!wait) return;
+          wait.innerHTML = conversationOperationWaitMarkup(phase, localeOf(root), canCancel);
+          const stop = wait.querySelector<HTMLButtonElement>("[data-conversation-cancel]");
+          stop?.addEventListener("click", () => {
+            stop.disabled = true;
+            wait.innerHTML = conversationOperationWaitMarkup(
+              "cancelling",
+              localeOf(root),
+              false,
+            );
+            void api.cancelConversationOperation?.(operationId).catch((error) => {
+              announce(root, errorText(error, localeOf(root)));
+            });
+          });
+        };
+        showPhase(created.operation.phase || "queued");
+        return api.streamConversationOperation?.(
+          operationId,
+          0,
+          (operationEvent) => {
+            if (operationEvent.type === "conversation.model_started") showPhase("model");
+            if (operationEvent.type === "conversation.validating") showPhase("validating");
+            if (operationEvent.type === "conversation.cancel_requested") {
+              showPhase("cancelling", false);
+            }
+            if (operationEvent.type === "conversation.cancelled") {
+              showPhase("cancelled", false);
+            }
+            if (operationEvent.type === "conversation.failed") {
+              showPhase("failed", false);
+            }
+          },
+          controller.signal,
+        );
+      }).then(() => reloadMessages()).catch((error) => {
+        announce(root, errorText(error, localeOf(root)));
+        return reloadMessages();
+      }).finally(() => {
+        conversationStreams.get(root)?.controller.abort();
+        conversationStreams.delete(root);
+        restoreComposer();
+      });
+      return;
+    }
+    if (wait) {
+      wait.setAttribute("aria-busy", "true");
+      wait.innerHTML = `<div class="conversation-wait"><i></i><span>${modelBacked
+        ? tr(localeOf(root), "Waiting for the configured model · tools remain off…", "正在等待已配置的模型 · 工具仍保持关闭…")
+        : tr(localeOf(root), "Saving this message to the local session…", "正在将消息保存到本地会话…")}</span></div>`;
+    }
+    if (!api.sendSessionMessage) {
+      restoreComposer();
+      return;
+    }
+    void api.sendSessionMessage(sessionId, content, dataClass).then(() => {
+      form.reset();
+      return reloadMessages();
+    }).catch((error) => {
+      announce(root, errorText(error, localeOf(root)));
+      return reloadMessages();
+    }).finally(restoreComposer);
   });
 
   root.querySelector<HTMLFormElement>("#proposal-form")?.addEventListener("submit", (event) => {
@@ -405,15 +619,44 @@ function configureRustWorkspace(
     },
   );
 
+  root.querySelector<HTMLButtonElement>("[data-update-recovery]")?.addEventListener(
+    "click",
+    () => {
+      const host = root.querySelector<HTMLElement>("#update-recovery-results");
+      if (!host) return;
+      const bridge = detectDesktopBridge();
+      if (!bridge) {
+        host.textContent = tr(
+          localeOf(root),
+          "Open Settings in the desktop app to inspect verified recovery copies.",
+          "请在桌面应用的设置中查看已验证恢复副本。",
+        );
+        return;
+      }
+      host.textContent = tr(localeOf(root), "Reading the private recovery ledger…", "正在读取私有恢复记录…");
+      void bridge.recovery().then((artifacts) => {
+        host.innerHTML = artifacts.map((artifact) => `<article><strong>Restork ${escapeStatus(artifact.version)}</strong><span>${escapeStatus(artifact.target)}</span><small>SHA-256 ${escapeStatus(artifact.sha256.slice(0, 16))}…</small><code>${escapeStatus(artifact.filename)}</code></article>`).join("")
+          || `<p class="empty">${tr(localeOf(root), "No previous verified updater package is retained yet.", "暂时还没有保留过已验证更新包。")}</p>`;
+      }).catch((error) => {
+        host.textContent = errorText(error, localeOf(root));
+      });
+    },
+  );
+
+  const providerForm = root.querySelector<HTMLFormElement>("#provider-profile-form");
   root.querySelector<HTMLSelectElement>('#provider-profile-form [name="kind"]')
     ?.addEventListener("change", (event) => {
-      const kind = (event.currentTarget as HTMLSelectElement).value;
+      const select = event.currentTarget as HTMLSelectElement;
+      const kind = select.value;
+      const selected = select.selectedOptions[0];
       const form = root.querySelector<HTMLFormElement>("#provider-profile-form");
       const baseUrl = form?.elements.namedItem("base_url") as HTMLInputElement | null;
       const model = form?.elements.namedItem("model") as HTMLInputElement | null;
       const secretRef = form?.elements.namedItem("secret_ref") as HTMLInputElement | null;
-      if (kind === "ollama") {
-        if (baseUrl) baseUrl.value = "http://127.0.0.1:11434";
+      const authKind = selected?.dataset.authKind ?? (kind === "ollama" ? "none" : "bearer");
+      const registryBaseUrl = selected?.dataset.baseUrl;
+      if (baseUrl && registryBaseUrl) baseUrl.value = registryBaseUrl;
+      if (authKind === "none") {
         if (model) model.value = "";
         if (secretRef) {
           secretRef.value = "";
@@ -422,11 +665,16 @@ function configureRustWorkspace(
       } else {
         if (secretRef) secretRef.disabled = false;
         if (kind === "deepseek") {
-          if (baseUrl) baseUrl.value = "https://api.deepseek.com";
           if (model) model.value = "deepseek-v4-pro";
+        } else if (model) {
+          model.value = "";
         }
       }
+      if (form) syncReasoningControls(form);
     });
+  providerForm?.querySelector<HTMLSelectElement>('[name="reasoning_effort"]')
+    ?.addEventListener("change", () => syncReasoningControls(providerForm));
+  if (providerForm) syncReasoningControls(providerForm);
 
   root.querySelectorAll<HTMLButtonElement>("[data-provider-edit]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -442,6 +690,16 @@ function configureRustWorkspace(
           const field = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
           if (field) field.value = String(record.provider[name] ?? "");
         }
+        const reasoning = record.provider.reasoning as
+          | { effort?: string; max_tokens?: number | null }
+          | undefined;
+        const effort = form.elements.namedItem("reasoning_effort") as HTMLSelectElement | null;
+        const budget = form.elements.namedItem("reasoning_max_tokens") as HTMLInputElement | null;
+        if (effort) effort.value = reasoning?.effort ?? "auto";
+        if (budget) budget.value = reasoning?.max_tokens ? String(reasoning.max_tokens) : "";
+        const secret = form.elements.namedItem("secret_ref") as HTMLInputElement | null;
+        if (secret) secret.disabled = record.provider.kind === "ollama";
+        syncReasoningControls(form);
         const id = form.elements.namedItem("profile_id") as HTMLInputElement | null;
         if (id) id.readOnly = true;
         form.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -460,9 +718,15 @@ function configureRustWorkspace(
       const expected = Number(form.dataset.version ?? "0") || null;
       const kind = String(data.get("kind") ?? "deepseek") as
         | "deepseek"
+        | "glm"
+        | "kimi"
+        | "qwen"
         | "ollama"
-        | "open_ai_compatible";
+        | "open_ai_compatible"
+        | "openrouter";
       const secretRef = String(data.get("secret_ref") ?? "").trim() || null;
+      const reasoningEffort = String(data.get("reasoning_effort") ?? "auto") as ReasoningEffortV2;
+      const reasoningBudget = String(data.get("reasoning_max_tokens") ?? "").trim();
       const status = form.querySelector<HTMLElement>("#provider-profile-status");
       if (!api.saveProviderProfile) return;
       if (kind !== "ollama" && !secretRef) {
@@ -483,6 +747,10 @@ function configureRustWorkspace(
         model: String(data.get("model") ?? "").trim(),
         secret_ref: kind === "ollama" ? null : secretRef,
         fallback: "disabled",
+        reasoning: {
+          effort: reasoningEffort,
+          max_tokens: reasoningBudget ? Number(reasoningBudget) : null,
+        },
       }).then(() => reloadWorkspaceView(root, api, "settings")).catch((error) => {
         if (status) status.textContent = errorText(error, localeOf(root));
       });
@@ -578,12 +846,39 @@ function bindToolPreview(
       button.disabled = true;
       void api.previewSessionToolCall(sessionId, toolId, {}).then((preview) => {
         host.innerHTML = toolCallPreviewMarkup(preview, localeOf(root));
+        const execute = host.querySelector<HTMLButtonElement>("[data-tool-execute]");
+        execute?.addEventListener("click", () => {
+          if (!api.executeSessionToolCall) return;
+          if (!window.confirm(tr(
+            localeOf(root),
+            `Run ${preview.resolved_call.real_tool_id} with the exact reviewed input?`,
+            `使用刚才审查的精确输入运行 ${preview.resolved_call.real_tool_id}？`,
+          ))) return;
+          execute.disabled = true;
+          execute.textContent = tr(localeOf(root), "RUNNING IN SANDBOX…", "正在沙箱中运行…");
+          void api.executeSessionToolCall(sessionId, preview).then((execution) => {
+            host.innerHTML = `<article class="proposal-card"><header><strong>${tr(localeOf(root), "MCP execution", "MCP 执行")}</strong><span>${escapeMarkup(execution.state)}</span></header><p>${tr(localeOf(root), "Tool output is untrusted data and grants no new authority.", "工具输出是不受信任的数据，不会获得任何新权限。")}</p><pre>${escapeMarkup(JSON.stringify(execution, null, 2))}</pre></article>`;
+          }).catch((error) => {
+            execute.disabled = false;
+            execute.textContent = tr(localeOf(root), "APPROVE & RUN", "批准并运行");
+            announce(root, errorText(error, localeOf(root)));
+          });
+        });
       }).catch((error) => {
         button.disabled = false;
         announce(root, errorText(error, localeOf(root)));
       });
     });
   });
+}
+
+function escapeMarkup(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function configureExtensionCenter(root: HTMLElement, api: DashboardApi): void {
@@ -632,6 +927,50 @@ function configureExtensionCenter(root: HTMLElement, api: DashboardApi): void {
         .catch((error) => { button.disabled = false; announce(root, errorText(error, localeOf(root))); });
     });
   });
+  root.querySelectorAll<HTMLButtonElement>("[data-extension-history]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const packageId = button.dataset.extensionId ?? "";
+      const currentHash = button.dataset.extensionHash ?? "";
+      const host = button.closest("article")?.querySelector<HTMLElement>("[data-extension-history-results]");
+      if (!packageId || !currentHash || !host || !api.extensionRevisions) return;
+      button.disabled = true;
+      host.textContent = tr(localeOf(root), "Loading immutable versions…", "正在加载不可变版本…");
+      void api.extensionRevisions(packageId).then((records) => {
+        host.replaceChildren();
+        for (const record of records) {
+          if (!record.manifest_hash) continue;
+          const row = document.createElement("article");
+          const label = document.createElement("strong");
+          label.textContent = `${record.manifest_hash.slice(0, 16)}…`;
+          const meta = document.createElement("small");
+          meta.textContent = `${record.state} · ${new Date(record.updated_at).toLocaleString()}`;
+          row.append(label, meta);
+          if (record.manifest_hash !== currentHash && api.rollbackExtension) {
+            const rollback = document.createElement("button");
+            rollback.type = "button";
+            rollback.textContent = tr(localeOf(root), "REVIEW ROLLBACK", "审查回滚");
+            rollback.addEventListener("click", () => {
+              if (!window.confirm(tr(localeOf(root), `Create a reviewed rollback to ${record.manifest_hash?.slice(0, 16)}…? It will not execute a tool.`, `创建回滚到 ${record.manifest_hash?.slice(0, 16)}… 的审查记录？它不会执行工具。`))) return;
+              rollback.disabled = true;
+              void api.rollbackExtension?.(packageId, currentHash, record.manifest_hash ?? "")
+                .then(() => reloadWorkspaceView(root, api, "extensions"))
+                .catch((error) => {
+                  rollback.disabled = false;
+                  announce(root, errorText(error, localeOf(root)));
+                });
+            });
+            row.append(rollback);
+          }
+          host.append(row);
+        }
+        if (!host.childElementCount) {
+          host.textContent = tr(localeOf(root), "No verified older version is installed.", "没有已安装且通过验证的旧版本。");
+        }
+      }).catch((error) => {
+        host.textContent = errorText(error, localeOf(root));
+      }).finally(() => { button.disabled = false; });
+    });
+  });
   root.querySelector<HTMLFormElement>("#extension-tool-search-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
@@ -649,6 +988,43 @@ function configureExtensionCenter(root: HTMLElement, api: DashboardApi): void {
 }
 
 function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
+  root.querySelectorAll<HTMLButtonElement>("[data-render-format]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const deliverableId = button.dataset.renderId ?? "";
+      const revision = Number(button.dataset.renderRevision ?? "0");
+      const format = button.dataset.renderFormat as "pptx" | "pdf";
+      if (!deliverableId || revision < 1 || !api.previewDeliverableRender || !api.exportDeliverableRender) return;
+      button.disabled = true;
+      button.textContent = tr(localeOf(root), "RENDERING PREVIEW…", "正在渲染预览…");
+      void api.previewDeliverableRender(deliverableId, revision, format).then(async (preview) => {
+        const approved = window.confirm(tr(
+          localeOf(root),
+          `Download deterministic ${format.toUpperCase()} (${preview.manifest.byte_count} bytes)?\nSHA-256: ${preview.manifest.artifact_hash}`,
+          `下载可复现的 ${format.toUpperCase()}（${preview.manifest.byte_count} 字节）？\nSHA-256：${preview.manifest.artifact_hash}`,
+        ));
+        if (!approved) return;
+        const download = await api.exportDeliverableRender?.(preview);
+        if (!download) return;
+        const url = URL.createObjectURL(download.blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = download.filename;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        announce(root, tr(
+          localeOf(root),
+          `${download.filename} is ready. SHA-256 ${download.artifactHash}`,
+          `${download.filename} 已生成。SHA-256 ${download.artifactHash}`,
+        ));
+      }).catch((error) => announce(root, errorText(error, localeOf(root))))
+        .finally(() => {
+          button.disabled = false;
+          button.textContent = format === "pptx"
+            ? tr(localeOf(root), "REVIEW PPTX", "审查 PPTX")
+            : tr(localeOf(root), "REVIEW PDF", "审查 PDF");
+        });
+    });
+  });
   root.querySelector<HTMLFormElement>("#manual-report-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
@@ -931,10 +1307,42 @@ function configureCalendar(root: HTMLElement, api: DashboardApi): void {
     event.preventDefault();
     void saveCalendar(root, api, form);
   });
+  form?.querySelector<HTMLButtonElement>("[data-native-calendar-connect]")?.addEventListener(
+    "click",
+    () => void connectNativeCalendar(root, api, form),
+  );
   form?.querySelector<HTMLButtonElement>("[data-calendar-disable]")?.addEventListener(
     "click",
     () => void disableCalendar(root, api, form),
   );
+}
+
+async function connectNativeCalendar(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  if (!api.connectNativeCalendar) return;
+  const scope = String(
+    (form.elements.namedItem("native_detail_scope") as HTMLSelectElement | null)?.value
+      ?? "busy_only",
+  ) as "busy_only" | "titles";
+  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
+  buttons.forEach((button) => { button.disabled = true; });
+  try {
+    const calendar = await api.connectNativeCalendar(scope);
+    await refresh(root, api);
+    announce(root, calendar.configured
+      ? tr(
+          localeOf(root),
+          "System Calendar connected in read-only mode.",
+          "系统日历已以只读方式连接。",
+        )
+      : calendar.message);
+  } catch (error) {
+    buttons.forEach((button) => { button.disabled = false; });
+    announce(root, errorText(error, localeOf(root)));
+  }
 }
 
 function bindSettingsDialog(
@@ -1001,7 +1409,11 @@ async function disableCalendar(
   const buttons = form.querySelectorAll<HTMLButtonElement>("button");
   buttons.forEach((button) => { button.disabled = true; });
   try {
-    await api.configureCalendar({ enabled: false, timezone: systemTimeZone() });
+    if (api.disconnectNativeCalendar) {
+      await api.disconnectNativeCalendar();
+    } else {
+      await api.configureCalendar({ enabled: false, timezone: systemTimeZone() });
+    }
     form.reset();
     await refresh(root, api);
     announce(root, tr(
