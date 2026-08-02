@@ -252,6 +252,7 @@ npm --prefix dashboard run build
 # macOS desktop alpha
 npm --prefix desktop ci
 npm --prefix desktop run fmt:check
+./scripts/build-desktop-core.sh
 npm --prefix desktop run clippy
 npm --prefix desktop test
 npm --prefix desktop run build:app

@@ -62,9 +62,9 @@ jobs:
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
       - run: npm --prefix desktop run fmt:check
+      - run: ./scripts/build-desktop-core.sh
       - run: npm --prefix desktop run clippy
       - run: npm --prefix desktop test
-      - run: ./scripts/build-desktop-core.sh
       - run: ./scripts/smoke-desktop-core.sh
       - run: npm --prefix desktop run build:app
       - run: codesign --verify --deep --strict --verbose=2 desktop/src-tauri/target/release/bundle/macos/Restork.app

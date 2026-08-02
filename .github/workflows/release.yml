@@ -78,6 +78,7 @@ jobs:
       - run: npm --prefix desktop ci
       - run: uv run pytest tests/desktop tests/security
       - run: npm --prefix desktop run fmt:check
+      - run: ./scripts/build-desktop-core.sh
       - run: npm --prefix desktop run clippy
       - run: npm --prefix desktop test
       - run: ./scripts/scan-public-artifacts.sh

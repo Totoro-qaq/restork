@@ -235,6 +235,7 @@ npm --prefix dashboard run build
 # macOS 桌面端内测版
 npm --prefix desktop ci
 npm --prefix desktop run fmt:check
+./scripts/build-desktop-core.sh
 npm --prefix desktop run clippy
 npm --prefix desktop test
 npm --prefix desktop run build:app
