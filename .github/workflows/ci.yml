@@ -9,6 +9,30 @@ permissions:
   contents: read
 
 jobs:
+  rust-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+      - run: rustup default 1.97.1
+      - run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+      - run: cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path rust/Cargo.toml --locked
+      - run: cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
+
+  rust-platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-latest, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install 1.97.1 --profile minimal
+      - run: rustup default 1.97.1
+      - run: cargo test --manifest-path rust/Cargo.toml --locked -p restorkd
+      - run: cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
+
   core:
     runs-on: ubuntu-latest
     steps:

@@ -1,6 +1,6 @@
 # Restork V1 Product & Technical Specification
 
-> Status: Implemented — V1 and Step 11 macOS internal alpha; Step 12 cross-platform is planned | Version: 1.4 | Date: 2026-08-02
+> Status: Implemented — V1 and Step 11 macOS internal alpha; Steps 12–17 are approved and in progress | Version: 1.4 | Date: 2026-08-02
 >
 > Scope: V1 local-first personal agent for Research, Study, and Work
 >
@@ -9,6 +9,10 @@
 > Step 6 detail: [specs/restork-step6.md](restork-step6.md)
 > Step 11 detail: [specs/restork-step11-desktop.md](restork-step11-desktop.md)
 > Step 12 detail: [specs/restork-step12-cross-platform.md](restork-step12-cross-platform.md)
+> Accepted Rust-first roadmap: [specs/restork-steps12-17.md](restork-steps12-17.md)
+
+The Python-Core decisions below describe the implemented V1 baseline. The accepted post-V1 roadmap
+does not change that history; ADR 0002 governs the Rust-first migration.
 
 ## 1. Executive summary
 

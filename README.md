@@ -11,43 +11,56 @@
   <a href="https://github.com/Totoro-qaq/restork/releases"><img src="https://img.shields.io/github/v/release/Totoro-qaq/restork?display_name=tag&amp;sort=semver" alt="Latest GitHub release"></a>
   <a href="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml/badge.svg" alt="Release provenance status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0ea5e9.svg" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/Rust-1.97-dea584.svg" alt="Rust 1.97 runtime foundation">
   <img src="https://img.shields.io/badge/Python-3.12-8b5cf6.svg" alt="Python 3.12">
   <img src="https://img.shields.io/badge/UI-TypeScript-06b6d4.svg" alt="TypeScript Dashboard">
   <img src="https://img.shields.io/badge/data-local--first-f59e0b.svg" alt="Local-first data">
 </p>
 
 <p align="center">
-  <strong>Restork = Research + Study + Work.</strong><br>
-  One governed Core turns local knowledge and cloud reasoning into a reviewable, recoverable loop.
+  <strong>Your private workspace for research, learning, and getting thoughtful work done.</strong><br>
+  Restork brings your notes, tasks, and model-assisted workflows together locally—and asks before
+  anything is written or sent beyond your machine.
 </p>
 
-## Product proof
+## See Restork in action
 
 <p align="center">
   <a href="./assets/readme/demo-poster.webp">
-    <img src="./assets/readme/demo-hd.gif" width="100%" alt="Restork Dashboard cycling through runs, approvals, Markdown tasks, Radar, memory, daily context, and a planning-only Work handoff using synthetic data.">
+    <img src="./assets/readme/demo-hd.gif" width="100%" alt="Restork Dashboard showing research runs, approvals, Markdown tasks, Radar, memory, and daily context with synthetic data.">
   </a>
 </p>
 
-This capture is generated from the real Dashboard build with public synthetic
-fixtures. It shows runs, single-use approvals, Markdown tasks, Radar, four-layer
-memory, a planning-only Work handoff, and daily context with a Roman clock,
-weather, a read-only calendar, and an opt-in spinning record. Public demos and
-tests make no live model calls.
+This is the real Dashboard running on public synthetic data. You can see a task move through its
+run, inspect an approval before it takes effect, work with Markdown tasks, revisit memory, and use
+the daily context cards. The public demo is safe to explore: it reads no private Vault and makes no
+live model request.
 
-## Why Restork
+## One workspace for the way a day actually unfolds
 
-| Principle | Behavior |
+| When you want to… | Restork helps you… |
 |---|---|
-| **Local knowledge** | Obsidian Markdown remains the source of truth for durable knowledge and tasks. Private Vaults never enter the repository. |
-| **One Core** | Research, Study, and Work share one typed Harness, event stream, budget model, and policy system. |
-| **Approval before impact** | Writes begin as exact previews. Approval capabilities are single-use, expiring, and digest-bound. |
-| **Inspectable memory** | Memory is layered, exportable, correctable, and deletable. Model guesses never silently become preferences. |
+| **Research a question** | Gather public sources, compare claims and conflicts, and prepare a cited Markdown note you can review before saving. |
+| **Learn something properly** | Turn a topic or existing note into prerequisites, a learning path, answer-free practice, and review based on your mistakes. |
+| **Move work forward** | Turn a goal and a bounded repository snapshot into a practical plan and a redacted handoff package. Restork does not execute the plan for you today. |
 
-## Architecture
+These are three modes inside one Core—not three agents competing for context or permissions. They
+share the same budgets, event history, approvals, memory rules, and local Dashboard.
+
+## Designed to stay understandable
+
+| Promise | What it means in practice |
+|---|---|
+| **Your Markdown stays yours** | Obsidian notes and tasks remain ordinary local files. A private Vault is never copied into this repository. |
+| **You see the effect first** | A write begins as an exact preview. Its approval is single-use, expires, and is tied to that precise content. |
+| **Memory is inspectable** | Working, Episodic, Semantic, and Profile memory can be reviewed, corrected, exported, and deleted. A model guess does not silently become a preference. |
+| **Connections are opt-in** | No weather, calendar, Vault, playlist, or model provider is enabled just because Restork started. |
+| **Failures leave a trail** | Runs, retries, approvals, and recoveries are recorded as durable events instead of disappearing behind a spinner. |
+
+## How it works
 
 <p align="center">
-  <img src="./assets/readme/architecture.svg" width="100%" alt="Restork architecture: four local memory layers select bounded context inside Core, while approved cloud requests cross one outbound policy gateway.">
+  <img src="./assets/readme/architecture.svg" width="100%" alt="Restork keeps local memory and knowledge behind a governed Core, while approved cloud requests cross one outbound policy gateway.">
 </p>
 
 ```text
@@ -55,135 +68,85 @@ Private Vault + Profile
         │
         ▼
 Working ─ Episodic ─ Semantic ─ Profile memory
-        │ bounded context manifest
+        │ selected context
         ▼
-Restork Core ─ Harness ─ Policy ─ Approval ─ Event log
+Restork Core ─ Run policy ─ Preview ─ Approval ─ Event history
         │
         ├── Local Dashboard / CLI
         └── Outbound Gateway ──► DeepSeek V4 Pro / approved public services
 ```
 
-- **Markdown truth:** notes and user tasks.
-- **SQLite truth:** runs, steps, approvals, intents, and events.
-- **Rebuildable projections:** indexes, wiki-link graphs, and optional search caches.
-- **Thin clients:** Dashboard, CLI, and the desktop shell own neither model credentials nor agent
-  execution authority.
+Markdown is the durable home for notes and user tasks. SQLite stores operational state such as
+runs, approvals, and events. Rebuildable indexes and link projections can be discarded and created
+again. The Dashboard and CLI never receive the model credential or authority to bypass Core policy.
 
-V1 needs no LangGraph, graph database, KAG, Valkey, Memory MCP, or Obsidian
-plugin. Those remain possible adapters only when distributed execution,
-cross-application memory, or retrieval evaluation demonstrates a real need.
+V1 deliberately needs no LangGraph, graph database, KAG, Valkey, Memory MCP, or Obsidian plugin.
+The accepted post-V1 roadmap keeps one bounded Core loop, moves latency-sensitive runtime work toward
+Rust, and treats Python as an optional capability worker rather than adding a framework-owned agent
+runtime.
 
-## Three modes, one contract
+## Try it in five minutes
 
-| Mode | Governed flow |
-|---|---|
-| **Research** | Public sources → bounded evidence cards → citation-validated claims and conflicts → duplicate-safe Markdown preview. |
-| **Study** | Diagnostic → explicit prerequisites and learning path → answer-free practice → error-driven spaced review. |
-| **Work** | Read-only repository snapshot → bounded plan → exact redacted handoff preview → single-use local export → imported hash verification. Restork never launches an executor. |
-
-All three modes share budgets, policy decisions, append-only events, recovery
-semantics, and the same local Dashboard entry point.
-
-## What works
-
-| Surface | Implemented behavior |
-|---|---|
-| **Core & Harness** | Persisted state machine, budgets, checkpoints, explicit retries, a DeepSeek V4 Pro provider adapter, and code-governed tools. |
-| **Local API** | Loopback-only `/v1` API, separate Web/CLI pairing codes, short-lived tokens, and SSE events. |
-| **Dashboard** | Responsive local Web UI with browser-locale detection and an explicit English/Chinese switch. Only the non-sensitive locale preference may be persisted. |
-| **Knowledge & tasks** | Read-only Vault retrieval, deterministic wiki-link projection, journaled single-file writes, and preview/approve/apply for Markdown checkbox tasks. |
-| **Memory** | Working, Episodic, Semantic, and Profile layers. TTL/LRU is limited to transient values and rebuildable caches. |
-| **Daily context** | Optional Open-Meteo weather, one local read-only ICS calendar, and private JSON/CSV playlists with local covers. No configuration means no request. |
-| **macOS desktop alpha** | A Tauri 2 Rust supervisor bundles the same PyInstaller `onedir` Core and Dashboard, chooses a private port, pairs in memory, monitors a three-miss heartbeat, and owns the Core process group through quit or parent loss. Public signed downloads remain release-credential gated. |
-
-## Five-minute start
-
-[`uv`](https://docs.astral.sh/uv/getting-started/installation/) is the only
-tool needed for normal use; it prepares the locked Python 3.12 environment.
-Node.js is needed only when changing Dashboard source.
-
-The one-command source start below is the supported first-run path today. A macOS internal alpha is
-also implemented; contributors can build and open `Restork.app`, while an official one-click DMG is
-published only after the protected signing/notarization workflow passes. See the separate
-[`macOS desktop guide`](docs/desktop.md). Windows and Linux are explicit
-[`Step 12`](plans/restork-step12-cross-platform.md) targets and are not yet advertised as downloads.
-
-### 1. Start with private defaults
-
-For a fresh checkout, paste one command:
+The source quickstart is the supported path today. You only need
+[`uv`](https://docs.astral.sh/uv/getting-started/installation/); Node.js is required only when
+changing Dashboard source.
 
 ```bash
-git clone https://github.com/Totoro-qaq/restork.git && cd restork && ./scripts/quickstart.sh
+git clone https://github.com/Totoro-qaq/restork.git
+cd restork
+./scripts/quickstart.sh
 ```
 
-Already cloned? The repeatable start command is simply:
+Already cloned?
 
 ```bash
 ./scripts/quickstart.sh
 ```
 
-The script verifies `uv`, synchronizes the lockfile, and starts the Core on
-`http://127.0.0.1:7337`. It does not create model credentials, select a Vault,
-or enable weather. On a fresh install with no private configuration, Restork
-uses the deterministic offline Research synthesizer and sends no model request.
+Restork starts on `http://127.0.0.1:7337` and prints a one-time Web pairing code. Open the local
+address, enter the code, and you are in. The first launch does not need an API key, does not select
+a Vault for you, and does not enable weather or any other optional connection. The offline Research
+synthesizer lets you explore the product without sending a model request.
 
-Core prints separate **Web pairing code** and **CLI pairing code** values. Open
-the URL, enter the Web code, and keep that terminal open. You are successfully
-running Restork when the paired Dashboard shows the Overview with setup states.
-Stopping Core with `Ctrl-C` invalidates the session token.
+### Connect only what you want
 
-### 2. Choose what Restork may use
-
-Everything is opt-in; add only the capability you need:
-
-| Goal | Configuration | Network or write effect |
+| I want to… | What to do | What changes |
 |---|---|---|
-| Explore the Dashboard | No configuration | No model request; no Vault access |
-| Read an Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | Local read access; writes still require an exact preview and approval |
-| Use DeepSeek V4 Pro | `uv run restork provider configure` | The key goes directly to macOS Keychain; approved prompts cross the governed DeepSeek gateway |
-| Show weather | Open the Weather settings and enter a city, or explicitly press **Use current location** | Off until you enable it; no IP lookup and no location permission before your click |
-| Show calendar or music | Select one local ICS file or configure a private JSON/CSV playlist | Read-only local import; calendar uses the device time zone; no account login |
+| Explore the Dashboard | Nothing else | No model call and no Vault access |
+| Read my Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | Local read access; every write still needs a preview and approval |
+| Use DeepSeek V4 Pro | `uv run restork provider configure` | The key goes directly to macOS Keychain; approved model requests use the governed outbound path |
+| See weather | Enter a city in Weather settings, or press **Use current location** yourself | The feature stays off until enabled; there is no IP-based location lookup |
+| Add calendar or music | Select one local ICS file or a private JSON/CSV playlist | Read-only local import; no account login |
 
-Use another port without editing files:
+Use a different local port without editing a file:
 
 ```bash
 RESTORK_PORT=7444 ./scripts/quickstart.sh
 ```
 
-### 3. Enable DeepSeek V4 Pro, only if wanted
-
-Without this step, Restork remains in its credential-free offline mode. In a
-Terminal at the repository root, run:
+### Add DeepSeek when you are ready
 
 ```bash
 uv run restork provider configure
 ```
 
-macOS `security` prompts for the API key directly and stores it as a Generic
-Password in Keychain. Restork creates the non-secret provider configuration with
-mode `0600` when needed. The key is never passed as a command argument or
-environment variable and never enters the browser, TOML, shell history, Vault,
-SQLite, logs, or this repository.
+On macOS, the system `security` prompt writes the API key straight to Keychain. The value never
+enters the browser, TOML, command arguments, environment variables, shell history, Vault, SQLite,
+logs, or this repository.
 
-The Dashboard **Model access** card always shows this command and local status.
-After configuration, restart Core and choose how much to verify:
+Restart Restork, then choose how far you want the check to go:
 
 ```bash
-uv run restork doctor             # local config and Keychain metadata only
-uv run restork doctor --connect   # explicit bounded GET /models
-uv run restork doctor --smoke     # /models plus one fixed public, max-16-token request
+uv run restork doctor             # local configuration and Keychain metadata
+uv run restork doctor --connect   # one bounded GET /models request
+uv run restork doctor --smoke     # one fixed public completion of at most 16 tokens
 ```
 
-The smoke test sends no Vault, memory, task, location, calendar, or playlist
-content and never prints the model response. See [`Operations`](docs/operations.md)
-for custom private directories, manual fallback, backup, restore, and credential
-behavior. If `RESTORK_CONFIG_DIR` is set, use the same value for configuration,
-diagnostics, and Core startup.
+The smoke check sends no Vault, memory, task, location, calendar, or playlist content and does not
+print the model response. See [Operations](docs/operations.md) for private directories, backup,
+restore, and credentials.
 
-### 4. Keep personal data outside the checkout
-
-Keep your Profile, state database, and Vault outside the repository. Global
-arguments must precede the subcommand:
+### Keep your personal data outside the checkout
 
 ```bash
 uv run restork \
@@ -193,48 +156,40 @@ uv run restork \
   serve --port 7337
 ```
 
-To configure daily context, copy
-[`examples/profile.example.toml`](examples/profile.example.toml) to
-`/absolute/private-profile/profile.toml`, edit only the features you want, and
-start with `--profile-dir /absolute/private-profile`. Empty weather, calendar,
-and playlist fields stay disabled. The full formats and privacy boundary are in
-[`Daily context`](docs/daily-context.md).
+For daily context, copy [the example profile](examples/profile.example.toml) to your private profile
+directory and enable only the fields you want. Blank weather, calendar, and playlist settings stay
+off. The formats and privacy behavior are documented in [Daily context](docs/daily-context.md).
 
-### 5. Optional CLI check
+## Available today
 
-The CLI uses the separate one-time code printed at startup:
-
-```bash
-uv run restork pair --code '<CLI pairing code>'
-export RESTORK_CLI_TOKEN='<returned token>'
-uv run restork health
-uv run restork capabilities
-```
-
-Start with [`Dashboard & CLI`](docs/dashboard-usage.md), then follow the focused
-guides for [`Memory`](docs/memory.md),
-[`Markdown tasks`](docs/markdown-tasks.md), [`Research`](docs/research-workflow.md),
-[`Study`](docs/study.md), and [`Work`](docs/work.md). To disconnect a capability,
-restart without its Vault/Profile flag, choose **Disable weather**, or move
-`config.toml` out of the selected private configuration directory. Nothing in
-the Git checkout needs to be deleted or reset.
-
-## Privacy boundary
-
-| Safe to track | Must stay outside Git |
+| Area | What you can use now |
 |---|---|
-| Source, schemas, synthetic fixtures, public docs | Real Vaults, profiles, SQLite databases, indexes, logs, checkpoints |
-| Credential-free configuration examples | API keys, tokens, Keychain exports, private GitHub content |
-| Synthetic Dashboard captures | Real calendars, locations, playlists, covers, work artifacts |
+| **Runs and approvals** | Persisted run state, budgets, explicit retries, recovery, single-use approvals, and replayable SSE updates |
+| **Dashboard and local API** | Responsive English/Chinese UI, loopback-only `/v1` API, separate Web/CLI pairing, and short-lived sessions |
+| **Knowledge and tasks** | Read-only Vault retrieval, deterministic wiki-link projection, journaled single-file writes, and preview/approve/apply Markdown tasks |
+| **Research, Study, Work** | Evidence-backed research, guided study and practice, and planning-only repository handoffs |
+| **Memory and daily context** | Four inspectable memory layers, optional weather, one local read-only ICS calendar, and private playlist import |
+| **macOS desktop alpha** | A Tauri Rust supervisor packages the current Python Core and Dashboard, owns the Core lifecycle, and keeps pairing in memory; signed public downloads remain release-gated |
 
-Every Core-initiated request crosses one outbound gateway with exact origins,
-data classification, response-size limits, and query-key allowlists. Public CI
-reads no personal files, needs no credentials, and calls no live model. See the
-[`Threat model`](docs/security/threat-model.md),
-[`Outbound network policy`](docs/security/outbound-network.md),
-[`Privacy guide`](docs/privacy.md), and [`Security policy`](SECURITY.md).
+The signed one-click DMG is not published until its signing and notarization gates pass. Windows and
+Linux builds, a Rust-first Core, system-calendar onboarding, global conversation, model and Prompt
+settings, the Extension Center, reports, presentations, checkpoints, and bounded delegation are
+clearly marked as planned work in the [Steps 12–17 specification](specs/restork-steps12-17.md) and
+[delivery plan](plans/restork-steps12-17.md).
 
-## Development and contributing
+## Guides
+
+- [Dashboard and CLI](docs/dashboard-usage.md)
+- [Memory](docs/memory.md)
+- [Markdown tasks](docs/markdown-tasks.md)
+- [Research](docs/research-workflow.md)
+- [Study](docs/study.md)
+- [Work](docs/work.md)
+- [macOS desktop alpha](docs/desktop.md)
+- [Privacy](docs/privacy.md) and [security model](docs/security/threat-model.md)
+
+<details>
+<summary><strong>Develop and contribute</strong></summary>
 
 ```bash
 # Core
@@ -242,6 +197,12 @@ uv run pytest
 uv run ruff check .
 uv run mypy src
 uv run bandit -q -r src
+
+# Rust-first runtime foundation
+cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets -- -D warnings
+cargo test --manifest-path rust/Cargo.toml --locked
+cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
 
 # Dashboard
 npm --prefix dashboard ci
@@ -265,10 +226,15 @@ uv run python scripts/audit_readme.py README.md README.zh-CN.md
 uv run python scripts/build_release.py --output dist/release
 ```
 
-Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a change. Product
-contracts live in the [`V1 specification`](specs/restork-v1.md), the
-[`implementation blueprint`](plans/restork-v1-implementation.md), and the
-[`Step 6 specification`](specs/restork-step6.md). Release history is recorded
-in [`CHANGELOG.md`](CHANGELOG.md).
+The provider-free [runtime benchmark](benchmarks/README.md) records readiness, idle memory, binary
+size, and loopback latency without sending a prompt. Rust migration code is not selected by the
+user-facing quickstart until its vertical slice reaches compatibility and recovery parity.
 
-Restork is released under the [`MIT License`](LICENSE).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. The implemented contract lives in
+the [V1 specification](specs/restork-v1.md); the accepted future architecture lives in the
+[Steps 12–17 specification](specs/restork-steps12-17.md). Release history is in
+[CHANGELOG.md](CHANGELOG.md).
+
+</details>
+
+Restork is released under the [MIT License](LICENSE).

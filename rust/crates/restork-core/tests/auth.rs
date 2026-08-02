@@ -1,0 +1,143 @@
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, Mutex},
+    time::{Duration, SystemTime},
+};
+
+use restork_core::auth::{
+    Audience, AuthError, CLI_SCOPES, Clock, PairingAuthority, RUNS_READ, RUNS_WRITE, TOKENS_MANAGE,
+    WEB_SCOPES,
+};
+
+#[derive(Debug)]
+struct TestClock(Mutex<SystemTime>);
+
+impl TestClock {
+    fn new(now: SystemTime) -> Self {
+        Self(Mutex::new(now))
+    }
+
+    fn advance(&self, duration: Duration) {
+        let mut now = self.0.lock().expect("clock lock");
+        *now = now.checked_add(duration).expect("fixture time");
+    }
+}
+
+impl Clock for TestClock {
+    fn now(&self) -> SystemTime {
+        *self.0.lock().expect("clock lock")
+    }
+}
+
+fn scopes(values: &[&str]) -> BTreeSet<String> {
+    values.iter().map(|value| (*value).to_owned()).collect()
+}
+
+#[test]
+fn pairing_is_single_use_audience_bound_scope_bound_and_redacted() {
+    let authority = PairingAuthority::new(Duration::from_secs(300)).expect("authority");
+    let code = authority.initial_pairing_code();
+    assert_eq!(code.len(), 48);
+
+    let token = authority.pair(&code, Audience::Web).expect("pair once");
+    assert_eq!(token.value().len(), 64);
+    assert_eq!(token.audience(), Audience::Web);
+    assert_eq!(token.scopes(), &scopes(WEB_SCOPES));
+    assert_eq!(
+        authority.verify(token.value(), &[Audience::Web], &[RUNS_READ]),
+        Ok(token.clone())
+    );
+    assert_eq!(
+        authority.pair(&code, Audience::Web),
+        Err(AuthError::InvalidPairingCode)
+    );
+    assert_eq!(
+        authority.verify(token.value(), &[Audience::Cli], &[RUNS_READ]),
+        Err(AuthError::WrongAudience)
+    );
+
+    assert!(!format!("{token:?}").contains(token.value()));
+    assert!(!format!("{authority:?}").contains(&code));
+
+    let limited_code = authority
+        .new_pairing_code(Audience::Web, &[RUNS_READ])
+        .expect("limited challenge");
+    let limited = authority
+        .pair(&limited_code, Audience::Web)
+        .expect("limited token");
+    assert_eq!(
+        authority.verify(limited.value(), &[Audience::Web], &[RUNS_WRITE]),
+        Err(AuthError::MissingScope)
+    );
+}
+
+#[test]
+fn wrong_audience_consumes_the_challenge() {
+    let authority = PairingAuthority::new(Duration::from_secs(300)).expect("authority");
+    let code = authority
+        .new_pairing_code(Audience::Cli, CLI_SCOPES)
+        .expect("CLI challenge");
+
+    assert_eq!(
+        authority.pair(&code, Audience::Web),
+        Err(AuthError::PairingWrongAudience)
+    );
+    assert_eq!(
+        authority.pair(&code, Audience::Cli),
+        Err(AuthError::InvalidPairingCode)
+    );
+}
+
+#[test]
+fn rotation_revocation_and_expiry_are_fail_closed() {
+    let clock = Arc::new(TestClock::new(SystemTime::UNIX_EPOCH));
+    let authority =
+        PairingAuthority::with_clock(Duration::from_secs(60), clock.clone()).expect("authority");
+    let code = authority
+        .new_pairing_code(Audience::Cli, CLI_SCOPES)
+        .expect("CLI challenge");
+    let token = authority.pair(&code, Audience::Cli).expect("CLI token");
+    assert!(token.scopes().contains(TOKENS_MANAGE));
+
+    let replacement = authority
+        .rotate(token.value(), &[Audience::Cli])
+        .expect("rotate");
+    assert_eq!(
+        authority.verify(token.value(), &[Audience::Cli], &[]),
+        Err(AuthError::InvalidOrExpiredToken)
+    );
+    authority.revoke(replacement.value()).expect("revoke");
+    assert_eq!(
+        authority.verify(replacement.value(), &[Audience::Cli], &[]),
+        Err(AuthError::InvalidOrExpiredToken)
+    );
+
+    let expiring_code = authority
+        .new_pairing_code(Audience::Cli, CLI_SCOPES)
+        .expect("challenge");
+    let expiring = authority
+        .pair(&expiring_code, Audience::Cli)
+        .expect("token");
+    clock.advance(Duration::from_secs(61));
+    assert_eq!(
+        authority.verify(expiring.value(), &[Audience::Cli], &[]),
+        Err(AuthError::InvalidOrExpiredToken)
+    );
+}
+
+#[test]
+fn invalid_ttl_and_capability_escalation_are_rejected() {
+    assert!(matches!(
+        PairingAuthority::new(Duration::ZERO),
+        Err(AuthError::InvalidTtl)
+    ));
+    let authority = PairingAuthority::new(Duration::from_secs(60)).expect("authority");
+    assert_eq!(
+        authority.new_pairing_code(Audience::Web, &["shell:root"]),
+        Err(AuthError::ScopeEscalation)
+    );
+    assert_eq!(
+        authority.new_pairing_code(Audience::Web, &[]),
+        Err(AuthError::ScopeEscalation)
+    );
+}

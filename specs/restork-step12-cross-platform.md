@@ -1,6 +1,9 @@
 # Restork Step 12 Cross-platform Desktop Specification
 
-> Status: Planned — no Windows or Linux release is supported yet | Version: 0.1 | Date: 2026-08-02
+> Supersession notice: this v0.1 specification records the former Python-Core baseline. The accepted
+> Rust-first replacement is [Steps 12–17 Specification](restork-steps12-17.md), governed by ADR 0002.
+
+> Status: Superseded by the accepted Rust-first Steps 12–17 specification | Version: 0.1 | Date: 2026-08-02
 >
 > Delivery plan: [Step 12 Cross-platform Desktop Plan](../plans/restork-step12-cross-platform.md)
 >
