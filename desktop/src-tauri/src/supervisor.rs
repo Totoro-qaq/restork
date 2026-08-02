@@ -163,11 +163,24 @@ fn parent_lease() -> Result<(OwnedFd, OwnedFd), &'static str> {
 fn core_executable(app: &AppHandle) -> Result<PathBuf, &'static str> {
     #[cfg(debug_assertions)]
     if let Some(value) = std::env::var_os("RESTORK_DESKTOP_CORE") {
-        let selected = PathBuf::from(value);
-        if selected.is_absolute() && selected.is_file() {
-            return fs::canonicalize(selected).map_err(|_| "core_path_invalid");
+        let expected =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dist/desktop-runtime/restorkd");
+        if value != expected.as_os_str() {
+            return Err("core_path_invalid");
         }
-        return Err("core_path_invalid");
+        let selected = fs::canonicalize(expected).map_err(|_| "core_path_invalid")?;
+        if !selected.is_file() {
+            return Err("core_path_invalid");
+        }
+        let mode = selected
+            .metadata()
+            .map_err(|_| "core_path_invalid")?
+            .permissions()
+            .mode();
+        if mode & 0o111 == 0 {
+            return Err("core_resource_not_executable");
+        }
+        return Ok(selected);
     }
 
     let resources = app

@@ -349,7 +349,12 @@ impl ApprovalBinding {
 }
 
 fn random_nonce() -> Result<[u8; 32]> {
-    let mut nonce = [0_u8; 32];
-    getrandom::fill(&mut nonce).map_err(|_| DeliverableError::EntropyUnavailable)?;
-    Ok(nonce)
+    let mut storage = [std::mem::MaybeUninit::<u8>::uninit(); 32];
+    let initialized =
+        getrandom::fill_uninit(&mut storage).map_err(|_| DeliverableError::EntropyUnavailable)?;
+    let initialized: &[u8] = initialized;
+    let nonce: &[u8; 32] = initialized
+        .try_into()
+        .map_err(|_| DeliverableError::EntropyUnavailable)?;
+    Ok(*nonce)
 }

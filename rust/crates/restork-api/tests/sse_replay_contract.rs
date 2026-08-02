@@ -20,7 +20,8 @@ impl TestDirectory {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        let path = std::env::temp_dir().join(format!("restork-api-sse-{suffix}"));
+        let path =
+            PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("restork-api-sse-{suffix}"));
         fs::create_dir(&path).expect("create test directory");
         Self(path)
     }

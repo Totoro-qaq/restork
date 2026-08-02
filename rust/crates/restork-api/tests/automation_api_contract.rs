@@ -17,7 +17,7 @@ impl TestDirectory {
     fn new() -> Self {
         let mut suffix = [0_u8; 12];
         getrandom::fill(&mut suffix).expect("entropy");
-        let path = std::env::temp_dir().join(format!(
+        let path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
             "restork-api-automation-{}",
             suffix
                 .iter()

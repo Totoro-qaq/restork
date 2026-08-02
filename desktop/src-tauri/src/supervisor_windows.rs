@@ -264,11 +264,16 @@ fn wait_for_bootstrap(
 fn core_executable(app: &AppHandle) -> Result<PathBuf, &'static str> {
     #[cfg(debug_assertions)]
     if let Some(value) = std::env::var_os("RESTORK_DESKTOP_CORE") {
-        let selected = PathBuf::from(value);
-        if selected.is_absolute() && selected.is_file() {
-            return fs::canonicalize(selected).map_err(|_| "core_path_invalid");
+        let expected = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../dist/desktop-runtime/restorkd.exe");
+        if value != expected.as_os_str() {
+            return Err("core_path_invalid");
         }
-        return Err("core_path_invalid");
+        let selected = fs::canonicalize(expected).map_err(|_| "core_path_invalid")?;
+        if !selected.is_file() {
+            return Err("core_path_invalid");
+        }
+        return Ok(selected);
     }
 
     let resources = app
