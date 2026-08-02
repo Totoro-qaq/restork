@@ -40,6 +40,7 @@ README_RULES = {
         "counterpart": "./README.zh-CN.md",
         "hero": "./assets/readme/hero.svg",
         "architecture": "./assets/readme/architecture.svg",
+        "quickstart": "./scripts/quickstart.sh",
     },
     "README.zh-CN.md": {
         "headings": (
@@ -53,6 +54,7 @@ README_RULES = {
         "counterpart": "./README.md",
         "hero": "./assets/readme/hero.zh-CN.svg",
         "architecture": "./assets/readme/architecture.zh-CN.svg",
+        "quickstart": "./scripts/quickstart.sh",
     },
 }
 
@@ -208,7 +210,7 @@ def _audit_readme(readme: Path, repository_root: Path) -> tuple[list[str], int]:
     assert isinstance(provenance, str)
     if provenance.lower() not in source.lower():
         issues.append(f"must state its {provenance!r} public-demo provenance")
-    for key in ("counterpart", "hero", "architecture"):
+    for key in ("counterpart", "hero", "architecture", "quickstart"):
         required_reference = rules[key]
         assert isinstance(required_reference, str)
         if required_reference not in source:

@@ -494,8 +494,10 @@ class DemoApi implements DashboardApi {
   async applyTask(approvalId: string): Promise<TaskApplyResult> {
     return { approval_id: approvalId, task_id: "synthetic", relative_path: "Tasks.md", content_hash: "d".repeat(64), applied: true };
   }
+  async configureWeather(): Promise<void> {}
   async musicCover(): Promise<Blob | null> { return null; }
   async events(): Promise<[]> { return []; }
+  async streamEvents(): Promise<void> {}
 }
 
 const root = document.querySelector<HTMLElement>("#app");

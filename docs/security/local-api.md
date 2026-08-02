@@ -48,3 +48,10 @@ ordered event inside the same SQLite transaction as the mutation. If event alloc
 serialization fails, the mutation rolls back. A non-pure tool is marked `started` before
 invocation and `committed` only afterwards; a restart that finds `started` or `unknown`
 requires explicit reconciliation and never retries the effect automatically.
+
+Dashboard follows a run with `GET /v1/runs/{run_id}/events?follow=true` using authenticated `fetch`,
+not native `EventSource`, so the short-lived token remains in the `Authorization` header and never
+enters a URL. Core first replays the snapshot/cursor window, then emits new durable events, periodic
+comment heartbeats, and closes after `completed`, `failed`, or `cancelled`. Reconnect supplies
+`Last-Event-ID`; the browser de-duplicates event IDs. Core sends `no-cache, no-store` and disables
+proxy buffering. The original one-shot replay remains available to CLI and deterministic tests.

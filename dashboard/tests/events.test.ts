@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EventCursor, parseEventStream } from "../src/api/events";
+import { EventCursor, EventStreamDecoder, parseEventStream } from "../src/api/events";
 
 const FRAME = [
   "id: 7",
@@ -34,5 +34,19 @@ describe("Core event stream", () => {
       "invalid event cursor",
     );
     expect(() => parseEventStream("id: 1\ndata: []\n")).toThrow("non-object event");
+  });
+
+  it("decodes split UTF-8 text, CRLF frames, and ignores heartbeat comments", () => {
+    const decoder = new EventStreamDecoder();
+    const first = decoder.push(": restork-heartbeat\r\n\r\nid: 9\r\nevent: model.started\r\nda");
+    const second = decoder.push('ta: {"label":"推理中"}\r\n\r');
+    const third = decoder.push("\n");
+
+    expect(first).toEqual([]);
+    expect(second).toEqual([]);
+    expect(third).toEqual([
+      { id: 9, type: "model.started", data: { label: "推理中" } },
+    ]);
+    expect(decoder.finish()).toEqual([]);
   });
 });

@@ -1,7 +1,8 @@
 """Authenticated local FastAPI app with replayable run-event SSE."""
 
+import asyncio
 import json
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated, Literal
@@ -35,7 +36,7 @@ from restork.api.auth import (
     PairingAuthority,
 )
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
-from restork.contracts.types import ApprovalDecision, EffectPhase, Mode
+from restork.contracts.types import ApprovalDecision, EffectPhase, Mode, RunPhase
 from restork.daily.service import DailyContextService
 from restork.dashboard.models import (
     RadarAction,
@@ -99,6 +100,15 @@ class WorkExportPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     approval_id: str = Field(min_length=1, max_length=256)
+
+
+_SSE_TERMINAL_STATES = {RunPhase.COMPLETED, RunPhase.FAILED, RunPhase.CANCELLED}
+_SSE_POLL_SECONDS = 0.25
+_SSE_HEARTBEAT_SECONDS = 15.0
+
+
+def _sse_frame(sequence: int, kind: str, data: dict[str, object]) -> str:
+    return f"id: {sequence}\nevent: {kind}\ndata: {json.dumps(data)}\n\n"
 
 
 def _safe_validation_detail(
@@ -1065,10 +1075,12 @@ def create_app(
         return child.model_dump(mode="json")
 
     @app.get("/v1/runs/{run_id}/events")
-    def stream_events(
+    async def stream_events(
         run_id: str,
+        request: Request,
         _: Annotated[AccessToken, Depends(read_runs)],
         last_event_id: str | None = Header(default=None),
+        follow: bool = False,
     ) -> StreamingResponse:
         try:
             after_seq = int(last_event_id) if last_event_id is not None else 0
@@ -1076,18 +1088,63 @@ def create_app(
             raise HTTPException(
                 status_code=400, detail="Last-Event-ID must be an integer"
             ) from error
+        if after_seq < 0:
+            raise HTTPException(status_code=400, detail="Last-Event-ID must not be negative")
         covered_seq, snapshot, replay_events = events.replay_window(run_id, after_seq=after_seq)
         frames: list[str] = []
         if snapshot is not None and covered_seq is not None:
-            frames.append(
-                f"id: {covered_seq}\nevent: run.snapshot\ndata: {json.dumps(snapshot)}\n\n"
-            )
+            frames.append(_sse_frame(covered_seq, "run.snapshot", snapshot))
         frames.extend(
-            f"id: {event.seq}\nevent: {event.kind}\ndata: {json.dumps(event.metadata)}\n\n"
+            _sse_frame(event.seq, event.kind, event.metadata)
             for event in replay_events
         )
-        payload = "".join(frames)
-        return StreamingResponse(iter([payload]), media_type="text/event-stream")
+        headers = {
+            "Cache-Control": "no-cache, no-store",
+            "X-Accel-Buffering": "no",
+        }
+        if not follow:
+            return StreamingResponse(
+                iter(["".join(frames)]),
+                media_type="text/event-stream",
+                headers=headers,
+            )
+        try:
+            runs.get(run_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="run not found") from error
+
+        async def follow_events() -> AsyncIterator[str]:
+            cursor = max(
+                after_seq,
+                covered_seq or 0,
+                *(event.seq for event in replay_events),
+            )
+            for frame in frames:
+                yield frame
+            loop = asyncio.get_running_loop()
+            last_output = loop.time()
+            while not await request.is_disconnected():
+                pending = events.read(run_id, after_seq=cursor)
+                for event in pending:
+                    cursor = event.seq
+                    last_output = loop.time()
+                    yield _sse_frame(event.seq, event.kind, event.metadata)
+                try:
+                    state = runs.get(run_id).state
+                except KeyError:
+                    return
+                if state in _SSE_TERMINAL_STATES:
+                    return
+                if loop.time() - last_output >= _SSE_HEARTBEAT_SECONDS:
+                    last_output = loop.time()
+                    yield ": restork-heartbeat\n\n"
+                await asyncio.sleep(_SSE_POLL_SECONDS)
+
+        return StreamingResponse(
+            follow_events(),
+            media_type="text/event-stream",
+            headers=headers,
+        )
 
     @app.get("/v1/runs/{run_id}")
     def inspect_run(

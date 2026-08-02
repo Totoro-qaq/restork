@@ -1,6 +1,6 @@
 [project]
 name = "restork"
-version = "0.1.0"
+version = "0.1.1"
 description = "A local-first agent workspace for research, study, and work."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

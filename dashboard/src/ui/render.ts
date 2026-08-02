@@ -17,6 +17,15 @@ import type {
 import type { Locale } from "../i18n";
 import { alternateLocale, tr } from "../i18n";
 
+export type AgentWaitStage =
+  | "prepare"
+  | "sources"
+  | "model"
+  | "verify"
+  | "retry"
+  | "complete"
+  | "error";
+
 export function pairingMarkup(locale: Locale = "en"): string {
   return `
     <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
@@ -90,6 +99,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
             </fieldset>
           </form>
           <p id="action-status" class="status" role="status"></p>
+          <div id="agent-wait-host"></div>
           <div id="study-workspace" class="study-workspace" aria-live="polite"></div>
           <div id="work-workspace" class="work-workspace" aria-live="polite"></div>
         </section>
@@ -108,6 +118,39 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
         <section class="view" data-view-panel="memory" hidden>${memoryView(snapshot, locale)}</section>
       </main>
     </section>`;
+}
+
+export function agentWaitMarkup(
+  stage: AgentWaitStage,
+  locale: Locale = "en",
+): string {
+  const current = stage === "retry" ? 2 : Math.min(
+    ["prepare", "sources", "model", "verify", "complete"].indexOf(stage),
+    4,
+  );
+  const labels = [
+    tr(locale, "Bound context", "有界上下文"),
+    tr(locale, "Sources & tools", "来源与工具"),
+    tr(locale, "Synthesis", "综合推理"),
+    tr(locale, "Validation", "结果校验"),
+  ];
+  const status = {
+    prepare: tr(locale, "Preparing the minimum necessary context…", "正在准备最小必要上下文…"),
+    sources: tr(locale, "Reading approved sources and tool results…", "正在读取获准的来源与工具结果…"),
+    model: tr(locale, "Running the configured synthesizer…", "正在运行已配置的综合器…"),
+    verify: tr(locale, "Validating evidence, schema, and policy…", "正在校验证据、Schema 与策略…"),
+    retry: tr(locale, "A bounded retry was scheduled…", "已安排一次有界重试…"),
+    complete: tr(locale, "The reviewable result is ready.", "可审阅结果已就绪。"),
+    error: tr(locale, "The run stopped safely; inspect the status for details.", "运行已安全停止；请查看状态详情。"),
+  }[stage];
+  const busy = !["complete", "error"].includes(stage);
+  return `<section class="agent-wait is-${stage}" role="status" aria-live="polite" aria-busy="${String(busy)}">
+    <div class="typewriter-motion" aria-hidden="true"><i></i><i></i><i></i><span></span></div>
+    <div class="agent-wait-copy"><small>CORE EVENT STREAM · ${escapeHtml(stage.toUpperCase())}</small><strong>${escapeHtml(status)}</strong>
+      <ol>${labels.map((label, index) => `<li class="${index < current || stage === "complete" ? "is-done" : index === current && stage !== "error" ? "is-current" : ""}">${escapeHtml(label)}</li>`).join("")}</ol>
+      <p>${tr(locale, "Only durable phases are shown; private reasoning content is never streamed to the Dashboard.", "这里只显示持久阶段；私有推理内容不会流式发送到 Dashboard。")}</p>
+    </div>
+  </section>`;
 }
 
 export function runEventsMarkup(
@@ -349,6 +392,15 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
     </article>
     <article class="daily-card weather-card"><header><h2>${tr(locale, "Weather", "天气")}</h2><span>${escapeHtml(weather?.status ?? "offline")}</span></header>
       ${weather?.configured && weather.temperature_c !== null ? `<strong class="weather-temperature">${weather.temperature_c.toFixed(1)}°</strong><p>${escapeHtml(weather.condition)} · ${tr(locale, "feels like", "体感")} ${weather.apparent_temperature_c?.toFixed(1) ?? "–"}°</p><small>${escapeHtml(weather.location_label)} · ${tr(locale, "humidity", "湿度")} ${weather.relative_humidity_percent ?? "–"}%</small><em>${escapeHtml(weather.attribution)}</em>` : `<p class="daily-empty">${escapeHtml(weather?.message ?? tr(locale, "Configure weather in the private Profile; no network request is being made.", "在私有 Profile 中配置天气；当前没有网络请求。"))}</p>`}
+      <details class="weather-settings"><summary>${weather?.configured ? tr(locale, "CHANGE LOCATION", "修改位置") : tr(locale, "SET UP WEATHER", "设置天气")}</summary>
+        <form id="weather-form">
+          <p>${tr(locale, "Manual entry only. Restork never requests browser or IP location.", "仅支持手动填写；Restork 不请求浏览器定位或 IP 定位。")}</p>
+          <label for="weather-label">${tr(locale, "Display name", "显示名称")}</label><input id="weather-label" name="label" maxlength="120" required autocomplete="off" placeholder="${tr(locale, "Home", "家")}">
+          <div class="weather-coordinates"><label for="weather-latitude">${tr(locale, "Latitude", "纬度")}<input id="weather-latitude" name="latitude" type="number" min="-90" max="90" step="any" required inputmode="decimal" autocomplete="off"></label><label for="weather-longitude">${tr(locale, "Longitude", "经度")}<input id="weather-longitude" name="longitude" type="number" min="-180" max="180" step="any" required inputmode="decimal" autocomplete="off"></label></div>
+          <div class="weather-actions"><button type="submit">${tr(locale, "SAVE & ENABLE", "保存并启用")}</button>${weather?.configured ? `<button type="button" class="quiet-button" data-weather-disable>${tr(locale, "DISABLE", "停用")}</button>` : ""}</div>
+          <small>${tr(locale, "Coordinates stay in the private Core Profile and are sent only to Open-Meteo when enabled.", "坐标保存在 Core 的私有 Profile 中，仅在启用后发送给 Open-Meteo。")}</small>
+        </form>
+      </details>
     </article>
     <article class="daily-card calendar-card"><header><h2>${tr(locale, "Calendar", "日历")}</h2><span>${escapeHtml(calendar?.status ?? "offline")}</span></header>
       <ol>${calendar?.events.slice(0, 3).map((event) => `<li><time>${formatDate(event.starts_at, locale)}</time><b>${escapeHtml(event.title)}</b>${event.redacted ? `<small>${tr(locale, "PRIVATE · REDACTED", "私有 · 已脱敏")}</small>` : ""}</li>`).join("") || `<li class="daily-empty">${escapeHtml(calendar?.message ?? tr(locale, "Select a local read-only ICS file.", "选择本地只读 ICS 文件。"))}</li>`}</ol>

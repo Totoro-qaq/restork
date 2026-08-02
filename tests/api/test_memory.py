@@ -161,3 +161,33 @@ def test_memory_inspection_redacts_private_profile_paths_and_preferences(
     assert summaries[genres.memory_id] == "[configured]"
     assert "Private Home" not in response.text
     assert "private-genre" not in response.text
+
+
+def test_profile_weather_corrections_validate_manual_configuration(tmp_path: Path) -> None:
+    client, memory, auth = _client(tmp_path)
+    provider = memory.get("profile:daily.weather_provider")
+    location = memory.get("profile:daily.weather_location")
+
+    invalid_provider = client.patch(
+        f"/v1/memory/{provider.memory_id}",
+        headers={**auth, "Idempotency-Key": "invalid-weather-provider"},
+        json={
+            "value": "automatic-location-service",
+            "expected_content_hash": provider.content_hash,
+            "data_class": "personal",
+        },
+    )
+    invalid_location = client.patch(
+        f"/v1/memory/{location.memory_id}",
+        headers={**auth, "Idempotency-Key": "invalid-weather-location"},
+        json={
+            "value": "Home|91,181",
+            "expected_content_hash": location.content_hash,
+            "data_class": "personal",
+        },
+    )
+
+    assert invalid_provider.status_code == 409
+    assert invalid_location.status_code == 409
+    assert memory.get(provider.memory_id).summary == ""
+    assert memory.get(location.memory_id).summary == ""

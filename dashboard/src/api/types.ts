@@ -394,6 +394,13 @@ export interface WeatherSnapshot {
   message: string;
 }
 
+export interface WeatherConfigurationInput {
+  enabled: boolean;
+  label: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface CalendarEvent {
   event_id: string;
   title: string;
@@ -482,6 +489,13 @@ export interface DashboardApi {
   previewTask(taskId: string, completed: boolean): Promise<TaskMutationPreview>;
   captureTask(text: string, priority: string): Promise<TaskMutationPreview>;
   applyTask(approvalId: string): Promise<TaskApplyResult>;
+  configureWeather(input: WeatherConfigurationInput): Promise<void>;
   musicCover(): Promise<Blob | null>;
   events(runId: string, after: number): Promise<RunEvent[]>;
+  streamEvents(
+    runId: string,
+    after: number,
+    onEvent: (event: RunEvent) => void,
+    signal: AbortSignal,
+  ): Promise<void>;
 }

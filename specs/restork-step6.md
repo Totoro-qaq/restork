@@ -1,6 +1,6 @@
 # Restork Step 6 Specification
 
-> Status: Implemented | Version: 1.2 | Date: 2026-08-02
+> Status: Implemented | Version: 1.3 | Date: 2026-08-02
 >
 > Governing specification: [Restork V1](restork-v1.md)
 >
@@ -12,7 +12,9 @@ Step 6 turns the Step 5 local control plane into a usable local workspace. It ad
 
 - four privacy-first memory layers;
 - an authenticated API-backed Dashboard for runs, approvals, Markdown tasks, and Radar;
+- authenticated long-lived SSE and an accessible, phase-based waiting surface for Core work;
 - optional daily context: clock, weather, read-only calendar, and a generic daily music recommendation;
+- a privacy-default one-command first-run path with explicit opt-in configuration;
 - separate, selectable English and Simplified Chinese READMEs with localized project-native SVGs and an HD synthetic demonstration GIF;
 - reproducible static assets bundled in the Python wheel.
 
@@ -98,6 +100,7 @@ language = "zh-CN"
 timezone = "Asia/Shanghai"
 
 [daily]
+weather_provider = ""
 weather_location = ""
 calendar_ics = ""
 playlist = ""
@@ -128,7 +131,11 @@ The browser is a thin authenticated client:
 
 - it pairs through Core and keeps session material only in memory;
 - it calls the same `/v1` contracts as CLI;
-- it de-duplicates SSE events by event ID and cursor;
+- it uses authenticated `fetch` streaming rather than URL-token `EventSource`, polling, or WebSocket;
+- it incrementally decodes UTF-8 SSE frames, ignores comment heartbeats, and de-duplicates events by
+  event ID and cursor;
+- it reconnects with `Last-Event-ID`; Core closes the follow stream only at a durable terminal state
+  or client disconnect;
 - it does not persist provider tokens, approval bodies, note bodies, playlist contents, location, or calendar entries in Web Storage;
 - it detects browser language, defaults non-Chinese browsers to English, and offers an explicit English/Chinese switch;
 - it may persist only the literal `en` or `zh-CN` locale preference under `restork.locale`;
@@ -144,6 +151,15 @@ The browser is a thin authenticated client:
 - memory status showing layer counts, retention, provenance, and safe management actions;
 - daily context modules described below.
 
+On wide screens the Overview is a two-by-two content matrix: run and approval in the first row,
+Markdown tasks and Radar in the second. Cards stretch within each row so shorter sibling content does
+not leave an unexplained blank grid region. The matrix becomes one column at the responsive breakpoint.
+
+Long-running actions render an old-print/typewriter waiting panel with the durable phases `bounded
+context`, `sources & tools`, `synthesis`, and `validation`. It reports no fabricated percentage and
+never renders provider reasoning content. Motion is decorative and is disabled by reduced-motion
+preferences while textual status remains live and accessible.
+
 ### 4.3 Clock
 
 - analog face marked `I` through `XII`;
@@ -156,6 +172,11 @@ The browser is a thin authenticated client:
 ### 4.4 Weather
 
 - disabled until the user configures provider and location privately;
+- configured only by explicit manual display-name/latitude/longitude entry; no browser geolocation,
+  IP-location inference, or automatic permission prompt exists;
+- saved through the paired local Core with server-side provider, finite-number, and range validation;
+- updates disable the provider before changing coordinates and re-enable it last; explicit disable
+  clears both provider and saved location;
 - Core performs the request through a scoped `OutboundGateway` capability;
 - cached response has provider attribution, observation time, expiry, and stale/error status;
 - Dashboard receives display fields, not provider credentials or precise coordinates unless explicitly needed;
@@ -196,7 +217,7 @@ The browser is a thin authenticated client:
 Audience: Engineers and technical learners who move between research, study, and work and keep private Markdown knowledge.
 One-sentence value: Restork turns local knowledge and cloud reasoning into one governed research-study-work loop without giving up local control.
 Primary proof: The real Step 6 Dashboard running on synthetic data, including approvals, evidence, memory provenance, tasks, and daily context.
-First successful action: Install/sync, start the loopback Core, pair the local client, and open the bundled Dashboard.
+First successful action: Run ./scripts/quickstart.sh, pair the local client, and see the bundled Dashboard setup states without credentials or a Vault.
 Visual theme: Warm paper, precise typewriter marks, translucent light, evidence labels, and the R/S/W workflow.
 ```
 
@@ -238,6 +259,7 @@ Value -> Product proof -> What it is -> Four-layer memory and governed mechanism
 - WCAG AA contrast for essential text;
 - no essential information encoded only in motion or images;
 - responsive layouts at 320, 768, and 1200 CSS pixels;
+- new interactive controls have at least a 28 CSS-pixel target dimension;
 - `prefers-reduced-motion` disables decorative drift, CD rotation, and ticking transitions;
 - layout and core actions remain usable without backdrop-filter support.
 
@@ -262,10 +284,18 @@ Step 6 is complete when:
 
 - `MEM-RETENTION-001`, `UI-CONTEXT-001`, `SEC-AUTH-001`, `REL-EVENT-001`, `OSS-CLEAN-001`, and `README-ASSET-001` pass;
 - Dashboard uses authenticated Core contracts and browser storage contains no sensitive or canonical state;
+- the source checkout starts through `./scripts/quickstart.sh`, stops cleanly with `Ctrl-C`, and needs
+  no API key, Vault, weather, calendar, or playlist for first success;
 - English and Chinese Dashboard chrome cover pairing, navigation, forms, empty states, results, and interaction feedback; the locale switch survives refresh without persisting any private payload;
 - all required views work from synthetic fixtures and the packaged wheel without Node.js;
 - Markdown task mutations remain preview/approval controlled;
 - missing daily configuration performs no network request;
+- weather is manually configured, never requests browser/IP location, and disabling it clears the
+  provider and stored coordinates;
+- follow-mode SSE authenticates in headers, resumes by durable cursor, tolerates arbitrary UTF-8 chunk
+  boundaries and heartbeats, and exposes phase status rather than reasoning text;
+- the wide Overview forms a measured two-by-two matrix with no horizontal overflow at 390, 768, 1024,
+  or 1440 CSS pixels;
 - configured weather uses the gateway and calendar/playlist stay local/read-only;
 - every animation has a reduced-motion/static behavior;
 - README assets render correctly at GitHub content width and contain only synthetic/public data;

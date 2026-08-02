@@ -17,7 +17,7 @@ from restork.api.auth import (
 from restork.api.server import LOOPBACK_HOST, make_server
 from restork.contracts.event import RunEvent
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
-from restork.contracts.types import Mode
+from restork.contracts.types import Mode, RunPhase
 from restork.runtime.runner import Harness
 from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.events import SQLiteEventStore
@@ -189,6 +189,78 @@ def test_sse_replay_uses_snapshot_then_only_events_after_its_cursor(tmp_path: Pa
     assert "id: 3\nevent: run.progress" in response.text
     assert "id: 1\nevent: run.progress" not in response.text
     assert "id: 2\nevent: run.progress" not in response.text
+
+
+def test_follow_sse_replays_with_security_headers_and_closes_at_terminal_state(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "state.db"
+    events = SQLiteEventStore.create(database)
+    runs = SQLiteRunStore.create(database)
+    task = TaskSpec(
+        task_id="terminal-sse",
+        mode=Mode.RESEARCH,
+        goal="Verify terminal SSE",
+        workspace_scope="test",
+        completion_criteria=["stream closes"],
+        data_policy=DataPolicy(),
+        tool_policy=ToolPolicy(allowed_tools=["vault_search"]),
+        budgets=BudgetSpec(max_steps=4, max_wall_time_seconds=60),
+        created_at=datetime.now(UTC),
+    )
+    run = Harness(runs, events).start(task)
+    running = runs.transition(
+        run.run_id,
+        expected_version=run.state_version,
+        next_state=RunPhase.RUNNING,
+    )
+    verifying = runs.transition(
+        run.run_id,
+        expected_version=running.state_version,
+        next_state=RunPhase.VERIFYING,
+    )
+    runs.transition(
+        run.run_id,
+        expected_version=verifying.state_version,
+        next_state=RunPhase.COMPLETED,
+    )
+    pairing = PairingAuthority()
+    client = TestClient(_app(database, pairing, events=events, runs=runs))
+    token = client.post("/v1/pair", json={"code": pairing.pairing_code}).json()[
+        "access_token"
+    ]
+
+    response = client.get(
+        f"/v1/runs/{run.run_id}/events?follow=true",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache, no-store"
+    assert response.headers["x-accel-buffering"] == "no"
+    assert "event: run.completed" in response.text
+
+
+def test_follow_sse_rejects_missing_runs_and_negative_cursors(tmp_path: Path) -> None:
+    database = tmp_path / "state.db"
+    pairing = PairingAuthority()
+    client = TestClient(_app(database, pairing))
+    token = client.post("/v1/pair", json={"code": pairing.pairing_code}).json()[
+        "access_token"
+    ]
+    authorization = {"Authorization": f"Bearer {token}"}
+
+    assert (
+        client.get("/v1/runs/missing/events?follow=true", headers=authorization).status_code
+        == 404
+    )
+    assert (
+        client.get(
+            "/v1/runs/missing/events",
+            headers={**authorization, "Last-Event-ID": "-1"},
+        ).status_code
+        == 400
+    )
 
 
 def test_server_binds_only_to_loopback(tmp_path: Path) -> None:

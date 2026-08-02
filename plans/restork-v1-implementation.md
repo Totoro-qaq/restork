@@ -1,7 +1,7 @@
 # Restork V1 Implementation Blueprint
 
 > Status: Complete — Steps 0–10; V1 |
-> Version: 1.0 | Date: 2026-08-02
+> Version: 1.1 | Date: 2026-08-02
 >
 > Objective: Build a public-ready, local-first personal agent for Research, Study, and Work without exposing private runtime data.
 >
@@ -705,20 +705,32 @@ src/restork/web/static/          # generated release assets
 4. Reimplement the approved light glass/typewriter design direction using reviewed design tokens, components, and original or legally distributable assets; copy no private legacy source.
 5. Add explicit Research, Study, and Work entrances.
 6. Serve the production Dashboard from Core on loopback. Pair each browser profile with an interactive one-time code and rotate scoped session material.
-7. Render snapshot/cursor SSE events with event-ID de-duplication without reparsing or rewriting final artifacts.
+7. Render snapshot/cursor SSE events through header-authenticated `fetch` follow streams with
+   incremental UTF-8 decoding, comment heartbeats, `Last-Event-ID` reconnect, event-ID de-duplication,
+   and terminal closure without reparsing or rewriting final artifacts.
 8. Show active runs, budgets, sources, tools, artifacts, verification, and memory provenance/retention status.
 9. Implement approval review with the resolved action preview, canonical target, resource/policy versions, expiry, and diff/effect; never expose a secret or persist the body in browser storage.
 10. Render Core-backed Markdown aggregation; the browser owns no canonical task state.
 11. Split Radar into `My Stars`, `Trending`, and `HN` lanes; all fetches originate in Core connectors through `OutboundGateway`, never directly in the browser.
 12. Add `dismiss`, `read later`, `research`, and `make task` actions.
 13. Add a Roman-numeral analog clock, optional gateway-backed weather, local read-only ICS calendar, and a generic user-imported daily music recommendation with optional album art in a rotating CD treatment.
-14. Make every daily-context module configurable and safe when absent. Keep location, calendar, playlist, owner music taste, and remote credentials outside Git and browser persistence.
+14. Make every daily-context module configurable and safe when absent. Weather accepts only explicit
+    manual label/latitude/longitude input, uses no browser/IP geolocation, disables before coordinate
+    mutation, and clears provider/location when turned off. Keep location, calendar, playlist, owner
+    music taste, and remote credentials outside Git and browser persistence.
 15. Honor reduced motion, keyboard navigation, focus visibility, semantic landmarks, pause controls, and legible light/dark GitHub surroundings for exported visuals.
 16. Publish separate selectable English and Simplified Chinese READMEs in project-native visual order (`Value -> Proof -> Mechanism -> First use -> Detail`) with localized maintainable GitHub-safe SVGs and an HD GIF captured only from synthetic Dashboard data.
 17. Detect browser locale, default non-Chinese browsers to English, provide an explicit English/Chinese switch, and persist only the literal non-sensitive locale preference when the user switches.
 18. Keep provider credentials, durable state, and shell execution out of Dashboard code and browser storage.
 19. Build reproducible static assets into the Python wheel and verify that runtime installation needs no Node.js.
 20. Defer slice 6F. V1 ships no Obsidian plugin; any later bridge must remain limited to `Open Restork`, current-note/selection handoff, note/heading/block navigation, and lightweight notifications, and must not duplicate the Dashboard.
+21. Add an accessible old-print waiting panel driven only by durable phases; show no invented percentage
+    or private reasoning, and preserve a textual reduced-motion state.
+22. Pack the wide Overview as a two-by-two run/approval/tasks/Radar matrix and verify no horizontal
+    overflow at 390, 768, 1024, and 1440 CSS pixels.
+23. Provide `scripts/quickstart.sh` as the privacy-default source-checkout entry point, document the
+    first successful screen plus opt-in DeepSeek/Vault/daily configuration in equivalent separate
+    English and Chinese READMEs, and make `Ctrl-C` shutdown quiet.
 
 ### Verification
 
@@ -744,6 +756,14 @@ Run automated transport/auth tests for cursor reconnect, hostile Origin, missing
 - Completing a Dashboard task updates its source Markdown.
 - Memory records are inspectable and deletable according to retention class; protected truth/audit data are never evicted by TTL/LRU.
 - Missing weather, calendar, playlist, or cover configuration produces explicit empty states and zero hidden network requests.
+- Weather is manually configured or remains off; the Dashboard never requests browser/IP location,
+  and explicit disable clears provider and location.
+- Follow SSE uses an Authorization header, reconnect cursor, incremental decoder, and accessible
+  phase-only waiting state without private reasoning.
+- The Overview has no unexplained wide-grid blank region and no horizontal overflow at the verified
+  responsive widths.
+- A clean checkout reaches the paired Dashboard with `./scripts/quickstart.sh` and cleanly stops on
+  `Ctrl-C` without requiring credentials or private data.
 - Calendar and playlist inputs remain local and read-only; weather/cover requests use the gateway.
 - Clock/CD motion has a pause or static alternative and honors reduced-motion preferences.
 - README SVG/GIF assets render at GitHub width, contain no private data, and the raster demonstration is at least 1280 pixels wide.
