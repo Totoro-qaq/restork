@@ -4,29 +4,15 @@ use restork_storage::{Database, NewEvent, NewRun};
 use rusqlite::Connection;
 use serde_json::json;
 
-struct TestDirectory(PathBuf);
+struct TestDirectory(tempfile::TempDir);
 
 impl TestDirectory {
-    fn new(label: &str) -> Self {
-        let mut suffix = [0_u8; 12];
-        getrandom::fill(&mut suffix).expect("test entropy");
-        let suffix = suffix
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        let path = std::env::temp_dir().join(format!("restork-{label}-{suffix}"));
-        fs::create_dir(&path).expect("create test directory");
-        Self(path)
+    fn new(_label: &str) -> Self {
+        Self(tempfile::tempdir().expect("temporary directory"))
     }
 
     fn database(&self) -> PathBuf {
-        self.0.join("restork.db")
-    }
-}
-
-impl Drop for TestDirectory {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        self.0.path().join("restork.db")
     }
 }
 

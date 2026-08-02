@@ -5,25 +5,11 @@ use restork_worker::{
 };
 use serde_json::json;
 
-struct TestDirectory(PathBuf);
+struct TestDirectory(tempfile::TempDir);
 
 impl TestDirectory {
     fn new() -> Self {
-        let mut suffix = [0_u8; 12];
-        getrandom::fill(&mut suffix).expect("test entropy");
-        let suffix = suffix
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        let path = std::env::temp_dir().join(format!("restork-worker-{suffix}"));
-        fs::create_dir(&path).expect("test directory");
-        Self(path)
-    }
-}
-
-impl Drop for TestDirectory {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        Self(tempfile::tempdir().expect("temporary directory"))
     }
 }
 
@@ -47,7 +33,7 @@ fn manifest(timeout_ms: u64, response_bytes: usize) -> CapabilityManifest {
 async fn synthetic_worker_uses_a_bounded_frame_without_ambient_environment() {
     let directory = TestDirectory::new();
     let manifest = manifest(2_000, 64 * 1024);
-    let command = WorkerCommand::new(fixture(), Vec::new(), &directory.0).expect("command");
+    let command = WorkerCommand::new(fixture(), Vec::new(), directory.0.path()).expect("command");
     let request = WorkerRequest::new(
         "request-1",
         &manifest,
@@ -68,7 +54,7 @@ async fn synthetic_worker_uses_a_bounded_frame_without_ambient_environment() {
 #[tokio::test]
 async fn timeout_crash_malformed_and_oversized_workers_fail_closed() {
     let directory = TestDirectory::new();
-    let command = WorkerCommand::new(fixture(), Vec::new(), &directory.0).expect("command");
+    let command = WorkerCommand::new(fixture(), Vec::new(), directory.0.path()).expect("command");
     for (behavior, expected, timeout_ms, response_bytes) in [
         ("sleep", WorkerError::Timeout, 100, 64 * 1024),
         ("crash", WorkerError::MalformedResponse, 2_000, 64 * 1024),

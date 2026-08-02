@@ -1,36 +1,18 @@
-use std::{fs, path::PathBuf};
-
 use restork_storage::{Database, NewMcpExecution, NewSession};
 use serde_json::json;
 
-struct TestDirectory(PathBuf);
+struct TestDirectory(tempfile::TempDir);
 
 impl TestDirectory {
     fn new() -> Self {
-        let mut suffix = [0_u8; 12];
-        getrandom::fill(&mut suffix).expect("entropy");
-        let path = std::env::temp_dir().join(format!(
-            "restork-catalog-{}",
-            suffix
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>()
-        ));
-        fs::create_dir(&path).expect("directory");
-        Self(path)
-    }
-}
-
-impl Drop for TestDirectory {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        Self(tempfile::tempdir().expect("temporary directory"))
     }
 }
 
 #[test]
 fn extensions_start_quarantined_and_activation_binds_the_reviewed_hash() {
     let directory = TestDirectory::new();
-    let database = Database::open(directory.0.join("restork.db")).expect("database");
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
     let installed = database
         .install_extension(
             "synthetic-skill",
@@ -64,7 +46,7 @@ fn extensions_start_quarantined_and_activation_binds_the_reviewed_hash() {
 #[test]
 fn extension_updates_keep_history_and_rollback_requires_a_new_review() {
     let directory = TestDirectory::new();
-    let database = Database::open(directory.0.join("restork.db")).expect("database");
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
     let first = database
         .install_extension(
             "synthetic-skill",
@@ -115,7 +97,7 @@ fn extension_updates_keep_history_and_rollback_requires_a_new_review() {
 #[test]
 fn mcp_execution_is_idempotent_and_terminal_result_is_durable() {
     let directory = TestDirectory::new();
-    let database = Database::open(directory.0.join("restork.db")).expect("database");
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
     database
         .create_session(NewSession {
             session_id: "session-mcp",
@@ -156,7 +138,7 @@ fn mcp_execution_is_idempotent_and_terminal_result_is_durable() {
 #[test]
 fn deliverables_keep_revisions_and_schedules_use_optimistic_updates() {
     let directory = TestDirectory::new();
-    let database = Database::open(directory.0.join("restork.db")).expect("database");
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
     for revision in 1..=2 {
         database
             .save_deliverable(
@@ -215,7 +197,7 @@ fn deliverables_keep_revisions_and_schedules_use_optimistic_updates() {
 #[test]
 fn deliverable_exports_are_hash_bound_audited_and_idempotent() {
     let directory = TestDirectory::new();
-    let database = Database::open(directory.0.join("restork.db")).expect("database");
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
     database
         .save_deliverable(
             "deck-synthetic",
@@ -276,7 +258,7 @@ fn deliverable_exports_are_hash_bound_audited_and_idempotent() {
 #[test]
 fn subtasks_enforce_parent_concurrency_and_terminal_cancellation() {
     let directory = TestDirectory::new();
-    let database = Database::open(directory.0.join("restork.db")).expect("database");
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
     for index in 1..=3 {
         database
             .save_subtask(

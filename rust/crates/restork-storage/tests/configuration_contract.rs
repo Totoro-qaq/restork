@@ -1,34 +1,18 @@
-use std::{fs, path::PathBuf};
-
 use restork_storage::Database;
 use serde_json::json;
 
-struct TestDirectory(PathBuf);
+struct TestDirectory(tempfile::TempDir);
 
 impl TestDirectory {
     fn new() -> Self {
-        let mut suffix = [0_u8; 12];
-        getrandom::fill(&mut suffix).expect("test entropy");
-        let suffix = suffix
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        let path = std::env::temp_dir().join(format!("restork-configuration-{suffix}"));
-        fs::create_dir(&path).expect("create test directory");
-        Self(path)
-    }
-}
-
-impl Drop for TestDirectory {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        Self(tempfile::tempdir().expect("temporary directory"))
     }
 }
 
 #[test]
 fn provider_and_configuration_profiles_use_optimistic_revisions() {
     let directory = TestDirectory::new();
-    let database = Database::open(directory.0.join("restork.db")).expect("database");
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
     let provider = json!({
         "profile_id": "deepseek-main",
         "version": 1,
@@ -76,7 +60,7 @@ fn provider_and_configuration_profiles_use_optimistic_revisions() {
 #[test]
 fn prompt_revisions_are_immutable_and_activation_can_roll_back() {
     let directory = TestDirectory::new();
-    let database = Database::open(directory.0.join("restork.db")).expect("database");
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
     let first = json!({"prompt_id": "research", "revision": 1, "content": "Evidence first"});
     database
         .append_prompt_revision(

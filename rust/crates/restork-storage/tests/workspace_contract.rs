@@ -1,34 +1,18 @@
-use std::{fs, path::PathBuf};
-
 use restork_storage::{Database, NewSession, NewSessionMessage, SessionCursor};
 use serde_json::json;
 
-struct TestDirectory(PathBuf);
+struct TestDirectory(tempfile::TempDir);
 
 impl TestDirectory {
     fn new() -> Self {
-        let mut suffix = [0_u8; 12];
-        getrandom::fill(&mut suffix).expect("test entropy");
-        let suffix = suffix
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        let path = std::env::temp_dir().join(format!("restork-workspace-{suffix}"));
-        fs::create_dir(&path).expect("create test directory");
-        Self(path)
-    }
-}
-
-impl Drop for TestDirectory {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        Self(tempfile::tempdir().expect("temporary directory"))
     }
 }
 
 #[test]
 fn personal_settings_use_optimistic_versions_and_can_be_cleared() {
     let directory = TestDirectory::new();
-    let database = Database::open(directory.0.join("restork.db")).expect("database");
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
     assert!(
         database
             .personal_settings()
@@ -75,7 +59,7 @@ fn personal_settings_use_optimistic_versions_and_can_be_cleared() {
 #[test]
 fn sessions_messages_search_and_keyset_pagination_are_durable() {
     let directory = TestDirectory::new();
-    let database = Database::open(directory.0.join("restork.db")).expect("database");
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
     for (id, updated) in [
         ("session-a", "2026-08-02T08:00:00Z"),
         ("session-b", "2026-08-02T09:00:00Z"),

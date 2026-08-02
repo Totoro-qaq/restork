@@ -1,34 +1,18 @@
-use std::{fs, path::PathBuf};
-
 use restork_storage::{CalendarIntervalRecord, Database};
 use serde_json::json;
 
-struct TestDirectory(PathBuf);
+struct TestDirectory(tempfile::TempDir);
 
 impl TestDirectory {
     fn new() -> Self {
-        let mut suffix = [0_u8; 12];
-        getrandom::fill(&mut suffix).expect("test entropy");
-        let name = suffix
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        let path = std::env::temp_dir().join(format!("restork-daily-storage-{name}"));
-        fs::create_dir(&path).expect("test directory");
-        Self(path)
-    }
-}
-
-impl Drop for TestDirectory {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        Self(tempfile::tempdir().expect("temporary directory"))
     }
 }
 
 #[test]
 fn optional_daily_sources_are_explicit_bounded_and_clearable() {
     let directory = TestDirectory::new();
-    let database = Database::open(directory.0.join("restork.db")).expect("database");
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
     assert!(database.daily_source("weather").expect("source").is_none());
 
     let weather = database

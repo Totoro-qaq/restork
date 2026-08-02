@@ -1,38 +1,20 @@
-use std::{fs, path::PathBuf};
-
 use chrono::{Duration, Utc};
 use restork_automation::{MissedRunPolicy, Recurrence, ScheduleJob, ScheduleSpec};
 use restork_storage::Database;
 use restorkd::run_due_schedules_once;
 
-struct TestDirectory(PathBuf);
+struct TestDirectory(tempfile::TempDir);
 
 impl TestDirectory {
     fn new() -> Self {
-        let mut suffix = [0_u8; 12];
-        getrandom::fill(&mut suffix).expect("entropy");
-        let path = std::env::temp_dir().join(format!(
-            "restork-scheduler-{}",
-            suffix
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>()
-        ));
-        fs::create_dir(&path).expect("directory");
-        Self(path)
-    }
-}
-
-impl Drop for TestDirectory {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        Self(tempfile::tempdir().expect("temporary directory"))
     }
 }
 
 #[test]
 fn due_jobs_are_idempotent_advanced_and_never_gain_an_external_effect() {
     let directory = TestDirectory::new();
-    let storage = Database::open(directory.0.join("restork.db")).expect("database");
+    let storage = Database::open(directory.0.path().join("restork.db")).expect("database");
     let now = Utc::now();
     let schedule = ScheduleSpec::new(
         "schedule-draft",
