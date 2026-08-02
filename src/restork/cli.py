@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -33,6 +34,8 @@ from restork.memory.store import SQLiteMemoryStore
 from restork.network.gateway import DefaultOutboundGateway, OutboundPolicy
 from restork.paths import RuntimePaths
 from restork.providers.deepseek_chat_completions import DeepSeekChatCompletionsProvider
+from restork.providers.diagnostics import DeepSeekProviderDiagnostics
+from restork.providers.setup import ProviderSetupError, configure_provider
 from restork.research.evidence import (
     DeepSeekResearchSynthesizer,
     DeterministicResearchSynthesizer,
@@ -153,6 +156,26 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=7337)
     pair = commands.add_parser("pair")
     pair.add_argument("--code", required=True)
+    provider = commands.add_parser("provider")
+    provider_commands = provider.add_subparsers(
+        dest="provider_command",
+        required=True,
+    )
+    provider_commands.add_parser(
+        "configure",
+        help="prompt securely and save the DeepSeek API key in macOS Keychain",
+    )
+    doctor = commands.add_parser("doctor")
+    doctor.add_argument(
+        "--connect",
+        action="store_true",
+        help="authenticate and check the configured model through /models",
+    )
+    doctor.add_argument(
+        "--smoke",
+        action="store_true",
+        help="also run one fixed public, low-token completion",
+    )
 
     create = commands.add_parser("create")
     create.add_argument("--task-id", required=True)
@@ -274,6 +297,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.profile_dir,
             arguments.vault_dir,
         )
+    if arguments.command == "provider":
+        return _configure_provider()
+    if arguments.command == "doctor":
+        return _doctor(connect=arguments.connect or arguments.smoke, smoke=arguments.smoke)
 
     try:
         client = LocalApiClient(arguments.api_url, os.environ.get("RESTORK_CLI_TOKEN"))
@@ -287,6 +314,41 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (LocalApiError, ValueError, KeyError) as error:
         print(f"restork: {error}", file=sys.stderr)
         return 2
+
+
+def _configure_provider() -> int:
+    if sys.platform != "darwin":
+        print(
+            "restork: secure provider setup currently requires macOS Keychain",
+            file=sys.stderr,
+        )
+        return 2
+    if not sys.stdin.isatty():
+        print(
+            "restork: provider setup requires an interactive terminal",
+            file=sys.stderr,
+        )
+        return 2
+    config_path = RuntimePaths.from_environ().config_dir / "config.toml"
+    try:
+        result = configure_provider(config_path, KeychainSecretStore())
+    except ProviderSetupError as error:
+        print(f"restork: {error}", file=sys.stderr)
+        return 2
+    action = "Created" if result.config_created else "Kept"
+    print("DeepSeek API key saved in macOS Keychain.")
+    print(f"{action} non-secret provider config: {result.config_path}")
+    print("Restart Restork Core, then run `uv run restork doctor --connect`.")
+    return 0
+
+
+def _doctor(*, connect: bool, smoke: bool) -> int:
+    config_path = RuntimePaths.from_environ().config_dir / "config.toml"
+    diagnostics = DeepSeekProviderDiagnostics(config_path)
+    report = asyncio.run(diagnostics.diagnose(smoke=smoke)) if connect else diagnostics.status()
+    _print_json(report.model_dump(mode="json"))
+    expected = "smoke_passed" if smoke else "connected" if connect else "ready"
+    return 0 if report.status == expected else 2
 
 
 def _serve(
@@ -348,8 +410,10 @@ def _serve(
     study_store = SQLiteStudyStore.create(database)
     work_store = SQLiteWorkStore.create(database)
     config_path = runtime_paths.config_dir / "config.toml"
+    keychain = KeychainSecretStore()
+    provider_active = config_path.is_file()
     synthesizer: ResearchSynthesizer
-    if config_path.is_file():
+    if provider_active:
         provider_config = load_config(config_path).provider
         provider = DeepSeekChatCompletionsProvider(
             provider_config,
@@ -360,7 +424,7 @@ def _serve(
                     maximum_response_bytes=4_000_000,
                 )
             ),
-            KeychainSecretStore(),
+            keychain,
         )
         transient_key = LocalEncryptionKeyStore().load_or_create(
             runtime_paths.data_dir / "transient.key",
@@ -418,6 +482,11 @@ def _serve(
         study=study_workflow,
         study_artifacts=study_store,
         work=work_workflow,
+        provider_diagnostics=DeepSeekProviderDiagnostics(
+            config_path,
+            keychain=keychain,
+            provider_active=provider_active,
+        ),
     )
     print(f"Web pairing code: {pairing.pairing_code}")
     print(f"CLI pairing code: {cli_code}", flush=True)

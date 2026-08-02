@@ -27,9 +27,22 @@ than creating a database in the current directory.
 
 ## DeepSeek V4 Pro and macOS Keychain
 
-Copy `examples/config.example.toml` to `$RESTORK_CONFIG_DIR/config.toml`. The V1 contract accepts
-only model `deepseek-v4-pro`, exact origin `https://api.deepseek.com`, and a
-`keychain:<service>/<account>` reference.
+The supported setup entry is an interactive terminal command:
+
+```bash
+uv run restork provider configure
+```
+
+The command invokes the absolute macOS `/usr/bin/security` program with its prompt option last. The
+API key is entered into that prompt, not into Restork, a command argument, an environment variable,
+or shell history. It updates the Generic Password at service `restork/provider`, account `deepseek`.
+When configuration is absent, Restork also creates `$RESTORK_CONFIG_DIR/config.toml` with mode `0600`;
+it contains only the Keychain reference and strict provider settings. Existing valid configuration is
+preserved. Cancellation does not create a new configuration file.
+
+The V1 contract accepts only model `deepseek-v4-pro`, exact origin
+`https://api.deepseek.com`, and a `keychain:<service>/<account>` reference. The default non-secret
+configuration is:
 
 Use macOS Keychain Access to create a **Generic Password** item. For the repository example, use
 service `restork/provider`, account `deepseek`, and place the API key only in the password field.
@@ -45,15 +58,41 @@ thinking_enabled = true
 reasoning_effort = "high"
 ```
 
-The command below confirms that an item exists without printing its password:
+The local doctor confirms configuration and Keychain item metadata without resolving the password or
+opening the network:
+
+```bash
+uv run restork doctor
+```
+
+Network checks are always explicit:
+
+```bash
+uv run restork doctor --connect
+uv run restork doctor --smoke
+```
+
+`--connect` performs one bounded `GET /models` through the exact-origin outbound policy. `--smoke`
+first performs that check, then sends one fixed public synthetic sentence with `max_tokens=16` and
+thinking disabled. Diagnostics return status, latency, a safe request ID when present, and token counts;
+they never return the key or completion text. Neither check reads Vault, memory, tasks, Profile, daily
+context, or the runtime database.
+
+The Dashboard displays the same local status and commands after pairing, but it has no key field and
+never receives secret material. Restart Core after changing the Keychain item because a running Core
+keeps its provider wiring for that process lifetime.
+
+Manual fallback: copy `examples/config.example.toml` to `$RESTORK_CONFIG_DIR/config.toml`, then create
+the same Generic Password in Keychain Access. This metadata-only command confirms the item exists
+without printing its password:
 
 ```bash
 /usr/bin/security find-generic-password -s 'restork/provider' -a 'deepseek'
 ```
 
-Never pass an API key on a command line, place it in TOML, export it into the repository, or include
-it in a backup archive. Without `config.toml`, Restork uses its deterministic offline Research
-synthesizer and makes no model request.
+Never pass an API key on a command line, place it in TOML, export it into the repository, or include it
+in a backup archive. Use the same `RESTORK_CONFIG_DIR` for setup, doctor, and Core. Without
+`config.toml`, Restork uses its deterministic offline Research synthesizer and makes no model request.
 
 ## Start and pair
 

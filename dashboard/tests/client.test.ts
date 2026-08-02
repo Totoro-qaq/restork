@@ -77,6 +77,37 @@ describe("LocalApiClient weather configuration", () => {
   });
 });
 
+describe("LocalApiClient provider diagnostics", () => {
+  it("posts only the smoke choice through the paired local Core", async () => {
+    const report = {
+      schema_version: 1,
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+      status: "smoke_passed",
+    };
+    const responses = [
+      jsonResponse({ access_token: "paired-token" }),
+      jsonResponse(report),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+
+    await client.pair("pairing-code");
+    await client.providerDiagnostics(true);
+
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/providers/deepseek/diagnostics");
+    const init = fetchMock.mock.calls[1][1];
+    expect(JSON.parse(String(init?.body))).toEqual({ smoke: true });
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer paired-token");
+    expect(String(init?.body)).not.toMatch(/api.?key|secret/i);
+  });
+});
+
 describe("LocalApiClient authenticated SSE", () => {
   it("decodes UTF-8 chunks and stops after a durable terminal event", async () => {
     const payload = [

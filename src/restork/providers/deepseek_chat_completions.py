@@ -220,6 +220,7 @@ class DeepSeekChatCompletionsProvider:
                     if response.status_code == 429 or response.status_code >= 500
                     else ProviderErrorKind.TERMINAL
                 ),
+                status_code=response.status_code,
             )
 
     @staticmethod

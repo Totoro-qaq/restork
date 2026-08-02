@@ -31,6 +31,22 @@ Pairing does not make a local machine safe from malware with the same user privi
 Credentials and private runtime data therefore remain outside the public repository, and
 clients should revoke tokens when a browser profile or CLI credential is retired.
 
+Provider credentials remain outside this boundary too. The Dashboard exposes no API-key/password
+field and no endpoint accepts credential text. `restork provider configure` delegates the interactive
+secret prompt directly to macOS Keychain. Authenticated browser clients may read only a redacted
+provider-status report and explicitly request a bounded connection or public synthetic smoke test.
+Reports contain status and safe operational metadata, never request authorization, key material,
+prompt/completion bodies, or private Core context.
+
+The provider surfaces are:
+
+- `GET /v1/providers/deepseek`, requiring `runs:read`, for local configuration and Keychain metadata;
+- `POST /v1/providers/deepseek/diagnostics`, requiring `runs:write`, with the strict body
+  `{ "smoke": false }` or `{ "smoke": true }`.
+
+The POST is intentionally ordinary bounded request/response traffic. Run-event SSE is unnecessary for
+these short diagnostics, and neither polling nor WebSocket is exposed.
+
 ## CLI flow
 
 The CLI is an API client and never opens the runtime SQLite database for lifecycle

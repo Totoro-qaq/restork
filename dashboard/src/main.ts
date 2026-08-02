@@ -15,6 +15,9 @@ import {
   agentWaitMarkup,
   errorText,
   pairingMarkup,
+  providerDiagnosticMarkup,
+  providerErrorMarkup,
+  providerWaitMarkup,
   researchPreviewMarkup,
   studyArtifactMarkup,
   studyAttemptMarkup,
@@ -125,8 +128,48 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   });
   configureMusic(root);
   configureWeather(root, api);
+  configureProvider(root, api);
   if (snapshot.daily?.music.recommendation?.cover_available) {
     void loadMusicCover(root, api);
+  }
+}
+
+function configureProvider(root: HTMLElement, api: DashboardApi): void {
+  root.querySelectorAll<HTMLButtonElement>("[data-provider-diagnostic]").forEach((button) => {
+    button.addEventListener("click", () => {
+      void runProviderDiagnostic(root, api, button.dataset.providerDiagnostic === "smoke");
+    });
+  });
+}
+
+async function runProviderDiagnostic(
+  root: HTMLElement,
+  api: DashboardApi,
+  smoke: boolean,
+): Promise<void> {
+  const host = root.querySelector<HTMLElement>("#provider-diagnostic-result");
+  const buttons = root.querySelectorAll<HTMLButtonElement>("[data-provider-diagnostic]");
+  if (!host) return;
+  buttons.forEach((button) => { button.disabled = true; });
+  host.innerHTML = providerWaitMarkup(smoke, localeOf(root));
+  try {
+    const report = await api.providerDiagnostics(smoke);
+    if (root.contains(host)) {
+      host.innerHTML = providerDiagnosticMarkup(report, localeOf(root));
+      const summary = root.querySelector<HTMLElement>("[data-provider-summary]");
+      if (summary) {
+        summary.dataset.providerSummary = report.status;
+        summary.textContent = report.status.replaceAll("_", " ");
+      }
+    }
+  } catch {
+    if (root.contains(host)) {
+      host.innerHTML = providerErrorMarkup(localeOf(root));
+    }
+  } finally {
+    buttons.forEach((button) => {
+      if (root.contains(button)) button.disabled = false;
+    });
   }
 }
 

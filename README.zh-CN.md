@@ -127,7 +127,7 @@ Core 会分别打印 **Web pairing code** 和 **CLI pairing code**。打开上�
 |---|---|---|
 | 先体验 Dashboard | 无需配置 | 不调用模型，也不读取 Vault |
 | 读取 Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | 仅本地读取；写入仍需精确预览和审批 |
-| 使用 DeepSeek V4 Pro | 私有 `config.toml` 加 macOS Keychain 条目 | 只有获准的提示词会经过受控 DeepSeek 网关 |
+| 使用 DeepSeek V4 Pro | `uv run restork provider configure` | Key 直接进入 macOS Keychain；只有获准的提示词会经过受控 DeepSeek 网关 |
 | 显示天气 | 在私有 Profile 中配置 provider，并手填坐标 | 任一字段为空即停用；Restork 不请求浏览器定位 |
 | 显示日历或音乐 | 私有 Profile 指向一个本地 ICS 或 JSON/CSV 文件 | 只读本地导入，不登录第三方账号 |
 
@@ -139,25 +139,27 @@ RESTORK_PORT=7444 ./scripts/quickstart.sh
 
 ### 3. 确实需要时再启用 DeepSeek V4 Pro
 
-不做本节配置时，Restork 会保持无凭据的离线模式。当前实时模型凭据使用
-**macOS Keychain**：
-
-1. 选择一个仓库外的绝对路径作为私有配置目录，并确保每次启动前都设置
-   `RESTORK_CONFIG_DIR`。
-2. 把 [`examples/config.example.toml`](examples/config.example.toml) 复制为
-   `$RESTORK_CONFIG_DIR/config.toml`；文件里只放 Keychain 引用，绝不放真实 key。
-3. 在系统的**钥匙串访问**中创建“通用密码”：服务名填 `restork/provider`，账户名填
-   `deepseek`，API key 只放在密码字段。
-4. 在同一个终端执行 `./scripts/quickstart.sh`。
-
-下面的命令只确认条目存在，不会打印密码：
+不做本节配置时，Restork 会保持无凭据的离线模式。在仓库根目录的终端运行：
 
 ```bash
-/usr/bin/security find-generic-password -s 'restork/provider' -a 'deepseek'
+uv run restork provider configure
 ```
 
-完整目录、备份、恢复和凭据规则见 [`Operations`](docs/operations.md)。不要把 API key
-写入 TOML、shell history、Vault 或本仓库。
+macOS `security` 会直接提示输入 API Key，并把它保存为钥匙串中的“通用密码”。如尚无
+provider 配置，Restork 会自动创建权限为 `0600` 的非敏感配置文件。Key 不会作为命令行
+参数或环境变量传入，也不会进入浏览器、TOML、shell history、Vault、SQLite、日志或本仓库。
+
+Dashboard 首页的**模型接入**卡会一直显示这条命令和本地状态。配置后重启 Core，再按需验证：
+
+```bash
+uv run restork doctor             # 只检查本地配置与 Keychain 元数据
+uv run restork doctor --connect   # 显式执行有界 GET /models
+uv run restork doctor --smoke     # /models 加一次固定公开、最多 16 token 的请求
+```
+
+短句测试不会发送 Vault、记忆、任务、位置、日历或歌单内容，也不会打印模型响应正文。自定义
+私有目录、手动备用方式、备份、恢复和凭据规则见 [`Operations`](docs/operations.md)。如果设置了
+`RESTORK_CONFIG_DIR`，配置、诊断和启动 Core 时必须使用同一个值。
 
 ### 4. 让个人数据始终留在仓库之外
 

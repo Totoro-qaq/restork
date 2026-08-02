@@ -731,6 +731,13 @@ src/restork/web/static/          # generated release assets
 23. Provide `scripts/quickstart.sh` as the privacy-default source-checkout entry point, document the
     first successful screen plus opt-in DeepSeek/Vault/daily configuration in equivalent separate
     English and Chinese READMEs, and make `Ctrl-C` shutdown quiet.
+24. Add `restork provider configure` so macOS Keychain owns the interactive API-key prompt and a
+    missing non-secret provider configuration is created with mode `0600`; expose no secret argument,
+    environment variable, browser field, database value, event, or log.
+25. Add a local-only `restork doctor`, explicit bounded `--connect` `/models` verification, and a fixed
+    public maximum-16-token `--smoke` completion whose output reports no response body.
+26. Add a compact bilingual Model access card with exact setup command, redacted status, connect/smoke
+    buttons, typewriter waiting feedback, reduced-motion support, and responsive browser verification.
 
 ### Verification
 
@@ -764,6 +771,10 @@ Run automated transport/auth tests for cursor reconnect, hostile Origin, missing
   responsive widths.
 - A clean checkout reaches the paired Dashboard with `./scripts/quickstart.sh` and cleanly stops on
   `Ctrl-C` without requiring credentials or private data.
+- DeepSeek setup is discoverable from the paired Dashboard but API-key entry occurs only through the
+  macOS Keychain terminal prompt; the browser has no credential field or value.
+- Provider doctor is offline by default. Explicit connection/smoke diagnostics are bounded, exclude all
+  private context, and return only redacted operational metadata through ordinary authenticated POST.
 - Calendar and playlist inputs remain local and read-only; weather/cover requests use the gateway.
 - Clock/CD motion has a pause or static alternative and honors reduced-motion preferences.
 - README SVG/GIF assets render at GitHub width, contain no private data, and the raster demonstration is at least 1280 pixels wide.
@@ -1239,4 +1250,5 @@ Remaining implementation-time decision:
 
 Work V1 planning-and-handoff-only is a closed safety decision. Managed execution requires the post-V1 gate in Section 10.5.
 
-Implementation is complete through Step 10. V1 publication follows the protected release checklist and reviewed `v0.1.0` tag workflow.
+Implementation is complete through Step 10. Secure provider onboarding and diagnostics are included in
+the `v0.1.2` maintenance release and follow the same protected release checklist.

@@ -36,10 +36,14 @@ Manual checks may supplement, but never waive, a security/privacy gate.
   Web plus CLI pairing against the loopback Core.
 - [x] Verify the macOS Keychain adapter command contract with a synthetic subprocess: fixed absolute
   binary, bounded argument list, no shell, and no secret or command output in failures.
+- [x] Verify secure provider onboarding and diagnostics: direct Keychain prompt, mode-`0600`
+  non-secret configuration, offline-by-default doctor, fixed public smoke payload, strict scopes, and
+  no credential/completion text in CLI, API, Dashboard, logs, or artifacts.
 - [x] Stop Core, back up, and restore config, SQLite state, mode-`0600` transient key, private
   artifact, and a synthetic Vault; compare every file, load the restored key, and pass SQLite
   integrity checking.
-- [x] Confirm version `0.1.0` matches `pyproject.toml`, `src/restork/__init__.py`, and changelog.
+- [x] Confirm version `0.1.2` matches `pyproject.toml`, `src/restork/__init__.py`, Dashboard package,
+  lockfiles, and changelog.
 
 ## Owner-machine publication checks
 
@@ -47,7 +51,7 @@ These depend on the owner's private machine or the final public tag, not on sour
 They must not expose credentials and cannot be replaced by repository fixtures.
 
 - [ ] Confirm the configured Generic Password item exists in the owner's Keychain without `-w`.
-- [ ] Create the reviewed `v0.1.0` tag only after the protected `main` release commit is selected.
+- [ ] Create the reviewed `v0.1.2` tag only after the protected `main` release commit is selected.
 - [ ] Verify the downloaded GitHub attestation and checksums before distributing that tagged build.
 
 ## Release procedure

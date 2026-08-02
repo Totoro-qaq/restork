@@ -4,6 +4,17 @@ All notable changes to Restork are documented here.
 
 ## Unreleased
 
+## 0.1.2 — 2026-08-02
+
+- Added `restork provider configure`, which prompts directly through macOS Keychain and creates only a
+  mode-`0600` non-secret DeepSeek configuration.
+- Added local-only `restork doctor`, explicit bounded `/models` verification, and a fixed public
+  maximum-16-token smoke check with redacted diagnostic output.
+- Added a compact bilingual Model access Dashboard card with no credential field, responsive layout,
+  accessible typewriter waiting state, and explicit connection/smoke actions.
+- Documented the secure one-command provider path, diagnostics boundary, and manual Keychain fallback
+  throughout both READMEs, operations, Dashboard, security, workflow, specification, and plan.
+
 ## 0.1.1 — 2026-08-02
 
 - Added a bilingual, privacy-first one-command quick start and complete first-run/configuration path

@@ -7,6 +7,7 @@ import type {
   RadarAction,
   RadarActionResult,
   PracticeAttemptResult,
+  ProviderDiagnostic,
   RunEvent,
   RunSummary,
   StudyArtifact,
@@ -36,7 +37,7 @@ export class LocalApiClient implements DashboardApi {
   }
 
   async loadDashboard(): Promise<DashboardSnapshot> {
-    const [runs, approvals, taskBoard, radar, memory, daily] = await Promise.all([
+    const [runs, approvals, taskBoard, radar, memory, daily, provider] = await Promise.all([
       this.#request<{ runs: DashboardSnapshot["runs"] }>("GET", "/v1/runs"),
       this.#request<{ approvals: DashboardSnapshot["approvals"] }>(
         "GET",
@@ -50,6 +51,9 @@ export class LocalApiClient implements DashboardApi {
       this.#request<NonNullable<DashboardSnapshot["daily"]>>("GET", "/v1/daily").catch(
         () => null,
       ),
+      this.#request<ProviderDiagnostic>("GET", "/v1/providers/deepseek").catch(
+        () => null,
+      ),
     ]);
     return {
       runs: runs.runs,
@@ -58,6 +62,7 @@ export class LocalApiClient implements DashboardApi {
       radar,
       memory,
       daily,
+      provider,
     };
   }
 
@@ -274,6 +279,14 @@ export class LocalApiClient implements DashboardApi {
         disabledProvider.content_hash,
       );
     }
+  }
+
+  async providerDiagnostics(smoke: boolean): Promise<ProviderDiagnostic> {
+    return this.#request<ProviderDiagnostic>(
+      "POST",
+      "/v1/providers/deepseek/diagnostics",
+      { smoke },
+    );
   }
 
   async musicCover(): Promise<Blob | null> {

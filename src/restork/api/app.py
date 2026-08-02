@@ -56,6 +56,10 @@ from restork.memory.models import (
     SourcePurgeRequest,
 )
 from restork.memory.service import MemoryService
+from restork.providers.diagnostics import (
+    ProviderDiagnosticRequest,
+    ProviderDiagnostics,
+)
 from restork.research.models import SourceRequest
 from restork.research.store import SQLiteResearchStore
 from restork.research.workflow import ResearchRunRequest, ResearchWorkflow
@@ -163,6 +167,7 @@ def create_app(
     study: StudyWorkflow | None = None,
     study_artifacts: SQLiteStudyStore | None = None,
     work: WorkWorkflow | None = None,
+    provider_diagnostics: ProviderDiagnostics | None = None,
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -333,6 +338,29 @@ def create_app(
                 "memory_mcp_required": False,
             },
         }
+
+    def configured_provider_diagnostics() -> ProviderDiagnostics:
+        if provider_diagnostics is None:
+            raise HTTPException(
+                status_code=503,
+                detail="provider diagnostics are not configured",
+            )
+        return provider_diagnostics
+
+    @app.get("/v1/providers/deepseek")
+    def inspect_provider(
+        _: Annotated[AccessToken, Depends(read_runs)],
+    ) -> dict[str, object]:
+        return configured_provider_diagnostics().status().model_dump(mode="json")
+
+    @app.post("/v1/providers/deepseek/diagnostics")
+    async def diagnose_provider(
+        body: ProviderDiagnosticRequest,
+        _: Annotated[AccessToken, Depends(write_runs)],
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        report = await configured_provider_diagnostics().diagnose(smoke=body.smoke)
+        return report.model_dump(mode="json")
 
     def configured_memory() -> MemoryService:
         if memory is None:
