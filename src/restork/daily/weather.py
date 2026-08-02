@@ -11,9 +11,9 @@ from urllib.parse import urlencode
 from restork.contracts.outbound import OutboundEnvelope
 from restork.contracts.types import DataClass, PolicyDecision
 from restork.daily.cache import SQLiteDailyCache
-from restork.daily.location import parse_weather_location
 from restork.daily.models import DailyStatus, WeatherSnapshot
 from restork.network.gateway import OutboundGateway, OutboundRequest
+from restork.weather_location import parse_weather_location
 
 _ENDPOINT = "https://api.open-meteo.com/v1/forecast"
 _TTL = timedelta(minutes=30)

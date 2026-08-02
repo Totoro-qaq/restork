@@ -7,10 +7,10 @@ from pathlib import Path
 
 from restork.contracts.types import DataClass
 from restork.daily.cache import SQLiteDailyCache
-from restork.daily.location import parse_weather_location
 from restork.daily.models import DailyStatus
 from restork.daily.weather import OpenMeteoWeather
 from restork.network.gateway import OutboundRequest, OutboundResponse
+from restork.weather_location import parse_weather_location
 
 
 class FakeGateway:

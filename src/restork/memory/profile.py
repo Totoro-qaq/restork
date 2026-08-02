@@ -13,7 +13,6 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from restork.contracts.types import DataClass
-from restork.daily.location import parse_weather_location
 from restork.memory.models import (
     MemoryLayer,
     MemoryRecord,
@@ -22,6 +21,7 @@ from restork.memory.models import (
     json_safe_value,
     memory_content_hash,
 )
+from restork.weather_location import parse_weather_location
 
 
 class _ProfileModel(BaseModel):
