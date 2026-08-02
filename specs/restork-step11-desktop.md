@@ -1,6 +1,6 @@
 # Restork Step 11 Desktop Shell Specification
 
-> Status: Implemented — macOS internal alpha; protected public release pending credentials | Version: 0.3 | Date: 2026-08-02
+> Status: Implemented — macOS internal alpha; protected public release pending credentials | Version: 0.4 | Date: 2026-08-02
 >
 > Delivery plan: [Step 11 Desktop Shell Plan](../plans/restork-step11-desktop.md)
 >
@@ -62,13 +62,14 @@ release. Only debug builds permit an explicit absolute Core override.
    starts Core immediately. A bounded retry handles loss of the port before Core binds it.
 3. The supervisor creates a new Core process group plus an anonymous pipe. Rust retains the only
    write end; Core inherits the read end and verifies the parent PID and process-group ownership.
-4. The supervisor creates a private temporary directory and passes a random, non-existing bootstrap
-   file path through `RESTORK_DESKTOP_BOOTSTRAP_PATH`.
-5. Core starts the parent-lease watcher before initializing its stores, then writes a
-   schema-versioned bootstrap JSON file atomically
-   with mode `0600`. It does not print desktop pairing material to stdout.
-6. The supervisor validates owner, permissions, schema, PID, port, and pairing-code shape; reads it
-   once; deletes the file and temporary directory; and keeps the code only in process memory.
+4. The supervisor creates a second anonymous pipe, retains its non-blocking read end, and passes only
+   the inherited write descriptor through `RESTORK_DESKTOP_BOOTSTRAP_FD`.
+5. Core starts the parent-lease watcher before initializing its stores, verifies that the inherited
+   descriptor is a pipe, writes one bounded schema-versioned JSON payload, and closes it. It does not
+   print desktop pairing material to stdout or persist it to disk.
+6. The supervisor reads at most 4096 bytes and validates schema, PID, port, pairing-code shape, and
+   deadline. Kernel descriptor ownership provides the capability boundary; the code remains only in
+   process memory.
 7. The supervisor polls `GET /v1/readiness` over loopback. That endpoint returns only
    `{"status":"ready","schema":"v1"}` and exposes no data or capability.
 8. After readiness the WebView navigates to the exact selected loopback origin.
@@ -78,8 +79,9 @@ release. Only debug builds permit an explicit absolute Core override.
 10. Token rotation remains owned by the existing local API client. Each replacement is copied only
    into native process memory; neither pairing material nor bearer tokens enter a URL, Web Storage,
    disk diagnostics, or the Keychain.
-11. If startup fails, the shell terminates the child, removes bootstrap material, and renders a local
-   recovery screen. It never falls back to a different executable from `PATH` in a release build.
+11. If startup fails, the shell closes bootstrap descriptors, terminates the child, and renders a
+    local recovery screen. It never falls back to a different executable from `PATH` in a release
+    build.
 
 ## 4. Lifecycle and recovery requirements
 
@@ -100,7 +102,7 @@ release. Only debug builds permit an explicit absolute Core override.
 - The release app uses the packaged resource path. A development-only environment override may
   select a Core binary and must be ignored by public release builds.
 - A failed Core exits to an actionable screen with Retry, Open diagnostics folder, and Quit. Retry
-  creates a new port, bootstrap path, and pairing challenge.
+  creates a new port, bootstrap pipe, and pairing challenge.
 - All diagnostics are metadata-only: schema version, timestamp, and a fixed lifecycle event name.
   Pairing material, bearer tokens, API keys, prompts, note bodies, events, locations, and calendar
   entries are forbidden.
@@ -123,9 +125,10 @@ The Rust shell never reads it. The Dashboard never receives it. Provider checks 
 remain Core operations behind `OutboundGateway`.
 
 The desktop bootstrap pairing code is not a long-lived credential. It is single use, expires under
-the existing pairing policy, is transferred through an owner-only temporary file and the restricted
-session bridge, and is never embedded in a URL. The resulting short-lived bearer token may exist in
-Rust and WebView memory solely to support reload and rotation; application quit clears both copies.
+the existing pairing policy, is transferred through a one-shot inherited anonymous pipe and the
+restricted session bridge, and is never persisted or embedded in a URL. The resulting short-lived
+bearer token may exist in Rust and WebView memory solely to support reload and rotation; application
+quit clears both copies.
 
 ### 5.3 User data boundary
 

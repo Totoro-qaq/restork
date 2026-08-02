@@ -45,7 +45,8 @@ For a faster packaging-only check:
 1. The native loading window appears and the Rust supervisor chooses a random `127.0.0.1` port.
 2. It launches exactly the bundled Core as a new process group, retains the child handle, and opens
    a one-way parent lease that the operating system closes if the Rust owner disappears.
-3. It validates an owner-only bootstrap file plus the public, metadata-only readiness endpoint.
+3. It validates a bounded one-shot payload from an inherited anonymous pipe plus the public,
+   metadata-only readiness endpoint; pairing material never touches disk.
 4. The WebView opens the local Dashboard. A split Tauri capability gives that exact loopback origin
    only two session commands; the bundled loader has only status, retry, and quit commands.
 5. The one-time pairing code becomes a short-lived token held in Rust and WebView memory. Reloads and

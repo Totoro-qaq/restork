@@ -1,6 +1,6 @@
 # Restork Step 11 Desktop Shell Plan
 
-> Status: Implemented — macOS internal alpha; protected public release pending credentials | Version: 0.3 | Date: 2026-08-02
+> Status: Implemented — macOS internal alpha; protected public release pending credentials | Version: 0.4 | Date: 2026-08-02
 >
 > Governing specification: [Step 11 Desktop Shell](../specs/restork-step11-desktop.md)
 >
@@ -28,7 +28,7 @@ supported.
 | Go | Not introduced; it would add a third runtime without owning a distinct boundary |
 | UI | Existing responsive TypeScript Dashboard; no second UI implementation |
 | Local API | Random loopback port, public metadata-only readiness endpoint, existing scoped auth for all data APIs |
-| Desktop pairing | One-time code transferred through a private bootstrap file; a capability-scoped Tauri bridge then restores or rotates the short-lived browser session in memory, never in a URL or Web Storage |
+| Desktop pairing | One-time code transferred through a one-shot inherited anonymous pipe; the capability-scoped Tauri bridge restores or rotates the short-lived browser session in memory only |
 | Secrets | Existing macOS Keychain adapter remains inside Core; shell and WebView never receive the API key |
 | Updates | Signed Tauri updater artifacts over HTTPS; release credentials remain GitHub secrets |
 | Process ownership | Rust-retained child/process group plus an exclusive parent-lease pipe; Python owns agent orchestration only |
@@ -39,7 +39,7 @@ supported.
 ### 11A — Contract and packaging foundation
 
 - Add `GET /v1/readiness`, returning only schema and ready state.
-- Add a private desktop bootstrap-file contract and tests.
+- Add a bounded anonymous-pipe desktop bootstrap contract and tests.
 - Add a pinned PyInstaller packaging group and a reviewed `onedir` spec.
 - Bundle Dashboard assets explicitly and verify the frozen Core from outside the source tree.
 
@@ -53,7 +53,8 @@ all profile, database, Vault, and Keychain locations unchanged.
 - Start exactly one Core child, enforce a ten-second startup deadline, and show actionable failure
   details without leaking credentials or pairing material.
 - Navigate the same WebView to the local Dashboard after readiness.
-- Terminate the entire managed child process on application exit and recover stale bootstrap files.
+- Terminate the entire managed child process on application exit and close every bootstrap
+  descriptor.
 - Retain the process group and a kernel-backed parent lease so Rust crash or `SIGKILL` cannot leave
   an ordinary orphan Core.
 - Detect early child exit and probe readiness every two seconds; tolerate transient misses, record

@@ -27,19 +27,21 @@ trap cleanup EXIT INT TERM
 config_dir="$smoke_root/config"
 data_dir="$smoke_root/data"
 cache_dir="$smoke_root/cache"
-bootstrap_dir="$smoke_root/bootstrap"
-mkdir -p "$config_dir" "$data_dir" "$cache_dir" "$bootstrap_dir"
-chmod 700 "$config_dir" "$data_dir" "$cache_dir" "$bootstrap_dir"
+bootstrap_pipe="$smoke_root/bootstrap.pipe"
+mkdir -p "$config_dir" "$data_dir" "$cache_dir"
+chmod 700 "$config_dir" "$data_dir" "$cache_dir"
+/usr/bin/mkfifo "$bootstrap_pipe"
+chmod 600 "$bootstrap_pipe"
+exec 9<>"$bootstrap_pipe"
 
 port="$(/usr/bin/python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
-bootstrap_path="$bootstrap_dir/core.json"
 stdout_path="$smoke_root/core.stdout"
 stderr_path="$smoke_root/core.stderr"
 
 RESTORK_CONFIG_DIR="$config_dir" \
 RESTORK_DATA_DIR="$data_dir" \
 RESTORK_CACHE_DIR="$cache_dir" \
-RESTORK_DESKTOP_BOOTSTRAP_PATH="$bootstrap_path" \
+RESTORK_DESKTOP_BOOTSTRAP_FD="9" \
   "$core_binary" \
     --state-db "$data_dir/restork.db" \
     serve \
@@ -68,25 +70,15 @@ if [[ "$ready" != "1" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$bootstrap_path" ]]; then
-  print -u2 -- "Frozen Core did not publish a desktop bootstrap."
-  exit 1
-fi
-
-if [[ "$(stat -f '%Lp' "$bootstrap_path")" != "600" ]]; then
-  print -u2 -- "Desktop bootstrap permissions are not 0600."
-  exit 1
-fi
-
-/usr/bin/python3 - "$bootstrap_path" "$port" "$core_pid" <<'PY'
+/usr/bin/python3 - "$port" "$core_pid" 9<&9 <<'PY'
 import json
-import pathlib
+import os
 import sys
 
-payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+payload = json.loads(os.read(9, 4096))
 assert payload["schema_version"] == 1
-assert payload["port"] == int(sys.argv[2])
-assert payload["pid"] == int(sys.argv[3])
+assert payload["port"] == int(sys.argv[1])
+assert payload["pid"] == int(sys.argv[2])
 assert isinstance(payload["pairing_code"], str)
 assert len(payload["pairing_code"]) >= 16
 PY

@@ -99,5 +99,5 @@ generic secret-store reference. Existing macOS profiles continue to work without
   Vault selection, calendar, playlist, and memory.
 - Pass Dashboard checks at 390, 768, 1024, 1440, 2048, and 2560 CSS pixels with keyboard-only use,
   visible focus, screen-reader names, reduced motion, and no document-level horizontal overflow.
-- Public-artifact scanning finds no private path, credential, token, pairing code, bootstrap file, or
+- Public-artifact scanning finds no private path, credential, token, pairing code, bootstrap payload, or
   personal fixture.

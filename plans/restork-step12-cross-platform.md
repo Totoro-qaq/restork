@@ -84,7 +84,7 @@ declared supported distro image.
   store, sleep/resume, offline update, corrupt update, and interrupted installation.
 - Verify that uninstall removes application files only and leaves user data unless the user makes a
   separate explicit deletion choice.
-- Scan every package for credentials, private paths, Vault fixtures, bootstrap files, and tokens.
+- Scan every package for credentials, private paths, Vault fixtures, bootstrap payloads, and tokens.
 
 ## 4. Definition of support
 

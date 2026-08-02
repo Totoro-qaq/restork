@@ -49,9 +49,9 @@ these short diagnostics, and neither polling nor WebSocket is exposed.
 
 ## Desktop session bridge
 
-The macOS shell does not bypass local API authentication. Core places the desktop Web pairing code
-in a schema-versioned, owner-only bootstrap file; the Rust supervisor validates its owner, mode, PID,
-port, shape, and deadline, deletes the file, and retains the code only in memory. The loopback
+The macOS shell does not bypass local API authentication. Core writes the desktop Web pairing code
+once to an inherited anonymous-pipe descriptor; the Rust supervisor bounds the payload, validates
+its schema, PID, port, shape, and deadline, and retains the code only in memory. The loopback
 Dashboard exchanges it through the ordinary `/v1/pair` endpoint.
 
 Tauri exposes two separate generated capability allowlists. The bundled loader can request only

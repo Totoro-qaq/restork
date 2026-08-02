@@ -67,6 +67,10 @@ jobs:
       - run: npm --prefix desktop test
       - run: ./scripts/smoke-desktop-core.sh
       - run: npm --prefix desktop run build:app
+      - name: Ad-hoc sign internal test bundle
+        run: >-
+          codesign --force --deep --sign - --timestamp=none
+          desktop/src-tauri/target/release/bundle/macos/Restork.app
       - run: codesign --verify --deep --strict --verbose=2 desktop/src-tauri/target/release/bundle/macos/Restork.app
 
   public-artifact-scan:

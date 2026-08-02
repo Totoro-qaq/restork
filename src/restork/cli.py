@@ -360,8 +360,17 @@ def _serve(
     profile_dir: Path | None = None,
     vault_dir: Path | None = None,
 ) -> int:
-    desktop_bootstrap = os.environ.get("RESTORK_DESKTOP_BOOTSTRAP_PATH")
+    desktop_bootstrap = os.environ.get("RESTORK_DESKTOP_BOOTSTRAP_FD")
+    desktop_bootstrap_descriptor: int | None = None
     if desktop_bootstrap is not None:
+        try:
+            desktop_bootstrap_descriptor = int(desktop_bootstrap, 10)
+        except ValueError:
+            print("restork: invalid desktop bootstrap descriptor", file=sys.stderr)
+            return 2
+        if desktop_bootstrap_descriptor < 3:
+            print("restork: invalid desktop bootstrap descriptor", file=sys.stderr)
+            return 2
         start_desktop_parent_lease_watchdog()
     pairing = PairingAuthority()
     cli_code = pairing.new_pairing_code(CLI_AUDIENCE, CLI_SCOPES)
@@ -510,9 +519,9 @@ def _serve(
             provider=provider,
         ),
     )
-    if desktop_bootstrap is not None:
+    if desktop_bootstrap_descriptor is not None:
         write_desktop_bootstrap(
-            Path(desktop_bootstrap),
+            desktop_bootstrap_descriptor,
             port=port,
             pairing_code=pairing.pairing_code,
         )

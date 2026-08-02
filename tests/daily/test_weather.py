@@ -4,6 +4,7 @@ import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from restork.contracts.types import DataClass
 from restork.daily.cache import SQLiteDailyCache
@@ -22,7 +23,10 @@ class FakeGateway:
         self.requests.append(request)
         if self.fail:
             raise TimeoutError
-        if "geocoding-api.open-meteo.com" in request.envelope.destination:
+        if (
+            urlsplit(request.envelope.destination).hostname
+            == "geocoding-api.open-meteo.com"
+        ):
             return OutboundResponse(
                 status_code=200,
                 headers={"Content-Type": "application/json"},
