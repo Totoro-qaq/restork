@@ -4,6 +4,19 @@ All notable changes to Restork are documented here.
 
 ## Unreleased
 
+- Added the Gate 2 alpha foundation for Steps 12–17: Rust-owned workspace/storage/API domains,
+  native provider and secret-store adapters, bounded capability workers, personal context, global
+  conversations, Profiles, versioned Prompts, extensions, deliverables, schedules, checkpoints,
+  evaluation manifests, and bounded-delegation contracts.
+- Replaced the desktop runtime resource with native `restorkd`, added Unix process-group and Windows
+  Job Object ownership, and added macOS, Windows, and Linux candidate-build configurations plus a
+  cross-platform runtime smoke test.
+- Added bilingual responsive Dashboard surfaces for conversation/session management, frozen tool
+  discovery, extension quarantine, report/deck drafts, and bounded automation.
+- Kept unfinished production exit gates explicit: V1 route cutover, native calendar onboarding,
+  cancellable conversation SSE, complete extension lifecycle, approved PPTX/PDF rendering, real file
+  restore, packaged credential setup, signing, and clean-machine verification are not claimed done.
+
 ## 0.1.2 — 2026-08-02
 
 - Added `restork provider configure`, which prompts directly through macOS Keychain and creates only a

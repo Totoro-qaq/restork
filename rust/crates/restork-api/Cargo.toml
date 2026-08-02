@@ -7,10 +7,24 @@ rust-version.workspace = true
 
 [dependencies]
 axum.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+restork-automation = { path = "../restork-automation" }
 restork-core = { path = "../restork-core" }
+restork-daily = { path = "../restork-daily" }
+restork-deliverables = { path = "../restork-deliverables" }
+restork-extension = { path = "../restork-extension" }
+restork-personal = { path = "../restork-personal" }
+restork-provider = { path = "../restork-provider" }
+restork-storage = { path = "../restork-storage" }
+rust-embed.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-time = { workspace = true, features = ["formatting"] }
+sha2.workspace = true
+time = { workspace = true, features = ["formatting", "parsing"] }
+tokio = { workspace = true, features = ["time"] }
 url.workspace = true
 
 [dev-dependencies]

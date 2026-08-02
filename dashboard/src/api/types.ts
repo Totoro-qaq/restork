@@ -443,6 +443,10 @@ export interface MusicRecommendation {
   cover_available: boolean;
 }
 
+export type MusicConfigurationInput =
+  | { enabled: false; local_date?: string }
+  | { enabled: true; filename: string; content: string; local_date: string };
+
 export interface DailySnapshot {
   weather: WeatherSnapshot;
   calendar: {
@@ -477,11 +481,11 @@ export type ProviderStatus =
 
 export interface ProviderDiagnostic {
   schema_version: 1;
-  provider: "deepseek";
-  model: "deepseek-v4-pro";
+  provider: string;
+  model: string;
   status: ProviderStatus;
   message: string;
-  setup_command: "uv run restork provider configure";
+  setup_command: string;
   config_present: boolean;
   config_valid: boolean;
   credential_present: boolean;
@@ -498,6 +502,237 @@ export interface ProviderDiagnostic {
   total_tokens: number | null;
 }
 
+export interface PersonalSettingsRecord {
+  settings: {
+    display_name?: string;
+    locale?: string;
+    timezone?: string;
+    week_start?: string;
+    theme?: string;
+  };
+  version: number;
+  updated_at: string | null;
+}
+
+export interface DailyContextV2 {
+  observed_at: string;
+  timezone: string;
+  local_date: string;
+  local_time: string;
+  time_band: "morning" | "noon" | "afternoon" | "evening" | "late_night";
+}
+
+export interface SessionRecordV2 {
+  session_id: string;
+  title: string;
+  profile_id: string;
+  status: "active" | "archived";
+  version: number;
+  locale: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export interface SessionMessageV2 {
+  message_id: string;
+  session_id: string;
+  sequence: number;
+  role: "user" | "assistant" | "system";
+  content: string;
+  context: Record<string, unknown>;
+  data_class: WorkDataClass;
+  created_at: string;
+}
+
+export interface SessionSearchHitV2 {
+  session_id: string;
+  message_id: string;
+  sequence: number;
+  excerpt: string;
+}
+
+export interface SessionExportV2 {
+  schema_version: 1;
+  session: SessionRecordV2;
+  messages: SessionMessageV2[];
+  exported_at: string;
+  secret_values_included: false;
+  note: string;
+}
+
+export interface RunProposalV2 {
+  proposal_id: string;
+  session_id: string;
+  profile_id: string;
+  mode: Mode;
+  goal: string;
+  completion_criteria: string[];
+  requested_data_class: WorkDataClass;
+  requested_tools: string[];
+  sources: unknown[];
+  intake_boundary: {
+    network_access: false;
+    file_access: false;
+    provider_access: false;
+    tool_access: false;
+  };
+  status: "review_required";
+  version: number;
+  created_at: string;
+}
+
+export interface CatalogRecordV2 {
+  package_id?: string;
+  deliverable_id?: string;
+  schedule_id?: string;
+  package_kind?: string;
+  kind?: string;
+  state: string;
+  revision?: number;
+  manifest_hash?: string;
+  manifest?: Record<string, unknown>;
+  installed_at?: string;
+  updated_at: string;
+  artifact?: Record<string, unknown>;
+  schedule?: Record<string, unknown>;
+  next_run_at?: string | null;
+}
+
+export interface ToolSearchHitV2 {
+  tool_id: string;
+  name: string;
+  score: number;
+}
+
+export interface ToolSearchResultV2 {
+  session_id: string;
+  catalog_fingerprint: string;
+  items: ToolSearchHitV2[];
+}
+
+export interface ToolCallPreviewV2 {
+  state: "review_required";
+  execution_started: false;
+  output_is_untrusted: true;
+  resolved_call: {
+    real_tool_id: string;
+    package_id: string;
+    package_version: string;
+    server_id: string;
+    required_permissions: string[];
+    input: Record<string, unknown>;
+  };
+}
+
+export interface ManualReportInputV2 {
+  report_id: string;
+  revision: number;
+  kind: "daily" | "weekly";
+  title: string;
+  language: string;
+  timezone: string;
+  entries: Array<{
+    section: "summary" | "completed" | "progress" | "decisions" | "blockers" | "next" | "notes";
+    text: string;
+  }>;
+}
+
+export interface DeckFromReportInputV2 {
+  deck_id: string;
+  revision: number;
+  report_id: string;
+  report_revision: number;
+  language: string;
+  audience: {
+    audience_id: string;
+    purpose: string;
+    expertise: string;
+  };
+}
+
+export interface ScheduleSpecV2 {
+  schedule_id: string;
+  timezone: string;
+  recurrence:
+    | { kind: "one_shot"; at: string }
+    | { kind: "daily"; hour: number; minute: number }
+    | { kind: "weekly"; weekday_monday_zero: number; hour: number; minute: number };
+  missed_run_policy: "skip" | "create_draft";
+  job:
+    | { kind: "deterministic"; job: "health.check" | "daily.refresh" }
+    | { kind: "model_draft"; profile_id: string; requested_effect: null };
+}
+
+export interface ScheduleRunV2 {
+  schedule_id: string;
+  period_key: string;
+  run_id: string | null;
+  result: Record<string, unknown>;
+  created_at: string;
+  replayed: boolean;
+}
+
+export interface ProviderProfileRecordV2 {
+  provider: {
+    profile_id: string;
+    version: number;
+    display_name: string;
+    kind: "deepseek" | "ollama" | "open_ai_compatible";
+    base_url: string;
+    model: string;
+    secret_ref: string | null;
+    fallback: "disabled" | { require_confirmation: { provider_profile_id: string } };
+  };
+  revision: number;
+  updated_at: string;
+}
+
+export interface ConfigurationProfileRecordV2 {
+  profile: {
+    profile_id: string;
+    version: number;
+    name: string;
+    provider_profile_id: string;
+    prompt_manifest_hash: string;
+    enabled_skill_ids: string[];
+    allowed_tools: string[];
+    memory_namespace: string;
+    maximum_data_class: WorkDataClass;
+    include_display_name_in_prompt: boolean;
+  };
+  revision: number;
+  builtin: boolean;
+  updated_at: string;
+}
+
+export interface PromptRevisionRecordV2 {
+  prompt: {
+    prompt_id: string;
+    revision: number;
+    layer: "policy" | "skill" | "personal" | "run_context";
+    content: string;
+    content_hash: string;
+    parent_hash: string | null;
+    created_at: string;
+  };
+  content_hash: string;
+  active: boolean;
+  created_at: string;
+}
+
+export interface RustWorkspaceSnapshot {
+  dailyContext: DailyContextV2 | null;
+  personal: PersonalSettingsRecord | null;
+  sessions: SessionRecordV2[];
+  extensions: CatalogRecordV2[];
+  deliverables: CatalogRecordV2[];
+  schedules: CatalogRecordV2[];
+  providers?: ProviderProfileRecordV2[];
+  profiles?: ConfigurationProfileRecordV2[];
+  prompts?: PromptRevisionRecordV2[];
+}
+
 export interface DashboardSnapshot {
   runs: RunListEntry[];
   approvals: ApprovalRequest[];
@@ -511,6 +746,7 @@ export interface DashboardSnapshot {
   daily: DailySnapshot | null;
   provider: ProviderDiagnostic | null;
   pagination?: Partial<Record<DashboardListKind, PageInfo>>;
+  workspaceV2?: RustWorkspaceSnapshot;
 }
 
 export type DashboardListPage =
@@ -603,6 +839,7 @@ export interface DashboardApi {
   applyTask(approvalId: string): Promise<TaskApplyResult>;
   configureWeather(input: WeatherConfigurationInput): Promise<WeatherConfigurationResult>;
   configureCalendar(input: CalendarConfigurationInput): Promise<DailySnapshot["calendar"]>;
+  configureMusic?(input: MusicConfigurationInput): Promise<DailySnapshot["music"]>;
   providerDiagnostics(smoke: boolean): Promise<ProviderDiagnostic>;
   musicCover(): Promise<Blob | null>;
   events(runId: string, after: number): Promise<RunEvent[]>;
@@ -616,4 +853,69 @@ export interface DashboardApi {
   eventPage?(runId: string, before?: string): Promise<RunEventPage>;
   conversationPage?(runId: string, before?: string): Promise<ConversationPage>;
   sendConversation?(runId: string, content: string): Promise<ConversationTurn>;
+  createSession?(title: string, profileId: string): Promise<SessionRecordV2>;
+  sessionMessages?(sessionId: string, after?: number): Promise<SessionMessageV2[]>;
+  sendSessionMessage?(
+    sessionId: string,
+    content: string,
+    dataClass?: WorkDataClass,
+  ): Promise<SessionMessageV2>;
+  createSessionProposal?(
+    sessionId: string,
+    mode: Mode,
+    goal: string,
+    dataClass?: WorkDataClass,
+  ): Promise<RunProposalV2>;
+  savePersonalSettings?(
+    expectedVersion: number | null,
+    settings: PersonalSettingsRecord["settings"],
+  ): Promise<PersonalSettingsRecord>;
+  saveProviderProfile?(
+    expectedRevision: number | null,
+    provider: ProviderProfileRecordV2["provider"],
+  ): Promise<ProviderProfileRecordV2>;
+  saveConfigurationProfile?(
+    expectedRevision: number | null,
+    profile: ConfigurationProfileRecordV2["profile"],
+  ): Promise<ConfigurationProfileRecordV2>;
+  createPromptRevision?(
+    promptId: string,
+    expectedRevision: number | null,
+    layer: "skill" | "personal",
+    content: string,
+  ): Promise<PromptRevisionRecordV2>;
+  activatePromptRevision?(
+    promptId: string,
+    revision: number,
+    expectedActiveRevision: number | null,
+  ): Promise<PromptRevisionRecordV2>;
+  archiveSession?(sessionId: string, expectedVersion: number): Promise<SessionRecordV2>;
+  deleteSession?(sessionId: string, expectedVersion: number): Promise<void>;
+  exportSession?(sessionId: string): Promise<SessionExportV2>;
+  searchSessions?(query: string): Promise<SessionSearchHitV2[]>;
+  installExtension?(
+    packageKind: "skill" | "mcp" | "plugin",
+    manifest: Record<string, unknown>,
+  ): Promise<CatalogRecordV2>;
+  setExtensionState?(
+    packageId: string,
+    action: "enable" | "disable",
+    expectedHash: string,
+  ): Promise<CatalogRecordV2>;
+  searchSessionTools?(sessionId: string, query: string): Promise<ToolSearchResultV2>;
+  previewSessionToolCall?(
+    sessionId: string,
+    toolId: string,
+    input: Record<string, unknown>,
+  ): Promise<ToolCallPreviewV2>;
+  composeManualReport?(input: ManualReportInputV2): Promise<CatalogRecordV2>;
+  composeDeckFromReport?(input: DeckFromReportInputV2): Promise<CatalogRecordV2>;
+  createSchedule?(schedule: ScheduleSpecV2): Promise<CatalogRecordV2>;
+  changeScheduleState?(
+    scheduleId: string,
+    action: "pause" | "resume",
+    expectedRevision: number,
+  ): Promise<CatalogRecordV2>;
+  runScheduleNow?(scheduleId: string): Promise<ScheduleRunV2>;
+  deleteSchedule?(scheduleId: string, expectedRevision: number): Promise<void>;
 }

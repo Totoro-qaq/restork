@@ -10,7 +10,10 @@
     "fmt:check": "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml --locked",
     "build:app": "tauri build --bundles app",
-    "build:dmg": "tauri build --bundles app,dmg"
+    "build:dmg": "tauri build --bundles app,dmg --config src-tauri/tauri.macos.conf.json",
+    "build:macos": "tauri build --bundles app --config src-tauri/tauri.macos.conf.json && codesign --force --deep --sign - --timestamp=none src-tauri/target/release/bundle/macos/Restork.app",
+    "build:windows": "tauri build --config src-tauri/tauri.windows.conf.json",
+    "build:linux": "tauri build --config src-tauri/tauri.linux.conf.json"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1"

@@ -88,6 +88,36 @@ describe("LocalApiClient calendar configuration", () => {
   });
 });
 
+describe("LocalApiClient private playlist configuration", () => {
+  it("imports playlist content only through the paired local Core", async () => {
+    const responses = [
+      jsonResponse({ access_token: "paired-token" }),
+      jsonResponse({ configured: true, status: "ready", recommendation: null, message: "" }),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+
+    await client.pair("pairing-code");
+    await client.configureMusic({
+      enabled: true,
+      filename: "playlist.csv",
+      content: "title,artist\nSynthetic Song,Fixture\n",
+      local_date: "2026-08-02",
+    });
+
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/daily/music");
+    const request = fetchMock.mock.calls[1][1];
+    expect(new Headers(request?.headers).get("Authorization")).toBe("Bearer paired-token");
+    expect(new Headers(request?.headers).get("Idempotency-Key")).toMatch(/^dashboard-music-/);
+    expect(String(request?.body)).not.toContain("api_key");
+  });
+});
+
 describe("LocalApiClient daily timezone", () => {
   it("requests daily context using the browser system timezone", async () => {
     const responses = [
@@ -205,5 +235,90 @@ describe("LocalApiClient authenticated SSE", () => {
     const streamHeaders = new Headers(fetchMock.mock.calls[1][1]?.headers);
     expect(streamHeaders.get("Authorization")).toBe("Bearer paired-token");
     expect(streamHeaders.get("Last-Event-ID")).toBe("4");
+  });
+});
+
+describe("LocalApiClient governed Step 12-17 endpoints", () => {
+  it("uses paired Core routes for frozen tools, deliverables, and idempotent schedules", async () => {
+    const responses: Response[] = [
+      jsonResponse({ access_token: "paired-token" }),
+      jsonResponse({
+        session_id: "session-1",
+        catalog_fingerprint: "a".repeat(64),
+        items: [{ tool_id: "tool.read", name: "Read", score: 10 }],
+      }),
+      jsonResponse({
+        state: "review_required",
+        execution_started: false,
+        output_is_untrusted: true,
+        resolved_call: {
+          real_tool_id: "server.read",
+          package_id: "plugin.fixture",
+          package_version: "1.0.0",
+          server_id: "server.fixture",
+          required_permissions: ["read:fixture"],
+          input: {},
+        },
+      }),
+      jsonResponse({
+        deliverable_id: "report-1",
+        kind: "daily_report",
+        state: "draft",
+        revision: 1,
+        updated_at: "2026-08-02T12:00:00Z",
+      }),
+      jsonResponse({
+        schedule_id: "schedule-1",
+        period_key: "manual:fixture",
+        run_id: null,
+        result: { external_effect: false },
+        created_at: "2026-08-02T12:00:00Z",
+        replayed: false,
+      }),
+      new Response(null, { status: 204 }),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+
+    await client.pair("pairing-code");
+    await client.searchSessionTools("session-1", "read fixture");
+    await client.previewSessionToolCall("session-1", "tool.read", {});
+    await client.composeManualReport({
+      report_id: "report-1",
+      revision: 1,
+      kind: "daily",
+      title: "Daily report",
+      language: "en-US",
+      timezone: "Asia/Shanghai",
+      entries: [{ section: "completed", text: "Synthetic task completed." }],
+    });
+    await client.runScheduleNow("schedule-1");
+    await client.deleteSchedule("schedule-1", 2);
+
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/v1/sessions/session-1/tools/search?q=read%20fixture&limit=20",
+    );
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      "/v1/sessions/session-1/tool-call-preview",
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({
+      tool_id: "tool.read",
+      input: {},
+    });
+    expect(fetchMock.mock.calls[3][0]).toBe("/v1/deliverables/reports/manual");
+    expect(fetchMock.mock.calls[4][0]).toBe("/v1/schedules/schedule-1/run");
+    expect(new Headers(fetchMock.mock.calls[4][1]?.headers).get("Idempotency-Key"))
+      .toMatch(/^dashboard-schedule-/);
+    expect(fetchMock.mock.calls[5][0]).toBe(
+      "/v1/schedules/schedule-1?expected_revision=2",
+    );
+    expect(fetchMock.mock.calls[5][1]?.method).toBe("DELETE");
+    expect(fetchMock.mock.calls.map(([, init]) => String(init?.body ?? "")).join(""))
+      .not.toMatch(/api.?key|credential|secret_value/i);
   });
 });

@@ -62,6 +62,36 @@ async fn public_readiness_matches_the_v1_compatibility_contract() {
 }
 
 #[tokio::test]
+async fn rust_core_serves_the_embedded_dashboard_without_a_python_runtime() {
+    let response = app()
+        .oneshot(
+            Request::builder()
+                .uri("/")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .expect("content type"),
+        "text/html; charset=utf-8"
+    );
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    assert!(
+        String::from_utf8_lossy(&body).contains("<title>Restork · Local Agent Workspace</title>")
+    );
+}
+
+#[tokio::test]
 async fn credentials_are_rejected_in_query_parameters_even_when_encoded() {
     for path in [
         "/v1/readiness?token=secret",

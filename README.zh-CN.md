@@ -77,13 +77,13 @@ Restork Core ─ 运行策略 ─ 预览 ─ 审批 ─ 事件记录
 Markdown 是笔记和用户任务的持久载体；SQLite 保存运行、审批和事件等操作状态。索引与链接投影
 都是可以删除后重新生成的缓存。Dashboard 与 CLI 既拿不到模型密钥，也不能绕过 Core 策略。
 
-V1 刻意不依赖 LangGraph、图数据库、KAG、Valkey、Memory MCP 或 Obsidian 插件。已批准的后续
-架构仍然使用一个有界 Core 循环，把对延迟敏感的运行时逐步迁往 Rust，并把 Python 降为按需
-启动的专业能力 Worker，而不是引入由框架接管的 Agent Runtime。
+Restork 的基础工作流不需要 LangGraph、图数据库、KAG、Valkey、Memory MCP 或 Obsidian
+插件。新运行时使用一个有界 Rust Core 循环；只有科学计算或文档生态确实需要时，才会按需启动
+短生命周期的可选 Python 能力 Worker。
 
 ## 五分钟开始使用
 
-目前正式支持的是源码快速启动。日常使用只需要
+完整的 V1 Research/Study/Work 源码工作流仍是迁移期间正式支持的快速启动方式。日常使用只需要
 [`uv`](https://docs.astral.sh/uv/getting-started/installation/)；只有修改 Dashboard 源码时
 才需要 Node.js。
 
@@ -103,13 +103,35 @@ Restork 会在 `http://127.0.0.1:7337` 启动，并在终端打印一次性 Web 
 输入配对码就能开始。首次启动不需要 API Key，不会擅自选择 Vault，也不会自动开启天气或其他
 连接；离线 Research synthesizer 可以让你在不发送模型请求的情况下先体验产品。
 
+### 体验 Rust-first 工作台
+
+Step 12–17 内测版运行原生 Core 与同一套内嵌 Dashboard。从源码启动时需要 Rust；桌面安装包会
+直接包含二进制。
+
+```bash
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- \
+  serve --port 7337 --state-db ./build/restork-alpha.db
+```
+
+打开 readiness 记录中的 `base_url`，输入其中的一次性配对码。这个内测版已经包含个人每日
+上下文、全局对话、模型/Profile/Prompt 设置、受控扩展中心、报告与演示草稿、检查点、有界
+调度、评估清单和委派契约。V1 的 Research/Study/Work 执行路由仍在逐项迁移；现在需要完整
+工作流时请继续使用 `./scripts/quickstart.sh`。
+
+### 桌面安装包
+
+源码已能生成 macOS、Windows 与 Linux 候选包。当
+[Releases 页面](https://github.com/Totoro-qaq/restork/releases)出现已签名安装包后，目标电脑
+无需 Python、Node.js、Rust、`uv` 或包管理器即可安装启动。未签名 CI 候选包只用于测试；
+一条命令构建方式和签名门禁见[桌面端指南](docs/desktop.zh-CN.md)。
+
 ### 只连接你真正需要的东西
 
 | 我想…… | 怎么做 | 会发生什么 |
 |---|---|---|
 | 先看看 Dashboard | 不用额外配置 | 不调用模型，也不读取 Vault |
 | 读取我的 Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | 仅在本地读取；任何写入仍要先预览并审批 |
-| 使用 DeepSeek V4 Pro | `uv run restork provider configure` | Key 直接进入 macOS 钥匙串；获准的模型请求才会经过受控出站路径 |
+| 使用 DeepSeek V4 Pro | `cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure` | Key 直接进入系统凭据存储；DeepSeek 直连对话仅允许公开数据，私有数据需建立更严格的受控 Profile |
 | 查看天气 | 在天气设置中输入城市，或自己点击**使用当前位置** | 启用前始终关闭；不会通过 IP 猜测位置 |
 | 加入日历或音乐 | 选择一个本地 ICS 文件，或私有 JSON/CSV 歌单 | 只读本地导入，不要求登录账号 |
 
@@ -122,18 +144,19 @@ RESTORK_PORT=7444 ./scripts/quickstart.sh
 ### 准备好后再接入 DeepSeek
 
 ```bash
-uv run restork provider configure
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
 ```
 
-在 macOS 上，系统 `security` 会直接提示输入 API Key，并把它写入钥匙串。Key 不会进入浏览器、
-TOML、命令行参数、环境变量、shell history、Vault、SQLite、日志或本仓库。
+系统原生提示会把 Key 写入 macOS Keychain、Windows Credential Manager 或 Linux Secret
+Service。Key 不会进入浏览器、TOML、命令行参数、环境变量、shell history、Vault、SQLite、
+日志或本仓库。
 
 重启 Restork 后，可以自己决定检查到哪一步：
 
 ```bash
-uv run restork doctor             # 本地配置与 Keychain 元数据
-uv run restork doctor --connect   # 一次有界 GET /models 请求
-uv run restork doctor --smoke     # 一次固定公开、最多 16 token 的短句请求
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --connect
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --smoke
 ```
 
 短句测试不会发送 Vault、记忆、任务、位置、日历或歌单内容，也不会打印模型响应正文。私有目录、
@@ -161,11 +184,13 @@ uv run restork \
 | **知识与任务** | 只读 Vault 检索、确定性 wiki-link 投影、日志化单文件写入，以及 Markdown 任务的预览/审批/应用 |
 | **Research、Study、Work** | 带证据的研究、引导式学习与练习，以及只做规划的仓库交接 |
 | **记忆与每日上下文** | 四层可检查记忆、可选天气、一个本地只读 ICS 日历与私有歌单导入 |
-| **macOS 桌面端内测版** | Tauri Rust supervisor 打包当前 Python Core 与 Dashboard，管理 Core 生命周期并把配对保存在内存中；公开签名下载仍受发布门禁限制 |
+| **Rust-first 工作台内测版** | 原生存储/API/Provider 基础、个人上下文、全局对话、Profile 与版本化 Prompt、隔离扩展和冻结工具发现、报告/演示草稿、调度、恢复、评估与有界委派契约 |
+| **跨平台桌面源码** | Tauri 打包 `restorkd` 与 Dashboard，使用 Unix 进程组或 Windows Job Object 管理生命周期，并生成无需目标机运行时的 macOS、Windows 与 Linux 候选包 |
 
-正式的一键安装 DMG 要等签名与公证门禁通过后才会发布。Windows/Linux、Rust-first Core、系统
-日历引导、全局对话、模型和 Prompt 设置、扩展中心、日报周报、PPT、恢复点与有界子任务目前都
-明确标记为规划内容，详见 [Steps 12–17 规格](specs/restork-steps12-17.md)和
+Step 12–17 实现批次已经覆盖到 Step 17 的 API 与领域表面，但不会冒充生产版。仍待完成的退出
+门禁包括 V1 路由切换、原生日历引导、可取消的对话 SSE、扩展更新/回滚/卸载、获批的 PPTX/PDF
+渲染器、真实文件恢复、安装包内的凭据配置、干净机器矩阵以及 Windows/Linux 签名。当前范围与
+证据见 [Steps 12–17 规格](specs/restork-steps12-17.md)和
 [交付计划](plans/restork-steps12-17.md)。
 
 ## 使用指南
@@ -176,7 +201,7 @@ uv run restork \
 - [Research](docs/research-workflow.md)
 - [Study](docs/study.md)
 - [Work](docs/work.md)
-- [macOS 桌面端内测版](docs/desktop.zh-CN.md)
+- [跨平台桌面端内测版](docs/desktop.zh-CN.md)
 - [隐私](docs/privacy.md)与[安全模型](docs/security/threat-model.md)
 
 <details>
@@ -201,13 +226,16 @@ npm --prefix dashboard run lint
 npm --prefix dashboard test
 npm --prefix dashboard run build
 
-# macOS 桌面端内测版
+# 跨平台桌面端内测版（在对应操作系统上运行匹配命令）
 npm --prefix desktop ci
 npm --prefix desktop run fmt:check
 ./scripts/build-desktop-core.sh
 npm --prefix desktop run clippy
 npm --prefix desktop test
-npm --prefix desktop run build:app
+npm --prefix desktop run build:macos
+npm --prefix desktop run build:windows
+npm --prefix desktop run build:linux
+node scripts/smoke-desktop-runtime.mjs
 ./scripts/smoke-desktop-app.sh 10
 ./scripts/smoke-desktop-faults.sh
 
@@ -218,8 +246,8 @@ uv run python scripts/build_release.py --output dist/release
 ```
 
 不调用 Provider 的[运行时基准](benchmarks/README.md)会记录 readiness、空闲内存、二进制大小与
-loopback 延迟，全程不发送 Prompt。每个 Rust 纵向切片达到兼容与恢复对等之前，不会替换用户当前
-使用的快速启动路径。
+loopback 延迟，全程不发送 Prompt。在剩余执行路由达到 Rust 兼容与恢复对等之前，V1 源码快速
+启动会继续保留。
 
 提交改动前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。已实现的产品契约位于
 [`V1 规格`](specs/restork-v1.md)；已批准的后续架构位于

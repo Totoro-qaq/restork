@@ -1,6 +1,6 @@
 # Restork Rust-first Roadmap Specification — Steps 12–17
 
-> Status: Approved — implementation in progress after Gate 1 and ADR 0002 acceptance
+> Status: Gate 2 candidate — alpha verticals reach Step 17; production exit gates remain open
 >
 > Version: 0.1 | Date: 2026-08-02
 >
@@ -8,6 +8,24 @@
 >
 > Historical baseline: [Restork V1](restork-v1.md), [Step 11 Desktop](restork-step11-desktop.md),
 > and [Step 12 Cross-platform Desktop v0.1](restork-step12-cross-platform.md)
+
+## 0. Implementation truth at Gate 2
+
+“Reached Step 17” means the current batch implements and tests the new Rust domain/API surface
+through Step 17. It does **not** waive the required outcomes below or imply that every production
+exit gate has passed.
+
+| Step | Implemented in this batch | Still required before the step exits |
+|---|---|---|
+| 12 | Rust workspace, schema bundle, SQLite ownership for new domains, durable SSE replay, native provider transport and secret stores, bounded worker protocol, Tauri supervision, Unix process groups, Windows Job Object, macOS/Windows/Linux candidate builds | Remaining V1 route cutover and compatibility suites; complete benchmarks; signed/notarized/attested clean-machine release matrix |
+| 13 | Optional local profile, semantic time band, system clock/date, manual-place and explicit one-shot weather location, local ICS and playlist imports, reduced-motion disc UI | Native calendar permission adapters, revoke/purge UX, profile export/clear UX, platform permission tests |
+| 14 | Global sessions, FTS search, pagination, archive/export/delete, tool-free proposals, DeepSeek/Ollama/OpenAI-compatible Profiles, public-only direct DeepSeek, versioned Prompt records, bilingual responsive conversation/settings UI | Cancellable conversation SSE, explicit `@` context previews, artifact cards, full Prompt Studio test/diff UX, complete Rust Doctor and analytics, remaining V1 bounded-loop cutover |
+| 15 | Strict Skill/MCP/Plugin manifests, pinned provenance, quarantine and hash-bound enable/disable, safe transports, declarative UI, Last 30 Days contract, frozen session tool search/describe/call preview | Persisted update diff, rollback, uninstall, connection tests/audit UI, executable MCP bridge, built-in Skill packages and Skill-improvement approval flow |
+| 16 | Evidence ledger, validated Daily/Weekly Markdown artifacts, manual self-assertion labels, revision history, DeckSpec outline and safety validation, Dashboard previews | Journaled Vault delivery, renderer selection, constrained PPTX/PDF export, OOXML/golden-deck validation, outline/final export approval workflow |
+| 17 | Bounded checkpoint/restore-preview contracts, DST-aware schedules, period idempotency and restart loop, draft-only model jobs, evaluation manifests, subset-only subtask contracts and concurrency gate | Actual file snapshot/restore transaction, retention GC, cancellable subtask executor and parent synthesis, evaluation runner, preview/redaction/approval export flow |
+
+The Dashboard and public fixtures remain safe to exercise, but unsigned platform artifacts and the
+unfinished capabilities in the final column are alpha boundaries, not hidden completed features.
 
 ## 1. Product direction
 

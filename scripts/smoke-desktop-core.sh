@@ -2,7 +2,7 @@
 set -euo pipefail
 
 project_root="${0:A:h:h}"
-core_binary="${1:-$project_root/dist/desktop-core/restork-core/restork-core}"
+core_binary="${1:-$project_root/dist/desktop-runtime/restorkd}"
 
 if [[ ! -x "$core_binary" ]]; then
   print -u2 -- "Frozen Core is missing or not executable: $core_binary"
@@ -27,12 +27,8 @@ trap cleanup EXIT INT TERM
 config_dir="$smoke_root/config"
 data_dir="$smoke_root/data"
 cache_dir="$smoke_root/cache"
-bootstrap_pipe="$smoke_root/bootstrap.pipe"
 mkdir -p "$config_dir" "$data_dir" "$cache_dir"
 chmod 700 "$config_dir" "$data_dir" "$cache_dir"
-/usr/bin/mkfifo "$bootstrap_pipe"
-chmod 600 "$bootstrap_pipe"
-exec 9<>"$bootstrap_pipe"
 
 port="$(/usr/bin/python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
 stdout_path="$smoke_root/core.stdout"
@@ -41,11 +37,10 @@ stderr_path="$smoke_root/core.stderr"
 RESTORK_CONFIG_DIR="$config_dir" \
 RESTORK_DATA_DIR="$data_dir" \
 RESTORK_CACHE_DIR="$cache_dir" \
-RESTORK_DESKTOP_BOOTSTRAP_FD="9" \
   "$core_binary" \
-    --state-db "$data_dir/restork.db" \
     serve \
     --port "$port" \
+    --state-db "$data_dir/restork.db" \
     >"$stdout_path" \
     2>"$stderr_path" &
 core_pid=$!
@@ -70,22 +65,17 @@ if [[ "$ready" != "1" ]]; then
   exit 1
 fi
 
-/usr/bin/python3 - "$port" "$core_pid" 9<&9 <<'PY'
+/usr/bin/python3 - "$port" "$core_pid" "$stdout_path" <<'PY'
 import json
-import os
 import sys
 
-payload = json.loads(os.read(9, 4096))
-assert payload["schema_version"] == 1
+with open(sys.argv[3], encoding="utf-8") as handle:
+    payload = json.loads(handle.readline())
+assert payload["schema"] == "v1"
 assert payload["port"] == int(sys.argv[1])
 assert payload["pid"] == int(sys.argv[2])
 assert isinstance(payload["pairing_code"], str)
 assert len(payload["pairing_code"]) >= 16
 PY
 
-if [[ -s "$stdout_path" ]]; then
-  print -u2 -- "Frozen Core wrote unexpected desktop-mode stdout."
-  exit 1
-fi
-
-print -r -- "Frozen Core smoke test passed on 127.0.0.1:$port"
+print -r -- "Rust desktop runtime smoke test passed on 127.0.0.1:$port"

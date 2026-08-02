@@ -231,7 +231,101 @@ mod platform {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+mod platform {
+    use std::io::{self, Write};
+
+    use serde::Serialize;
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+    use windows_sys::Win32::System::JobObjects::IsProcessInJob;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    use super::DesktopError;
+
+    const WINDOWS_JOB: &str = "RESTORK_DESKTOP_WINDOWS_JOB";
+    const PARENT_PID: &str = "RESTORK_DESKTOP_PARENT_PID";
+
+    pub struct DesktopRuntime {
+        published: bool,
+    }
+
+    #[derive(Serialize)]
+    struct BootstrapPayload<'a> {
+        schema_version: u8,
+        pid: u32,
+        port: u16,
+        pairing_code: &'a str,
+        issued_at: String,
+    }
+
+    impl DesktopRuntime {
+        pub fn from_env() -> Result<Option<Self>, DesktopError> {
+            let job = std::env::var_os(WINDOWS_JOB);
+            let parent = std::env::var_os(PARENT_PID);
+            if job.is_none() && parent.is_none() {
+                return Ok(None);
+            }
+            let (Some(job), Some(parent)) = (job, parent) else {
+                return Err(DesktopError::Incomplete);
+            };
+            if job != "1"
+                || parent
+                    .to_str()
+                    .and_then(|value| value.parse::<u32>().ok())
+                    .filter(|pid| *pid >= 2)
+                    .is_none()
+            {
+                return Err(DesktopError::Invalid);
+            }
+            let mut in_job = 0;
+            // SAFETY: this only inspects the current pseudo-process handle and writes one BOOL.
+            if unsafe { IsProcessInJob(GetCurrentProcess(), std::ptr::null_mut(), &mut in_job) }
+                == 0
+                || in_job == 0
+            {
+                return Err(DesktopError::OwnershipMismatch);
+            }
+            Ok(Some(Self { published: false }))
+        }
+
+        pub fn publish(&mut self, port: u16, pairing_code: &str) -> Result<(), DesktopError> {
+            if self.published {
+                return Err(DesktopError::AlreadyPublished);
+            }
+            if port == 0
+                || !(16..=256).contains(&pairing_code.len())
+                || pairing_code.contains(['\0', '\n', '\r'])
+            {
+                return Err(DesktopError::PayloadInvalid);
+            }
+            let issued_at = OffsetDateTime::now_utc()
+                .format(&Rfc3339)
+                .map_err(|_| DesktopError::PayloadInvalid)?;
+            let mut stdout = io::stdout().lock();
+            serde_json::to_writer(
+                &mut stdout,
+                &BootstrapPayload {
+                    schema_version: 1,
+                    pid: std::process::id(),
+                    port,
+                    pairing_code,
+                    issued_at,
+                },
+            )
+            .map_err(|error| DesktopError::Io(io::Error::other(error)))?;
+            stdout.write_all(b"\n")?;
+            stdout.flush()?;
+            self.published = true;
+            Ok(())
+        }
+
+        pub async fn wait_for_parent(self) {
+            std::future::pending::<()>().await;
+        }
+    }
+}
+
+#[cfg(all(not(unix), not(windows)))]
 mod platform {
     use super::DesktopError;
 
@@ -243,6 +337,7 @@ mod platform {
                 "RESTORK_DESKTOP_BOOTSTRAP_FD",
                 "RESTORK_DESKTOP_PARENT_FD",
                 "RESTORK_DESKTOP_PARENT_PID",
+                "RESTORK_DESKTOP_WINDOWS_JOB",
             ]
             .iter()
             .any(|name| std::env::var_os(name).is_some());

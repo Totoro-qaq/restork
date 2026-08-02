@@ -1,5 +1,9 @@
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+use std::io::IsTerminal;
 use std::io::{self, Write};
 
+use restork_personal::{FallbackPolicy, ProviderKind, ProviderProfile};
+use restork_provider::{NativeSecretStore, ProviderClient};
 use restorkd::{HELP, ServerConfig, bind, desktop::DesktopRuntime};
 
 #[tokio::main]
@@ -11,6 +15,19 @@ async fn main() {
     ) {
         print!("{HELP}");
         return;
+    }
+    if matches!(arguments.as_slice(), [provider, configure] if provider == "provider" && configure == "configure")
+    {
+        std::process::exit(configure_provider().await);
+    }
+    if matches!(arguments.as_slice(), [doctor] if doctor == "doctor") {
+        std::process::exit(run_doctor(false, false).await);
+    }
+    if matches!(arguments.as_slice(), [doctor, flag] if doctor == "doctor" && flag == "--connect") {
+        std::process::exit(run_doctor(true, false).await);
+    }
+    if matches!(arguments.as_slice(), [doctor, flag] if doctor == "doctor" && flag == "--smoke") {
+        std::process::exit(run_doctor(true, true).await);
     }
 
     let config = match ServerConfig::parse(arguments) {
@@ -57,6 +74,102 @@ async fn main() {
         eprintln!("restorkd: server stopped unexpectedly: {error}");
         std::process::exit(1);
     }
+}
+
+async fn configure_provider() -> i32 {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    if !io::stdin().is_terminal() {
+        eprintln!("restorkd: provider setup requires an interactive terminal");
+        return 2;
+    }
+    let reference = native_deepseek_reference();
+    match NativeSecretStore.configure_interactive(reference).await {
+        Ok(()) => {
+            println!("DeepSeek API key saved in native credential storage.");
+            println!("Run `restorkd doctor --connect` to check the configured model.");
+            0
+        }
+        Err(_) => {
+            eprintln!("restorkd: native credential setup did not complete");
+            2
+        }
+    }
+}
+
+async fn run_doctor(connect: bool, smoke: bool) -> i32 {
+    let profile = match deepseek_profile() {
+        Ok(profile) => profile,
+        Err(()) => {
+            eprintln!("restorkd: built-in provider profile is invalid");
+            return 2;
+        }
+    };
+    let client = match ProviderClient::new() {
+        Ok(client) => client,
+        Err(_) => {
+            eprintln!("restorkd: provider runtime is unavailable");
+            return 2;
+        }
+    };
+    if !connect {
+        let credential_present = client.credential_present(&profile).await;
+        let output = serde_json::json!({
+            "schema_version": 1,
+            "provider": profile.profile_id(),
+            "model": profile.model(),
+            "status": if credential_present { "ready" } else { "credential_missing" },
+            "credential_present": credential_present,
+            "connection_checked": false,
+            "smoke_checked": false,
+        });
+        println!("{output}");
+        return if credential_present { 0 } else { 2 };
+    }
+    let diagnostic = client.diagnose(&profile, smoke).await;
+    let expected = if smoke { "smoke_passed" } else { "connected" };
+    let success = diagnostic.status == expected;
+    match serde_json::to_string(&diagnostic) {
+        Ok(output) => println!("{output}"),
+        Err(_) => {
+            eprintln!("restorkd: diagnostic output is unavailable");
+            return 2;
+        }
+    }
+    if success { 0 } else { 2 }
+}
+
+fn deepseek_profile() -> Result<ProviderProfile, ()> {
+    ProviderProfile::try_new(
+        "deepseek",
+        1,
+        "DeepSeek V4 Pro",
+        ProviderKind::DeepSeek,
+        "https://api.deepseek.com",
+        "deepseek-v4-pro",
+        Some(native_deepseek_reference()),
+        FallbackPolicy::Disabled,
+    )
+    .map_err(|_| ())
+}
+
+#[cfg(target_os = "macos")]
+const fn native_deepseek_reference() -> &'static str {
+    "keychain:restork/provider/deepseek"
+}
+
+#[cfg(target_os = "linux")]
+const fn native_deepseek_reference() -> &'static str {
+    "secret-service:restork/provider/deepseek"
+}
+
+#[cfg(windows)]
+const fn native_deepseek_reference() -> &'static str {
+    "credential-manager:restork/provider/deepseek"
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+const fn native_deepseek_reference() -> &'static str {
+    "keychain:restork/provider/deepseek"
 }
 
 #[cfg(unix)]
