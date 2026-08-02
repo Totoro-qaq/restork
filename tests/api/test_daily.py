@@ -23,12 +23,40 @@ class DenyUnexpectedGateway:
         raise AssertionError(f"unexpected outbound request to {request.envelope.destination}")
 
 
-def _client(tmp_path: Path, profile: PrivateProfileStore) -> tuple[TestClient, dict[str, str]]:
+class GeocodingGateway:
+    async def dispatch(self, request: OutboundRequest) -> OutboundResponse:
+        if "geocoding-api.open-meteo.com" not in request.envelope.destination:
+            raise AssertionError(f"unexpected outbound request to {request.envelope.destination}")
+        return OutboundResponse(
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+            payload=json.dumps(
+                {
+                    "results": [
+                        {
+                            "name": "Guangzhou",
+                            "admin1": "Guangdong",
+                            "country": "China",
+                            "latitude": 23.11667,
+                            "longitude": 113.25,
+                            "timezone": "Asia/Shanghai",
+                        }
+                    ]
+                }
+            ).encode(),
+        )
+
+
+def _client(
+    tmp_path: Path,
+    profile: PrivateProfileStore,
+    gateway: DenyUnexpectedGateway | GeocodingGateway | None = None,
+) -> tuple[TestClient, dict[str, str]]:
     database = tmp_path / "state.db"
     daily = DailyContextService(
         profile,
         OpenMeteoWeather(
-            DenyUnexpectedGateway(),
+            gateway or DenyUnexpectedGateway(),
             SQLiteDailyCache.create(database),
         ),
     )
@@ -58,6 +86,78 @@ def test_daily_endpoint_has_safe_empty_states_and_zero_network(tmp_path: Path) -
     assert response.json()["weather"]["status"] == "not_configured"
     assert response.json()["calendar"]["status"] == "not_configured"
     assert response.json()["music"]["status"] == "not_configured"
+
+
+def test_daily_weather_accepts_city_names_and_keeps_coordinates_in_private_profile(
+    tmp_path: Path,
+) -> None:
+    profile = PrivateProfileStore(tmp_path / "profile")
+    client, auth = _client(tmp_path, profile, GeocodingGateway())
+
+    response = client.post(
+        "/v1/daily/weather",
+        headers={**auth, "Idempotency-Key": "weather-city-1"},
+        json={
+            "enabled": True,
+            "mode": "query",
+            "query": "Guangzhou",
+            "language": "en",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["location_label"] == "Guangzhou, Guangdong, China"
+    saved = profile.load().daily
+    assert saved.weather_provider == "open-meteo"
+    assert saved.weather_location == "Guangzhou, Guangdong, China|23.11667,113.25"
+
+
+def test_daily_calendar_import_is_private_and_uses_explicit_system_timezone(
+    tmp_path: Path,
+) -> None:
+    profile = PrivateProfileStore(tmp_path / "profile")
+    client, auth = _client(tmp_path, profile)
+    content = "\n".join(
+        (
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "BEGIN:VEVENT",
+            "UID:calendar-api-1",
+            "DTSTART:20990802T030000Z",
+            "DTEND:20990802T040000Z",
+            "SUMMARY:Future event",
+            "END:VEVENT",
+            "END:VCALENDAR",
+            "",
+        )
+    )
+
+    imported = client.post(
+        "/v1/daily/calendar",
+        headers={**auth, "Idempotency-Key": "calendar-import-1"},
+        json={
+            "enabled": True,
+            "filename": "export.ics",
+            "content": content,
+            "timezone": "Asia/Shanghai",
+        },
+    )
+    invalid_timezone = client.get("/v1/daily?timezone=Not/A_Timezone", headers=auth)
+
+    assert imported.status_code == 200
+    assert imported.json()["configured"] is True
+    assert profile.load().daily.calendar_ics == "calendar.ics"
+    assert (profile.root / "calendar.ics").read_text(encoding="utf-8") == content
+    assert invalid_timezone.status_code == 422
+
+    disabled = client.post(
+        "/v1/daily/calendar",
+        headers={**auth, "Idempotency-Key": "calendar-disable-1"},
+        json={"enabled": False, "timezone": "Asia/Shanghai"},
+    )
+    assert disabled.status_code == 200
+    assert profile.load().daily.calendar_ics == ""
+    assert not (profile.root / "calendar.ics").exists()
 
 
 def test_daily_endpoint_serves_only_authenticated_reviewed_local_cover(

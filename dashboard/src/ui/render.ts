@@ -1,7 +1,9 @@
 import type {
   ApprovalRequest,
+  ConversationTurn,
   DashboardSnapshot,
   MemoryRecord,
+  PageInfo,
   ProviderDiagnostic,
   RadarItem,
   ResearchArtifact,
@@ -62,9 +64,11 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
           ${navButton("memory", "M", tr(locale, "Memory", "记忆"), false, memories.length)}
         </nav>
         <p class="sidebar-label">${tr(locale, "New run", "新建运行")}</p>
-        ${modeButton("research", "R", tr(locale, "Source checks and evidence cards", "来源核查和证据卡片"))}
-        ${modeButton("study", "S", tr(locale, "Learning paths and active recall", "学习路径和主动回忆"))}
-        ${modeButton("work", "W", tr(locale, "Read-only plans and handoffs", "只读规划和交接包"))}
+        <div class="mode-grid">
+          ${modeButton("research", "R", tr(locale, "Source checks and evidence cards", "来源核查和证据卡片"))}
+          ${modeButton("study", "S", tr(locale, "Learning paths and active recall", "学习路径和主动回忆"))}
+          ${modeButton("work", "W", tr(locale, "Read-only plans and handoffs", "只读规划和交接包"))}
+        </div>
         <p class="session">127.0.0.1 · LOCAL<br><b>CORE PAIRED</b></p>
       </aside>
       <main class="workspace">
@@ -113,8 +117,8 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
         ${providerSetup(snapshot.provider, locale)}
         ${dailyContext(snapshot, locale)}
         <section class="view is-visible" data-view-panel="overview">${overview(snapshot, locale)}</section>
-        <section class="view" data-view-panel="runs" hidden>${runsView(snapshot.runs, locale)}</section>
-        <section class="view" data-view-panel="approvals" hidden>${approvalsView(snapshot.approvals, locale)}</section>
+        <section class="view" data-view-panel="runs" hidden>${runsView(snapshot.runs, snapshot.pagination?.runs, locale)}</section>
+        <section class="view" data-view-panel="approvals" hidden>${approvalsView(snapshot.approvals, snapshot.pagination?.approvals, locale)}</section>
         <section class="view" data-view-panel="tasks" hidden>${tasksView(snapshot, locale)}</section>
         <section class="view" data-view-panel="radar" hidden>${radarView(snapshot, locale)}</section>
         <section class="view" data-view-panel="memory" hidden>${memoryView(snapshot, locale)}</section>
@@ -200,8 +204,19 @@ export function runEventsMarkup(
   run: RunListEntry,
   events: RunEvent[],
   locale: Locale = "en",
+  page?: PageInfo,
+  conversation?: {
+    turns: ConversationTurn[];
+    page: PageInfo;
+    enabled: boolean;
+    busy?: boolean;
+    draft?: string;
+    error?: string;
+  },
 ): string {
   const summary = run.summary;
+  const turns = conversation?.turns ?? [];
+  const prompt = [...turns].reverse().find((turn) => turn.prompt_version);
   return `
     <article class="paper-card detail-card">
       <header><h2>${escapeHtml(run.task?.goal ?? summary.task_id)}</h2><span class="ribbon ${escapeHtml(summary.mode)}">${escapeHtml(summary.mode)}</span></header>
@@ -211,8 +226,33 @@ export function runEventsMarkup(
         <div><dt>${tr(locale, "UPDATED", "更新时间")}</dt><dd>${formatDate(summary.updated_at, locale)}</dd></div>
         <div><dt>TOKENS</dt><dd>${String(run.budget?.usage.tokens ?? 0)}</dd></div>
       </dl>
+      ${paginationControl("events", page, locale, tr(locale, "LOAD EARLIER EVENTS", "加载更早事件"))}
       <ol class="event-list">${events.length ? events.map(eventRow).join("") : `<li>${tr(locale, "No new events.", "暂无新事件。")}</li>`}</ol>
+      <section class="conversation-panel" aria-labelledby="conversation-title">
+        <header>
+          <div><p class="eyebrow">RUN-SCOPED · NO TOOLS</p><h3 id="conversation-title">${tr(locale, "Conversation", "多轮对话")}</h3></div>
+          <span>${prompt ? `PROMPT ${escapeHtml(prompt.prompt_version)}` : "BOUNDED CONTEXT"}</span>
+        </header>
+        <div class="conversation-history" data-conversation-scroll role="log" aria-live="polite" tabindex="0">
+          ${paginationControl("conversation", conversation?.page, locale, tr(locale, "LOAD EARLIER MESSAGES", "加载更早消息"))}
+          ${turns.length ? turns.map((turn) => conversationTurnMarkup(turn, locale)).join("") : `<p class="empty">${tr(locale, "Ask about this run. Conversation history stays local.", "围绕此运行提问；对话历史留在本地。")}</p>`}
+          ${conversation?.busy ? `<div class="conversation-wait" role="status" aria-busy="true"><i></i><i></i><i></i><span>${tr(locale, "DeepSeek is composing a bounded answer…", "DeepSeek 正在生成受限回答…")}</span></div>` : ""}
+        </div>
+        ${conversation?.error ? `<p class="conversation-error" role="alert">${escapeHtml(conversation.error)}</p>` : ""}
+        <form class="conversation-composer" data-conversation-form data-run-id="${escapeHtml(summary.run_id)}">
+          <label for="conversation-input">${tr(locale, "Message for this run", "给当前运行发送消息")}</label>
+          <textarea id="conversation-input" name="content" rows="3" maxlength="16000" required ${conversation?.enabled && !conversation.busy ? "" : "disabled"} placeholder="${tr(locale, "Ask, compare, explain, or refine…", "提问、比较、解释或继续细化…")}">${escapeHtml(conversation?.draft ?? "")}</textarea>
+          <div><small>${tr(locale, "Sliding context window · no tools · effects still require a separate approval", "滑动上下文窗口 · 无工具权限 · 所有副作用仍需单独审批")}</small><button type="submit" ${conversation?.enabled && !conversation.busy ? "" : "disabled"}>${tr(locale, "SEND", "发送")}</button></div>
+        </form>
+      </section>
     </article>`;
+}
+
+function conversationTurnMarkup(turn: ConversationTurn, locale: Locale): string {
+  const assistant = turn.assistant
+    ? `<article class="conversation-message assistant"><header><b>RESTORK</b><time>${formatDate(turn.assistant.created_at, locale)}</time></header><p>${escapeHtml(turn.assistant.content)}</p><small>${turn.total_tokens ?? 0} tokens · ${turn.dropped_messages} ${tr(locale, "dropped from context", "条消息未进入上下文")}</small></article>`
+    : `<article class="conversation-message assistant pending"><p>${tr(locale, "No completed answer was recorded for this turn.", "此轮尚未记录完整回答。")}</p></article>`;
+  return `<div class="conversation-turn" data-turn-sequence="${turn.sequence}"><article class="conversation-message user"><header><b>${tr(locale, "YOU", "你")}</b><time>${formatDate(turn.user.created_at, locale)}</time></header><p>${escapeHtml(turn.user.content)}</p></article>${assistant}</div>`;
 }
 
 export function researchPreviewMarkup(
@@ -439,21 +479,21 @@ function overview(snapshot: DashboardSnapshot, locale: Locale): string {
   </div>`;
 }
 
-function runsView(runs: RunListEntry[], locale: Locale): string {
+function runsView(runs: RunListEntry[], page: PageInfo | undefined, locale: Locale): string {
   return `<article class="paper-card full-card"><header><h2>${tr(locale, "Runs", "运行")}</h2><span class="ribbon research">CORE STATE</span></header>
-    <div class="split-view"><div class="item-list">${runs.map((run) => `<button type="button" class="list-item" data-run-id="${escapeHtml(run.summary.run_id)}"><b>${escapeHtml(run.summary.mode.toUpperCase())}</b><span>${escapeHtml(run.task?.goal ?? run.summary.task_id)}</span><small>${escapeHtml(run.summary.state)} · ${formatDate(run.summary.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "No runs.", "没有运行。")}</p>`}</div><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its events.", "选择一个运行查看事件。")}</div></div>
+    <div class="split-view"><div><div class="item-list">${runs.map((run) => `<button type="button" class="list-item" data-run-id="${escapeHtml(run.summary.run_id)}"><b>${escapeHtml(run.summary.mode.toUpperCase())}</b><span>${escapeHtml(run.task?.goal ?? run.summary.task_id)}</span><small>${escapeHtml(run.summary.state)} · ${formatDate(run.summary.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "No runs.", "没有运行。")}</p>`}</div>${paginationControl("runs", page, locale)}</div><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its events.", "选择一个运行查看事件。")}</div></div>
   </article>`;
 }
 
-function approvalsView(approvals: ApprovalRequest[], locale: Locale): string {
-  return `<div class="stack">${approvals.map((approval) => approvalCard(approval, locale)).join("") || emptyCard(tr(locale, "Approvals", "审批"), tr(locale, "No approval records.", "没有审批记录。"))}</div>`;
+function approvalsView(approvals: ApprovalRequest[], page: PageInfo | undefined, locale: Locale): string {
+  return `<div class="stack">${approvals.map((approval) => approvalCard(approval, locale)).join("") || emptyCard(tr(locale, "Approvals", "审批"), tr(locale, "No approval records.", "没有审批记录。"))}${paginationControl("approvals", page, locale)}</div>`;
 }
 
 function tasksView(snapshot: DashboardSnapshot, locale: Locale): string {
   if (!snapshot.taskBoard.configured) return emptyCard(tr(locale, "Markdown tasks", "Markdown 任务"), tr(locale, "Configure a private Vault with --vault-dir. The browser receives no authority outside that Vault path.", "使用 --vault-dir 配置私有 Vault。浏览器不会持有 Vault 路径之外的权限。"));
   return `<article class="paper-card full-card"><header><h2>${tr(locale, "Markdown tasks", "Markdown 任务")}</h2><span class="ribbon work">MARKDOWN TRUTH</span></header>
     <form id="quick-task-form" class="quick-task-form"><label for="quick-task">${tr(locale, "Quick capture", "快速捕获")}</label><div><input id="quick-task" name="text" required maxlength="500" placeholder="${tr(locale, "One Markdown task", "一行 Markdown 任务")}"><select name="priority" aria-label="${tr(locale, "Priority", "优先级")}"><option value="">P–</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select><button type="submit">${tr(locale, "PREVIEW", "预览")}</button></div></form>
-    <div class="task-list">${snapshot.taskBoard.tasks.map((task) => `<label class="task-row ${task.completed ? "is-complete" : ""}"><input type="checkbox" data-task-id="${escapeHtml(task.task_id)}" ${task.completed ? "checked" : ""}><span>${escapeHtml(cleanTaskText(task.text))}<small>${escapeHtml(task.relative_path)} · L${task.line_number} · ${escapeHtml(task.fields.due ?? tr(locale, "no due date", "无截止日期"))}</small></span></label>`).join("") || `<p class="empty">${tr(locale, "No tasks.", "没有任务。")}</p>`}</div>
+    <div class="task-list">${snapshot.taskBoard.tasks.map((task) => `<label class="task-row ${task.completed ? "is-complete" : ""}"><input type="checkbox" data-task-id="${escapeHtml(task.task_id)}" ${task.completed ? "checked" : ""}><span>${escapeHtml(cleanTaskText(task.text))}<small>${escapeHtml(task.relative_path)} · L${task.line_number} · ${escapeHtml(task.fields.due ?? tr(locale, "no due date", "无截止日期"))}</small></span></label>`).join("") || `<p class="empty">${tr(locale, "No tasks.", "没有任务。")}</p>`}</div>${paginationControl("tasks", snapshot.pagination?.tasks, locale)}
     <p class="fine">${tr(locale, "Checking or capturing creates an exact diff only. Core writes Markdown atomically after approval.", "勾选与捕获只生成精确 diff；Markdown 仅在审批后由 Core 原子写入。")}</p>
   </article>`;
 }
@@ -462,7 +502,7 @@ function radarView(snapshot: DashboardSnapshot, locale: Locale): string {
   const lanes: Array<[RadarItem["lane"], string]> = [["my_stars", "My Stars"], ["trending", "Trending"], ["hn", "HN"], ["papers", "Papers"]];
   return `<article class="paper-card full-card"><header><h2>Radar</h2><span class="ribbon radar">CORE CONNECTORS</span></header>
     <div id="research-result" class="research-result-host" role="status"></div>
-    ${snapshot.radar.configured ? `<div class="lanes">${lanes.map(([lane, label]) => `<section><h3>${label}</h3>${snapshot.radar.items.filter((item) => item.lane === lane).map((item) => radarItem(item, locale)).join("") || `<p class="empty">${tr(locale, "Empty", "暂无内容")}</p>`}</section>`).join("")}</div>` : `<p class="empty">${tr(locale, "Radar sources are not configured; the browser never fetches them directly.", "Radar 来源尚未配置；浏览器不会自行联网。")}</p>`}
+    ${snapshot.radar.configured ? `<div class="lanes">${lanes.map(([lane, label]) => `<section><h3>${label}</h3>${snapshot.radar.items.filter((item) => item.lane === lane).map((item) => radarItem(item, locale)).join("") || `<p class="empty">${tr(locale, "Empty", "暂无内容")}</p>`}</section>`).join("")}</div>${paginationControl("radar", snapshot.pagination?.radar, locale)}` : `<p class="empty">${tr(locale, "Radar sources are not configured; the browser never fetches them directly.", "Radar 来源尚未配置；浏览器不会自行联网。")}</p>`}
   </article>`;
 }
 
@@ -471,7 +511,7 @@ function memoryView(snapshot: DashboardSnapshot, locale: Locale): string {
   const records = snapshot.memory.records.filter((record) => record.summary);
   return `<article class="paper-card full-card"><header><h2>${tr(locale, "Four-layer memory", "四层记忆")}</h2><span class="ribbon study">LOCAL</span></header>
     <div class="memory-layers">${snapshot.memory.architecture.map((layer) => `<section><b>${escapeHtml(layer.toUpperCase())}</b><strong>${snapshot.memory?.counts[layer] ?? 0}</strong></section>`).join("")}</div>
-    <div class="memory-list">${records.map((record) => memoryRow(record, locale)).join("") || `<p class="empty">${tr(locale, "No user-approved memories have been saved.", "尚未保存用户批准的记忆。")}</p>`}</div>
+    <div class="memory-list">${records.map((record) => memoryRow(record, locale)).join("") || `<p class="empty">${tr(locale, "No user-approved memories have been saved.", "尚未保存用户批准的记忆。")}</p>`}</div>${paginationControl("memory", snapshot.pagination?.memory, locale)}
     <p class="fine">${tr(locale, "TTL/LRU removes only transient or rebuildable data, never Markdown, Profile, approvals, or audit records.", "TTL/LRU 只清理临时和可重建数据，不会清理 Markdown、Profile、审批或审计记录。")}</p>
   </article>`;
 }
@@ -516,18 +556,29 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
     </article>
     <article class="daily-card weather-card"><header><h2>${tr(locale, "Weather", "天气")}</h2><span>${escapeHtml(weather?.status ?? "offline")}</span></header>
       ${weather?.configured && weather.temperature_c !== null ? `<strong class="weather-temperature">${weather.temperature_c.toFixed(1)}°</strong><p>${escapeHtml(weather.condition)} · ${tr(locale, "feels like", "体感")} ${weather.apparent_temperature_c?.toFixed(1) ?? "–"}°</p><small>${escapeHtml(weather.location_label)} · ${tr(locale, "humidity", "湿度")} ${weather.relative_humidity_percent ?? "–"}%</small><em>${escapeHtml(weather.attribution)}</em>` : `<p class="daily-empty">${escapeHtml(weather?.message ?? tr(locale, "Configure weather in the private Profile; no network request is being made.", "在私有 Profile 中配置天气；当前没有网络请求。"))}</p>`}
-      <details class="weather-settings"><summary>${weather?.configured ? tr(locale, "CHANGE LOCATION", "修改位置") : tr(locale, "SET UP WEATHER", "设置天气")}</summary>
+      <button type="button" class="settings-trigger" data-weather-open>${weather?.configured ? tr(locale, "CHANGE LOCATION", "修改位置") : tr(locale, "SET UP WEATHER", "设置天气")}</button>
+      <dialog id="weather-settings-dialog" class="settings-dialog weather-settings" aria-labelledby="weather-settings-title">
         <form id="weather-form">
-          <p>${tr(locale, "Manual entry only. Restork never requests browser or IP location.", "仅支持手动填写；Restork 不请求浏览器定位或 IP 定位。")}</p>
-          <label for="weather-label">${tr(locale, "Display name", "显示名称")}</label><input id="weather-label" name="label" maxlength="120" required autocomplete="off" placeholder="${tr(locale, "Home", "家")}">
-          <div class="weather-coordinates"><label for="weather-latitude">${tr(locale, "Latitude", "纬度")}<input id="weather-latitude" name="latitude" type="number" min="-90" max="90" step="any" required inputmode="decimal" autocomplete="off"></label><label for="weather-longitude">${tr(locale, "Longitude", "经度")}<input id="weather-longitude" name="longitude" type="number" min="-180" max="180" step="any" required inputmode="decimal" autocomplete="off"></label></div>
-          <div class="weather-actions"><button type="submit">${tr(locale, "SAVE & ENABLE", "保存并启用")}</button>${weather?.configured ? `<button type="button" class="quiet-button" data-weather-disable>${tr(locale, "DISABLE", "停用")}</button>` : ""}</div>
-          <small>${tr(locale, "Coordinates stay in the private Core Profile and are sent only to Open-Meteo when enabled.", "坐标保存在 Core 的私有 Profile 中，仅在启用后发送给 Open-Meteo。")}</small>
+          <header><strong id="weather-settings-title">${tr(locale, "WEATHER & LOCATION", "天气与位置")}</strong><button type="button" class="dialog-close" data-settings-close aria-label="${tr(locale, "Close weather settings", "关闭天气设置")}">×</button></header>
+          <p>${tr(locale, "Enter a city, or explicitly request browser location. IP location is never used.", "输入城市即可，或主动请求浏览器定位；Restork 永不使用 IP 定位。")}</p>
+          <label for="weather-query">${tr(locale, "City or region", "城市或地区")}</label><input id="weather-query" name="query" minlength="2" maxlength="120" required autocomplete="address-level2" placeholder="${tr(locale, "Guangzhou, China", "广州")}">
+          <div class="weather-actions"><button type="submit">${tr(locale, "SEARCH & ENABLE", "搜索并启用")}</button><button type="button" class="quiet-button" data-weather-locate>${tr(locale, "USE CURRENT LOCATION", "使用当前位置")}</button>${weather?.configured ? `<button type="button" class="quiet-button" data-weather-disable>${tr(locale, "DISABLE", "停用")}</button>` : ""}</div>
+          <small>${tr(locale, "Location permission is requested only after you press the button. Saved coordinates remain in the private Core Profile.", "仅在点击按钮后请求定位权限；保存的坐标只留在 Core 私有 Profile。")}</small>
         </form>
-      </details>
+      </dialog>
     </article>
     <article class="daily-card calendar-card"><header><h2>${tr(locale, "Calendar", "日历")}</h2><span>${escapeHtml(calendar?.status ?? "offline")}</span></header>
       <ol>${calendar?.events.slice(0, 3).map((event) => `<li><time>${formatDate(event.starts_at, locale)}</time><b>${escapeHtml(event.title)}</b>${event.redacted ? `<small>${tr(locale, "PRIVATE · REDACTED", "私有 · 已脱敏")}</small>` : ""}</li>`).join("") || `<li class="daily-empty">${escapeHtml(calendar?.message ?? tr(locale, "Select a local read-only ICS file.", "选择本地只读 ICS 文件。"))}</li>`}</ol>
+      <button type="button" class="settings-trigger" data-calendar-open>${calendar?.configured ? tr(locale, "REPLACE CALENDAR", "更换日历") : tr(locale, "SET UP CALENDAR", "设置日历")}</button>
+      <dialog id="calendar-settings-dialog" class="settings-dialog calendar-settings" aria-labelledby="calendar-settings-title">
+        <form id="calendar-form">
+          <header><strong id="calendar-settings-title">${tr(locale, "LOCAL CALENDAR", "本地日历")}</strong><button type="button" class="dialog-close" data-settings-close aria-label="${tr(locale, "Close calendar settings", "关闭日历设置")}">×</button></header>
+          <p>${tr(locale, "Import a local ICS snapshot. Restork reads the private copy and never changes the original file.", "导入本地 ICS 快照；Restork 仅读取私有副本，不会修改原文件。")}</p>
+          <label for="calendar-file">${tr(locale, "ICS calendar file", "ICS 日历文件")}<input id="calendar-file" name="calendar" type="file" accept=".ics,text/calendar" required></label>
+          <div class="calendar-actions"><button type="submit">${tr(locale, "IMPORT & ENABLE", "导入并启用")}</button>${calendar?.configured ? `<button type="button" class="quiet-button" data-calendar-disable>${tr(locale, "DISABLE", "停用")}</button>` : ""}</div>
+          <small>${tr(locale, "Events are filtered using this device's system time zone. Maximum file size: 2 MB.", "事件按本设备系统时区筛选；文件最大 2 MB。")}</small>
+        </form>
+      </dialog>
     </article>
     <article class="daily-card music-card"><header><h2>${tr(locale, "Daily track", "每日一曲")}</h2><span>${escapeHtml(music?.status ?? "offline")}</span></header>
       ${recommendation ? `<div class="music-layout"><div class="disc" data-music-disc><div class="disc-label"><span>RESTORK</span><img id="music-cover" alt="${escapeHtml(tr(locale, `${recommendation.title} cover`, `${recommendation.title} 封面`))}" hidden></div></div><div class="music-copy"><strong>${escapeHtml(recommendation.title)}</strong><p>${escapeHtml([recommendation.artist, recommendation.album].filter(Boolean).join(" · ") || tr(locale, "Private playlist", "私有歌单"))}</p><small>${escapeHtml(recommendation.analysis)}</small><button type="button" data-music-toggle aria-pressed="false">${tr(locale, "ROTATE CD", "转动唱片")}</button></div></div>` : `<p class="daily-empty">${escapeHtml(music?.message ?? tr(locale, "Import a private JSON/CSV playlist to create daily recommendations.", "导入私有 JSON/CSV 歌单后生成每日推荐。"))}</p>`}
@@ -545,6 +596,16 @@ function radarSummary(item: RadarItem): string {
 
 function memoryRow(record: MemoryRecord, locale: Locale): string {
   return `<article><b>${escapeHtml(record.layer)} · ${escapeHtml(record.kind)}</b><p>${escapeHtml(record.summary)}</p><small>${escapeHtml(record.retention_class)} · ${escapeHtml(record.provenance)} · ${formatDate(record.updated_at, locale)}</small></article>`;
+}
+
+function paginationControl(
+  kind: string,
+  page: PageInfo | undefined,
+  locale: Locale,
+  label = tr(locale, "LOAD MORE", "加载更多"),
+): string {
+  if (!page?.has_more || !page.next_cursor) return "";
+  return `<div class="pagination"><button type="button" data-page-kind="${escapeHtml(kind)}" data-page-cursor="${escapeHtml(page.next_cursor)}">${escapeHtml(label)}</button><small>${tr(locale, "A bounded page is loaded from Core.", "由 Core 按页加载，不会一次读取全部列表。")}</small></div>`;
 }
 
 function eventRow(event: RunEvent): string {

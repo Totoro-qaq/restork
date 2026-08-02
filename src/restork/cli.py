@@ -22,11 +22,14 @@ from restork.api.server import make_server
 from restork.config.loader import load_config
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import DataClass, Mode
+from restork.conversation.service import ConversationService
+from restork.conversation.store import SQLiteConversationStore
 from restork.daily.cache import SQLiteDailyCache
 from restork.daily.service import DailyContextService
 from restork.daily.weather import OpenMeteoWeather
 from restork.dashboard.radar import SQLiteRadarStore
 from restork.dashboard.tasks import MarkdownTaskBoard, MarkdownTaskMutator
+from restork.desktop import start_desktop_parent_lease_watchdog, write_desktop_bootstrap
 from restork.knowledge.vault import Vault
 from restork.memory.profile import PrivateProfileStore
 from restork.memory.service import MemoryService
@@ -357,6 +360,9 @@ def _serve(
     profile_dir: Path | None = None,
     vault_dir: Path | None = None,
 ) -> int:
+    desktop_bootstrap = os.environ.get("RESTORK_DESKTOP_BOOTSTRAP_PATH")
+    if desktop_bootstrap is not None:
+        start_desktop_parent_lease_watchdog()
     pairing = PairingAuthority()
     cli_code = pairing.new_pairing_code(CLI_AUDIENCE, CLI_SCOPES)
     runtime_paths = RuntimePaths.from_environ()
@@ -389,7 +395,12 @@ def _serve(
         OpenMeteoWeather(
             DefaultOutboundGateway(
                 OutboundPolicy(
-                    allowed_origins=frozenset({"https://api.open-meteo.com"}),
+                    allowed_origins=frozenset(
+                        {
+                            "https://api.open-meteo.com",
+                            "https://geocoding-api.open-meteo.com",
+                        }
+                    ),
                     maximum_data_class=DataClass.PERSONAL,
                     maximum_response_bytes=500_000,
                     allowed_query_keys=frozenset(
@@ -399,6 +410,10 @@ def _serve(
                             "current",
                             "timezone",
                             "forecast_days",
+                            "name",
+                            "count",
+                            "language",
+                            "format",
                         }
                     ),
                 )
@@ -413,6 +428,8 @@ def _serve(
     keychain = KeychainSecretStore()
     provider_active = config_path.is_file()
     synthesizer: ResearchSynthesizer
+    provider: object | None = None
+    model_runtime: ModelRuntime | None = None
     if provider_active:
         provider_config = load_config(config_path).provider
         provider = DeepSeekChatCompletionsProvider(
@@ -431,14 +448,12 @@ def _serve(
             require_existing=TransientBlobStore.contains_payloads(database),
         )
         transient_blobs = TransientBlobStore.create(database, transient_key)
-        synthesizer = DeepSeekResearchSynthesizer(
-            ModelRuntime(
-                event_store,
-                budget_store,
-                transient_blobs=transient_blobs,
-            ),
-            provider,
+        model_runtime = ModelRuntime(
+            event_store,
+            budget_store,
+            transient_blobs=transient_blobs,
         )
+        synthesizer = DeepSeekResearchSynthesizer(model_runtime, provider)
     else:
         synthesizer = DeterministicResearchSynthesizer()
     research_workflow = ResearchWorkflow(
@@ -487,9 +502,23 @@ def _serve(
             keychain=keychain,
             provider_active=provider_active,
         ),
+        conversation=ConversationService(
+            conversations=SQLiteConversationStore.create(database),
+            runs=run_store,
+            events=event_store,
+            model_runtime=model_runtime,
+            provider=provider,
+        ),
     )
-    print(f"Web pairing code: {pairing.pairing_code}")
-    print(f"CLI pairing code: {cli_code}", flush=True)
+    if desktop_bootstrap is not None:
+        write_desktop_bootstrap(
+            Path(desktop_bootstrap),
+            port=port,
+            pairing_code=pairing.pairing_code,
+        )
+    else:
+        print(f"Web pairing code: {pairing.pairing_code}")
+        print(f"CLI pairing code: {cli_code}", flush=True)
     try:
         make_server(app, port).run()
     except KeyboardInterrupt:

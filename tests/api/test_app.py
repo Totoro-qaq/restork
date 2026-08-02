@@ -288,6 +288,16 @@ def test_health_and_capabilities_require_authentication(tmp_path: Path) -> None:
     assert set(capabilities.json()["modes"]) == {"research", "study", "work"}
 
 
+def test_public_readiness_contains_only_process_metadata(tmp_path: Path) -> None:
+    database = tmp_path / "state.db"
+    client = TestClient(_app(database, PairingAuthority()))
+
+    response = client.get("/v1/readiness")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready", "schema": "v1"}
+
+
 def test_token_rotation_and_revocation_are_enforced(tmp_path: Path) -> None:
     database = tmp_path / "state.db"
     pairing = PairingAuthority()

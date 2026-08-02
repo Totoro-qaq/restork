@@ -22,6 +22,25 @@ class FakeGateway:
         self.requests.append(request)
         if self.fail:
             raise TimeoutError
+        if "geocoding-api.open-meteo.com" in request.envelope.destination:
+            return OutboundResponse(
+                status_code=200,
+                headers={"Content-Type": "application/json"},
+                payload=json.dumps(
+                    {
+                        "results": [
+                            {
+                                "name": "Guangzhou",
+                                "admin1": "Guangdong",
+                                "country": "China",
+                                "latitude": 23.11667,
+                                "longitude": 113.25,
+                                "timezone": "Asia/Shanghai",
+                            }
+                        ]
+                    }
+                ).encode(),
+            )
         return OutboundResponse(
             status_code=200,
             headers={"Content-Type": "application/json"},
@@ -48,6 +67,24 @@ def test_weather_is_disabled_without_private_configuration(tmp_path: Path) -> No
 
     assert snapshot.status is DailyStatus.NOT_CONFIGURED
     assert gateway.requests == []
+
+
+def test_weather_resolves_only_an_explicit_place_name_through_the_gateway(
+    tmp_path: Path,
+) -> None:
+    gateway = FakeGateway()
+    weather = OpenMeteoWeather(gateway, SQLiteDailyCache.create(tmp_path / "state.db"))
+
+    location = asyncio.run(weather.resolve_location("Guangzhou", language="en"))
+
+    assert location.label == "Guangzhou, Guangdong, China"
+    assert location.latitude == 23.11667
+    assert location.longitude == 113.25
+    assert location.timezone == "Asia/Shanghai"
+    request = gateway.requests[0]
+    assert request.envelope.classification is DataClass.PERSONAL
+    assert request.envelope.purpose == "daily_weather_location_lookup"
+    assert "name=Guangzhou" in request.envelope.destination
 
 
 def test_weather_uses_personal_gateway_envelope_and_ttl_cache(tmp_path: Path) -> None:

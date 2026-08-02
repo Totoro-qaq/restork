@@ -2,6 +2,8 @@ import { EventCursor, EventStreamDecoder } from "./events";
 import type {
   ApprovalRequest,
   DashboardApi,
+  DashboardListKind,
+  DashboardListPage,
   DashboardSnapshot,
   Mode,
   RadarAction,
@@ -9,6 +11,7 @@ import type {
   PracticeAttemptResult,
   ProviderDiagnostic,
   RunEvent,
+  RunEventPage,
   RunSummary,
   StudyArtifact,
   StudyDiagnostic,
@@ -21,36 +24,67 @@ import type {
   WorkResultManifest,
   WorkStartInput,
   WorkVerificationReport,
+  CalendarConfigurationInput,
+  ConversationPage,
+  ConversationTurn,
   WeatherConfigurationInput,
-  MemoryRecord,
+  WeatherConfigurationResult,
 } from "./types";
+
+export interface LocalSession {
+  accessToken: string;
+  expiresAt: string;
+}
+
+interface LocalApiClientOptions {
+  onSession?: (session: LocalSession) => Promise<void>;
+}
 
 export class LocalApiClient implements DashboardApi {
   #token: string | null = null;
+  #expiresAt = 0;
+  #rotationTimer: number | null = null;
+  #rotationPromise: Promise<void> | null = null;
+  readonly #onSession: ((session: LocalSession) => Promise<void>) | undefined;
   readonly #eventCursors = new Map<string, EventCursor>();
 
+  constructor(options: LocalApiClientOptions = {}) {
+    this.#onSession = options.onSession;
+  }
+
   async pair(code: string): Promise<void> {
-    const response = await this.#request<{ access_token: string }>("POST", "/v1/pair", {
-      code,
-    }, false);
-    this.#token = response.access_token;
+    const response = await this.#request<{ access_token: string; expires_at?: string }>(
+      "POST",
+      "/v1/pair",
+      { code },
+      false,
+    );
+    await this.#acceptSession(response.access_token, response.expires_at);
+  }
+
+  restoreSession(session: LocalSession): void {
+    const normalized = normalizeSession(session.accessToken, session.expiresAt);
+    this.#token = normalized.accessToken;
+    this.#expiresAt = Date.parse(normalized.expiresAt);
+    this.#scheduleRotation();
   }
 
   async loadDashboard(): Promise<DashboardSnapshot> {
     const [runs, approvals, taskBoard, radar, memory, daily, provider] = await Promise.all([
-      this.#request<{ runs: DashboardSnapshot["runs"] }>("GET", "/v1/runs"),
-      this.#request<{ approvals: DashboardSnapshot["approvals"] }>(
+      this.#request<{ runs: DashboardSnapshot["runs"]; page: NonNullable<DashboardSnapshot["pagination"]>["runs"] }>("GET", "/v1/runs?limit=12"),
+      this.#request<{ approvals: DashboardSnapshot["approvals"]; page: NonNullable<DashboardSnapshot["pagination"]>["approvals"] }>(
         "GET",
-        "/v1/approvals?pending_only=false",
+        "/v1/approvals?pending_only=false&limit=12",
       ),
-      this.#request<DashboardSnapshot["taskBoard"]>("GET", "/v1/tasks"),
-      this.#request<DashboardSnapshot["radar"]>("GET", "/v1/radar"),
-      this.#request<NonNullable<DashboardSnapshot["memory"]>>("GET", "/v1/memory").catch(
+      this.#request<DashboardSnapshot["taskBoard"] & { page: NonNullable<DashboardSnapshot["pagination"]>["tasks"] }>("GET", "/v1/tasks?limit=12"),
+      this.#request<DashboardSnapshot["radar"] & { page: NonNullable<DashboardSnapshot["pagination"]>["radar"] }>("GET", "/v1/radar?limit=12"),
+      this.#request<NonNullable<DashboardSnapshot["memory"]> & { page: NonNullable<DashboardSnapshot["pagination"]>["memory"] }>("GET", "/v1/memory?limit=12").catch(
         () => null,
       ),
-      this.#request<NonNullable<DashboardSnapshot["daily"]>>("GET", "/v1/daily").catch(
-        () => null,
-      ),
+      this.#request<NonNullable<DashboardSnapshot["daily"]>>(
+        "GET",
+        `/v1/daily?timezone=${encodeURIComponent(systemTimeZone())}`,
+      ).catch(() => null),
       this.#request<ProviderDiagnostic>("GET", "/v1/providers/deepseek").catch(
         () => null,
       ),
@@ -63,7 +97,68 @@ export class LocalApiClient implements DashboardApi {
       memory,
       daily,
       provider,
+      pagination: {
+        runs: runs.page,
+        approvals: approvals.page,
+        tasks: taskBoard.page,
+        radar: radar.page,
+        memory: memory?.page,
+      },
     };
+  }
+
+  async loadPage(kind: DashboardListKind, cursor: string): Promise<DashboardListPage> {
+    const encoded = encodeURIComponent(cursor);
+    if (kind === "runs") {
+      const payload = await this.#request<{ runs: DashboardSnapshot["runs"]; page: DashboardListPage["page"] }>("GET", `/v1/runs?limit=12&cursor=${encoded}`);
+      return { kind, items: payload.runs, page: payload.page };
+    }
+    if (kind === "approvals") {
+      const payload = await this.#request<{ approvals: DashboardSnapshot["approvals"]; page: DashboardListPage["page"] }>("GET", `/v1/approvals?pending_only=false&limit=12&cursor=${encoded}`);
+      return { kind, items: payload.approvals, page: payload.page };
+    }
+    if (kind === "tasks") {
+      const payload = await this.#request<DashboardSnapshot["taskBoard"] & { page: DashboardListPage["page"] }>("GET", `/v1/tasks?limit=12&cursor=${encoded}`);
+      return { kind, items: payload.tasks, page: payload.page, configured: payload.configured };
+    }
+    if (kind === "radar") {
+      const payload = await this.#request<DashboardSnapshot["radar"] & { page: DashboardListPage["page"] }>("GET", `/v1/radar?limit=12&cursor=${encoded}`);
+      return { kind, items: payload.items, page: payload.page, configured: payload.configured };
+    }
+    const payload = await this.#request<NonNullable<DashboardSnapshot["memory"]> & { page: DashboardListPage["page"] }>("GET", `/v1/memory?limit=12&cursor=${encoded}`);
+    return {
+      kind,
+      items: payload.records,
+      page: payload.page,
+      counts: payload.counts,
+      architecture: payload.architecture,
+    };
+  }
+
+  async eventPage(runId: string, before?: string): Promise<RunEventPage> {
+    const cursor = before ? `&before=${encodeURIComponent(before)}` : "";
+    return this.#request<RunEventPage>(
+      "GET",
+      `/v1/runs/${encodeURIComponent(runId)}/event-page?limit=50${cursor}`,
+    );
+  }
+
+  async conversationPage(runId: string, before?: string): Promise<ConversationPage> {
+    const cursor = before ? `&before=${encodeURIComponent(before)}` : "";
+    return this.#request<ConversationPage>(
+      "GET",
+      `/v1/runs/${encodeURIComponent(runId)}/conversation?limit=24${cursor}`,
+    );
+  }
+
+  async sendConversation(runId: string, content: string): Promise<ConversationTurn> {
+    return this.#request<ConversationTurn>(
+      "POST",
+      `/v1/runs/${encodeURIComponent(runId)}/conversation`,
+      { content },
+      true,
+      `dashboard-conversation-${crypto.randomUUID()}`,
+    );
   }
 
   async createRun(
@@ -255,30 +350,28 @@ export class LocalApiClient implements DashboardApi {
     );
   }
 
-  async configureWeather(input: WeatherConfigurationInput): Promise<void> {
-    const profile = await this.#request<{ records: MemoryRecord[] }>(
-      "GET",
-      "/v1/memory?layer=profile",
+  async configureWeather(
+    input: WeatherConfigurationInput,
+  ): Promise<WeatherConfigurationResult> {
+    return this.#request<WeatherConfigurationResult>(
+      "POST",
+      "/v1/daily/weather",
+      input,
+      true,
+      `dashboard-weather-${crypto.randomUUID()}`,
     );
-    const provider = requiredProfileRecord(profile.records, "profile:daily.weather_provider");
-    const location = requiredProfileRecord(profile.records, "profile:daily.weather_location");
+  }
 
-    const disabledProvider = await this.#correctProfile(
-      provider.memory_id,
-      "",
-      provider.content_hash,
+  async configureCalendar(
+    input: CalendarConfigurationInput,
+  ): Promise<NonNullable<DashboardSnapshot["daily"]>["calendar"]> {
+    return this.#request<NonNullable<DashboardSnapshot["daily"]>["calendar"]>(
+      "POST",
+      "/v1/daily/calendar",
+      input,
+      true,
+      `dashboard-calendar-${crypto.randomUUID()}`,
     );
-    const locationValue = input.enabled
-      ? `${input.label.trim()}|${input.latitude},${input.longitude}`
-      : "";
-    await this.#correctProfile(location.memory_id, locationValue, location.content_hash);
-    if (input.enabled) {
-      await this.#correctProfile(
-        provider.memory_id,
-        "open-meteo",
-        disabledProvider.content_hash,
-      );
-    }
   }
 
   async providerDiagnostics(smoke: boolean): Promise<ProviderDiagnostic> {
@@ -365,24 +458,6 @@ export class LocalApiClient implements DashboardApi {
     }
   }
 
-  async #correctProfile(
-    memoryId: string,
-    value: string,
-    expectedContentHash: string,
-  ): Promise<MemoryRecord> {
-    return this.#request<MemoryRecord>(
-      "PATCH",
-      `/v1/memory/${encodeURIComponent(memoryId)}`,
-      {
-        value,
-        expected_content_hash: expectedContentHash,
-        data_class: "personal",
-      },
-      true,
-      `dashboard-profile-${crypto.randomUUID()}`,
-    );
-  }
-
   async #request<T>(
     method: string,
     path: string,
@@ -402,10 +477,11 @@ export class LocalApiClient implements DashboardApi {
     return (await response.json()) as T;
   }
 
-  #fetch(path: string, init: RequestInit, authenticated: boolean): Promise<Response> {
+  async #fetch(path: string, init: RequestInit, authenticated: boolean): Promise<Response> {
     const headers = new Headers(init.headers);
     if (authenticated) {
       if (!this.#token) throw new Error("Pair this browser with Restork Core first");
+      if (this.#expiresAt <= Date.now() + 120_000) await this.#rotateSession();
       headers.set("Authorization", `Bearer ${this.#token}`);
     }
     return fetch(path, {
@@ -417,12 +493,79 @@ export class LocalApiClient implements DashboardApi {
       referrerPolicy: "no-referrer",
     });
   }
+
+  async #acceptSession(accessToken: string, expiresAt?: string): Promise<void> {
+    const normalized = normalizeSession(
+      accessToken,
+      expiresAt ?? new Date(Date.now() + 240_000).toISOString(),
+    );
+    this.#token = normalized.accessToken;
+    this.#expiresAt = Date.parse(normalized.expiresAt);
+    if (this.#onSession) await this.#onSession(normalized);
+    this.#scheduleRotation();
+  }
+
+  #rotateSession(): Promise<void> {
+    if (this.#rotationPromise) return this.#rotationPromise;
+    const token = this.#token;
+    if (!token) return Promise.reject(new Error("Pair this browser with Restork Core first"));
+    this.#rotationPromise = fetch("/v1/token/rotate", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+      credentials: "omit",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+    })
+      .then(async (response) => {
+        if (!response.ok) throw await apiError(response);
+        const payload = (await response.json()) as {
+          access_token?: unknown;
+          expires_at?: unknown;
+        };
+        if (typeof payload.access_token !== "string" || typeof payload.expires_at !== "string") {
+          throw new Error("Core returned an invalid token rotation response");
+        }
+        await this.#acceptSession(payload.access_token, payload.expires_at);
+      })
+      .finally(() => {
+        this.#rotationPromise = null;
+      });
+    return this.#rotationPromise;
+  }
+
+  #scheduleRotation(): void {
+    if (this.#rotationTimer !== null) window.clearTimeout(this.#rotationTimer);
+    const delay = Math.max(1_000, Math.min(2_147_000_000, this.#expiresAt - Date.now() - 120_000));
+    this.#rotationTimer = window.setTimeout(() => {
+      this.#rotationTimer = null;
+      void this.#rotateSession().catch(() => {
+        if (this.#expiresAt > Date.now() + 15_000) {
+          this.#rotationTimer = window.setTimeout(() => {
+            this.#rotationTimer = null;
+            void this.#rotateSession().catch(() => undefined);
+          }, 15_000);
+        }
+      });
+    }, delay);
+  }
 }
 
-function requiredProfileRecord(records: MemoryRecord[], memoryId: string): MemoryRecord {
-  const record = records.find((candidate) => candidate.memory_id === memoryId);
-  if (!record) throw new Error("Core did not expose the required private Profile metadata");
-  return record;
+function normalizeSession(accessToken: string, expiresAt: string): LocalSession {
+  const expiry = Date.parse(expiresAt);
+  if (
+    !accessToken
+    || accessToken.length > 512
+    || /\s/.test(accessToken)
+    || !Number.isFinite(expiry)
+    || expiry <= Date.now()
+  ) {
+    throw new Error("Core returned an invalid local session");
+  }
+  return { accessToken, expiresAt: new Date(expiry).toISOString() };
 }
 
 function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
@@ -441,6 +584,15 @@ function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void
     }, milliseconds);
     signal.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+export function systemTimeZone(): string {
+  try {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return timezone && timezone.length <= 128 ? timezone : "UTC";
+  } catch {
+    return "UTC";
+  }
 }
 
 async function apiError(response: Response): Promise<Error> {

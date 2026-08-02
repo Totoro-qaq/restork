@@ -89,6 +89,44 @@ def test_doctor_is_local_by_default_and_network_is_explicit(
     assert smoke_values == [False, True]
 
 
+def test_desktop_serve_writes_private_bootstrap_without_printing_pairing_codes(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    capsys: CaptureFixture[str],
+) -> None:
+    private = tmp_path / "bootstrap"
+    private.mkdir(mode=0o700)
+    private.chmod(0o700)
+    bootstrap = private / "core.json"
+    ran: list[bool] = []
+
+    class FakeServer:
+        def run(self) -> None:
+            ran.append(True)
+
+    monkeypatch.setattr("restork.cli.make_server", lambda app, port: FakeServer())
+    monkeypatch.setenv("RESTORK_DESKTOP_BOOTSTRAP_PATH", str(bootstrap))
+    monkeypatch.setenv("RESTORK_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("RESTORK_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("RESTORK_CACHE_DIR", str(tmp_path / "cache"))
+
+    assert main(
+        [
+            "--state-db",
+            str(tmp_path / "data" / "state.db"),
+            "serve",
+            "--port",
+            "49153",
+        ]
+    ) == 0
+
+    payload = json.loads(bootstrap.read_text(encoding="utf-8"))
+    assert payload["port"] == 49153
+    assert len(payload["pairing_code"]) >= 16
+    assert ran == [True]
+    assert capsys.readouterr().out == ""
+
+
 def _diagnostic_report(
     status: str,
     *,

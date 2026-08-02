@@ -1,13 +1,15 @@
 # Restork V1 Implementation Blueprint
 
-> Status: Complete — Steps 0–10; V1 |
-> Version: 1.1 | Date: 2026-08-02
+> Status: Complete — Steps 0–10 and Step 11 macOS internal alpha; Step 12 planned |
+> Version: 1.4 | Date: 2026-08-02
 >
 > Objective: Build a public-ready, local-first personal agent for Research, Study, and Work without exposing private runtime data.
 >
 > Review: independent adversarial architecture pass completed; blocking findings incorporated
 > Governing specification: [specs/restork-v1.md](../specs/restork-v1.md)
 > Step 6 detail: [specs/restork-step6.md](../specs/restork-step6.md)
+> Step 11 detail: [plans/restork-step11-desktop.md](restork-step11-desktop.md)
+> Step 12 detail: [plans/restork-step12-cross-platform.md](restork-step12-cross-platform.md)
 
 ## 1. Repository preflight
 
@@ -45,6 +47,8 @@ At V1 completion, the repository will provide:
 - separate, selectable English and Simplified Chinese READMEs with localized GitHub-safe SVGs and an HD synthetic product GIF;
 - synthetic fixtures and privacy tests;
 - an MIT-licensed open-source-ready release without private runtime data.
+- an additive macOS desktop shell that packages the same Core and Dashboard without requiring a
+  user Python environment.
 
 ## 3. Global invariants
 
@@ -58,8 +62,13 @@ Every step must preserve these invariants:
 6. **Read-only default**: vault writes require policy and single-use approval; Work V1 prepares handoffs but launches no shell, Git mutation, deployment, message, or executor.
 7. **No hidden LLM passes**: retries, repair, fallback, and delegation are explicit events.
 8. **Public/private separation**: real vaults, profiles, credentials, traces, and indexes stay outside Git.
-9. **No framework creep**: LangGraph, graph servers, KAG, Go, and Rust remain outside V1 unless the specification is deliberately revised.
+9. **No framework creep**: LangGraph, graph servers, KAG, Go, and Rust remain outside the V1 Core;
+   Step 11 deliberately permits Rust only for the Tauri lifecycle/OS boundary.
 10. **Synthetic CI**: public tests never depend on the owner's files or credentials.
+11. **Versioned prompts**: production prompts are immutable registry entries; events retain only ID,
+    version, and hash, while content and answers remain outside logs.
+12. **Bounded accumulated state**: every growing Dashboard list, event history, and conversation uses
+    server-side pagination and a bounded initial page.
 
 ## 4. Dependency graph
 
@@ -86,6 +95,8 @@ flowchart TD
   S8 --> S10
   S9 --> S10
   S6 --> S10
+  S10 --> S11["Step 11: macOS Desktop Shell"]
+  S11 --> S12["Step 12: Windows and Linux Desktop"]
 ```
 
 ## 5. Parallel execution map
@@ -99,6 +110,8 @@ flowchart TD
 | 4 | Steps 6 and 8 | Can run in parallel after Step 5; Step 7 starts after the Step 6 client contract is available |
 | 5 | Steps 7 and 9A | Research integration and Work planning/handoff can proceed in parallel; neither launches code execution |
 | 6 | Step 10 | Final integration and release gate |
+| 7 | Step 11 | macOS desktop packaging, lifecycle, and protected release gate |
+| 8 | Step 12 | Native Windows and Linux adapters after the macOS contract is stable |
 
 ## 6. Delivery checkpoints
 
@@ -110,6 +123,8 @@ flowchart TD
 | Knowledge-work beta | 8 | Study workflow and Markdown task integration are usable |
 | Controlled work beta | 9 | Work plans and bounded handoff packages are reviewable; Restork does not launch executors |
 | V1 release | 10 | Privacy, recovery, evaluation, and release requirements pass |
+| macOS internal alpha | 11 | Native launcher, packaged Core, automatic pairing, and release pipeline |
+| Cross-platform desktop | 12 | Native Windows/Linux credentials, lifecycle, installers, and signed updates |
 
 ## 7. Required PR slicing
 
@@ -714,10 +729,10 @@ src/restork/web/static/          # generated release assets
 11. Split Radar into `My Stars`, `Trending`, and `HN` lanes; all fetches originate in Core connectors through `OutboundGateway`, never directly in the browser.
 12. Add `dismiss`, `read later`, `research`, and `make task` actions.
 13. Add a Roman-numeral analog clock, optional gateway-backed weather, local read-only ICS calendar, and a generic user-imported daily music recommendation with optional album art in a rotating CD treatment.
-14. Make every daily-context module configurable and safe when absent. Weather accepts only explicit
-    manual label/latitude/longitude input, uses no browser/IP geolocation, disables before coordinate
-    mutation, and clears provider/location when turned off. Keep location, calendar, playlist, owner
-    music taste, and remote credentials outside Git and browser persistence.
+14. Make every daily-context module configurable and safe when absent. Weather accepts a manual city
+    or coordinates and may request browser location only after the dedicated user click; it performs
+    no launch-time or IP location. Disabling clears provider/location. Keep location, calendar,
+    playlist, owner music taste, and remote credentials outside Git and browser persistence.
 15. Honor reduced motion, keyboard navigation, focus visibility, semantic landmarks, pause controls, and legible light/dark GitHub surroundings for exported visuals.
 16. Publish separate selectable English and Simplified Chinese READMEs in project-native visual order (`Value -> Proof -> Mechanism -> First use -> Detail`) with localized maintainable GitHub-safe SVGs and an HD GIF captured only from synthetic Dashboard data.
 17. Detect browser locale, default non-Chinese browsers to English, provide an explicit English/Chinese switch, and persist only the literal non-sensitive locale preference when the user switches.
@@ -738,6 +753,14 @@ src/restork/web/static/          # generated release assets
     public maximum-16-token `--smoke` completion whose output reports no response body.
 26. Add a compact bilingual Model access card with exact setup command, redacted status, connect/smoke
     buttons, typewriter waiting feedback, reduced-motion support, and responsive browser verification.
+27. Paginate runs, approvals, Markdown tasks, Radar, memory, event history, and conversation history;
+    use bounded defaults and preserve list order and cursor scope under repeated loads.
+28. Add run-scoped multi-turn conversation with durable visible turns, an in-process token window,
+    zero tools, inherited data policy, idempotent writes, and metadata-only events.
+29. Give conversation history an independent scroll region and fixed composer; preserve viewport when
+    prepending older messages and auto-follow only near the bottom or after an explicit send.
+30. Move all production prompts into an immutable ID/version/hash registry; add SQL-construction and
+    prompt-injection canary tests, explicit CI gates, and CodeQL security-extended analysis.
 
 ### Verification
 
@@ -747,6 +770,7 @@ npm --prefix dashboard run lint
 npm --prefix dashboard run build
 uv run pytest tests/api
 uv run pytest tests/memory tests/daily
+uv run pytest tests/conversation tests/security tests/api/test_conversation.py
 uv build --no-sources
 python3 scripts/audit_readme.py README.md README.zh-CN.md
 ```
@@ -763,8 +787,12 @@ Run automated transport/auth tests for cursor reconnect, hostile Origin, missing
 - Completing a Dashboard task updates its source Markdown.
 - Memory records are inspectable and deletable according to retention class; protected truth/audit data are never evicted by TTL/LRU.
 - Missing weather, calendar, playlist, or cover configuration produces explicit empty states and zero hidden network requests.
-- Weather is manually configured or remains off; the Dashboard never requests browser/IP location,
-  and explicit disable clears provider and location.
+- Weather uses a manual city/coordinates or remains off; browser location is requested only after the
+  dedicated click, IP location is never used, and explicit disable clears provider and location.
+- Every accumulated list is bounded and paginated; conversation history scrolls independently and
+  preserves reading position while older turns are prepended.
+- Prompt registry, SQL construction, prompt-injection canary, conversation boundary, CodeQL, Bandit,
+  auth, outbound, privacy-label, recovery, and public-artifact gates are release-blocking.
 - Follow SSE uses an Authorization header, reconnect cursor, incremental decoder, and accessible
   phase-only waiting state without private reasoning.
 - The Overview has no unexplained wide-grid blank region and no horizontal overflow at the verified

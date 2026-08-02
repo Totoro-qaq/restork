@@ -290,12 +290,14 @@ class SQLiteRunStore:
             schema_version=row["schema_version"],
         )
 
-    def list_runs(self, *, limit: int = 50) -> tuple[RunSummary, ...]:
+    def list_runs(self, *, limit: int = 50, offset: int = 0) -> tuple[RunSummary, ...]:
         if not 1 <= limit <= 200:
             raise ValueError("run list limit must be between 1 and 200")
+        if not 0 <= offset <= 1_000_000:
+            raise ValueError("run list offset is outside the supported range")
         rows = self._connection.execute(
-            "SELECT run_id FROM runs ORDER BY updated_at DESC, run_id LIMIT ?",
-            (limit,),
+            "SELECT run_id FROM runs ORDER BY updated_at DESC, run_id LIMIT ? OFFSET ?",
+            (limit, offset),
         ).fetchall()
         return tuple(self.get(row["run_id"]) for row in rows)
 

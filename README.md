@@ -66,7 +66,8 @@ Restork Core ─ Harness ─ Policy ─ Approval ─ Event log
 - **Markdown truth:** notes and user tasks.
 - **SQLite truth:** runs, steps, approvals, intents, and events.
 - **Rebuildable projections:** indexes, wiki-link graphs, and optional search caches.
-- **Thin clients:** Dashboard and CLI own neither model credentials nor execution authority.
+- **Thin clients:** Dashboard, CLI, and the desktop shell own neither model credentials nor agent
+  execution authority.
 
 V1 needs no LangGraph, graph database, KAG, Valkey, Memory MCP, or Obsidian
 plugin. Those remain possible adapters only when distributed execution,
@@ -93,12 +94,19 @@ semantics, and the same local Dashboard entry point.
 | **Knowledge & tasks** | Read-only Vault retrieval, deterministic wiki-link projection, journaled single-file writes, and preview/approve/apply for Markdown checkbox tasks. |
 | **Memory** | Working, Episodic, Semantic, and Profile layers. TTL/LRU is limited to transient values and rebuildable caches. |
 | **Daily context** | Optional Open-Meteo weather, one local read-only ICS calendar, and private JSON/CSV playlists with local covers. No configuration means no request. |
+| **macOS desktop alpha** | A Tauri 2 Rust supervisor bundles the same PyInstaller `onedir` Core and Dashboard, chooses a private port, pairs in memory, monitors a three-miss heartbeat, and owns the Core process group through quit or parent loss. Public signed downloads remain release-credential gated. |
 
 ## Five-minute start
 
 [`uv`](https://docs.astral.sh/uv/getting-started/installation/) is the only
 tool needed for normal use; it prepares the locked Python 3.12 environment.
 Node.js is needed only when changing Dashboard source.
+
+The one-command source start below is the supported first-run path today. A macOS internal alpha is
+also implemented; contributors can build and open `Restork.app`, while an official one-click DMG is
+published only after the protected signing/notarization workflow passes. See the separate
+[`macOS desktop guide`](docs/desktop.md). Windows and Linux are explicit
+[`Step 12`](plans/restork-step12-cross-platform.md) targets and are not yet advertised as downloads.
 
 ### 1. Start with private defaults
 
@@ -133,8 +141,8 @@ Everything is opt-in; add only the capability you need:
 | Explore the Dashboard | No configuration | No model request; no Vault access |
 | Read an Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | Local read access; writes still require an exact preview and approval |
 | Use DeepSeek V4 Pro | `uv run restork provider configure` | The key goes directly to macOS Keychain; approved prompts cross the governed DeepSeek gateway |
-| Show weather | Private Profile with provider and manually entered coordinates | Disabled while either value is empty; Restork never requests browser location |
-| Show calendar or music | Private Profile pointing to one local ICS or JSON/CSV file | Read-only local import; no account login |
+| Show weather | Open the Weather settings and enter a city, or explicitly press **Use current location** | Off until you enable it; no IP lookup and no location permission before your click |
+| Show calendar or music | Select one local ICS file or configure a private JSON/CSV playlist | Read-only local import; calendar uses the device time zone; no account login |
 
 Use another port without editing files:
 
@@ -207,7 +215,7 @@ Start with [`Dashboard & CLI`](docs/dashboard-usage.md), then follow the focused
 guides for [`Memory`](docs/memory.md),
 [`Markdown tasks`](docs/markdown-tasks.md), [`Research`](docs/research-workflow.md),
 [`Study`](docs/study.md), and [`Work`](docs/work.md). To disconnect a capability,
-restart without its Vault/Profile flag, clear both weather fields, or move
+restart without its Vault/Profile flag, choose **Disable weather**, or move
 `config.toml` out of the selected private configuration directory. Nothing in
 the Git checkout needs to be deleted or reset.
 
@@ -240,6 +248,15 @@ npm --prefix dashboard ci
 npm --prefix dashboard run lint
 npm --prefix dashboard test
 npm --prefix dashboard run build
+
+# macOS desktop alpha
+npm --prefix desktop ci
+npm --prefix desktop run fmt:check
+npm --prefix desktop run clippy
+npm --prefix desktop test
+npm --prefix desktop run build:app
+./scripts/smoke-desktop-app.sh 10
+./scripts/smoke-desktop-faults.sh
 
 # Public artifacts and release bundle
 uv run python scripts/audit_readme.py README.md README.zh-CN.md

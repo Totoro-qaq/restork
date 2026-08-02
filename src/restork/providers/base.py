@@ -81,11 +81,19 @@ class ChatCompletionRequest(ProviderModel):
     source_refs: tuple[str, ...] = ()
     tools: tuple[ChatToolDefinition, ...] = ()
     tool_choice: Literal["auto", "none", "required"] = "auto"
+    prompt_id: str | None = Field(default=None, min_length=1, max_length=128)
+    prompt_version: str | None = Field(default=None, min_length=1, max_length=32)
+    prompt_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def require_tools_for_tool_choice(self) -> ChatCompletionRequest:
         if not self.tools and self.tool_choice != "auto":
             raise ValueError("tool_choice requires at least one tool definition")
+        prompt_metadata = (self.prompt_id, self.prompt_version, self.prompt_hash)
+        if any(value is not None for value in prompt_metadata) and not all(
+            value is not None for value in prompt_metadata
+        ):
+            raise ValueError("prompt metadata must provide id, version, and hash together")
         return self
 
 

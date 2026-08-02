@@ -24,8 +24,8 @@
 ## 产品实证
 
 <p align="center">
-  <a href="./assets/readme/demo-poster.webp">
-    <img src="./assets/readme/demo-hd.gif" width="100%" alt="Restork Dashboard 使用合成数据依次展示运行、审批、Markdown 任务、Radar、记忆、每日上下文和仅规划的 Work 交接。">
+  <a href="./assets/readme/demo-poster.zh-CN.webp">
+    <img src="./assets/readme/demo-hd.zh-CN.gif" width="100%" alt="Restork 简体中文 Dashboard 使用合成数据依次展示运行、审批、Markdown 任务、Radar、记忆、每日上下文和仅规划的 Work 交接。">
   </a>
 </p>
 
@@ -64,7 +64,7 @@ Restork Core ─ Harness ─ 策略 ─ 审批 ─ 事件日志
 - **Markdown 真相：** 笔记与用户任务。
 - **SQLite 真相：** 运行、步骤、审批、意图与事件。
 - **可重建投影：** 索引、wiki-link 图和可选搜索缓存。
-- **薄客户端：** Dashboard 与 CLI 都不持有模型密钥或执行权限。
+- **薄客户端：** Dashboard、CLI 与桌面壳都不持有模型密钥或 agent 执行权限。
 
 V1 不需要 LangGraph、图数据库、KAG、Valkey、Memory MCP 或 Obsidian 插件。
 只有当分布式执行、跨应用记忆或检索评估证明它们确有必要时，才会以适配器形式引入。
@@ -89,12 +89,18 @@ V1 不需要 LangGraph、图数据库、KAG、Valkey、Memory MCP 或 Obsidian �
 | **知识与任务** | 只读 Vault 检索、确定性 wiki-link 投影、单文件日志化写入，以及 Markdown checkbox 任务的预览/审批/应用。 |
 | **记忆** | Working、Episodic、Semantic、Profile 四层；TTL/LRU 只清理瞬态值和可重建缓存。 |
 | **每日上下文** | 可选 Open-Meteo 天气、一个本地只读 ICS 日历、私有 JSON/CSV 歌单和本地封面；不配置就不请求。 |
+| **macOS 桌面端内测版** | Tauri 2 Rust supervisor 打包同一套 PyInstaller `onedir` Core 与 Dashboard，自动选私有端口、在内存中配对，以连续三次失败为心跳门槛，并在正常退出或父进程丢失时回收 Core 进程组；公开签名下载仍受发布凭据门禁。 |
 
 ## 五分钟启动
 
 日常使用只需要安装
 [`uv`](https://docs.astral.sh/uv/getting-started/installation/)，它会准备锁定的
 Python 3.12 环境。只有修改 Dashboard 源码时才需要 Node.js。
+
+目前受支持的首次使用路径仍是下面的一条命令源码启动。macOS 内测版也已经实现，贡献者可以
+构建并打开 `Restork.app`；只有受保护的签名与公证工作流通过后，才会发布正式的一键安装
+DMG。详见独立的 [`macOS 桌面端指南`](docs/desktop.zh-CN.md)。Windows 与 Linux 是明确的
+[`Step 12`](plans/restork-step12-cross-platform.md) 目标，目前不会冒充成可下载的受支持版本。
 
 ### 1. 用隐私默认值启动
 
@@ -128,8 +134,8 @@ Core 会分别打印 **Web pairing code** 和 **CLI pairing code**。打开上�
 | 先体验 Dashboard | 无需配置 | 不调用模型，也不读取 Vault |
 | 读取 Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | 仅本地读取；写入仍需精确预览和审批 |
 | 使用 DeepSeek V4 Pro | `uv run restork provider configure` | Key 直接进入 macOS Keychain；只有获准的提示词会经过受控 DeepSeek 网关 |
-| 显示天气 | 在私有 Profile 中配置 provider，并手填坐标 | 任一字段为空即停用；Restork 不请求浏览器定位 |
-| 显示日历或音乐 | 私有 Profile 指向一个本地 ICS 或 JSON/CSV 文件 | 只读本地导入，不登录第三方账号 |
+| 显示天气 | 打开天气设置并输入城市，或明确点击**使用当前位置** | 启用前保持关闭；不做 IP 定位，也不会在点击前请求位置权限 |
+| 显示日历或音乐 | 选择一个本地 ICS 文件，或配置私有 JSON/CSV 歌单 | 只读本地导入；日历使用设备时区，不登录第三方账号 |
 
 无需改文件即可换端口：
 
@@ -193,8 +199,8 @@ uv run restork capabilities
 建议先读 [`Dashboard 与 CLI`](docs/dashboard-usage.md)，再按需阅读
 [`记忆`](docs/memory.md)、[`Markdown 任务`](docs/markdown-tasks.md)、
 [`Research`](docs/research-workflow.md)、[`Study`](docs/study.md) 与
-[`Work`](docs/work.md)。想断开某项能力时，重启时不传 Vault/Profile 参数、清空天气两个
-字段，或把 `config.toml` 移出当前选择的私有配置目录即可；不需要删除或重置 Git
+[`Work`](docs/work.md)。想断开某项能力时，重启时不传 Vault/Profile 参数、在 Dashboard
+选择**停用天气**，或把 `config.toml` 移出当前选择的私有配置目录即可；不需要删除或重置 Git
 工作区中的任何内容。
 
 ## 隐私边界
@@ -225,6 +231,15 @@ npm --prefix dashboard ci
 npm --prefix dashboard run lint
 npm --prefix dashboard test
 npm --prefix dashboard run build
+
+# macOS 桌面端内测版
+npm --prefix desktop ci
+npm --prefix desktop run fmt:check
+npm --prefix desktop run clippy
+npm --prefix desktop test
+npm --prefix desktop run build:app
+./scripts/smoke-desktop-app.sh 10
+./scripts/smoke-desktop-faults.sh
 
 # 公开资产与发布包
 uv run python scripts/audit_readme.py README.md README.zh-CN.md

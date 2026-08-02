@@ -1,0 +1,57 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Restork",
+  "version": "0.1.2",
+  "identifier": "io.github.totoro-qaq.restork",
+  "build": {
+    "beforeBuildCommand": "../scripts/build-desktop-core.sh",
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Restork",
+        "url": "index.html",
+        "width": 1440,
+        "height": 940,
+        "minWidth": 900,
+        "minHeight": 680,
+        "resizable": true,
+        "center": true,
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'",
+      "freezePrototype": true,
+      "capabilities": ["loader-capability", "dashboard-capability"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "Productivity",
+    "copyright": "Copyright © 2026 Restork contributors",
+    "longDescription": "A local-first agent workspace for research, study, and work.",
+    "shortDescription": "Local-first research, study, and work agent",
+    "targets": ["app", "dmg"],
+    "icon": ["icons/icon.icns"],
+    "resources": {
+      "../../dist/desktop-core/restork-core/": "core/restork-core/"
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "entitlements": "Entitlements.plist",
+      "hardenedRuntime": true
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Totoro-qaq/restork/releases/latest/download/latest.json"
+      ],
+      "pubkey": ""
+    }
+  }
+}

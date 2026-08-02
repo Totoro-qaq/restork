@@ -1,8 +1,12 @@
 import "./styles.css";
 
-import { LocalApiClient } from "./api/client";
+import { LocalApiClient, systemTimeZone } from "./api/client";
+import { detectDesktopBridge } from "./desktop";
+import type { DesktopBridge } from "./desktop";
 import type {
+  ConversationTurn,
   DashboardApi,
+  DashboardListKind,
   DashboardSnapshot,
   Mode,
   RadarAction,
@@ -126,8 +130,13 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   root.querySelectorAll<HTMLButtonElement>("[data-run-id]").forEach((button) => {
     button.addEventListener("click", () => void showRun(root, api, snapshot, button));
   });
+  root.querySelectorAll<HTMLButtonElement>("[data-page-kind]").forEach((button) => {
+    if (button.dataset.pageKind === "events") return;
+    button.addEventListener("click", () => void loadMore(root, api, snapshot, button));
+  });
   configureMusic(root);
   configureWeather(root, api);
+  configureCalendar(root, api);
   configureProvider(root, api);
   if (snapshot.daily?.music.recommendation?.cover_available) {
     void loadMusicCover(root, api);
@@ -174,6 +183,7 @@ async function runProviderDiagnostic(
 }
 
 function configureWeather(root: HTMLElement, api: DashboardApi): void {
+  bindSettingsDialog(root, "#weather-settings-dialog", "[data-weather-open]");
   const form = root.querySelector<HTMLFormElement>("#weather-form");
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -183,6 +193,10 @@ function configureWeather(root: HTMLElement, api: DashboardApi): void {
     "click",
     () => void disableWeather(root, api, form),
   );
+  form?.querySelector<HTMLButtonElement>("[data-weather-locate]")?.addEventListener(
+    "click",
+    () => void locateWeather(root, api, form),
+  );
 }
 
 async function saveWeather(
@@ -191,19 +205,60 @@ async function saveWeather(
   form: HTMLFormElement,
 ): Promise<void> {
   const data = new FormData(form);
-  const label = String(data.get("label") ?? "").trim();
-  const latitude = Number(data.get("latitude"));
-  const longitude = Number(data.get("longitude"));
+  const query = String(data.get("query") ?? "").trim();
   const buttons = form.querySelectorAll<HTMLButtonElement>("button");
   buttons.forEach((button) => { button.disabled = true; });
   try {
-    await api.configureWeather({ enabled: true, label, latitude, longitude });
+    const result = await api.configureWeather({
+      enabled: true,
+      mode: "query",
+      query,
+      language: localeOf(root) === "zh-CN" ? "zh" : "en",
+    });
     form.reset();
     await refresh(root, api);
-    announce(root, tr(localeOf(root), "Weather enabled from your manual location.", "已使用手填位置启用天气。"));
+    announce(root, tr(
+      localeOf(root),
+      `Weather enabled for ${result.location_label}.`,
+      `已为 ${result.location_label} 启用天气。`,
+    ));
   } catch (error) {
     buttons.forEach((button) => { button.disabled = false; });
     announce(root, errorText(error, localeOf(root)));
+  }
+}
+
+async function locateWeather(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
+  buttons.forEach((button) => { button.disabled = true; });
+  announce(root, tr(
+    localeOf(root),
+    "Waiting for browser location permission…",
+    "正在等待浏览器定位授权…",
+  ));
+  try {
+    const position = await currentPosition();
+    await api.configureWeather({
+      enabled: true,
+      mode: "coordinates",
+      label: tr(localeOf(root), "Current location", "当前位置"),
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+    });
+    form.reset();
+    await refresh(root, api);
+    announce(root, tr(
+      localeOf(root),
+      "Weather enabled from the location you approved.",
+      "已使用你授权的位置启用天气。",
+    ));
+  } catch (error) {
+    buttons.forEach((button) => { button.disabled = false; });
+    announce(root, geolocationError(error, localeOf(root)));
   }
 }
 
@@ -215,14 +270,141 @@ async function disableWeather(
   const buttons = form.querySelectorAll<HTMLButtonElement>("button");
   buttons.forEach((button) => { button.disabled = true; });
   try {
-    await api.configureWeather({ enabled: false, label: "", latitude: 0, longitude: 0 });
+    await api.configureWeather({ enabled: false });
     form.reset();
     await refresh(root, api);
-    announce(root, tr(localeOf(root), "Weather disabled and its saved location cleared.", "天气已停用，保存的位置也已清除。"));
+    announce(root, tr(
+      localeOf(root),
+      "Weather disabled and its saved location cleared.",
+      "天气已停用，保存的位置也已清除。",
+    ));
   } catch (error) {
     buttons.forEach((button) => { button.disabled = false; });
     announce(root, errorText(error, localeOf(root)));
   }
+}
+
+function configureCalendar(root: HTMLElement, api: DashboardApi): void {
+  bindSettingsDialog(root, "#calendar-settings-dialog", "[data-calendar-open]");
+  const form = root.querySelector<HTMLFormElement>("#calendar-form");
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void saveCalendar(root, api, form);
+  });
+  form?.querySelector<HTMLButtonElement>("[data-calendar-disable]")?.addEventListener(
+    "click",
+    () => void disableCalendar(root, api, form),
+  );
+}
+
+function bindSettingsDialog(
+  root: HTMLElement,
+  dialogSelector: string,
+  triggerSelector: string,
+): void {
+  const dialog = root.querySelector<HTMLDialogElement>(dialogSelector);
+  const trigger = root.querySelector<HTMLButtonElement>(triggerSelector);
+  trigger?.addEventListener("click", () => {
+    if (dialog && !dialog.open) dialog.showModal();
+  });
+  dialog?.querySelector<HTMLButtonElement>("[data-settings-close]")?.addEventListener(
+    "click",
+    () => dialog.close(),
+  );
+  dialog?.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+}
+
+async function saveCalendar(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  const input = form.querySelector<HTMLInputElement>('input[type="file"]');
+  const file = input?.files?.[0];
+  if (!file) return;
+  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
+  buttons.forEach((button) => { button.disabled = true; });
+  try {
+    if (!file.name.toLowerCase().endsWith(".ics") || file.size > 2_000_000) {
+      throw new Error(tr(
+        localeOf(root),
+        "Select an ICS file no larger than 2 MB.",
+        "请选择不超过 2 MB 的 ICS 文件。",
+      ));
+    }
+    await api.configureCalendar({
+      enabled: true,
+      filename: file.name,
+      content: await file.text(),
+      timezone: systemTimeZone(),
+    });
+    form.reset();
+    await refresh(root, api);
+    announce(root, tr(
+      localeOf(root),
+      "Calendar imported in read-only mode using system time.",
+      "日历已按系统时间以只读方式导入。",
+    ));
+  } catch (error) {
+    buttons.forEach((button) => { button.disabled = false; });
+    announce(root, errorText(error, localeOf(root)));
+  }
+}
+
+async function disableCalendar(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
+  buttons.forEach((button) => { button.disabled = true; });
+  try {
+    await api.configureCalendar({ enabled: false, timezone: systemTimeZone() });
+    form.reset();
+    await refresh(root, api);
+    announce(root, tr(
+      localeOf(root),
+      "Calendar disabled and its private import removed.",
+      "日历已停用，私有导入副本已移除。",
+    ));
+  } catch (error) {
+    buttons.forEach((button) => { button.disabled = false; });
+    announce(root, errorText(error, localeOf(root)));
+  }
+}
+
+function currentPosition(): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    if (!("geolocation" in navigator)) {
+      reject(new Error("Browser location is unavailable"));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: false,
+      maximumAge: 10 * 60 * 1000,
+      timeout: 15_000,
+    });
+  });
+}
+
+function geolocationError(error: unknown, locale: Locale): string {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? Number((error as { code: unknown }).code)
+    : 0;
+  if (code === 1) {
+    return tr(
+      locale,
+      "Location permission was not granted. You can still enter a city.",
+      "未授予定位权限，你仍可直接输入城市。",
+    );
+  }
+  return tr(
+    locale,
+    "Current location is unavailable. You can still enter a city.",
+    "无法获取当前位置，你仍可直接输入城市。",
+  );
 }
 
 function selectView(root: HTMLElement, view: string): void {
@@ -644,18 +826,229 @@ async function showRun(
   const detail = root.querySelector<HTMLElement>("#run-detail");
   const run = snapshot.runs.find((entry) => entry.summary.run_id === button.dataset.runId);
   if (!detail || !run) return;
-  detail.textContent = tr(localeOf(root), "Reading local events…", "读取本地事件…");
+  detail.textContent = tr(localeOf(root), "Reading local events and conversation…", "读取本地事件与对话…");
   try {
-    const received = await api.events(run.summary.run_id, 0);
-    detail.innerHTML = runEventsMarkup(run, received, localeOf(root));
+    const [firstPage, firstConversation] = await Promise.all([
+      api.eventPage
+        ? api.eventPage(run.summary.run_id)
+        : api.events(run.summary.run_id, 0).then((events) => ({
+            events,
+            page: { limit: 50, has_more: false, next_cursor: null },
+          })),
+      api.conversationPage
+        ? api.conversationPage(run.summary.run_id).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    const received = [...firstPage.events];
+    const turns = [...(firstConversation?.turns ?? [])];
+    let historyPage = firstPage.page;
+    let conversationPage = firstConversation?.page ?? { limit: 24, has_more: false, next_cursor: null };
+    let conversationBusy = false;
+    let conversationDraft = "";
+    let conversationError = "";
+    let preservePrepend = false;
+    const render = (forceBottom = false): void => {
+      if (!detail.isConnected) return;
+      const previousInput = detail.querySelector<HTMLTextAreaElement>("#conversation-input");
+      const previousScroll = detail.querySelector<HTMLElement>("[data-conversation-scroll]");
+      const inputFocused = document.activeElement === previousInput;
+      const selectionStart = previousInput?.selectionStart ?? 0;
+      const selectionEnd = previousInput?.selectionEnd ?? 0;
+      if (previousInput && !conversationBusy) conversationDraft = previousInput.value;
+      const oldScrollTop = previousScroll?.scrollTop ?? 0;
+      const oldScrollHeight = previousScroll?.scrollHeight ?? 0;
+      const nearBottom = previousScroll
+        ? previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 56
+        : true;
+      detail.innerHTML = runEventsMarkup(run, received, localeOf(root), historyPage, {
+        turns,
+        page: conversationPage,
+        enabled: Boolean(api.sendConversation),
+        busy: conversationBusy,
+        draft: conversationDraft,
+        error: conversationError,
+      });
+      detail.querySelector<HTMLButtonElement>('[data-page-kind="events"]')?.addEventListener(
+        "click",
+        (event) => {
+          const button = event.currentTarget as HTMLButtonElement;
+          void loadEarlierEvents(api, run.summary.run_id, button, received, (page) => {
+            historyPage = page;
+            render();
+          });
+        },
+      );
+      detail.querySelector<HTMLButtonElement>('[data-page-kind="conversation"]')?.addEventListener(
+        "click",
+        (event) => {
+          void loadEarlierConversation(
+            api,
+            run.summary.run_id,
+            event.currentTarget as HTMLButtonElement,
+            turns,
+            (page) => {
+              conversationPage = page;
+              preservePrepend = true;
+              render();
+            },
+          );
+        },
+      );
+      detail.querySelector<HTMLFormElement>("[data-conversation-form]")?.addEventListener(
+        "submit",
+        (event) => {
+          event.preventDefault();
+          void sendConversation(
+            root,
+            api,
+            run.summary.run_id,
+            event.currentTarget as HTMLFormElement,
+            {
+              started: (content) => {
+                conversationDraft = content;
+                conversationError = "";
+                conversationBusy = true;
+                render(true);
+              },
+              completed: (turn) => {
+                if (!turns.some((item) => item.turn_id === turn.turn_id)) turns.push(turn);
+                conversationDraft = "";
+                conversationBusy = false;
+                render(true);
+              },
+              failed: (message) => {
+                conversationError = message;
+                conversationBusy = false;
+                render(true);
+              },
+            },
+          );
+        },
+      );
+      const nextScroll = detail.querySelector<HTMLElement>("[data-conversation-scroll]");
+      if (nextScroll) {
+        if (forceBottom || nearBottom) {
+          nextScroll.scrollTop = nextScroll.scrollHeight;
+        } else if (preservePrepend) {
+          nextScroll.scrollTop = oldScrollTop + (nextScroll.scrollHeight - oldScrollHeight);
+        } else {
+          nextScroll.scrollTop = oldScrollTop;
+        }
+      }
+      preservePrepend = false;
+      const nextInput = detail.querySelector<HTMLTextAreaElement>("#conversation-input");
+      if (inputFocused && nextInput && !nextInput.disabled) {
+        nextInput.focus();
+        nextInput.setSelectionRange(selectionStart, selectionEnd);
+      }
+    };
+    render(true);
     const after = received.at(-1)?.id ?? 0;
-    startEventStream(root, api, run.summary.run_id, after, (event) => {
-      received.push(event);
-      if (detail.isConnected) detail.innerHTML = runEventsMarkup(run, received, localeOf(root));
-    });
+    if (!["completed", "failed", "cancelled"].includes(run.summary.state)) {
+      startEventStream(root, api, run.summary.run_id, after, (event) => {
+        received.push(event);
+        render();
+      });
+    }
   } catch (error) {
     detail.textContent = errorText(error, localeOf(root));
   }
+}
+
+async function loadEarlierConversation(
+  api: DashboardApi,
+  runId: string,
+  button: HTMLButtonElement,
+  turns: ConversationTurn[],
+  onPage: (page: { limit: number; has_more: boolean; next_cursor: string | null }) => void,
+): Promise<void> {
+  if (!api.conversationPage || !button.dataset.pageCursor) return;
+  button.disabled = true;
+  try {
+    const page = await api.conversationPage(runId, button.dataset.pageCursor);
+    const known = new Set(turns.map((turn) => turn.turn_id));
+    turns.unshift(...page.turns.filter((turn) => !known.has(turn.turn_id)));
+    onPage(page.page);
+  } catch {
+    button.disabled = false;
+  }
+}
+
+async function sendConversation(
+  root: HTMLElement,
+  api: DashboardApi,
+  runId: string,
+  form: HTMLFormElement,
+  state: {
+    started: (content: string) => void;
+    completed: (turn: ConversationTurn) => void;
+    failed: (message: string) => void;
+  },
+): Promise<void> {
+  if (!api.sendConversation) return;
+  const content = String(new FormData(form).get("content") ?? "").trim();
+  if (!content) return;
+  state.started(content);
+  try {
+    state.completed(await api.sendConversation(runId, content));
+  } catch (error) {
+    state.failed(errorText(error, localeOf(root)));
+  }
+}
+
+async function loadEarlierEvents(
+  api: DashboardApi,
+  runId: string,
+  button: HTMLButtonElement,
+  received: RunEvent[],
+  onPage: (page: { limit: number; has_more: boolean; next_cursor: string | null }) => void,
+): Promise<void> {
+  if (!api.eventPage || !button.dataset.pageCursor) return;
+  button.disabled = true;
+  try {
+    const page = await api.eventPage(runId, button.dataset.pageCursor);
+    const known = new Set(received.map((event) => event.id));
+    received.unshift(...page.events.filter((event) => !known.has(event.id)));
+    onPage(page.page);
+  } catch {
+    button.disabled = false;
+  }
+}
+
+async function loadMore(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+  button: HTMLButtonElement,
+): Promise<void> {
+  const kind = button.dataset.pageKind as DashboardListKind;
+  const cursor = button.dataset.pageCursor ?? "";
+  if (!api.loadPage || !cursor) return;
+  button.disabled = true;
+  try {
+    const page = await api.loadPage(kind, cursor);
+    if (page.kind === "runs") snapshot.runs = appendUnique(snapshot.runs, page.items, (item) => item.summary.run_id);
+    if (page.kind === "approvals") snapshot.approvals = appendUnique(snapshot.approvals, page.items, (item) => item.approval_id);
+    if (page.kind === "tasks") snapshot.taskBoard.tasks = appendUnique(snapshot.taskBoard.tasks, page.items, (item) => item.task_id);
+    if (page.kind === "radar") snapshot.radar.items = appendUnique(snapshot.radar.items, page.items, (item) => item.item_id);
+    if (page.kind === "memory" && snapshot.memory) {
+      snapshot.memory.records = appendUnique(snapshot.memory.records, page.items, (item) => item.memory_id);
+      snapshot.memory.counts = page.counts;
+      snapshot.memory.architecture = page.architecture;
+    }
+    snapshot.pagination ??= {};
+    snapshot.pagination[kind] = page.page;
+    renderWorkspace(root, api, snapshot);
+    selectView(root, kind);
+  } catch (error) {
+    button.disabled = false;
+    announce(root, errorText(error, localeOf(root)));
+  }
+}
+
+function appendUnique<T>(current: T[], incoming: T[], identity: (item: T) => string): T[] {
+  const known = new Set(current.map(identity));
+  return [...current, ...incoming.filter((item) => !known.has(identity(item)))];
 }
 
 function startEventStream(
@@ -792,4 +1185,58 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const app = document.querySelector<HTMLElement>("#app");
-if (app) mountDashboard(app);
+if (app) void mountDetectedDashboard(app);
+
+async function mountDetectedDashboard(root: HTMLElement): Promise<void> {
+  const bridge = detectDesktopBridge();
+  if (!bridge) {
+    mountDashboard(root);
+    return;
+  }
+  const api = new LocalApiClient({ onSession: (session) => bridge.store(session) });
+  await mountDesktopDashboard(root, api, bridge);
+}
+
+async function mountDesktopDashboard(
+  root: HTMLElement,
+  api: LocalApiClient,
+  bridge: DesktopBridge,
+): Promise<void> {
+  applyLocale(root, detectLocale());
+  root.innerHTML = `
+    <main class="desktop-bootstrap" aria-labelledby="desktop-bootstrap-title">
+      <p class="kicker">RESTORK DESKTOP · PRIVATE LOOPBACK</p>
+      <h1 id="desktop-bootstrap-title">${tr(localeOf(root), "Pairing with the local Core", "正在连接本地 Core")}</h1>
+      <p data-desktop-status role="status">${tr(localeOf(root), "Restoring the in-memory local session…", "正在恢复内存中的本地会话…")}</p>
+      <span class="agent-wait-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    </main>`;
+  const status = root.querySelector<HTMLElement>("[data-desktop-status]");
+  try {
+    const session = await bridge.session();
+    if (session.kind === "pairing") {
+      await api.pair(session.pairing_code);
+    } else {
+      api.restoreSession({
+        accessToken: session.access_token,
+        expiresAt: session.expires_at,
+      });
+    }
+    renderWorkspace(root, api, await api.loadDashboard());
+  } catch {
+    if (status) {
+      status.textContent = `${desktopSessionError(localeOf(root))} ${tr(
+        localeOf(root),
+        "Restart Restork to create a fresh local session.",
+        "请重启 Restork 以创建新的本地会话。",
+      )}`;
+    }
+  }
+}
+
+function desktopSessionError(locale: Locale): string {
+  return tr(
+    locale,
+    "The desktop shell could not establish its private local session.",
+    "桌面端未能建立私有本地会话。",
+  );
+}

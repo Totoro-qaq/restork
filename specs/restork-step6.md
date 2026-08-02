@@ -1,6 +1,6 @@
 # Restork Step 6 Specification
 
-> Status: Implemented | Version: 1.4 | Date: 2026-08-02
+> Status: Implemented | Version: 1.5 | Date: 2026-08-02
 >
 > Governing specification: [Restork V1](restork-v1.md)
 >
@@ -178,8 +178,9 @@ preferences while textual status remains live and accessible.
 ### 4.4 Weather
 
 - disabled until the user configures provider and location privately;
-- configured only by explicit manual display-name/latitude/longitude entry; no browser geolocation,
-  IP-location inference, or automatic permission prompt exists;
+- configured by city/region search or by an explicit user click on “Use current location”;
+- the location permission prompt may appear only after that click; declining it leaves city input
+  usable, and IP-location inference is never used;
 - saved through the paired local Core with server-side provider, finite-number, and range validation;
 - updates disable the provider before changing coordinates and re-enable it last; explicit disable
   clears both provider and saved location;
@@ -190,10 +191,12 @@ preferences while textual status remains live and accessible.
 
 ### 4.5 Calendar
 
-- parses a user-selected local `.ics` file read-only;
-- resolves a canonical configured path and rejects traversal/symlink escape;
-- shows a bounded upcoming window with local timezone conversion;
-- never writes the file, logs event bodies, or performs account authentication;
+- imports a user-selected local `.ics` snapshot into the private Core profile and never modifies the
+  original file;
+- validates extension, size, calendar envelope, event count, time zone, and managed destination;
+- shows a bounded upcoming window converted with the browser/device IANA time zone so it matches
+  the clock;
+- never logs event bodies or performs account authentication;
 - malformed/private entries fail closed or appear as redacted busy blocks according to configuration.
 
 ### 4.6 Daily music
@@ -245,8 +248,8 @@ Composition: calm editorial-technical, light glass over ruled warm paper
 | `hero.zh-CN.svg` | pure SVG | 1200 × 400 | Localized Simplified Chinese hero |
 | `architecture.svg` | pure SVG | 1200 × 560 | Four memory layers and governed outbound boundary |
 | `architecture.zh-CN.svg` | pure SVG | 1200 × 560 | Localized Simplified Chinese architecture |
-| `demo-hd.gif` | GIF | 1600 × 1000 minimum | Synthetic Dashboard interaction proof |
-| `demo-poster.webp` | WebP | 1600 × 1000 minimum | Static proof and GIF fallback/reference |
+| `demo-hd.gif` / `demo-hd.zh-CN.gif` | GIF | 1600 × 1000 minimum | Locale-matched synthetic Dashboard interaction proof |
+| `demo-poster.webp` / `demo-poster.zh-CN.webp` | WebP | 1600 × 1000 minimum | Locale-matched static proof and GIF fallback/reference |
 
 SVG assets use no script, `foreignObject`, external fonts, external stylesheets, remote images, or essential animation. Every full-width SVG has a `1200`-wide `viewBox`, complete background, `<title>`, `<desc>`, and legible essential text. The GIF uses a restrained frame rate and palette, loops cleanly, and contains only synthetic public data.
 
@@ -298,8 +301,8 @@ Step 6 is complete when:
 - all required views work from synthetic fixtures and the packaged wheel without Node.js;
 - Markdown task mutations remain preview/approval controlled;
 - missing daily configuration performs no network request;
-- weather is manually configured, never requests browser/IP location, and disabling it clears the
-  provider and stored coordinates;
+- weather stays off until a city/place submit or the dedicated current-location click, never uses
+  IP-derived location, and disabling it clears the provider and stored coordinates;
 - follow-mode SSE authenticates in headers, resumes by durable cursor, tolerates arbitrary UTF-8 chunk
   boundaries and heartbeats, and exposes phase status rather than reasoning text;
 - the wide Overview forms a measured two-by-two matrix with no horizontal overflow at 390, 768, 1024,

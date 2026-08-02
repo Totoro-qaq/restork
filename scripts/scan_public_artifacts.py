@@ -26,7 +26,10 @@ _PRIVATE_SUFFIXES = {
 _PRIVATE_NAMES = {".env", "playlist.csv", "playlist.json", "profile.toml"}
 _PUBLIC_RASTERS = {
     "assets/readme/demo-hd.gif",
+    "assets/readme/demo-hd.zh-CN.gif",
     "assets/readme/demo-poster.webp",
+    "assets/readme/demo-poster.zh-CN.webp",
+    "desktop/src-tauri/icons/icon.png",
 }
 _PLACEHOLDER_USERS = {"demo", "example", "name", "user", "username"}
 _CREDENTIAL = re.compile(
@@ -53,9 +56,11 @@ def _tracked_paths(root: Path) -> tuple[Path, ...]:
     payload = _git_output("ls-files", "-z")
     if payload is not None:
         return tuple(
-            root / entry.decode("utf-8", errors="surrogateescape")
+            path
             for entry in payload.split(b"\0")
             if entry
+            for path in (root / entry.decode("utf-8", errors="surrogateescape"),)
+            if path.is_file()
         )
     return tuple(
         path

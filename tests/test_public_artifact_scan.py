@@ -65,3 +65,23 @@ def test_oss_clean_001_allows_documented_synthetic_placeholders(tmp_path: Path) 
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_oss_clean_001_ignores_a_tracked_file_deleted_from_the_worktree(tmp_path: Path) -> None:
+    scanner = Path(__file__).parents[1] / "scripts" / "scan-public-artifacts.sh"
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    deleted = tmp_path / "old-build.js"
+    deleted.write_text("public synthetic build", encoding="utf-8")
+    subprocess.run(["git", "add", deleted.name], cwd=tmp_path, check=True)
+    deleted.unlink()
+
+    result = subprocess.run(
+        ["bash", str(scanner)],
+        capture_output=True,
+        check=False,
+        cwd=tmp_path,
+        env={"PATH": "/usr/bin:/bin"},
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr

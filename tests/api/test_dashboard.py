@@ -155,7 +155,12 @@ def test_dashboard_snapshot_endpoints_use_core_state(tmp_path: Path) -> None:
     }
     assert runs.json()["runs"][0]["task"]["goal"] == "Inspect a synthetic Dashboard run"
     assert runs.json()["runs"][0]["budget"]["usage"]["tokens"] == 0
-    assert approvals.json() == {"approvals": []}
+    assert approvals.json()["approvals"] == []
+    assert approvals.json()["page"] == {
+        "limit": 20,
+        "has_more": False,
+        "next_cursor": None,
+    }
     assert tasks.json()["tasks"][0]["task_id"] == "restork-dashboard"
     assert radar.json()["items"][0]["item_id"] == "radar-api"
 

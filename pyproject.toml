@@ -27,6 +27,9 @@ build-backend = "uv_build"
 source-include = ["README.zh-CN.md", "assets/readme/**"]
 
 [dependency-groups]
+desktop = [
+  "pyinstaller==6.21.0",
+]
 dev = [
   "bandit>=1.8",
   "httpx>=0.28",

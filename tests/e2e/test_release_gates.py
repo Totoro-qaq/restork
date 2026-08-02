@@ -84,7 +84,7 @@ def test_sec_auth_001_every_non_pairing_api_route_has_a_scoped_token_dependency(
         SQLiteApprovalStore.open(database),
         SQLiteIntentStore.create(database),
     )
-    public_routes = {"/v1/pair", "/v1/cli/pair"}
+    public_routes = {"/v1/pair", "/v1/cli/pair", "/v1/readiness"}
 
     for route in app.routes:
         if not isinstance(route, APIRoute) or not route.path.startswith("/v1/"):

@@ -69,17 +69,21 @@ class SQLiteRadarStore:
             raise KeyError(item_id)
         return _from_row(row)
 
-    def snapshot(self, *, include_dismissed: bool = False, limit: int = 100) -> RadarSnapshot:
+    def snapshot(
+        self, *, include_dismissed: bool = False, limit: int = 100, offset: int = 0
+    ) -> RadarSnapshot:
         if not 1 <= limit <= 500:
             raise ValueError("Radar limit must be between 1 and 500")
+        if not 0 <= offset <= 1_000_000:
+            raise ValueError("Radar offset is outside the supported range")
         if include_dismissed:
             rows = self._connection.execute(
                 """
                 SELECT * FROM radar_items
                 ORDER BY score DESC, COALESCE(published_at, created_at) DESC, item_id
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                (limit,),
+                (limit, offset),
             ).fetchall()
         else:
             rows = self._connection.execute(
@@ -87,9 +91,9 @@ class SQLiteRadarStore:
                 SELECT * FROM radar_items
                 WHERE state != ?
                 ORDER BY score DESC, COALESCE(published_at, created_at) DESC, item_id
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                (RadarState.DISMISSED.value, limit),
+                (RadarState.DISMISSED.value, limit, offset),
             ).fetchall()
         return RadarSnapshot(configured=True, items=tuple(_from_row(row) for row in rows))
 

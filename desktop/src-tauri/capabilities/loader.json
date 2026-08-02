@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "loader-capability",
+  "description": "Only the bundled startup screen may inspect, retry, or quit the local Core.",
+  "local": true,
+  "windows": ["main"],
+  "permissions": [
+    "allow-desktop-status",
+    "allow-desktop-retry",
+    "allow-desktop-quit"
+  ]
+}

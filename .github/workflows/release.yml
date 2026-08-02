@@ -44,7 +44,133 @@ jobs:
             dist/release/*.tar.gz
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: restork-release
+          name: restork-source-release
           path: dist/release/
           if-no-files-found: error
           retention-days: 30
+
+  desktop-macos:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            dashboard/package-lock.json
+            desktop/package-lock.json
+      - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+      - run: rustup default 1.97.1
+      - run: uv sync --frozen --all-groups
+      - run: npm --prefix dashboard ci
+      - run: npm --prefix desktop ci
+      - run: uv run pytest tests/desktop tests/security
+      - run: npm --prefix desktop run fmt:check
+      - run: npm --prefix desktop run clippy
+      - run: npm --prefix desktop test
+      - run: ./scripts/scan-public-artifacts.sh
+      - name: Require protected release credentials
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          RESTORK_UPDATER_PUBLIC_KEY: ${{ secrets.RESTORK_UPDATER_PUBLIC_KEY }}
+          RESTORK_UPDATER_ENDPOINT: ${{ secrets.RESTORK_UPDATER_ENDPOINT }}
+        run: |
+          for variable in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD RESTORK_UPDATER_PUBLIC_KEY RESTORK_UPDATER_ENDPOINT; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "Missing required protected release credential: $variable" >&2
+              exit 1
+            fi
+          done
+      - name: Import Developer ID certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/restork-build.keychain-db"
+          certificate="$RUNNER_TEMP/restork-certificate.p12"
+          keychain_password="$(openssl rand -base64 32)"
+          printf '%s' "$APPLE_CERTIFICATE" | openssl base64 -d -A > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          rm -f "$certificate"
+      - name: Create release-only updater configuration
+        env:
+          RESTORK_UPDATER_PUBLIC_KEY: ${{ secrets.RESTORK_UPDATER_PUBLIC_KEY }}
+          RESTORK_UPDATER_ENDPOINT: ${{ secrets.RESTORK_UPDATER_ENDPOINT }}
+        run: uv run python scripts/desktop_release.py config --output build/desktop-release-config.json
+      - name: Build, sign, notarize, staple, and sign updater artifacts
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm --prefix desktop exec tauri build -- --bundles app,dmg --config ../build/desktop-release-config.json
+      - name: Verify signed and notarized application
+        run: |
+          app="desktop/src-tauri/target/release/bundle/macos/Restork.app"
+          dmg="$(find desktop/src-tauri/target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          xcrun stapler validate "$dmg"
+      - name: Assemble update manifest and checksums
+        run: |
+          mkdir -p dist/desktop-release
+          cp desktop/src-tauri/target/release/bundle/dmg/*.dmg dist/desktop-release/
+          cp desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz dist/desktop-release/
+          cp desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig dist/desktop-release/
+          uv run python scripts/desktop_release.py manifest --directory dist/desktop-release --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --version "${GITHUB_REF_NAME#v}"
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: |
+            dist/desktop-release/*.dmg
+            dist/desktop-release/*.app.tar.gz
+            dist/desktop-release/latest.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: restork-desktop-macos-arm64
+          path: dist/desktop-release/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-github-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-and-attest, desktop-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: restork-*
+          path: dist/publish
+          merge-multiple: true
+      - name: Publish immutable GitHub release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/publish/* --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "Restork $GITHUB_REF_NAME"

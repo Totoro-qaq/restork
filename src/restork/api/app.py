@@ -35,8 +35,11 @@ from restork.api.auth import (
     InvalidAccessToken,
     PairingAuthority,
 )
+from restork.api.pagination import page_metadata, page_window
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import ApprovalDecision, EffectPhase, Mode, RunPhase
+from restork.conversation.models import ConversationInput
+from restork.conversation.service import ConversationService
 from restork.daily.service import DailyContextService
 from restork.dashboard.models import (
     RadarAction,
@@ -56,6 +59,7 @@ from restork.memory.models import (
     SourcePurgeRequest,
 )
 from restork.memory.service import MemoryService
+from restork.prompts.registry import prompt_manifest
 from restork.providers.diagnostics import (
     ProviderDiagnosticRequest,
     ProviderDiagnostics,
@@ -104,6 +108,27 @@ class WorkExportPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     approval_id: str = Field(min_length=1, max_length=256)
+
+
+class WeatherConfigurationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    enabled: bool
+    mode: Literal["query", "coordinates"] | None = None
+    query: str = Field(default="", max_length=120)
+    language: Literal["en", "zh"] = "en"
+    label: str = Field(default="", max_length=120)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
+
+class CalendarConfigurationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    filename: str = Field(default="", max_length=255)
+    content: str = Field(default="", max_length=2_000_000)
+    timezone: str = Field(default="", max_length=128)
 
 
 _SSE_TERMINAL_STATES = {RunPhase.COMPLETED, RunPhase.FAILED, RunPhase.CANCELLED}
@@ -168,6 +193,7 @@ def create_app(
     study_artifacts: SQLiteStudyStore | None = None,
     work: WorkWorkflow | None = None,
     provider_diagnostics: ProviderDiagnostics | None = None,
+    conversation: ConversationService | None = None,
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -320,6 +346,11 @@ def create_app(
         pairing.revoke(token.value)
         return Response(status_code=204)
 
+    @app.get("/v1/readiness")
+    def readiness() -> dict[str, str]:
+        """Return metadata-only process readiness for a local desktop supervisor."""
+        return {"status": "ready", "schema": "v1"}
+
     @app.get("/v1/health")
     def health(_: Annotated[AccessToken, Depends(read_runs)]) -> dict[str, str]:
         return {"status": "ready", "schema": "v1"}
@@ -337,6 +368,12 @@ def create_app(
                 "valkey_required": False,
                 "memory_mcp_required": False,
             },
+            "conversation": {
+                "run_scoped": True,
+                "tools": False,
+                "transport": "request_with_event_sse",
+            },
+            "prompts": prompt_manifest(),
         }
 
     def configured_provider_diagnostics() -> ProviderDiagnostics:
@@ -371,10 +408,26 @@ def create_app(
     def inspect_memory(
         _: Annotated[AccessToken, Depends(read_memory)],
         layer: MemoryLayer | None = None,
+        cursor: str | None = None,
+        limit: int = 20,
     ) -> dict[str, object]:
+        try:
+            window = page_window(scope=f"memory:{layer or 'all'}", cursor=cursor, limit=limit)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         payload = configured_memory().inspect(layer).model_dump(mode="json")
         records = payload.get("records")
         if isinstance(records, list):
+            page_records = records[window.offset : window.offset + window.limit + 1]
+            has_more = len(page_records) > window.limit
+            records = page_records[: window.limit]
+            payload["records"] = records
+            payload["page"] = page_metadata(
+                scope=f"memory:{layer or 'all'}",
+                window=window,
+                returned=len(records),
+                has_more=has_more,
+            )
             for record in records:
                 if not isinstance(record, dict):
                     continue
@@ -481,12 +534,16 @@ def create_app(
     @app.get("/v1/runs")
     def list_runs(
         _: Annotated[AccessToken, Depends(read_runs)],
-        limit: int = 50,
+        cursor: str | None = None,
+        limit: int = 20,
     ) -> dict[str, object]:
         try:
-            summaries = runs.list_runs(limit=limit)
+            window = page_window(scope="runs", cursor=cursor, limit=limit)
+            summaries = runs.list_runs(limit=window.limit + 1, offset=window.offset)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+        has_more = len(summaries) > window.limit
+        summaries = summaries[: window.limit]
         items: list[dict[str, object]] = []
         for summary in summaries:
             task: TaskSpec | None
@@ -519,29 +576,73 @@ def create_app(
                     "budget": budget_status,
                 }
             )
-        return {"runs": items}
+        return {
+            "runs": items,
+            "page": page_metadata(
+                scope="runs",
+                window=window,
+                returned=len(items),
+                has_more=has_more,
+            ),
+        }
 
     @app.get("/v1/approvals")
     def list_approvals(
         _: Annotated[AccessToken, Depends(read_approvals)],
         pending_only: bool = False,
-        limit: int = 50,
+        cursor: str | None = None,
+        limit: int = 20,
     ) -> dict[str, object]:
         try:
-            requests = approvals.list_requests(pending_only=pending_only, limit=limit)
+            scope = f"approvals:{str(pending_only).lower()}"
+            window = page_window(scope=scope, cursor=cursor, limit=limit)
+            requests = approvals.list_requests(
+                pending_only=pending_only,
+                limit=window.limit + 1,
+                offset=window.offset,
+            )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+        has_more = len(requests) > window.limit
+        requests = requests[: window.limit]
         return {
-            "approvals": [request.model_dump(mode="json") for request in requests]
+            "approvals": [request.model_dump(mode="json") for request in requests],
+            "page": page_metadata(
+                scope=scope,
+                window=window,
+                returned=len(requests),
+                has_more=has_more,
+            ),
         }
 
     @app.get("/v1/tasks")
     def list_tasks(
         _: Annotated[AccessToken, Depends(read_tasks)],
         include_completed: bool = True,
+        cursor: str | None = None,
+        limit: int = 20,
     ) -> dict[str, object]:
         board = tasks or MarkdownTaskBoard()
-        return board.snapshot(include_completed=include_completed).model_dump(mode="json")
+        try:
+            scope = f"tasks:{str(include_completed).lower()}"
+            window = page_window(scope=scope, cursor=cursor, limit=limit)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        payload = board.snapshot(include_completed=include_completed).model_dump(mode="json")
+        task_items = payload.get("tasks", [])
+        if not isinstance(task_items, list):
+            task_items = []
+        page_items = task_items[window.offset : window.offset + window.limit + 1]
+        has_more = len(page_items) > window.limit
+        page_items = page_items[: window.limit]
+        payload["tasks"] = page_items
+        payload["page"] = page_metadata(
+            scope=scope,
+            window=window,
+            returned=len(page_items),
+            has_more=has_more,
+        )
+        return payload
 
     @app.post("/v1/tasks/quick-capture/preview")
     def preview_task_capture(
@@ -609,13 +710,35 @@ def create_app(
     def read_radar_items(
         _: Annotated[AccessToken, Depends(read_radar)],
         include_dismissed: bool = False,
+        cursor: str | None = None,
+        limit: int = 20,
     ) -> dict[str, object]:
-        snapshot = (
-            radar.snapshot(include_dismissed=include_dismissed)
-            if radar is not None
-            else empty_radar_snapshot()
+        try:
+            scope = f"radar:{str(include_dismissed).lower()}"
+            window = page_window(scope=scope, cursor=cursor, limit=limit)
+            snapshot = (
+                radar.snapshot(
+                    include_dismissed=include_dismissed,
+                    limit=window.limit + 1,
+                    offset=window.offset,
+                )
+                if radar is not None
+                else empty_radar_snapshot()
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        items = list(snapshot.items)
+        has_more = len(items) > window.limit
+        items = items[: window.limit]
+        payload = snapshot.model_dump(mode="json")
+        payload["items"] = [item.model_dump(mode="json") for item in items]
+        payload["page"] = page_metadata(
+            scope=scope,
+            window=window,
+            returned=len(items),
+            has_more=has_more,
         )
-        return snapshot.model_dump(mode="json")
+        return payload
 
     @app.post("/v1/radar/{item_id}/action")
     async def mutate_radar_item(
@@ -1024,23 +1147,96 @@ def create_app(
             raise HTTPException(status_code=404, detail="Work verification not found")
         return report.model_dump(mode="json")
 
+    def configured_daily() -> DailyContextService:
+        if daily is None:
+            raise HTTPException(status_code=503, detail="Daily context is not configured")
+        return daily
+
     @app.get("/v1/daily")
     async def read_daily_context(
         _: Annotated[AccessToken, Depends(read_daily)],
+        timezone: str | None = None,
     ) -> dict[str, object]:
-        if daily is None:
-            raise HTTPException(status_code=503, detail="Daily context is not configured")
-        snapshot = await daily.snapshot()
+        try:
+            snapshot = await configured_daily().snapshot(timezone_name=timezone)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return snapshot.model_dump(mode="json")
+
+    @app.post("/v1/daily/weather")
+    async def configure_daily_weather(
+        body: WeatherConfigurationPayload,
+        _: Annotated[AccessToken, Depends(write_memory)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        if body.enabled and body.mode not in {"query", "coordinates"}:
+            raise HTTPException(status_code=422, detail="Weather setup mode is required")
+        if body.enabled and body.mode == "query" and not body.query.strip():
+            raise HTTPException(status_code=422, detail="A city or region is required")
+        if body.enabled and body.mode == "coordinates" and (
+            body.latitude is None or body.longitude is None
+        ):
+            raise HTTPException(status_code=422, detail="Current coordinates are required")
+        try:
+            resolved = await configured_daily().configure_weather(
+                enabled=body.enabled,
+                query=body.query if body.mode == "query" else "",
+                language=body.language,
+                label=body.label,
+                latitude=body.latitude,
+                longitude=body.longitude,
+            )
+        except (
+            ConnectionError,
+            OSError,
+            PermissionError,
+            TimeoutError,
+            json.JSONDecodeError,
+        ) as error:
+            raise HTTPException(
+                status_code=502,
+                detail="Weather location lookup is temporarily unavailable",
+            ) from error
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return {
+            "configured": resolved is not None,
+            "location_label": resolved.label if resolved is not None else "",
+            "latitude": resolved.latitude if resolved is not None else None,
+            "longitude": resolved.longitude if resolved is not None else None,
+        }
+
+    @app.post("/v1/daily/calendar")
+    def configure_daily_calendar(
+        body: CalendarConfigurationPayload,
+        _: Annotated[AccessToken, Depends(write_memory)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        if body.enabled and (not body.filename or not body.content):
+            raise HTTPException(status_code=422, detail="Select a non-empty ICS file")
+        try:
+            snapshot = configured_daily().configure_calendar(
+                enabled=body.enabled,
+                filename=body.filename,
+                content=body.content,
+                timezone_name=body.timezone or None,
+            )
+        except (OSError, TypeError, UnicodeError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         return snapshot.model_dump(mode="json")
 
     @app.get("/v1/daily/music/cover")
     def read_daily_music_cover(
         _: Annotated[AccessToken, Depends(read_daily)],
     ) -> FileResponse:
-        if daily is None:
-            raise HTTPException(status_code=503, detail="Daily context is not configured")
         try:
-            path, media_type = daily.music_cover()
+            path, media_type = configured_daily().music_cover()
         except (KeyError, OSError, TypeError, ValueError) as error:
             raise HTTPException(status_code=404, detail="Daily cover is unavailable") from error
         return FileResponse(
@@ -1173,6 +1369,115 @@ def create_app(
             media_type="text/event-stream",
             headers=headers,
         )
+
+    @app.get("/v1/runs/{run_id}/event-page")
+    def event_page(
+        run_id: str,
+        _: Annotated[AccessToken, Depends(read_runs)],
+        before: int | None = None,
+        limit: int = 50,
+    ) -> dict[str, object]:
+        if not 1 <= limit <= 100:
+            raise HTTPException(
+                status_code=422,
+                detail="event page limit must be between 1 and 100",
+            )
+        try:
+            runs.get(run_id)
+            page = events.read_latest(run_id, before_seq=before, limit=limit + 1)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="run not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        has_more = len(page) > limit
+        page = page[-limit:]
+        return {
+            "events": [
+                {"id": event.seq, "type": event.kind, "data": event.metadata}
+                for event in page
+            ],
+            "page": {
+                "limit": limit,
+                "has_more": has_more,
+                "next_cursor": str(page[0].seq) if has_more and page else None,
+            },
+        }
+
+    def configured_conversation() -> ConversationService:
+        if conversation is None:
+            raise HTTPException(
+                status_code=503,
+                detail="conversation service is not configured",
+            )
+        return conversation
+
+    @app.get("/v1/runs/{run_id}/conversation")
+    def conversation_page(
+        run_id: str,
+        _: Annotated[AccessToken, Depends(read_runs)],
+        before: int | None = None,
+        limit: int = 30,
+    ) -> dict[str, object]:
+        if not 1 <= limit <= 100:
+            raise HTTPException(
+                status_code=422,
+                detail="conversation page limit must be between 1 and 100",
+            )
+        try:
+            page = configured_conversation().latest_page(
+                run_id,
+                before_sequence=before,
+                limit=limit + 1,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="run not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        has_more = len(page) > limit
+        page = page[-limit:]
+        return {
+            "turns": [turn.model_dump(mode="json") for turn in page],
+            "page": {
+                "limit": limit,
+                "has_more": has_more,
+                "next_cursor": str(page[0].sequence) if has_more and page else None,
+            },
+        }
+
+    @app.post("/v1/runs/{run_id}/conversation")
+    async def respond_to_conversation(
+        run_id: str,
+        body: ConversationInput,
+        _: Annotated[AccessToken, Depends(write_runs)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        try:
+            turn = await configured_conversation().respond(
+                run_id,
+                body.content,
+                idempotency_key=idempotency_key,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="run not found") from error
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except RuntimeError as error:
+            message = str(error)
+            status = 503 if "not configured" in message else 409
+            raise HTTPException(status_code=status, detail=message) from error
+        except BudgetExceeded as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except Exception as error:
+            raise HTTPException(
+                status_code=502,
+                detail="Conversation model call failed",
+            ) from error
+        return turn.model_dump(mode="json")
 
     @app.get("/v1/runs/{run_id}")
     def inspect_run(

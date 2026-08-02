@@ -294,28 +294,30 @@ class SQLiteApprovalStore:
         return request
 
     def list_requests(
-        self, *, pending_only: bool = False, limit: int = 50
+        self, *, pending_only: bool = False, limit: int = 50, offset: int = 0
     ) -> tuple[ApprovalRequest, ...]:
         if not 1 <= limit <= 200:
             raise ValueError("approval list limit must be between 1 and 200")
+        if not 0 <= offset <= 1_000_000:
+            raise ValueError("approval list offset is outside the supported range")
         if pending_only:
             rows = self._connection.execute(
                 """
                 SELECT approval_id FROM approvals
                 WHERE decision = ?
                 ORDER BY expires_at ASC, approval_id
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                (ApprovalDecision.PENDING.value, limit),
+                (ApprovalDecision.PENDING.value, limit, offset),
             ).fetchall()
         else:
             rows = self._connection.execute(
                 """
                 SELECT approval_id FROM approvals
                 ORDER BY expires_at DESC, approval_id
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                (limit,),
+                (limit, offset),
             ).fetchall()
         return tuple(self.get(row["approval_id"]) for row in rows)
 
