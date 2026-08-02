@@ -32,12 +32,23 @@ function run(command, args, environment = process.env) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-run(process.platform === "win32" ? "npm.cmd" : "npm", [
-  "--prefix",
-  "dashboard",
-  "run",
-  "build",
-]);
+if (process.platform === "win32") {
+  // Windows cannot execute a .cmd shim directly without cmd.exe. The command
+  // is deliberately constant: no path, model, or user input reaches the shell.
+  const commandInterpreter = join(
+    process.env.SystemRoot || "C:\\Windows",
+    "System32",
+    "cmd.exe",
+  );
+  run(commandInterpreter, [
+    "/d",
+    "/s",
+    "/c",
+    "npm --prefix dashboard run build",
+  ]);
+} else {
+  run("npm", ["--prefix", "dashboard", "run", "build"]);
+}
 const cargoDirectory = dirname(cargo);
 const cargoEnvironment = cargo === "cargo" ? process.env : {
   ...process.env,
