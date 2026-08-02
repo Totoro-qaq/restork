@@ -904,6 +904,9 @@ fn legacy_equivalent_checksum(version: i64, checksum: &str) -> bool {
         ) | (
             7,
             "c708cd1c349f281ecbe342bc8b4b5d3eebb5104e3bbd15fc1c54bec0bf85d3fb"
+        ) | (
+            8,
+            "1bd1046039d2e6be8f10fe35a9d99255419c57ae12ee9f048faf7f7666df0acd"
         )
     )
 }

@@ -1,31 +1,17 @@
-use std::{fs, path::PathBuf};
+use std::path::PathBuf;
 
 use restork_storage::{Database, NewContextPreview, NewConversationOperation, NewSession};
 use serde_json::json;
 
-struct TestDirectory(PathBuf);
+struct TestDirectory(tempfile::TempDir);
 
 impl TestDirectory {
     fn new() -> Self {
-        let mut suffix = [0_u8; 12];
-        getrandom::fill(&mut suffix).expect("test entropy");
-        let suffix = suffix
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        let path = std::env::temp_dir().join(format!("restork-operation-{suffix}"));
-        fs::create_dir(&path).expect("create test directory");
-        Self(path)
+        Self(tempfile::tempdir().expect("create test directory"))
     }
 
     fn database(&self) -> PathBuf {
-        self.0.join("restork.db")
-    }
-}
-
-impl Drop for TestDirectory {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        self.0.path().join("restork.db")
     }
 }
 

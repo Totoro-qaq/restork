@@ -13,6 +13,9 @@ serde_json.workspace = true
 sha2.workspace = true
 time = { workspace = true, features = ["formatting", "parsing"] }
 
+[dev-dependencies]
+tempfile = "3.27.0"
+
 [lib]
 name = "restork_storage"
 path = "src/lib.rs"

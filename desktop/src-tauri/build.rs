@@ -3,6 +3,7 @@ fn main() {
         "desktop_status",
         "desktop_session",
         "desktop_store_session",
+        "desktop_update_recovery",
         "desktop_retry",
         "desktop_quit",
     ];

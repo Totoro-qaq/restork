@@ -21,7 +21,7 @@ use tauri_plugin_updater::UpdaterExt;
 
 use diagnostics::Diagnostics;
 use supervisor::{CoreProcess, readiness_request, start_core};
-use updates::{RecoveryArtifact, recovery_artifacts};
+use updates::{RecoveryArtifact, UpdateStorage, recovery_artifacts};
 #[cfg(not(debug_assertions))]
 use updates::{accepts_update, archive_verified_update};
 
@@ -229,12 +229,12 @@ fn desktop_update_recovery(
         .lock()
         .map_err(|_| "desktop_state_unavailable")?;
     require_dashboard_window(&window, inner.origin.as_deref())?;
-    let ledger = app
+    let data_root = app
         .path()
         .app_data_dir()
-        .map_err(|_| "update_recovery_unavailable")?
-        .join("update-ledger.json");
-    Ok(recovery_artifacts(&ledger))
+        .map_err(|_| "update_recovery_unavailable")?;
+    let storage = UpdateStorage::open(&data_root).map_err(str::to_owned)?;
+    Ok(recovery_artifacts(&storage))
 }
 
 fn require_dashboard_window(
@@ -458,13 +458,12 @@ fn launch_update_check(app: AppHandle) {
             let Ok(Some(update)) = updater.check().await else {
                 return;
             };
-            let Ok(cache_root) = app.path().app_cache_dir() else {
-                return;
-            };
             let Ok(data_root) = app.path().app_data_dir() else {
                 return;
             };
-            let ledger_path = data_root.join("update-ledger.json");
+            let Ok(storage) = UpdateStorage::open(&data_root) else {
+                return;
+            };
             let Some(expected_target) = tauri_plugin_updater::target() else {
                 return;
             };
@@ -476,7 +475,7 @@ fn launch_update_check(app: AppHandle) {
                     &update.version,
                     &update.target,
                     &expected_target,
-                    &ledger_path,
+                    &storage,
                 )
             {
                 if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
@@ -490,24 +489,7 @@ fn launch_update_check(app: AppHandle) {
                 }
                 return;
             };
-            let Some(filename) = update
-                .download_url
-                .path_segments()
-                .and_then(Iterator::last)
-                .filter(|value| !value.is_empty())
-            else {
-                return;
-            };
-            if archive_verified_update(
-                &cache_root,
-                &ledger_path,
-                &update.version,
-                &update.target,
-                filename,
-                &bytes,
-            )
-            .is_err()
-            {
+            if archive_verified_update(&storage, &update.version, &update.target, &bytes).is_err() {
                 if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
                     inner.record("update_recovery_archive_failed");
                 }
