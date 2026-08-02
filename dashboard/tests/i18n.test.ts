@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { DashboardSnapshot } from "../src/api/types";
 import { detectLocale, LOCALE_STORAGE_KEY } from "../src/i18n";
 import { mountDashboard } from "../src/main";
+import { providerErrorMarkup } from "../src/ui/render";
 
 const emptySnapshot: DashboardSnapshot = {
   runs: [],
@@ -15,6 +16,7 @@ const emptySnapshot: DashboardSnapshot = {
     architecture: ["working", "episodic", "semantic", "profile"],
   },
   daily: null,
+  provider: null,
 };
 
 afterEach(() => {
@@ -42,6 +44,7 @@ describe("Dashboard locales", () => {
     expect(root.textContent).toContain("Dashboard");
     expect(root.textContent).toContain("New run");
     expect(root.textContent).toContain("What will you research, study, or finish today?");
+    expect(root.textContent).toContain("Add or replace the API key in Terminal");
     expect(root.textContent).not.toContain("仪表盘");
     expect(document.documentElement.lang).toBe("en");
     expect(document.title).toBe("Restork · Local Agent Workspace");
@@ -56,6 +59,7 @@ describe("Dashboard locales", () => {
 
     expect(root.textContent).toContain("仪表盘");
     expect(root.textContent).toContain("新建运行");
+    expect(root.textContent).toContain("请在终端添加或替换 API Key");
     expect(document.documentElement.lang).toBe("zh-CN");
     expect(document.title).toBe("Restork · 本地智能工作台");
     expect(localStorage).toHaveLength(1);
@@ -71,5 +75,10 @@ describe("Dashboard locales", () => {
 
     expect(root.textContent).toContain("输入终端显示的一次性 Web 配对码");
     expect(root.querySelector("[data-locale-switch]")?.getAttribute("aria-label")).toBe("切换到英文");
+  });
+
+  it("localizes provider diagnostic failures without exposing transport details", () => {
+    expect(providerErrorMarkup("en")).toContain("CHECK FAILED");
+    expect(providerErrorMarkup("zh-CN")).toContain("检查失败");
   });
 });

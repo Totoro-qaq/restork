@@ -2,6 +2,7 @@ import type {
   ApprovalRequest,
   DashboardSnapshot,
   MemoryRecord,
+  ProviderDiagnostic,
   RadarItem,
   ResearchArtifact,
   PracticeAttemptResult,
@@ -109,6 +110,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
           ${metric("work", tr(locale, "Markdown tasks", "Markdown 任务"), String(incomplete.length), snapshot.taskBoard.configured ? tr(locale, "Markdown is canonical", "Markdown 为准") : tr(locale, "Vault not configured", "尚未配置 Vault"))}
           ${metric("study", tr(locale, "Memory records", "记忆记录"), String(memories.length), tr(locale, "Four layers · locally governed", "四层 · 本地可控"))}
         </section>
+        ${providerSetup(snapshot.provider, locale)}
         ${dailyContext(snapshot, locale)}
         <section class="view is-visible" data-view-panel="overview">${overview(snapshot, locale)}</section>
         <section class="view" data-view-panel="runs" hidden>${runsView(snapshot.runs, locale)}</section>
@@ -151,6 +153,47 @@ export function agentWaitMarkup(
       <p>${tr(locale, "Only durable phases are shown; private reasoning content is never streamed to the Dashboard.", "这里只显示持久阶段；私有推理内容不会流式发送到 Dashboard。")}</p>
     </div>
   </section>`;
+}
+
+export function providerDiagnosticMarkup(
+  report: ProviderDiagnostic,
+  locale: Locale = "en",
+): string {
+  const successful = ["ready", "connected", "smoke_passed"].includes(report.status);
+  const facts = [
+    report.latency_ms === null
+      ? null
+      : tr(locale, `${report.latency_ms} ms`, `${report.latency_ms} 毫秒`),
+    report.request_id ? `request ${report.request_id}` : null,
+    report.total_tokens === null
+      ? null
+      : tr(locale, `${report.total_tokens} test tokens`, `${report.total_tokens} 个测试 token`),
+  ].filter((value): value is string => value !== null);
+  return `<article class="provider-diagnostic-result ${successful ? "is-ready" : "is-action"}" data-provider-status="${escapeHtml(report.status)}">
+    <strong>${escapeHtml(report.status.replaceAll("_", " ").toUpperCase())}</strong>
+    <p>${escapeHtml(providerStatusMessage(report.status, locale))}</p>
+    ${facts.length ? `<small>${facts.map(escapeHtml).join(" · ")}</small>` : ""}
+    ${report.restart_required ? `<em>${tr(locale, "Restart Restork Core before starting a model-backed run.", "启动模型任务前，请重启 Restork Core。")}</em>` : ""}
+  </article>`;
+}
+
+export function providerWaitMarkup(smoke: boolean, locale: Locale = "en"): string {
+  return `<section class="provider-wait" role="status" aria-live="polite" aria-busy="true">
+    <div class="typewriter-motion" aria-hidden="true"><i></i><i></i><i></i><span></span></div>
+    <div><small>${smoke ? "FIXED PUBLIC SMOKE TEST" : "BOUNDED MODEL ACCESS CHECK"}</small>
+      <strong>${smoke
+        ? tr(locale, "Waiting for the fixed low-token completion…", "正在等待固定的低 token 短句响应…")
+        : tr(locale, "Checking authentication and model access…", "正在检查认证与模型权限…")}</strong>
+      <p>${tr(locale, "No Vault, memory, task, location, or daily-context content is included.", "不会包含 Vault、记忆、任务、位置或每日上下文内容。")}</p>
+    </div>
+  </section>`;
+}
+
+export function providerErrorMarkup(locale: Locale = "en"): string {
+  return `<article class="provider-diagnostic-result is-action" data-provider-status="provider_unavailable">
+    <strong>${tr(locale, "CHECK FAILED", "检查失败")}</strong>
+    <p>${tr(locale, "The bounded provider check could not complete. Review Core and try again.", "有界模型检查未能完成，请检查 Core 后重试。")}</p>
+  </article>`;
 }
 
 export function runEventsMarkup(
@@ -297,6 +340,87 @@ export function errorText(error: unknown, locale: Locale = "en"): string {
   return error instanceof Error
     ? error.message
     : tr(locale, "Unexpected local error", "发生意外的本地错误");
+}
+
+function providerSetup(report: ProviderDiagnostic | null, locale: Locale): string {
+  const setupCommand = report?.setup_command ?? "uv run restork provider configure";
+  const status = report?.status ?? "provider_unavailable";
+  return `<section class="provider-console" aria-labelledby="provider-title">
+    <header>
+      <div><p class="eyebrow">MODEL ACCESS · KEYCHAIN</p><h2 id="provider-title">DeepSeek V4 Pro</h2></div>
+      <span class="provider-status" data-provider-summary="${escapeHtml(status)}">${escapeHtml(status.replaceAll("_", " "))}</span>
+    </header>
+    <div class="provider-instructions">
+      <p>${tr(locale, "Add or replace the API key in Terminal. The browser never receives it.", "请在终端添加或替换 API Key；浏览器永远不会接收它。")}</p>
+      <code>${escapeHtml(setupCommand)}</code>
+      <small>${tr(locale, "macOS Keychain prompts securely · restart Core after setup", "由 macOS Keychain 安全提示输入 · 配置后重启 Core")}</small>
+    </div>
+    <div class="provider-actions">
+      <button type="button" data-provider-diagnostic="connect">${tr(locale, "TEST CONNECTION", "测试连接")}</button>
+      <button type="button" class="quiet-button" data-provider-diagnostic="smoke">${tr(locale, "PUBLIC SMOKE TEST", "公开短句测试")}</button>
+      <small>${tr(locale, "Connection checks /models. Smoke sends one fixed public sentence (max 16 tokens).", "连接测试仅检查 /models；短句测试只发送固定公开句子（最多 16 token）。")}</small>
+    </div>
+    <div id="provider-diagnostic-result" class="provider-diagnostic-host" role="status" aria-live="polite">
+      ${report ? providerDiagnosticMarkup(report, locale) : `<p>${tr(locale, "Provider status is temporarily unavailable.", "暂时无法读取模型接入状态。")}</p>`}
+    </div>
+  </section>`;
+}
+
+function providerStatusMessage(status: ProviderDiagnostic["status"], locale: Locale): string {
+  const messages: Record<ProviderDiagnostic["status"], [string, string]> = {
+    not_configured: [
+      "Run the secure terminal setup command to begin.",
+      "请先运行安全的终端配置命令。",
+    ],
+    invalid_configuration: [
+      "The non-secret provider configuration needs correction.",
+      "非敏感的模型配置需要修正。",
+    ],
+    credential_missing: [
+      "The API key is not available in macOS Keychain.",
+      "macOS Keychain 中没有可用的 API Key。",
+    ],
+    ready: [
+      "Configuration and Keychain metadata are ready; no network check has run.",
+      "配置与 Keychain 元数据已就绪；尚未联网检查。",
+    ],
+    connected: [
+      "Authentication succeeded and deepseek-v4-pro is available.",
+      "认证成功，deepseek-v4-pro 可用。",
+    ],
+    smoke_passed: [
+      "The fixed public low-token completion passed.",
+      "固定公开短句的低 token 调用已通过。",
+    ],
+    authentication_failed: [
+      "DeepSeek rejected the API key; replace it from Terminal.",
+      "DeepSeek 拒绝了此 API Key；请在终端替换。",
+    ],
+    insufficient_balance: [
+      "The DeepSeek account has insufficient balance.",
+      "DeepSeek 账户余额不足。",
+    ],
+    rate_limited: ["DeepSeek rate limited this check.", "此次检查触发了 DeepSeek 限流。"],
+    timeout: ["The bounded provider check timed out.", "有界模型检查已超时。"],
+    provider_unavailable: [
+      "The provider service is temporarily unavailable.",
+      "模型服务暂时不可用。",
+    ],
+    model_unavailable: [
+      "deepseek-v4-pro is not available to this account.",
+      "此账户暂时无法使用 deepseek-v4-pro。",
+    ],
+    invalid_response: [
+      "The provider returned an unexpected diagnostic response.",
+      "模型服务返回了非预期的诊断响应。",
+    ],
+    policy_denied: [
+      "Restork's outbound policy denied this check.",
+      "Restork 出站策略拒绝了此次检查。",
+    ],
+  };
+  const [english, chinese] = messages[status];
+  return tr(locale, english, chinese);
 }
 
 function overview(snapshot: DashboardSnapshot, locale: Locale): string {

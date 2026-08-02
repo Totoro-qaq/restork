@@ -436,6 +436,45 @@ export interface DailySnapshot {
   };
 }
 
+export type ProviderStatus =
+  | "not_configured"
+  | "invalid_configuration"
+  | "credential_missing"
+  | "ready"
+  | "connected"
+  | "smoke_passed"
+  | "authentication_failed"
+  | "insufficient_balance"
+  | "rate_limited"
+  | "timeout"
+  | "provider_unavailable"
+  | "model_unavailable"
+  | "invalid_response"
+  | "policy_denied";
+
+export interface ProviderDiagnostic {
+  schema_version: 1;
+  provider: "deepseek";
+  model: "deepseek-v4-pro";
+  status: ProviderStatus;
+  message: string;
+  setup_command: "uv run restork provider configure";
+  config_present: boolean;
+  config_valid: boolean;
+  credential_present: boolean;
+  connection_checked: boolean;
+  connection_ok: boolean | null;
+  model_available: boolean | null;
+  smoke_checked: boolean;
+  smoke_ok: boolean | null;
+  restart_required: boolean;
+  latency_ms: number | null;
+  request_id: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+}
+
 export interface DashboardSnapshot {
   runs: RunListEntry[];
   approvals: ApprovalRequest[];
@@ -447,6 +486,7 @@ export interface DashboardSnapshot {
     architecture: string[];
   } | null;
   daily: DailySnapshot | null;
+  provider: ProviderDiagnostic | null;
 }
 
 export interface RunEvent {
@@ -490,6 +530,7 @@ export interface DashboardApi {
   captureTask(text: string, priority: string): Promise<TaskMutationPreview>;
   applyTask(approvalId: string): Promise<TaskApplyResult>;
   configureWeather(input: WeatherConfigurationInput): Promise<void>;
+  providerDiagnostics(smoke: boolean): Promise<ProviderDiagnostic>;
   musicCover(): Promise<Blob | null>;
   events(runId: string, after: number): Promise<RunEvent[]>;
   streamEvents(

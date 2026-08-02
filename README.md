@@ -132,7 +132,7 @@ Everything is opt-in; add only the capability you need:
 |---|---|---|
 | Explore the Dashboard | No configuration | No model request; no Vault access |
 | Read an Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | Local read access; writes still require an exact preview and approval |
-| Use DeepSeek V4 Pro | Private `config.toml` plus macOS Keychain item | Approved prompts cross the governed DeepSeek gateway |
+| Use DeepSeek V4 Pro | `uv run restork provider configure` | The key goes directly to macOS Keychain; approved prompts cross the governed DeepSeek gateway |
 | Show weather | Private Profile with provider and manually entered coordinates | Disabled while either value is empty; Restork never requests browser location |
 | Show calendar or music | Private Profile pointing to one local ICS or JSON/CSV file | Read-only local import; no account login |
 
@@ -144,27 +144,33 @@ RESTORK_PORT=7444 ./scripts/quickstart.sh
 
 ### 3. Enable DeepSeek V4 Pro, only if wanted
 
-Without this step, Restork remains in its credential-free offline mode. Live
-model access currently uses **macOS Keychain**:
-
-1. Choose an absolute private configuration directory and set it as
-   `RESTORK_CONFIG_DIR` before every start.
-2. Copy [`examples/config.example.toml`](examples/config.example.toml) to
-   `$RESTORK_CONFIG_DIR/config.toml`; the file contains a Keychain reference,
-   never the key itself.
-3. In **Keychain Access**, create a Generic Password with service
-   `restork/provider`, account `deepseek`, and the API key in its password field.
-4. Run `./scripts/quickstart.sh` from the same shell.
-
-This check confirms the item exists without revealing its value:
+Without this step, Restork remains in its credential-free offline mode. In a
+Terminal at the repository root, run:
 
 ```bash
-/usr/bin/security find-generic-password -s 'restork/provider' -a 'deepseek'
+uv run restork provider configure
 ```
 
-See [`Operations`](docs/operations.md) for exact directory, backup, restore, and
-credential behavior. Do not place an API key in TOML, shell history, the Vault,
-or this repository.
+macOS `security` prompts for the API key directly and stores it as a Generic
+Password in Keychain. Restork creates the non-secret provider configuration with
+mode `0600` when needed. The key is never passed as a command argument or
+environment variable and never enters the browser, TOML, shell history, Vault,
+SQLite, logs, or this repository.
+
+The Dashboard **Model access** card always shows this command and local status.
+After configuration, restart Core and choose how much to verify:
+
+```bash
+uv run restork doctor             # local config and Keychain metadata only
+uv run restork doctor --connect   # explicit bounded GET /models
+uv run restork doctor --smoke     # /models plus one fixed public, max-16-token request
+```
+
+The smoke test sends no Vault, memory, task, location, calendar, or playlist
+content and never prints the model response. See [`Operations`](docs/operations.md)
+for custom private directories, manual fallback, backup, restore, and credential
+behavior. If `RESTORK_CONFIG_DIR` is set, use the same value for configuration,
+diagnostics, and Core startup.
 
 ### 4. Keep personal data outside the checkout
 

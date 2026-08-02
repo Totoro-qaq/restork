@@ -69,7 +69,7 @@ jobs:
           tests/recovery/test_writes.py::test_sec_approval_001_symlink_swap_cannot_escape_approved_note
       - name: SEC-AUTH-001
         run: >-
-          uv run pytest tests/api/test_auth.py tests/api/test_app.py
+          uv run pytest tests/api/test_auth.py tests/api/test_app.py tests/api/test_provider.py
           tests/e2e/test_release_gates.py::test_sec_auth_001_every_non_pairing_api_route_has_a_scoped_token_dependency
       - name: PRIV-LABEL-001
         run: uv run pytest tests/privacy

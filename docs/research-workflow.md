@@ -60,10 +60,15 @@ restork research RUN_ID \
 ```
 
 Without `$RESTORK_CONFIG_DIR/config.toml`, Restork uses the deterministic grounded synthesizer and
-makes no model call. To enable DeepSeek V4 Pro, copy the shape from
-`examples/config.example.toml` into that private path. In macOS Keychain Access, create a Generic
-Password whose service is `restork/provider` and account is `deepseek`; enter the key only in the
-Keychain password field.
+makes no model call. To enable DeepSeek V4 Pro, run the secure terminal setup and restart Core:
+
+```bash
+uv run restork provider configure
+uv run restork doctor --connect
+```
+
+The first command prompts directly through macOS Keychain and creates only a non-secret private
+configuration file. `examples/config.example.toml` remains the manual fallback shape.
 
 The TOML stores only `keychain:restork/provider/deepseek`; the key never enters the repository,
 SQLite, Dashboard, URL, or event stream. Provider requests remain limited to public or personal

@@ -1,6 +1,6 @@
 # Restork Step 6 Specification
 
-> Status: Implemented | Version: 1.3 | Date: 2026-08-02
+> Status: Implemented | Version: 1.4 | Date: 2026-08-02
 >
 > Governing specification: [Restork V1](restork-v1.md)
 >
@@ -15,6 +15,7 @@ Step 6 turns the Step 5 local control plane into a usable local workspace. It ad
 - authenticated long-lived SSE and an accessible, phase-based waiting surface for Core work;
 - optional daily context: clock, weather, read-only calendar, and a generic daily music recommendation;
 - a privacy-default one-command first-run path with explicit opt-in configuration;
+- a discoverable, bilingual, keyless-in-browser DeepSeek setup and bounded diagnostics surface;
 - separate, selectable English and Simplified Chinese READMEs with localized project-native SVGs and an HD synthetic demonstration GIF;
 - reproducible static assets bundled in the Python wheel.
 
@@ -140,6 +141,9 @@ The browser is a thin authenticated client:
 - it detects browser language, defaults non-Chinese browsers to English, and offers an explicit English/Chinese switch;
 - it may persist only the literal `en` or `zh-CN` locale preference under `restork.locale`;
 - it does not fetch GitHub, HN, weather, cover art, or any provider directly.
+- it never accepts an API key; the Model access card points to the secure terminal/Keychain setup;
+- it uses one bounded authenticated POST for explicit provider diagnostics, not SSE, polling, or
+  WebSocket.
 
 ### 4.2 Required views
 
@@ -150,6 +154,8 @@ The browser is a thin authenticated client:
 - Radar lanes for My Stars, Trending, and HN with dismiss/read-later/research/make-task actions;
 - memory status showing layer counts, retention, provenance, and safe management actions;
 - daily context modules described below.
+- Model access status, exact `restork provider configure` command, explicit `/models` connection check,
+  and a fixed public maximum-16-token smoke check with no response-body rendering.
 
 On wide screens the Overview is a two-by-two content matrix: run and approval in the first row,
 Markdown tasks and Radar in the second. Cards stretch within each row so shorter sibling content does
@@ -275,6 +281,8 @@ The public build ships the same features the owner uses. Personal behavior comes
 4. `6D` — daily context services and clock/weather/calendar/music/CD UI.
 5. `6E` — README visual refresh, SVG, HD GIF/poster, audit, and wheel asset verification.
 6. `6F` — Obsidian bridge deferred beyond V1; direct Vault integration is sufficient.
+7. `6G` — secure Keychain onboarding, local/offline doctor, explicit bounded provider diagnostics,
+   and the bilingual Model access Dashboard card.
 
 Every required slice gets a reviewable branch, tests, public-artifact scan, CI, and squash merge before the dependent slice starts.
 
@@ -300,3 +308,9 @@ Step 6 is complete when:
 - every animation has a reduced-motion/static behavior;
 - README assets render correctly at GitHub content width and contain only synthetic/public data;
 - `design/` remains an untracked owner reference and is not packaged or committed.
+- the Dashboard contains no key/password field, shows `uv run restork provider configure`, and never
+  renders a diagnostic completion body;
+- local doctor performs zero network requests, while connect and smoke checks are explicit, bounded,
+  strict-schema, and exclude all private Restork context;
+- the Model access card has no horizontal overflow at 390 CSS pixels and every diagnostic state remains
+  understandable in both English and Simplified Chinese.

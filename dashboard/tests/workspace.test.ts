@@ -4,6 +4,7 @@ import { mountDashboard } from "../src/main";
 import type {
   DashboardApi,
   DashboardSnapshot,
+  ProviderDiagnostic,
   WorkExportResult,
   WorkHandoffPreview,
   WorkPlanArtifact,
@@ -35,6 +36,28 @@ const snapshot: DashboardSnapshot = {
     architecture: ["working", "episodic", "semantic", "profile"],
   },
   daily: null,
+  provider: {
+    schema_version: 1,
+    provider: "deepseek",
+    model: "deepseek-v4-pro",
+    status: "ready",
+    message: "Ready without a network check.",
+    setup_command: "uv run restork provider configure",
+    config_present: true,
+    config_valid: true,
+    credential_present: true,
+    connection_checked: false,
+    connection_ok: null,
+    model_available: null,
+    smoke_checked: false,
+    smoke_ok: null,
+    restart_required: false,
+    latency_ms: null,
+    request_id: null,
+    prompt_tokens: null,
+    completion_tokens: null,
+    total_tokens: null,
+  },
 };
 
 function fakeApi(): DashboardApi {
@@ -85,6 +108,9 @@ function fakeApi(): DashboardApi {
       throw new Error("not used");
     }),
     configureWeather: vi.fn(async () => undefined),
+    providerDiagnostics: vi.fn(async () => {
+      throw new Error("not used");
+    }),
     musicCover: vi.fn(async () => null),
     events: vi.fn(async () => []),
     streamEvents: vi.fn(async () => undefined),
@@ -101,6 +127,68 @@ describe("authenticated workspace", () => {
     expect(root.querySelector("script")).toBeNull();
     expect(localStorage).toHaveLength(0);
     expect(sessionStorage).toHaveLength(0);
+  });
+
+  it("exposes Keychain setup without an API-key field in the browser", () => {
+    const root = document.createElement("main");
+
+    mountDashboard(root, { api: fakeApi(), snapshot });
+
+    expect(root.textContent).toContain("uv run restork provider configure");
+    expect(root.textContent).toContain("The browser never receives it");
+    expect(root.querySelector('input[type="password"]')).toBeNull();
+    expect(root.querySelector('input[name*="key" i]')).toBeNull();
+  });
+
+  it("shows a bounded provider wait state and renders only safe smoke metadata", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    let finish: ((value: ProviderDiagnostic) => void) | undefined;
+    const diagnostic = vi.spyOn(api, "providerDiagnostics").mockImplementation(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    mountDashboard(root, { api, snapshot });
+
+    root.querySelector<HTMLButtonElement>('[data-provider-diagnostic="smoke"]')?.click();
+
+    const waiting = root.querySelector<HTMLElement>(".provider-wait");
+    expect(waiting?.getAttribute("aria-busy")).toBe("true");
+    expect(waiting?.textContent).toContain("No Vault, memory, task, location");
+    expect(diagnostic).toHaveBeenCalledWith(true);
+    finish?.({
+      ...(snapshot.provider as ProviderDiagnostic),
+      status: "smoke_passed",
+      message: "Synthetic smoke passed.",
+      connection_checked: true,
+      connection_ok: true,
+      model_available: true,
+      smoke_checked: true,
+      smoke_ok: true,
+      latency_ms: 420,
+      request_id: "request-safe-1",
+      prompt_tokens: 8,
+      completion_tokens: 2,
+      total_tokens: 10,
+    });
+    await vi.waitFor(() => {
+      expect(root.querySelector('[data-provider-status="smoke_passed"]')).not.toBeNull();
+    });
+    expect(root.querySelector("[data-provider-summary]")?.textContent).toBe("smoke passed");
+    expect(root.textContent).toContain("10 test tokens");
+    expect(root.textContent).not.toContain("RESTORK_OK");
+  });
+
+  it("renders a localized safe provider failure without transport details", async () => {
+    const root = document.createElement("main");
+    mountDashboard(root, { api: fakeApi(), snapshot, locale: "zh-CN" });
+
+    root.querySelector<HTMLButtonElement>('[data-provider-diagnostic="connect"]')?.click();
+
+    await vi.waitFor(() => {
+      expect(root.querySelector('[data-provider-status="provider_unavailable"]')).not.toBeNull();
+    });
+    expect(root.textContent).toContain("检查失败");
+    expect(root.textContent).not.toContain("not used");
   });
 
   it("switches between Core-owned views", () => {

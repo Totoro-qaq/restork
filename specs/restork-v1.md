@@ -304,6 +304,15 @@ Changing from Research or Study to Work always creates a new child run. A run's 
 - **FR-MODEL-008**: During thinking-mode tool-call turns, required `reasoning_content` is preserved and replayed exactly through the encrypted TTL transient store, excluded from logs/traces, and deleted at run completion or expiry.
 - **FR-MODEL-009**: Empty or schema-invalid JSON output is an explicit failed attempt/retry event and cannot drive state or tools.
 - **FR-MODEL-010**: The provider's advertised long context does not relax Restork's local retrieval, minimum-necessary egress, token, cost, or retention budgets.
+- **FR-MODEL-011**: `restork provider configure` delegates interactive API-key entry directly to
+  macOS Keychain, stores no plaintext credential in configuration, arguments, environment, browser,
+  database, event, or log, and creates a missing non-secret configuration with mode `0600`.
+- **FR-MODEL-012**: `restork doctor` is local-only by default. Network access requires explicit
+  `--connect` or `--smoke`; the former performs one bounded exact-origin `/models` check and the latter
+  adds one fixed public completion with thinking disabled and `max_tokens=16`.
+- **FR-MODEL-013**: Provider diagnostics expose only status, latency, safe request ID, and token usage.
+  They do not expose credentials, authorization headers, model response text, Vault, memory, task,
+  Profile, location, calendar, playlist, or daily-context content.
 
 ### 9.3 Vault and knowledge
 
@@ -406,6 +415,11 @@ Rules:
   provider and location.
 - **FR-UI-018**: The wide Overview uses a balanced two-by-two content matrix and collapses without
   horizontal overflow on narrow screens.
+- **FR-UI-019**: The bilingual Overview exposes a discoverable Model access card with the exact secure
+  terminal setup command, redacted local provider status, explicit connection/smoke actions, complete
+  waiting/success/failure states, and no API-key or password field.
+- **FR-UI-020**: Short provider diagnostics use one bounded authenticated POST. SSE remains reserved
+  for long-running Core events; diagnostics require neither polling nor WebSocket.
 
 ## 10. Knowledge indexing and graph readiness
 
@@ -767,6 +781,8 @@ The exact wire schema is versioned under `/v1`.
 | `POST` | `/v1/memory/context` | Build a bounded policy-reviewed context selection |
 | `DELETE` | `/v1/memory/{memory_id}` | Delete an eligible episodic/profile record or purge a derived source |
 | `GET` | `/v1/daily-context` | Read clock-independent weather, calendar, and daily music view data |
+| `GET` | `/v1/providers/deepseek` | Read redacted local provider/configuration status |
+| `POST` | `/v1/providers/deepseek/diagnostics` | Explicitly run a bounded connection or fixed public smoke check |
 
 Mutation endpoints require a client-generated idempotency key. Repeating an approval decision returns the existing decision and cannot consume or execute the action twice; action consumption occurs separately and atomically at apply time.
 
@@ -989,6 +1005,14 @@ and saved location cleared. The Dashboard never invokes browser/IP geolocation.
 A clean source checkout starts with `./scripts/quickstart.sh`, pairs locally without credentials or a
 Vault, and stops cleanly on `Ctrl-C`. A long-running synthetic run streams authenticated durable phases,
 survives UTF-8 frame splitting and cursor reconnect, and never exposes provider reasoning text.
+
+### AC-13. Secure provider onboarding and diagnostics
+
+From a paired bilingual Dashboard, a user can find the exact `restork provider configure` command
+without any browser key field. The interactive command stores the key directly in macOS Keychain.
+`restork doctor` performs no network request; `--connect` checks only `/models`; `--smoke` sends only
+the fixed public maximum-16-token sentence. CLI and Dashboard reports contain no credential or model
+response body and remain responsive without polling or WebSocket.
 
 ### 18.1 Automated release-blocking tests
 

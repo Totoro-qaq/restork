@@ -146,6 +146,7 @@ class ProviderResponseError(RuntimeError):
         *,
         kind: ProviderErrorKind | None = None,
         retryable: bool | None = None,
+        status_code: int | None = None,
     ) -> None:
         if kind is None and retryable is None:
             raise TypeError("provider error requires an explicit classification")
@@ -154,11 +155,14 @@ class ProviderResponseError(RuntimeError):
             if retryable is not expected:
                 raise ValueError("provider error classification conflicts with retryability")
         super().__init__(message)
+        if status_code is not None and not 100 <= status_code <= 599:
+            raise ValueError("provider status code is invalid")
         self.kind = kind or (
             ProviderErrorKind.RETRYABLE
             if retryable
             else ProviderErrorKind.TERMINAL
         )
+        self.status_code = status_code
 
     @property
     def retryable(self) -> bool:

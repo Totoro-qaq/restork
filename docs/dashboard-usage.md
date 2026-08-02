@@ -28,6 +28,26 @@ English. Use the visible `EN`/`中文` control on either the pairing page or wor
 explicit switch may persist only `restork.locale` with the literal value `en` or `zh-CN`; session
 tokens and Core data remain memory-only.
 
+## Model access
+
+The Overview **Model access** card is the discoverable DeepSeek entry point. It shows local
+configuration/Keychain status and the exact secure setup command:
+
+```bash
+uv run restork provider configure
+```
+
+Run the command in Terminal. macOS Keychain prompts for the API key directly; the Dashboard has no
+password or API-key input and never receives, stores, copies, or renders the credential. Restart Core
+after setup so the card can reflect the new provider wiring.
+
+**Test connection** performs an explicit bounded `/models` access check. **Public smoke test** adds one
+fixed public, maximum-16-token completion and displays only status, latency, safe request ID, and token
+usage. It does not send Vault, memory, task, location, calendar, playlist, or daily-context content,
+and it never displays the completion body. These short request/response diagnostics use a bounded
+authenticated POST. SSE remains reserved for long-running run events; polling and WebSocket add no
+value here.
+
 ## Home and daily context
 
 The overview shows active runs, pending approvals, Markdown tasks, Radar, and the four memory layers.
@@ -87,6 +107,17 @@ or purge a source. Browser storage contains no memory payload or canonical state
 preference is the only persistent UI value. Refreshing still requires Core state again.
 
 ## CLI
+
+Provider setup and doctor do not require a running Core or a pairing token:
+
+```bash
+uv run restork provider configure
+uv run restork doctor
+uv run restork doctor --connect
+uv run restork doctor --smoke
+```
+
+Only the last two commands access DeepSeek; `--smoke` implies the connection check.
 
 Exchange the separate CLI pairing code, then keep the returned token only for the current shell:
 

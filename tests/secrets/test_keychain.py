@@ -64,3 +64,62 @@ def test_keychain_store_does_not_echo_failed_command_output(
 
     assert "synthetic-output" not in str(error.value)
     assert "synthetic-diagnostic" not in str(error.value)
+
+
+def test_keychain_metadata_check_never_requests_secret_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(args=["/usr/bin/security"], returncode=0)
+
+    monkeypatch.setattr("restork.secrets.store.subprocess.run", fake_run)
+
+    exists = KeychainSecretStore().exists(
+        KeychainReference(value="keychain:restork/provider/deepseek")
+    )
+
+    assert exists is True
+    command = calls[0][0][0]
+    assert isinstance(command, list)
+    assert command == [
+        "/usr/bin/security",
+        "find-generic-password",
+        "-s",
+        "restork/provider",
+        "-a",
+        "deepseek",
+    ]
+    assert "-w" not in command
+
+
+def test_keychain_configuration_lets_security_prompt_without_secret_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(args=["/usr/bin/security"], returncode=0)
+
+    monkeypatch.setattr("restork.secrets.store.subprocess.run", fake_run)
+
+    KeychainSecretStore().configure_interactively(
+        KeychainReference(value="keychain:restork/provider/deepseek")
+    )
+
+    command = calls[0][0][0]
+    assert isinstance(command, list)
+    assert command == [
+        "/usr/bin/security",
+        "add-generic-password",
+        "-U",
+        "-a",
+        "deepseek",
+        "-s",
+        "restork/provider",
+        "-w",
+    ]
+    assert calls[0][1] == {"check": False}

@@ -7,6 +7,7 @@ import type {
   RadarAction,
   RadarActionResult,
   PracticeAttemptResult,
+  ProviderDiagnostic,
   ResearchArtifact,
   RunSummary,
   StudyArtifact,
@@ -437,6 +438,28 @@ const snapshot: DashboardSnapshot = {
       message: "",
     },
   },
+  provider: {
+    schema_version: 1,
+    provider: "deepseek",
+    model: "deepseek-v4-pro",
+    status: "ready",
+    message: "Configuration and Keychain metadata are ready.",
+    setup_command: "uv run restork provider configure",
+    config_present: true,
+    config_valid: true,
+    credential_present: true,
+    connection_checked: false,
+    connection_ok: null,
+    model_available: null,
+    smoke_checked: false,
+    smoke_ok: null,
+    restart_required: false,
+    latency_ms: null,
+    request_id: null,
+    prompt_tokens: null,
+    completion_tokens: null,
+    total_tokens: null,
+  },
 };
 
 class DemoApi implements DashboardApi {
@@ -495,6 +518,19 @@ class DemoApi implements DashboardApi {
     return { approval_id: approvalId, task_id: "synthetic", relative_path: "Tasks.md", content_hash: "d".repeat(64), applied: true };
   }
   async configureWeather(): Promise<void> {}
+  async providerDiagnostics(smoke: boolean): Promise<ProviderDiagnostic> {
+    return {
+      ...snapshot.provider as ProviderDiagnostic,
+      status: smoke ? "smoke_passed" : "connected",
+      connection_checked: true,
+      connection_ok: true,
+      model_available: true,
+      smoke_checked: smoke,
+      smoke_ok: smoke ? true : null,
+      latency_ms: 418,
+      total_tokens: smoke ? 10 : null,
+    };
+  }
   async musicCover(): Promise<Blob | null> { return null; }
   async events(): Promise<[]> { return []; }
   async streamEvents(): Promise<void> {}
