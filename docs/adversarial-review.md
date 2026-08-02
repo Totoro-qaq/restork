@@ -1,6 +1,6 @@
 # V1 adversarial agent-architecture review
 
-> Verdict: release-candidate ready after remediation | Review date: 2026-08-02
+> Verdict: release-ready after remediation | Review date: 2026-08-02
 > Open findings: 0 critical, 0 high, 1 medium, 1 low
 
 This review covers the complete 12-layer agent stack used by Restork: system prompts, session
@@ -117,7 +117,7 @@ Profile, credential, production trace, or live provider call was used in this re
 | Tool execution | Pass | Stable intents, exact approvals, timeouts, budgeted pure retries, and unknown-outcome stops are code-gated. |
 | Tool interpretation | Pass after AA-01/03 | Results are typed; unverified Work commands cannot complete; committed artifact evidence survives restart. |
 | Answer shaping | Pass with AA-06 | Typed Research/Study/Work artifacts gate user-facing completion; generic references remain a documented limitation. |
-| Platform rendering | Pass with AA-07 | API/CLI/Dashboard fixtures preserve semantics; dynamic HTML is escaped and browser storage remains empty. |
+| Platform rendering | Pass with AA-07 | API/CLI/Dashboard fixtures preserve semantics; dynamic HTML is escaped and browser storage contains no sensitive or canonical data. |
 | Hidden repair loops | Pass | One provider is accepted; schema errors fail explicitly; retries emit events and never invoke a second repair model. |
 | Persistence | Pass | SQLite state transitions, encrypted TTL checkpoints, durable local key, journal recovery, and atomic effect evidence are tested. |
 

@@ -18,6 +18,7 @@ user-selected files, and OS Keychain entries; no private fork is required.
 Secret and credential classes cannot enter memory, Work handoffs, artifacts, or transient storage.
 Validation errors omit submitted values. Browser clients receive only the fields needed to render a
 view and keep no token, note, Profile, calendar, location, playlist, or handoff body in Web Storage.
+After an explicit language switch, the browser may keep only `restork.locale` with `en` or `zh-CN`.
 
 ## Network boundary
 

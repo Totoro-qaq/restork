@@ -1,6 +1,6 @@
 # Restork V1 Implementation Blueprint
 
-> Status: Complete — Steps 0–10; V1 release candidate |
+> Status: Complete — Steps 0–10; V1 |
 > Version: 1.0 | Date: 2026-08-02
 >
 > Objective: Build a public-ready, local-first personal agent for Research, Study, and Work without exposing private runtime data.
@@ -42,7 +42,7 @@ At V1 completion, the repository will provide:
 - local metadata-only observability;
 - four policy-controlled memory layers with user inspection, correction, export, and deletion;
 - a private-configurable daily context for weather, read-only calendar, and generic music recommendation;
-- a bilingual project-native README with GitHub-safe SVG and an HD synthetic product GIF;
+- separate, selectable English and Simplified Chinese READMEs with localized GitHub-safe SVGs and an HD synthetic product GIF;
 - synthetic fixtures and privacy tests;
 - an MIT-licensed open-source-ready release without private runtime data.
 
@@ -109,7 +109,7 @@ flowchart TD
 | First useful alpha | 6–7 | The local Web Dashboard can launch and inspect a source-backed Research run |
 | Knowledge-work beta | 8 | Study workflow and Markdown task integration are usable |
 | Controlled work beta | 9 | Work plans and bounded handoff packages are reviewable; Restork does not launch executors |
-| V1 release candidate | 10 | Privacy, recovery, evaluation, and release requirements pass |
+| V1 release | 10 | Privacy, recovery, evaluation, and release requirements pass |
 
 ## 7. Required PR slicing
 
@@ -123,7 +123,7 @@ The numbered steps are delivery milestones, not single pull requests. Each slice
 | 3 | `3A` OutboundGateway and network-policy tests; `3B` provider adapter and model-specific policy |
 | 4 | `4A` read-only parser/index; `4B` deterministic link/task projection; `4C` journaled single-file mutation and recovery |
 | 5 | `5A` runtime, budgets, and tool policy; `5B` local API/auth/SSE; `5C` CLI and recovery integration |
-| 6 | `6A` four-layer memory contracts/storage/API; `6B` paired Dashboard transport and run/approval views; `6C` Markdown task and generic Radar actions; `6D` daily context widgets/services; `6E` bilingual README SVG/GIF visual refresh; `6F` Obsidian bridge deferred beyond V1 |
+| 6 | `6A` four-layer memory contracts/storage/API; `6B` paired Dashboard transport and run/approval views; `6C` Markdown task and generic Radar actions; `6D` daily context widgets/services; `6E` separate English/Chinese README SVG/GIF visual refresh; `6F` Obsidian bridge deferred beyond V1 |
 | 7 | `7A` source/evidence adapters; `7B` research workflow/artifacts/evals; `7C` Dashboard/Radar integration |
 | 8 | `8A` diagnostic/path/practice workflow; `8B` review state and evals |
 | 9 | `9A` read-only repository context and handoff contract; `9B` imported-result verification; `9C` Dashboard/CLI integration |
@@ -163,6 +163,7 @@ Strongest available: security and repository boundaries are expensive to correct
 
 ```text
 README.md
+README.zh-CN.md
 LICENSE                       # MIT
 SECURITY.md
 CONTRIBUTING.md
@@ -713,10 +714,11 @@ src/restork/web/static/          # generated release assets
 13. Add a Roman-numeral analog clock, optional gateway-backed weather, local read-only ICS calendar, and a generic user-imported daily music recommendation with optional album art in a rotating CD treatment.
 14. Make every daily-context module configurable and safe when absent. Keep location, calendar, playlist, owner music taste, and remote credentials outside Git and browser persistence.
 15. Honor reduced motion, keyboard navigation, focus visibility, semantic landmarks, pause controls, and legible light/dark GitHub surroundings for exported visuals.
-16. Refresh the bilingual README in project-native visual order (`Value -> Proof -> Mechanism -> First use -> Detail`) with maintainable GitHub-safe SVG and an HD GIF captured only from synthetic Dashboard data.
-17. Keep provider credentials, durable state, and shell execution out of Dashboard code and browser storage.
-18. Build reproducible static assets into the Python wheel and verify that runtime installation needs no Node.js.
-19. Defer slice 6F. V1 ships no Obsidian plugin; any later bridge must remain limited to `Open Restork`, current-note/selection handoff, note/heading/block navigation, and lightweight notifications, and must not duplicate the Dashboard.
+16. Publish separate selectable English and Simplified Chinese READMEs in project-native visual order (`Value -> Proof -> Mechanism -> First use -> Detail`) with localized maintainable GitHub-safe SVGs and an HD GIF captured only from synthetic Dashboard data.
+17. Detect browser locale, default non-Chinese browsers to English, provide an explicit English/Chinese switch, and persist only the literal non-sensitive locale preference when the user switches.
+18. Keep provider credentials, durable state, and shell execution out of Dashboard code and browser storage.
+19. Build reproducible static assets into the Python wheel and verify that runtime installation needs no Node.js.
+20. Defer slice 6F. V1 ships no Obsidian plugin; any later bridge must remain limited to `Open Restork`, current-note/selection handoff, note/heading/block navigation, and lightweight notifications, and must not duplicate the Dashboard.
 
 ### Verification
 
@@ -727,7 +729,7 @@ npm --prefix dashboard run build
 uv run pytest tests/api
 uv run pytest tests/memory tests/daily
 uv build --no-sources
-python3 scripts/audit_readme.py README.md
+python3 scripts/audit_readme.py README.md README.zh-CN.md
 ```
 
 Run automated transport/auth tests for cursor reconnect, hostile Origin, missing/wrong-audience token, query-token rejection, and approval replay. Install the built wheel in a clean environment and open its bundled Dashboard. Perform manual browser QA only for focus, keyboard navigation, reduced motion, visual streaming, disconnect/reconnect, approval comprehension, and Markdown task presentation.
@@ -737,6 +739,7 @@ Run automated transport/auth tests for cursor reconnect, hostile Origin, missing
 - Dashboard works when Obsidian and Node.js are not running.
 - Dashboard assets and browser storage contain no provider or GitHub token value.
 - Browser data is non-sensitive and non-canonical.
+- Dashboard is fully usable in English and Simplified Chinese; only `restork.locale` may persist after an explicit language switch.
 - Run events and final artifacts render consistently with CLI output.
 - Completing a Dashboard task updates its source Markdown.
 - Memory records are inspectable and deletable according to retention class; protected truth/audit data are never evicted by TTL/LRU.
@@ -974,7 +977,7 @@ Run all integration tests against a synthetic Git repository in a temporary dire
 
 Disable the Work profile. Because Restork never mutates the work repository in V1, no repository rollback is required; private handoff artifacts can be TTL-deleted.
 
-## Step 10 — Reliability, evaluation, and public release candidate
+## Step 10 — Reliability, evaluation, and public release
 
 ### Context brief
 
@@ -982,7 +985,7 @@ Feature completion is insufficient for release. Restork must prove privacy, reco
 
 ### Goal
 
-Produce a release candidate that meets every V1 acceptance scenario and can be published without private data.
+Produce reproducible release artifacts that meet every V1 acceptance scenario and can be published without private data.
 
 ### Dependencies
 
@@ -1060,7 +1063,7 @@ Run `SEC-NET-001`, `SEC-APPROVAL-001`, `SEC-AUTH-001`, `PRIV-LABEL-001`, `REC-EF
 
 ### Rollback
 
-Do not publish. Keep the release candidate private, disable affected capabilities, and insert remediation steps using the mutation protocol below.
+Do not publish affected artifacts. Keep them private, disable affected capabilities, and insert remediation steps using the mutation protocol below.
 
 ## 9. Verification matrix
 
@@ -1216,4 +1219,4 @@ Remaining implementation-time decision:
 
 Work V1 planning-and-handoff-only is a closed safety decision. Managed execution requires the post-V1 gate in Section 10.5.
 
-Implementation is complete through Step 10 and the repository is a V1 release candidate. Publication still follows the protected release checklist and reviewed tag workflow.
+Implementation is complete through Step 10. V1 publication follows the protected release checklist and reviewed `v0.1.0` tag workflow.

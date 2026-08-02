@@ -25,21 +25,37 @@ import {
   workspaceMarkup,
 } from "./ui/render";
 import { startClock } from "./ui/clock";
+import {
+  alternateLocale,
+  detectLocale,
+  localeOf,
+  persistLocale,
+  tr,
+} from "./i18n";
+import type { Locale } from "./i18n";
 
 interface MountOptions {
   api?: DashboardApi;
   snapshot?: DashboardSnapshot;
+  locale?: Locale;
 }
 
 const coverUrls = new WeakMap<HTMLElement, string>();
 
 export function mountDashboard(root: HTMLElement, options: MountOptions = {}): void {
   const api = options.api ?? new LocalApiClient();
+  applyLocale(root, options.locale ?? detectLocale());
   if (options.snapshot) {
     renderWorkspace(root, api, options.snapshot);
     return;
   }
-  root.innerHTML = pairingMarkup();
+  renderPairing(root, api);
+}
+
+function renderPairing(root: HTMLElement, api: DashboardApi): void {
+  const locale = localeOf(root);
+  root.innerHTML = pairingMarkup(locale);
+  bindLocaleSwitch(root, () => renderPairing(root, api));
   const form = root.querySelector<HTMLFormElement>("#pair-form");
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -51,19 +67,25 @@ async function pairAndLoad(root: HTMLElement, api: DashboardApi, data: FormData)
   const status = root.querySelector<HTMLElement>("#pair-status");
   const code = String(data.get("code") ?? "").trim();
   if (!code) return;
-  if (status) status.textContent = "正在与本地 Core 配对…";
+  if (status) status.textContent = tr(localeOf(root), "Pairing with the local Core…", "正在与本地 Core 配对…");
   try {
     await api.pair(code);
     renderWorkspace(root, api, await api.loadDashboard());
   } catch (error) {
-    if (status) status.textContent = errorText(error);
+    if (status) status.textContent = errorText(error, localeOf(root));
   }
 }
 
 function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: DashboardSnapshot): void {
+  const locale = localeOf(root);
   releaseCover(root);
-  root.innerHTML = workspaceMarkup(snapshot);
+  root.innerHTML = workspaceMarkup(snapshot, locale);
   startClock(root);
+  bindLocaleSwitch(root, () => {
+    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "overview";
+    renderWorkspace(root, api, snapshot);
+    selectView(root, view);
+  });
   root.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => {
     button.addEventListener("click", () => selectView(root, button.dataset.view ?? "overview"));
   });
@@ -150,19 +172,29 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
   if (!goal) return;
   if (mode === "work" && (!workspaceRoot || !targetFiles.length)) {
     if (status) {
-      status.textContent = "Work requires a workspace root and at least one target file.";
+      status.textContent = tr(
+        localeOf(root),
+        "Work requires a workspace root and at least one target file.",
+        "Work 需要工作区根路径和至少一个目标文件。",
+      );
     }
     return;
   }
-  if (status) status.textContent = "正在创建本地运行…";
+  if (status) status.textContent = tr(localeOf(root), "Creating a local run…", "正在创建本地运行…");
   try {
     const run = await api.createRun(mode, goal, dataClass);
-    if (status) status.textContent = `已创建 ${run.run_id}`;
+    if (status) {
+      status.textContent = tr(
+        localeOf(root),
+        `Created ${run.run_id}`,
+        `已创建 ${run.run_id}`,
+      );
+    }
     if (mode === "study") {
       const diagnostic = await api.prepareStudy(run.run_id, goal, targetNote);
       const host = root.querySelector<HTMLElement>("#study-workspace");
       if (host) {
-        host.innerHTML = studyDiagnosticMarkup(diagnostic);
+        host.innerHTML = studyDiagnosticMarkup(diagnostic, localeOf(root));
         bindStudyDiagnostic(root, api);
       }
     } else if (mode === "work") {
@@ -173,13 +205,17 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
         context_files: lines(data.get("context_files")),
         constraints: lines(data.get("constraints")),
         non_goals: lines(data.get("non_goals")),
-        completion_criteria: ["produce a reviewable verified artifact"],
+        completion_criteria: [tr(
+          localeOf(root),
+          "produce a reviewable verified artifact",
+          "产出可审阅、可验证的结果",
+        )],
         verification_commands: lines(data.get("verification_commands")),
         context_data_class: dataClass,
       });
       const host = root.querySelector<HTMLElement>("#work-workspace");
       if (host) {
-        host.innerHTML = workPlanMarkup(plan);
+        host.innerHTML = workPlanMarkup(plan, localeOf(root));
         bindWorkPlan(root, api);
       }
       clearWorkFields(form);
@@ -187,7 +223,7 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       await refresh(root, api, "runs");
     }
   } catch (error) {
-    if (status) status.textContent = errorText(error);
+    if (status) status.textContent = errorText(error, localeOf(root));
   }
 }
 
@@ -206,12 +242,12 @@ async function previewWorkHandoff(
     const preview = await api.previewWorkHandoff(button.dataset.runId ?? "");
     const host = root.querySelector<HTMLElement>("#work-workspace");
     if (host) {
-      host.innerHTML = workHandoffMarkup(preview);
+      host.innerHTML = workHandoffMarkup(preview, localeOf(root));
       bindWorkHandoff(root, api, preview);
     }
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error));
+    announce(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -241,12 +277,12 @@ async function approveAndExportWork(
     const result = await api.exportWorkHandoff(button.dataset.runId ?? "", approvalId);
     const host = root.querySelector<HTMLElement>("#work-workspace");
     if (host) {
-      host.innerHTML = workExportMarkup(result, preview.plan);
+      host.innerHTML = workExportMarkup(result, preview.plan, localeOf(root));
       bindWorkVerification(root, api);
     }
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error));
+    announce(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -260,10 +296,14 @@ async function rejectWork(
     await api.decideApproval(button.dataset.approvalId ?? "", "reject");
     const host = root.querySelector<HTMLElement>("#work-workspace");
     if (host) host.replaceChildren();
-    announce(root, "Work handoff rejected. No package was exported.");
+    announce(root, tr(
+      localeOf(root),
+      "Work handoff rejected. No package was exported.",
+      "Work 交接已拒绝。没有导出任何交接包。",
+    ));
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error));
+    announce(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -285,17 +325,23 @@ async function verifyWorkResult(
   try {
     const raw = String(new FormData(form).get("manifest") ?? "");
     const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) throw new Error("Result manifest must be one JSON object");
+    if (!isRecord(parsed)) {
+      throw new Error(tr(
+        localeOf(root),
+        "Result manifest must be one JSON object",
+        "结果清单必须是一个 JSON 对象",
+      ));
+    }
     const report = await api.verifyWorkResult(
       form.dataset.runId ?? "",
       parsed as unknown as WorkResultManifest,
     );
     form.reset();
     const host = root.querySelector<HTMLElement>("#work-workspace");
-    if (host) host.innerHTML = workVerificationMarkup(report);
+    if (host) host.innerHTML = workVerificationMarkup(report, localeOf(root));
   } catch (error) {
     if (submit) submit.disabled = false;
-    announce(root, errorText(error));
+    announce(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -322,12 +368,12 @@ async function submitStudyDiagnostic(
     const artifact = await api.submitStudyDiagnostic(form.dataset.runId ?? "", answers);
     const host = root.querySelector<HTMLElement>("#study-workspace");
     if (host) {
-      host.innerHTML = studyArtifactMarkup(artifact);
+      host.innerHTML = studyArtifactMarkup(artifact, localeOf(root));
       bindStudyPractice(root, api);
     }
   } catch (error) {
     if (submit) submit.disabled = false;
-    announce(root, errorText(error));
+    announce(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -359,9 +405,9 @@ async function submitStudyPractice(
     );
     form.reset();
     const feedback = form.querySelector<HTMLElement>(".study-attempt");
-    if (feedback) feedback.innerHTML = studyAttemptMarkup(result);
+    if (feedback) feedback.innerHTML = studyAttemptMarkup(result, localeOf(root));
   } catch (error) {
-    announce(root, errorText(error));
+    announce(root, errorText(error, localeOf(root)));
   } finally {
     if (submit) submit.disabled = false;
   }
@@ -386,7 +432,7 @@ async function decide(root: HTMLElement, api: DashboardApi, button: HTMLButtonEl
     }
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error));
+    announce(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -401,11 +447,13 @@ async function actOnRadar(root: HTMLElement, api: DashboardApi, button: HTMLButt
     await refresh(root, api, action === "make_task" ? "approvals" : "radar");
     if (result.research_artifact) {
       const target = root.querySelector<HTMLElement>("#research-result");
-      if (target) target.innerHTML = researchPreviewMarkup(result.research_artifact);
+      if (target) {
+        target.innerHTML = researchPreviewMarkup(result.research_artifact, localeOf(root));
+      }
     }
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error));
+    announce(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -417,12 +465,16 @@ async function previewTask(
   input.disabled = true;
   try {
     await api.previewTask(input.dataset.taskId ?? "", input.checked);
-    announce(root, "已生成 Markdown diff，等待审批。 / Preview ready for approval.");
+    announce(root, tr(
+      localeOf(root),
+      "Markdown diff ready for approval.",
+      "已生成 Markdown diff，等待审批。",
+    ));
     await refresh(root, api, "approvals");
   } catch (error) {
     input.checked = !input.checked;
     input.disabled = false;
-    announce(root, errorText(error));
+    announce(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -442,7 +494,7 @@ async function captureTask(
     await refresh(root, api, "approvals");
   } catch (error) {
     if (submit) submit.disabled = false;
-    announce(root, errorText(error));
+    announce(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -457,7 +509,7 @@ async function applyApprovedTask(
     await refresh(root, api, "tasks");
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error));
+    announce(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -470,11 +522,15 @@ async function showRun(
   const detail = root.querySelector<HTMLElement>("#run-detail");
   const run = snapshot.runs.find((entry) => entry.summary.run_id === button.dataset.runId);
   if (!detail || !run) return;
-  detail.textContent = "读取本地事件…";
+  detail.textContent = tr(localeOf(root), "Reading local events…", "读取本地事件…");
   try {
-    detail.innerHTML = runEventsMarkup(run, await api.events(run.summary.run_id, 0));
+    detail.innerHTML = runEventsMarkup(
+      run,
+      await api.events(run.summary.run_id, 0),
+      localeOf(root),
+    );
   } catch (error) {
-    detail.textContent = errorText(error);
+    detail.textContent = errorText(error, localeOf(root));
   }
 }
 
@@ -483,7 +539,7 @@ async function refresh(root: HTMLElement, api: DashboardApi, view = "overview"):
     renderWorkspace(root, api, await api.loadDashboard());
     selectView(root, view);
   } catch (error) {
-    announce(root, errorText(error));
+    announce(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -500,7 +556,9 @@ function configureMusic(root: HTMLElement): void {
   button.addEventListener("click", () => {
     const playing = disc.classList.toggle("is-playing");
     button.setAttribute("aria-pressed", String(playing));
-    button.textContent = playing ? "PAUSE CD" : "ROTATE CD";
+    button.textContent = playing
+      ? tr(localeOf(root), "PAUSE CD", "暂停唱片")
+      : tr(localeOf(root), "ROTATE CD", "转动唱片");
   });
 }
 
@@ -519,7 +577,7 @@ async function loadMusicCover(root: HTMLElement, api: DashboardApi): Promise<voi
     image.src = url;
     image.hidden = false;
   } catch (error) {
-    announce(root, errorText(error));
+    announce(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -527,6 +585,20 @@ function releaseCover(root: HTMLElement): void {
   const previous = coverUrls.get(root);
   if (previous) URL.revokeObjectURL(previous);
   coverUrls.delete(root);
+}
+
+function applyLocale(root: HTMLElement, locale: Locale): void {
+  root.dataset.locale = locale;
+  document.documentElement.lang = locale;
+}
+
+function bindLocaleSwitch(root: HTMLElement, rerender: () => void): void {
+  root.querySelector<HTMLButtonElement>("[data-locale-switch]")?.addEventListener("click", () => {
+    const locale = alternateLocale(localeOf(root));
+    persistLocale(locale);
+    applyLocale(root, locale);
+    rerender();
+  });
 }
 
 function lines(value: FormDataEntryValue | null): string[] {

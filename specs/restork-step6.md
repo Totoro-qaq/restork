@@ -13,7 +13,7 @@ Step 6 turns the Step 5 local control plane into a usable local workspace. It ad
 - four privacy-first memory layers;
 - an authenticated API-backed Dashboard for runs, approvals, Markdown tasks, and Radar;
 - optional daily context: clock, weather, read-only calendar, and a generic daily music recommendation;
-- a bilingual GitHub README with project-native SVG and an HD synthetic demonstration GIF;
+- separate, selectable English and Simplified Chinese READMEs with localized project-native SVGs and an HD synthetic demonstration GIF;
 - reproducible static assets bundled in the Python wheel.
 
 Core reads the configured Obsidian Vault directly. The optional bridge was deliberately deferred
@@ -130,6 +130,8 @@ The browser is a thin authenticated client:
 - it calls the same `/v1` contracts as CLI;
 - it de-duplicates SSE events by event ID and cursor;
 - it does not persist provider tokens, approval bodies, note bodies, playlist contents, location, or calendar entries in Web Storage;
+- it detects browser language, defaults non-Chinese browsers to English, and offers an explicit English/Chinese switch;
+- it may persist only the literal `en` or `zh-CN` locale preference under `restork.locale`;
 - it does not fetch GitHub, HN, weather, cover art, or any provider directly.
 
 ### 4.2 Required views
@@ -213,7 +215,9 @@ Composition: calm editorial-technical, light glass over ruled warm paper
 | Asset | Format | Canvas | Job |
 |---|---|---:|---|
 | `hero.svg` | pure SVG | 1200 × 400 | Name, value, R/S/W memory flow, local-control proof |
+| `hero.zh-CN.svg` | pure SVG | 1200 × 400 | Localized Simplified Chinese hero |
 | `architecture.svg` | pure SVG | 1200 × 560 | Four memory layers and governed outbound boundary |
+| `architecture.zh-CN.svg` | pure SVG | 1200 × 560 | Localized Simplified Chinese architecture |
 | `demo-hd.gif` | GIF | 1600 × 1000 minimum | Synthetic Dashboard interaction proof |
 | `demo-poster.webp` | WebP | 1600 × 1000 minimum | Static proof and GIF fallback/reference |
 
@@ -225,7 +229,7 @@ SVG assets use no script, `foreignObject`, external fonts, external stylesheets,
 Value -> Product proof -> What it is -> Four-layer memory and governed mechanism -> First use -> Modes -> Privacy/limits -> Development/release
 ```
 
-Chinese and English remain adjacent and semantically equivalent. Commands, links, limits, and configuration stay searchable Markdown rather than being trapped inside images.
+`README.md` is the English default and links prominently to `README.zh-CN.md`; the Chinese document links back to English. They remain structurally and semantically equivalent without stacking two languages in one content flow. Commands, links, limits, and configuration stay searchable Markdown rather than being trapped inside images.
 
 ## 6. Accessibility and responsive behavior
 
@@ -258,6 +262,7 @@ Step 6 is complete when:
 
 - `MEM-RETENTION-001`, `UI-CONTEXT-001`, `SEC-AUTH-001`, `REL-EVENT-001`, `OSS-CLEAN-001`, and `README-ASSET-001` pass;
 - Dashboard uses authenticated Core contracts and browser storage contains no sensitive or canonical state;
+- English and Chinese Dashboard chrome cover pairing, navigation, forms, empty states, results, and interaction feedback; the locale switch survives refresh without persisting any private payload;
 - all required views work from synthetic fixtures and the packaged wheel without Node.js;
 - Markdown task mutations remain preview/approval controlled;
 - missing daily configuration performs no network request;

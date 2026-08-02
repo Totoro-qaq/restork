@@ -51,7 +51,7 @@ All Study routes use the authenticated, loopback-only Core API:
 
 Practice submissions require an `Idempotency-Key`. The API returns safe validation and state
 errors without including submitted answer bodies. The Dashboard keeps the current form only in page
-memory, clears a practice response after submission, and never uses browser storage.
+memory, clears a practice response after submission, and never places Study data in browser storage.
 
 After pairing the CLI, a complete flow is:
 

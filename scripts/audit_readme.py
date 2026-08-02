@@ -13,15 +13,47 @@ from urllib.parse import unquote
 MARKDOWN_LINK = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)")
 MARKDOWN_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+[^)]*)?\)")
 HTML_IMAGE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+HTML_ANCHOR = re.compile(r"<a\b[^>]*>", re.IGNORECASE)
 HTML_SRC = re.compile(r"\bsrc=[\"']([^\"']+)[\"']", re.IGNORECASE)
+HTML_HREF = re.compile(r"\bhref=[\"']([^\"']+)[\"']", re.IGNORECASE)
 HTML_ALT = re.compile(r"\balt=[\"']([^\"']*)[\"']", re.IGNORECASE)
 REMOTE_SCHEMES = ("http://", "https://", "mailto:", "data:", "#")
 UNSAFE_SVG_TAGS = {"script", "foreignObject", "iframe", "object", "embed"}
 REQUIRED_ASSETS = {
     "assets/readme/hero.svg": (1200, 400),
+    "assets/readme/hero.zh-CN.svg": (1200, 400),
     "assets/readme/architecture.svg": (1200, 560),
+    "assets/readme/architecture.zh-CN.svg": (1200, 560),
     "assets/readme/demo-hd.gif": (1600, 1000),
     "assets/readme/demo-poster.webp": (1600, 1000),
+}
+README_RULES = {
+    "README.md": {
+        "headings": (
+            "## Product proof",
+            "## Why Restork",
+            "## Architecture",
+            "## Five-minute start",
+            "## Privacy boundary",
+        ),
+        "provenance": "synthetic",
+        "counterpart": "./README.zh-CN.md",
+        "hero": "./assets/readme/hero.svg",
+        "architecture": "./assets/readme/architecture.svg",
+    },
+    "README.zh-CN.md": {
+        "headings": (
+            "## 产品实证",
+            "## 为什么是 Restork",
+            "## 架构",
+            "## 五分钟启动",
+            "## 隐私边界",
+        ),
+        "provenance": "合成",
+        "counterpart": "./README.md",
+        "hero": "./assets/readme/hero.zh-CN.svg",
+        "architecture": "./assets/readme/architecture.zh-CN.svg",
+    },
 }
 
 
@@ -130,20 +162,9 @@ def _audit_required_assets(root: Path) -> list[str]:
     return issues
 
 
-def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: audit_readme.py README.md", file=sys.stderr)
-        return 2
-    if sys.argv[1] not in {"README.md", "./README.md"}:
-        print("ERROR: run the audit from the repository root for README.md", file=sys.stderr)
-        return 2
-    repository_root = Path.cwd().resolve()
-    readme = repository_root / "README.md"
-    if not readme.is_file():
-        print(f"ERROR: README not found: {readme}", file=sys.stderr)
-        return 2
-
+def _audit_readme(readme: Path, repository_root: Path) -> tuple[list[str], int]:
     source = readme.read_text(encoding="utf-8")
+    rules = README_RULES[readme.name]
     issues: list[str] = []
     for alt, reference in MARKDOWN_IMAGE.findall(source):
         if not alt.strip():
@@ -159,6 +180,11 @@ def main() -> int:
         for tag in HTML_IMAGE.findall(source)
         if (match := HTML_SRC.search(tag))
     )
+    references.extend(
+        match.group(1)
+        for tag in HTML_ANCHOR.findall(source)
+        if (match := HTML_HREF.search(tag))
+    )
     checked: set[Path] = set()
     for reference in references:
         target = _local_target(reference, readme.parent)
@@ -171,26 +197,47 @@ def main() -> int:
         if not target.is_file():
             issues.append(f"missing local target: {reference}")
 
-    required_order = (
-        "## 产品实证 / Product proof",
-        "## 为什么是 Restork / Why Restork",
-        "## 架构 / Architecture",
-        "## 五分钟启动 / Five-minute start",
-        "## 隐私边界 / Privacy boundary",
-    )
-    positions = [source.find(heading) for heading in required_order]
+    headings = rules["headings"]
+    assert isinstance(headings, tuple)
+    positions = [source.find(heading) for heading in headings]
     if any(position < 0 for position in positions) or positions != sorted(positions):
-        issues.append(
-            "README narrative order must be value -> proof -> mechanism -> first use -> detail"
-        )
+        issues.append("narrative order must be value -> proof -> mechanism -> first use -> detail")
     if "/Users/" in source or "C:\\Users\\" in source:
-        issues.append("README contains an absolute personal path")
-    if "synthetic" not in source.lower() or "合成" not in source:
-        issues.append("README must state the synthetic provenance in both languages")
-    issues.extend(_audit_required_assets(readme.parent))
+        issues.append("contains an absolute personal path")
+    provenance = rules["provenance"]
+    assert isinstance(provenance, str)
+    if provenance.lower() not in source.lower():
+        issues.append(f"must state its {provenance!r} public-demo provenance")
+    for key in ("counterpart", "hero", "architecture"):
+        required_reference = rules[key]
+        assert isinstance(required_reference, str)
+        if required_reference not in source:
+            issues.append(f"missing required {key} reference: {required_reference}")
+    if "Current status" in source or "当前状态" in source:
+        issues.append("must not contain a transient current-status callout")
+    return issues, len(checked)
 
-    print(f"README: {readme}")
-    print(f"Local targets checked: {len(checked)}")
+
+def main() -> int:
+    requested = [Path(argument).name for argument in sys.argv[1:]]
+    if set(requested) != set(README_RULES) or len(requested) != len(README_RULES):
+        print("usage: audit_readme.py README.md README.zh-CN.md", file=sys.stderr)
+        return 2
+    repository_root = Path.cwd().resolve()
+    issues: list[str] = []
+    checked_count = 0
+    for name in README_RULES:
+        readme = repository_root / name
+        if not readme.is_file():
+            issues.append(f"{name}: README not found")
+            continue
+        readme_issues, local_count = _audit_readme(readme, repository_root)
+        issues.extend(f"{name}: {issue}" for issue in readme_issues)
+        checked_count += local_count
+    issues.extend(_audit_required_assets(repository_root))
+
+    print(f"READMEs: {', '.join(README_RULES)}")
+    print(f"Local targets checked: {checked_count}")
     print(f"Required visual assets checked: {len(REQUIRED_ASSETS)}")
     if issues:
         print("Issues:")

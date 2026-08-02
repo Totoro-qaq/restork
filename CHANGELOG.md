@@ -6,12 +6,14 @@ All notable changes to Restork are documented here.
 
 - No unreleased changes yet.
 
-## 0.1.0 — V1 release candidate
+## 0.1.0 — 2026-08-02
 
 - Added one typed, persistent Core and Harness for Research, Study, and planning-only Work.
 - Added a loopback-only paired Dashboard/CLI, replayable events, exact approvals, budgets, and recovery.
 - Added Obsidian Markdown retrieval, explicit-link projection, journaled tasks, and four-layer memory.
 - Added optional weather, read-only ICS calendar, private playlist recommendation, Roman clock, and CD UI.
+- Added complete English/Simplified Chinese Dashboard chrome with browser-locale detection and an explicit switch.
+- Split the repository homepage into selectable English and Chinese READMEs with localized safe SVGs.
 - Added evidence-backed Research, diagnostic-first Study, and approval-bound local Work handoffs.
 - Added all mandatory security/privacy/reliability gates, public-history scans, aggregate evaluations,
   reproducible packages, checksums, and provenance-attested release workflow.

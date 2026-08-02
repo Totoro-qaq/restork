@@ -1,4 +1,4 @@
-# V1 release-candidate checklist
+# V1 release checklist
 
 Manual checks may supplement, but never waive, a security/privacy gate.
 
@@ -28,7 +28,7 @@ Manual checks may supplement, but never waive, a security/privacy gate.
 - [x] Source archive includes all public README assets; wheel includes the Dashboard.
 - [x] Release workflow emits `SHA256SUMS`, a manifest, and GitHub provenance attestations.
 
-## Release-candidate checks
+## Release checks
 
 - [x] Inspect 1600×1000 desktop and 375×812 mobile layouts with no horizontal overflow or
   browser console errors; verify semantic controls, visible focus styles, and reduced-motion CSS.
@@ -50,12 +50,12 @@ They must not expose credentials and cannot be replaced by repository fixtures.
 - [ ] Create the reviewed `v0.1.0` tag only after the protected `main` release commit is selected.
 - [ ] Verify the downloaded GitHub attestation and checksums before distributing that tagged build.
 
-## Candidate procedure
+## Release procedure
 
 1. Require all protected-branch CI and CodeQL checks on the release commit.
 2. Run `./scripts/scan-public-artifacts.sh` with complete Git history available.
 3. Run `uv run python scripts/build_release.py --output dist/release`.
 4. Compare `SHA256SUMS` and inspect `release-manifest.json`.
-5. Trigger the `Release candidate` workflow or push a reviewed `v*` tag.
+5. Trigger the `Release` workflow or push a reviewed `v*` tag.
 6. Verify the GitHub artifact attestation before distributing artifacts.
 7. Do not publish when any critical/high review finding or unresolved security thread remains.

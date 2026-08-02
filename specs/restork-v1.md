@@ -1,6 +1,6 @@
 # Restork V1 Product & Technical Specification
 
-> Status: Implemented — V1 release candidate | Version: 1.0 | Date: 2026-08-02
+> Status: Implemented — V1 | Version: 1.0 | Date: 2026-08-02
 >
 > Scope: V1 local-first personal agent for Research, Study, and Work
 >
@@ -392,7 +392,8 @@ Rules:
 - **FR-UI-010**: Calendar V1 reads local ICS data only. It performs no calendar write, account login, or browser-side file access.
 - **FR-UI-011**: Daily music is genre-neutral public functionality driven by a user-imported private playlist/profile. Genre and locale preferences remain private configuration, not repository defaults.
 - **FR-UI-012**: Album art is optional and never bundled from a copyrighted catalog. The rotating-CD presentation supports pause, a static fallback, lazy loading, and safe missing-image behavior.
-- **FR-UI-013**: The repository README is bilingual and uses GitHub-safe project-native SVG plus an HD product demonstration GIF generated only from synthetic public data.
+- **FR-UI-013**: The repository offers separate, selectable English and Simplified Chinese READMEs with localized GitHub-safe project-native SVGs plus an HD product demonstration GIF generated only from synthetic public data.
+- **FR-UI-014**: Dashboard detects the browser locale, defaults non-Chinese locales to English, and exposes an explicit English/Chinese switch. Only the literal non-sensitive locale preference may be persisted in Web Storage; no canonical or private state may be persisted there.
 
 ## 10. Knowledge indexing and graph readiness
 
@@ -491,6 +492,7 @@ flowchart LR
 Responsibilities:
 
 - presentation;
+- English and Simplified Chinese presentation with an explicit locale switch;
 - mode selection;
 - task and radar views;
 - run event rendering;
@@ -1065,7 +1067,7 @@ Closed by the owner:
 5. Core packaging: Python wheel with bundled Dashboard assets; `uv tool install restork` and foreground `restork serve`; no default daemon or native wrapper in V1.
 6. Memory: four local layers; TOML for structured profile values plus optional Markdown instructions, SQLite episodic metadata, and Markdown-backed semantic memory. No Valkey or Memory MCP dependency in V1.
 7. Daily context: optional weather, local read-only ICS calendar, and user-imported generic playlist; genre and locale preferences remain private configuration.
-8. README: bilingual visual refresh with project-native GitHub-safe SVG and an HD synthetic product GIF matching the approved light typewriter UI.
+8. README: separate selectable English and Simplified Chinese documents with localized project-native GitHub-safe SVGs and an HD synthetic product GIF matching the approved light typewriter UI.
 
 ## 23. External references
 

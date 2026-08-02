@@ -17,10 +17,14 @@ from pathlib import Path, PurePosixPath
 from scan_public_artifacts import _content_issues, _path_issues
 
 _README_ASSETS = {
+    "README.md",
+    "README.zh-CN.md",
     "assets/readme/architecture.svg",
+    "assets/readme/architecture.zh-CN.svg",
     "assets/readme/demo-hd.gif",
     "assets/readme/demo-poster.webp",
     "assets/readme/hero.svg",
+    "assets/readme/hero.zh-CN.svg",
 }
 _SOURCE_DATE_EPOCH = 1_785_571_200
 
