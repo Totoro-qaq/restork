@@ -6,6 +6,8 @@ import type {
   DashboardApi,
   DashboardSnapshot,
   ProviderDiagnostic,
+  SessionMessageV2,
+  SessionRecordV2,
   WorkExportResult,
   WorkHandoffPreview,
   WorkPlanArtifact,
@@ -929,5 +931,251 @@ describe("authenticated workspace", () => {
     );
     expect(root.querySelector(".conversation-wait")).toBeNull();
     root.remove();
+  });
+});
+
+describe("Rust conversation workspace", () => {
+  const workspaceSnapshot = (): DashboardSnapshot => ({
+    ...snapshot,
+    workspaceV2: {
+      dailyContext: {
+        observed_at: "2026-08-02T12:00:00Z",
+        timezone: "Asia/Shanghai",
+        local_date: "2026-08-02",
+        local_time: "20:00:00",
+        time_band: "evening",
+      },
+      personal: null,
+      sessions: [],
+      extensions: [],
+      deliverables: [],
+      schedules: [],
+      providers: [],
+      profiles: [{
+        profile: {
+          profile_id: "research-cloud",
+          version: 1,
+          name: "Research Cloud",
+          provider_profile_id: "deepseek",
+          prompt_manifest_hash: "a".repeat(64),
+          enabled_skill_ids: [],
+          allowed_tools: [],
+          memory_namespace: "research",
+          maximum_data_class: "personal",
+          include_display_name_in_prompt: false,
+        },
+        revision: 1,
+        builtin: false,
+        updated_at: "2026-08-02T12:00:00Z",
+      }],
+      prompts: [],
+    },
+  });
+
+  it("makes local or cloud selection explicit when a conversation is created", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    api.createSession = vi.fn(async (
+      title: string,
+      profileId: string,
+    ): Promise<SessionRecordV2> => ({
+      session_id: "session-cloud",
+      title,
+      profile_id: profileId,
+      status: "active",
+      version: 1,
+      locale: "en",
+      created_at: "2026-08-02T12:00:00Z",
+      updated_at: "2026-08-02T12:00:00Z",
+      archived_at: null,
+    }));
+    api.sessionMessages = vi.fn(async () => []);
+    mountDashboard(root, { api, snapshot: workspaceSnapshot() });
+
+    root.querySelector<HTMLButtonElement>('[data-view="conversation"]')?.click();
+    const form = root.querySelector<HTMLFormElement>("#session-create-form");
+    const title = form?.elements.namedItem("title");
+    const profile = form?.elements.namedItem("profile_id");
+    if (title instanceof HTMLInputElement && profile instanceof HTMLSelectElement && form) {
+      title.value = "Recent model papers";
+      profile.value = "deepseek";
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    }
+
+    await vi.waitFor(() => expect(api.createSession).toHaveBeenCalledWith(
+      "Recent model papers",
+      "deepseek",
+    ));
+    expect(root.textContent).toContain("cloud use is never selected silently");
+    expect(root.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it("shows an honest model wait state and keeps the conversation scrollable", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const state = workspaceSnapshot();
+    state.workspaceV2?.sessions.push({
+      session_id: "session-cloud",
+      title: "Research with DeepSeek",
+      profile_id: "deepseek",
+      status: "active",
+      version: 1,
+      locale: "en",
+      created_at: "2026-08-02T12:00:00Z",
+      updated_at: "2026-08-02T12:00:00Z",
+      archived_at: null,
+    });
+    let finish: ((value: SessionMessageV2) => void) | undefined;
+    api.sessionMessages = vi.fn(async () => []);
+    api.sendSessionMessage = vi.fn(() => new Promise<SessionMessageV2>((resolve) => {
+      finish = resolve;
+    }));
+    mountDashboard(root, { api, snapshot: state });
+
+    const composer = root.querySelector<HTMLFormElement>("#session-message-form");
+    const textarea = composer?.querySelector<HTMLTextAreaElement>("textarea");
+    if (composer && textarea) {
+      textarea.value = "Summarize the evidence.";
+      composer.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    }
+
+    expect(root.querySelector("#conversation-wait")?.getAttribute("aria-busy")).toBe("true");
+    expect(root.querySelector("#conversation-wait")?.textContent).toContain(
+      "Waiting for the configured model",
+    );
+    expect(root.querySelector("#conversation-wait")?.textContent).toContain("tools remain off");
+    expect(root.querySelector("#conversation-messages")?.getAttribute("tabindex")).toBe("0");
+    const dataClass = root.querySelector<HTMLSelectElement>(
+      '#session-message-form [name="data_class"]',
+    );
+    expect(dataClass?.value).toBe("public");
+    expect(dataClass?.querySelector<HTMLOptionElement>('option[value="personal"]')?.disabled)
+      .toBe(true);
+    expect(dataClass?.querySelector<HTMLOptionElement>('option[value="confidential"]')?.disabled)
+      .toBe(true);
+    finish?.({
+      message_id: "assistant-1",
+      session_id: "session-cloud",
+      sequence: 2,
+      role: "assistant",
+      content: "Synthetic response",
+      context: { tool_access: false },
+      data_class: "public",
+      created_at: "2026-08-02T12:00:01Z",
+    });
+    await vi.waitFor(() => expect(root.querySelector("#conversation-wait")?.textContent).toBe(""));
+  });
+
+  it("renders bilingual extension, deliverable, and automation workspaces without wide-page overflow", () => {
+    const root = document.createElement("main");
+    const state = workspaceSnapshot();
+    state.workspaceV2?.extensions.push({
+      package_id: "skill.synthetic",
+      package_kind: "skill",
+      state: "quarantined",
+      manifest_hash: "b".repeat(64),
+      manifest: { schema_version: 1, version: "1.0.0", tools: [] },
+      updated_at: "2026-08-02T12:00:00Z",
+    });
+    state.workspaceV2?.deliverables.push({
+      deliverable_id: "report.synthetic",
+      kind: "daily_report",
+      state: "draft",
+      revision: 1,
+      artifact: { markdown: "# Synthetic report\n\n- self-asserted" },
+      updated_at: "2026-08-02T12:00:00Z",
+    });
+    state.workspaceV2?.schedules.push({
+      schedule_id: "daily.synthetic",
+      state: "active",
+      revision: 1,
+      schedule: {
+        timezone: "Asia/Shanghai",
+        recurrence: { kind: "daily", hour: 9, minute: 0 },
+        job: { kind: "deterministic", job: "health.check" },
+      },
+      next_run_at: "2026-08-03T01:00:00Z",
+      updated_at: "2026-08-02T12:00:00Z",
+    });
+    mountDashboard(root, { api: fakeApi(), snapshot: state, locale: "zh-CN" });
+
+    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+    expect(root.querySelector<HTMLElement>('[data-view-panel="extensions"]')?.hidden).toBe(false);
+    expect(root.querySelector("#extension-install-form")).not.toBeNull();
+    expect(root.textContent).toContain("安装已固定版本的清单");
+    root.querySelector<HTMLButtonElement>('[data-extension-filter="plugin"]')?.click();
+    expect(root.querySelector<HTMLElement>('[data-extension-card-kind="skill"]')?.hidden).toBe(true);
+
+    root.querySelector<HTMLButtonElement>('[data-view="deliverables"]')?.click();
+    expect(root.querySelector("#manual-report-form")).not.toBeNull();
+    expect(root.querySelector("#deck-from-report-form")).not.toBeNull();
+    expect(root.textContent).toContain("日报 / 周报草稿");
+
+    root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
+    expect(root.querySelector("#schedule-create-form")).not.toBeNull();
+    expect(root.textContent).toContain("恢复与评估契约");
+    expect(root.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it("searches only the active session's frozen tool catalog and previews the real call", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const state = workspaceSnapshot();
+    state.workspaceV2?.sessions.push({
+      session_id: "session-tools",
+      title: "Tool review",
+      profile_id: "safe-mode",
+      status: "active",
+      version: 1,
+      locale: "en",
+      created_at: "2026-08-02T12:00:00Z",
+      updated_at: "2026-08-02T12:00:00Z",
+      archived_at: null,
+    });
+    api.sessionMessages = vi.fn(async () => []);
+    api.searchSessionTools = vi.fn(async () => ({
+      session_id: "session-tools",
+      catalog_fingerprint: "c".repeat(64),
+      items: [{
+        tool_id: "tool.synthetic",
+        name: "Synthetic <script>alert(1)</script>",
+        score: 42,
+      }],
+    }));
+    api.previewSessionToolCall = vi.fn(async () => ({
+      state: "review_required" as const,
+      execution_started: false as const,
+      output_is_untrusted: true as const,
+      resolved_call: {
+        real_tool_id: "server.synthetic.read",
+        package_id: "plugin.synthetic",
+        package_version: "1.0.0",
+        server_id: "server.synthetic",
+        required_permissions: ["network:example.com"],
+        input: {},
+      },
+    }));
+    mountDashboard(root, { api, snapshot: state });
+    await vi.waitFor(() => expect(root.querySelector("#conversation-messages")?.textContent)
+      .toContain("ready for its first message"));
+
+    const form = root.querySelector<HTMLFormElement>("#tool-search-form");
+    const query = form?.elements.namedItem("query");
+    if (form && query instanceof HTMLInputElement) {
+      query.value = "synthetic";
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    }
+    await vi.waitFor(() => expect(root.querySelector('[data-tool-preview="tool.synthetic"]'))
+      .not.toBeNull());
+    expect(root.querySelector("script")).toBeNull();
+    root.querySelector<HTMLButtonElement>('[data-tool-preview="tool.synthetic"]')?.click();
+    await vi.waitFor(() => expect(root.textContent).toContain("server.synthetic.read"));
+    expect(api.searchSessionTools).toHaveBeenCalledWith("session-tools", "synthetic");
+    expect(api.previewSessionToolCall).toHaveBeenCalledWith(
+      "session-tools",
+      "tool.synthetic",
+      {},
+    );
+    expect(root.textContent).toContain("Execution has not started");
   });
 });

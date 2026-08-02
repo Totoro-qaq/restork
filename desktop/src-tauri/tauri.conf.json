@@ -4,7 +4,7 @@
   "version": "0.1.2",
   "identifier": "io.github.totoro-qaq.restork",
   "build": {
-    "beforeBuildCommand": "../scripts/build-desktop-core.sh",
+    "beforeBuildCommand": "node ../scripts/build-desktop-runtime.mjs",
     "frontendDist": "../ui"
   },
   "app": {
@@ -35,15 +35,8 @@
     "copyright": "Copyright © 2026 Restork contributors",
     "longDescription": "A local-first agent workspace for research, study, and work.",
     "shortDescription": "Local-first research, study, and work agent",
-    "targets": ["app", "dmg"],
-    "icon": ["icons/icon.icns"],
     "resources": {
-      "../../dist/desktop-core/restork-core/": "core/restork-core/"
-    },
-    "macOS": {
-      "minimumSystemVersion": "13.0",
-      "entitlements": "Entitlements.plist",
-      "hardenedRuntime": true
+      "../../dist/desktop-runtime/": "core/"
     }
   },
   "plugins": {

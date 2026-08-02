@@ -31,6 +31,10 @@ import {
   workPlanMarkup,
   workVerificationMarkup,
   runEventsMarkup,
+  runProposalMarkup,
+  sessionMessagesMarkup,
+  toolCallPreviewMarkup,
+  toolSearchMarkup,
   workspaceMarkup,
 } from "./ui/render";
 import type { AgentWaitStage } from "./ui/render";
@@ -134,13 +138,649 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
     if (button.dataset.pageKind === "events") return;
     button.addEventListener("click", () => void loadMore(root, api, snapshot, button));
   });
-  configureMusic(root);
+  configureMusic(root, api);
   configureWeather(root, api);
   configureCalendar(root, api);
   configureProvider(root, api);
+  configureRustWorkspace(root, api, snapshot);
   if (snapshot.daily?.music.recommendation?.cover_available) {
     void loadMusicCover(root, api);
   }
+}
+
+function configureRustWorkspace(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+): void {
+  if (!snapshot.workspaceV2) return;
+  const selectSession = async (
+    sessionId: string,
+    title: string,
+    profileId = "safe-mode",
+  ): Promise<void> => {
+    const pane = root.querySelector<HTMLElement>(".conversation-pane");
+    const host = root.querySelector<HTMLElement>("#conversation-messages");
+    const heading = root.querySelector<HTMLElement>("#conversation-title");
+    if (!pane || !host || !api.sessionMessages) return;
+    pane.dataset.activeSession = sessionId;
+    pane.dataset.activeProfile = profileId;
+    const selectedRecord = snapshot.workspaceV2?.sessions.find(
+      (session) => session.session_id === sessionId,
+    );
+    pane.dataset.activeVersion = String(selectedRecord?.version ?? 0);
+    if (heading) heading.textContent = title;
+    root.querySelectorAll<HTMLElement>("[data-session-select]").forEach((item) => {
+      item.classList.toggle("is-active", item.dataset.sessionSelect === sessionId);
+    });
+    root.querySelectorAll<HTMLFormElement>("#session-message-form, #proposal-form").forEach(
+      (form) => { form.hidden = false; },
+    );
+    root.querySelectorAll<HTMLButtonElement>("[data-session-export], [data-session-archive], [data-session-delete]")
+      .forEach((button) => { button.disabled = false; });
+    const dataClass = root.querySelector<HTMLSelectElement>('#session-message-form [name="data_class"]');
+    if (dataClass) {
+      const publicOnly = profileId === "deepseek";
+      for (const option of dataClass.options) {
+        option.disabled = publicOnly && option.value !== "public";
+      }
+      if (publicOnly) dataClass.value = "public";
+    }
+    host.setAttribute("aria-busy", "true");
+    host.innerHTML = `<p class="empty">${tr(localeOf(root), "Loading local messages…", "正在加载本地消息…")}</p>`;
+    try {
+      const messages = await api.sessionMessages(sessionId);
+      if (pane.dataset.activeSession !== sessionId) return;
+      host.innerHTML = sessionMessagesMarkup(messages, localeOf(root));
+      host.scrollTop = host.scrollHeight;
+    } catch (error) {
+      host.innerHTML = `<p class="empty">${escapeStatus(errorText(error, localeOf(root)))}</p>`;
+    } finally {
+      host.removeAttribute("aria-busy");
+    }
+  };
+
+  root.querySelectorAll<HTMLButtonElement>("[data-session-select]").forEach((button) => {
+    button.addEventListener("click", () => {
+      void selectSession(
+        button.dataset.sessionSelect ?? "",
+        button.dataset.sessionTitle ?? "",
+        button.dataset.sessionProfile ?? "safe-mode",
+      );
+    });
+  });
+  root.querySelector<HTMLFormElement>("#session-search-form")?.addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+      const form = event.currentTarget as HTMLFormElement;
+      const query = String(new FormData(form).get("query") ?? "").trim();
+      const host = root.querySelector<HTMLElement>("#session-search-results");
+      if (!query || !host || !api.searchSessions) return;
+      host.innerHTML = `<p class="fine">${tr(localeOf(root), "Searching local FTS index…", "正在搜索本地 FTS 索引…")}</p>`;
+      void api.searchSessions(query).then((hits) => {
+        host.innerHTML = hits.map((hit) => `<button type="button" data-session-hit="${escapeStatus(hit.session_id)}"><span>${escapeStatus(hit.excerpt)}</span><small>#${hit.sequence}</small></button>`).join("") || `<p class="fine">${tr(localeOf(root), "No match.", "没有匹配项。")}</p>`;
+        host.querySelectorAll<HTMLButtonElement>("[data-session-hit]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const session = snapshot.workspaceV2?.sessions.find(
+              (item) => item.session_id === button.dataset.sessionHit,
+            );
+            if (session) void selectSession(session.session_id, session.title, session.profile_id);
+          });
+        });
+      }).catch((error) => { host.textContent = errorText(error, localeOf(root)); });
+    },
+  );
+
+  root.querySelector<HTMLButtonElement>("[data-session-export]")?.addEventListener("click", () => {
+    const pane = root.querySelector<HTMLElement>(".conversation-pane");
+    const sessionId = pane?.dataset.activeSession ?? "";
+    if (!sessionId || !api.exportSession) return;
+    void api.exportSession(sessionId).then((payload) => {
+      downloadJson(`restork-${safeFilename(payload.session.title)}.json`, payload);
+      announce(root, tr(localeOf(root), "Conversation export downloaded locally.", "对话导出已下载到本地。"));
+    }).catch((error) => announce(root, errorText(error, localeOf(root))));
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-session-archive]")?.addEventListener("click", () => {
+    const pane = root.querySelector<HTMLElement>(".conversation-pane");
+    const sessionId = pane?.dataset.activeSession ?? "";
+    const version = Number(pane?.dataset.activeVersion ?? "0");
+    if (!sessionId || !version || !api.archiveSession) return;
+    void api.archiveSession(sessionId, version)
+      .then(() => reloadWorkspaceView(root, api, "conversation"))
+      .catch((error) => announce(root, errorText(error, localeOf(root))));
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-session-delete]")?.addEventListener("click", () => {
+    const pane = root.querySelector<HTMLElement>(".conversation-pane");
+    const sessionId = pane?.dataset.activeSession ?? "";
+    const version = Number(pane?.dataset.activeVersion ?? "0");
+    if (!sessionId || !version || !api.deleteSession) return;
+    if (!window.confirm(tr(localeOf(root), "Delete this local conversation permanently?", "永久删除这个本地对话？"))) return;
+    void api.deleteSession(sessionId, version)
+      .then(() => reloadWorkspaceView(root, api, "conversation"))
+      .catch((error) => announce(root, errorText(error, localeOf(root))));
+  });
+  root.querySelector<HTMLFormElement>("#session-create-form")?.addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+      const form = event.currentTarget as HTMLFormElement;
+      const data = new FormData(form);
+      const title = String(data.get("title") ?? "").trim();
+      const profileId = String(data.get("profile_id") ?? "safe-mode").trim();
+      if (!title || !api.createSession) return;
+      const button = form.querySelector<HTMLButtonElement>("button");
+      if (button) button.disabled = true;
+      void api.createSession(title, profileId).then((session) => {
+        snapshot.workspaceV2?.sessions.unshift(session);
+        renderWorkspace(root, api, snapshot);
+        selectView(root, "conversation");
+        return selectSession(session.session_id, session.title, session.profile_id);
+      }).catch((error) => announce(root, errorText(error, localeOf(root))));
+    },
+  );
+
+  const messageForm = root.querySelector<HTMLFormElement>("#session-message-form");
+  const messageText = messageForm?.querySelector<HTMLTextAreaElement>("textarea");
+  messageText?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      messageForm?.requestSubmit();
+    }
+  });
+  messageForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const pane = root.querySelector<HTMLElement>(".conversation-pane");
+    const wait = root.querySelector<HTMLElement>("#conversation-wait");
+    const sessionId = pane?.dataset.activeSession ?? "";
+    const form = event.currentTarget as HTMLFormElement;
+    const data = new FormData(form);
+    const content = String(data.get("content") ?? "").trim();
+    const dataClass = String(data.get("data_class") ?? "public") as WorkDataClass;
+    const activeProfileId = snapshot.workspaceV2?.sessions.find(
+      (session) => session.session_id === sessionId,
+    )?.profile_id ?? pane?.dataset.activeProfile ?? "safe-mode";
+    if (!sessionId || !content || !api.sendSessionMessage) return;
+    form.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement | HTMLSelectElement>(
+      "button, textarea, select",
+    ).forEach((control) => { control.disabled = true; });
+    const modelBacked = activeProfileId !== "safe-mode";
+    if (wait) {
+      wait.setAttribute("aria-busy", "true");
+      wait.innerHTML = `<div class="conversation-wait"><i></i><span>${modelBacked
+        ? tr(localeOf(root), "Waiting for the configured model · tools remain off…", "正在等待已配置的模型 · 工具仍保持关闭…")
+        : tr(localeOf(root), "Saving this message to the local session…", "正在将消息保存到本地会话…")}</span></div>`;
+    }
+    void api.sendSessionMessage(sessionId, content, dataClass).then(() => {
+      form.reset();
+      return selectSession(
+        sessionId,
+        root.querySelector<HTMLElement>("#conversation-title")?.textContent ?? "",
+        activeProfileId,
+      );
+    }).catch((error) => {
+      announce(root, errorText(error, localeOf(root)));
+      return selectSession(
+        sessionId,
+        root.querySelector<HTMLElement>("#conversation-title")?.textContent ?? "",
+        activeProfileId,
+      );
+    }).finally(() => {
+      if (wait) {
+        wait.innerHTML = "";
+        wait.removeAttribute("aria-busy");
+      }
+      form.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement | HTMLSelectElement>(
+        "button, textarea, select",
+      ).forEach((control) => { control.disabled = false; });
+      messageText?.focus();
+    });
+  });
+
+  root.querySelector<HTMLFormElement>("#proposal-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const pane = root.querySelector<HTMLElement>(".conversation-pane");
+    const sessionId = pane?.dataset.activeSession ?? "";
+    const form = event.currentTarget as HTMLFormElement;
+    const data = new FormData(form);
+    const mode = String(data.get("mode") ?? "research") as Mode;
+    const goal = String(data.get("goal") ?? "").trim();
+    const preview = root.querySelector<HTMLElement>("#proposal-preview");
+    if (!sessionId || !goal || !api.createSessionProposal || !preview) return;
+    form.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
+      "button, input, select",
+    ).forEach((control) => { control.disabled = true; });
+    preview.innerHTML = `<div class="conversation-wait"><i></i><span>${tr(localeOf(root), "Building a local, tool-free proposal…", "正在本地生成无工具提案…")}</span></div>`;
+    void api.createSessionProposal(sessionId, mode, goal).then((proposal) => {
+      preview.innerHTML = runProposalMarkup(proposal, localeOf(root));
+    }).catch((error) => {
+      preview.innerHTML = `<p class="empty">${escapeStatus(errorText(error, localeOf(root)))}</p>`;
+    }).finally(() => {
+      form.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
+        "button, input, select",
+      ).forEach((control) => { control.disabled = false; });
+    });
+  });
+
+  root.querySelector<HTMLFormElement>("#tool-search-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const pane = root.querySelector<HTMLElement>(".conversation-pane");
+    const sessionId = pane?.dataset.activeSession ?? "";
+    const query = String(new FormData(event.currentTarget as HTMLFormElement).get("query") ?? "").trim();
+    const host = root.querySelector<HTMLElement>("#tool-search-results");
+    if (!sessionId || !query || !host || !api.searchSessionTools) return;
+    host.innerHTML = `<div class="conversation-wait"><i></i><span>${tr(localeOf(root), "Searching the frozen catalog…", "正在搜索冻结目录…")}</span></div>`;
+    void api.searchSessionTools(sessionId, query).then((result) => {
+      host.innerHTML = toolSearchMarkup(result, localeOf(root));
+      bindToolPreview(root, api, host, sessionId);
+    }).catch((error) => { host.textContent = errorText(error, localeOf(root)); });
+  });
+
+  root.querySelector<HTMLFormElement>("#personal-settings-form")?.addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+      const form = event.currentTarget as HTMLFormElement;
+      const data = new FormData(form);
+      const version = Number(form.dataset.version ?? "0");
+      const status = form.querySelector<HTMLElement>("#personal-settings-status");
+      if (!api.savePersonalSettings) return;
+      const settings = {
+        display_name: String(data.get("display_name") ?? "").trim() || undefined,
+        locale: String(data.get("locale") ?? "") || undefined,
+        timezone: String(data.get("timezone") ?? "").trim() || undefined,
+        week_start: "monday",
+        theme: String(data.get("theme") ?? "system"),
+      };
+      if (status) status.textContent = tr(localeOf(root), "Saving locally…", "正在保存到本地…");
+      void api.savePersonalSettings(version || null, settings).then((record) => {
+        if (snapshot.workspaceV2) snapshot.workspaceV2.personal = record;
+        form.dataset.version = String(record.version);
+        if (status) status.textContent = tr(localeOf(root), "Saved on this device.", "已保存在本设备。");
+      }).catch((error) => {
+        if (status) status.textContent = errorText(error, localeOf(root));
+      });
+    },
+  );
+
+  root.querySelector<HTMLSelectElement>('#provider-profile-form [name="kind"]')
+    ?.addEventListener("change", (event) => {
+      const kind = (event.currentTarget as HTMLSelectElement).value;
+      const form = root.querySelector<HTMLFormElement>("#provider-profile-form");
+      const baseUrl = form?.elements.namedItem("base_url") as HTMLInputElement | null;
+      const model = form?.elements.namedItem("model") as HTMLInputElement | null;
+      const secretRef = form?.elements.namedItem("secret_ref") as HTMLInputElement | null;
+      if (kind === "ollama") {
+        if (baseUrl) baseUrl.value = "http://127.0.0.1:11434";
+        if (model) model.value = "";
+        if (secretRef) {
+          secretRef.value = "";
+          secretRef.disabled = true;
+        }
+      } else {
+        if (secretRef) secretRef.disabled = false;
+        if (kind === "deepseek") {
+          if (baseUrl) baseUrl.value = "https://api.deepseek.com";
+          if (model) model.value = "deepseek-v4-pro";
+        }
+      }
+    });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-provider-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const form = root.querySelector<HTMLFormElement>("#provider-profile-form");
+      if (!form) return;
+      try {
+        const record = JSON.parse(button.dataset.providerRecord ?? "{}") as {
+          revision: number;
+          provider: Record<string, unknown>;
+        };
+        form.dataset.version = String(record.revision);
+        for (const name of ["profile_id", "display_name", "kind", "base_url", "model", "secret_ref"]) {
+          const field = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
+          if (field) field.value = String(record.provider[name] ?? "");
+        }
+        const id = form.elements.namedItem("profile_id") as HTMLInputElement | null;
+        if (id) id.readOnly = true;
+        form.scrollIntoView({ behavior: "smooth", block: "center" });
+      } catch {
+        announce(root, tr(localeOf(root), "Provider record could not be opened.", "无法打开此供应商记录。"));
+      }
+    });
+  });
+
+  root.querySelector<HTMLFormElement>("#provider-profile-form")?.addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+      const form = event.currentTarget as HTMLFormElement;
+      const data = new FormData(form);
+      const expected = Number(form.dataset.version ?? "0") || null;
+      const kind = String(data.get("kind") ?? "deepseek") as
+        | "deepseek"
+        | "ollama"
+        | "open_ai_compatible";
+      const secretRef = String(data.get("secret_ref") ?? "").trim() || null;
+      const status = form.querySelector<HTMLElement>("#provider-profile-status");
+      if (!api.saveProviderProfile) return;
+      if (kind !== "ollama" && !secretRef) {
+        if (status) status.textContent = tr(
+          localeOf(root),
+          "Choose a native secret reference; never paste the API key here.",
+          "请选择原生密钥引用；不要在这里粘贴 API Key。",
+        );
+        return;
+      }
+      if (status) status.textContent = tr(localeOf(root), "Validating locally…", "正在本地校验…");
+      void api.saveProviderProfile(expected, {
+        profile_id: String(data.get("profile_id") ?? "").trim(),
+        version: (expected ?? 0) + 1,
+        display_name: String(data.get("display_name") ?? "").trim(),
+        kind,
+        base_url: String(data.get("base_url") ?? "").trim(),
+        model: String(data.get("model") ?? "").trim(),
+        secret_ref: kind === "ollama" ? null : secretRef,
+        fallback: "disabled",
+      }).then(() => reloadWorkspaceView(root, api, "settings")).catch((error) => {
+        if (status) status.textContent = errorText(error, localeOf(root));
+      });
+    },
+  );
+
+  root.querySelector<HTMLFormElement>("#prompt-revision-form")?.addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+      const form = event.currentTarget as HTMLFormElement;
+      const data = new FormData(form);
+      const promptId = String(data.get("prompt_id") ?? "").trim();
+      const expected = promptId === "personal"
+        ? Number(form.dataset.version ?? "0") || null
+        : null;
+      const layer = String(data.get("layer") ?? "personal") as "skill" | "personal";
+      const content = String(data.get("content") ?? "");
+      const status = form.querySelector<HTMLElement>("#prompt-revision-status");
+      if (!api.createPromptRevision) return;
+      if (status) status.textContent = tr(localeOf(root), "Saving an immutable revision…", "正在保存不可变修订…");
+      void api.createPromptRevision(promptId, expected, layer, content)
+        .then(() => reloadWorkspaceView(root, api, "settings"))
+        .catch((error) => {
+          if (status) status.textContent = errorText(error, localeOf(root));
+        });
+    },
+  );
+
+  root.querySelectorAll<HTMLButtonElement>("[data-prompt-activate]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!api.activatePromptRevision) return;
+      const promptId = button.dataset.promptId ?? "";
+      const revision = Number(button.dataset.promptActivate ?? "0");
+      const active = Number(button.dataset.activeRevision ?? "0") || null;
+      button.disabled = true;
+      void api.activatePromptRevision(promptId, revision, active)
+        .then(() => reloadWorkspaceView(root, api, "settings"))
+        .catch((error) => {
+          button.disabled = false;
+          announce(root, errorText(error, localeOf(root)));
+        });
+    });
+  });
+
+  root.querySelector<HTMLFormElement>("#configuration-profile-form")?.addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+      const form = event.currentTarget as HTMLFormElement;
+      const data = new FormData(form);
+      const expected = Number(form.dataset.version ?? "0") || null;
+      const promptHash = form.dataset.promptHash ?? "";
+      const status = form.querySelector<HTMLElement>("#configuration-profile-status");
+      if (!api.saveConfigurationProfile || promptHash.length !== 64) return;
+      const profileId = String(data.get("profile_id") ?? "").trim();
+      if (status) status.textContent = tr(localeOf(root), "Freezing profile boundaries…", "正在冻结 Profile 边界…");
+      void api.saveConfigurationProfile(expected, {
+        profile_id: profileId,
+        version: (expected ?? 0) + 1,
+        name: String(data.get("name") ?? "").trim(),
+        provider_profile_id: String(data.get("provider_profile_id") ?? "").trim(),
+        prompt_manifest_hash: promptHash,
+        enabled_skill_ids: commaList(data.get("enabled_skill_ids")),
+        allowed_tools: commaList(data.get("allowed_tools")),
+        memory_namespace: profileId,
+        maximum_data_class: String(data.get("maximum_data_class") ?? "public") as WorkDataClass,
+        include_display_name_in_prompt: data.get("include_display_name_in_prompt") === "on",
+      }).then(() => reloadWorkspaceView(root, api, "settings")).catch((error) => {
+        if (status) status.textContent = errorText(error, localeOf(root));
+      });
+    },
+  );
+
+  configureExtensionCenter(root, api);
+  configureDeliverables(root, api);
+  configureAutomation(root, api);
+
+  const first = snapshot.workspaceV2.sessions.find((session) => session.status === "active");
+  if (first) void selectSession(first.session_id, first.title, first.profile_id);
+}
+
+function bindToolPreview(
+  root: HTMLElement,
+  api: DashboardApi,
+  host: HTMLElement,
+  sessionId: string,
+): void {
+  host.querySelectorAll<HTMLButtonElement>("[data-tool-preview]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const toolId = button.dataset.toolPreview ?? "";
+      if (!toolId || !api.previewSessionToolCall) return;
+      button.disabled = true;
+      void api.previewSessionToolCall(sessionId, toolId, {}).then((preview) => {
+        host.innerHTML = toolCallPreviewMarkup(preview, localeOf(root));
+      }).catch((error) => {
+        button.disabled = false;
+        announce(root, errorText(error, localeOf(root)));
+      });
+    });
+  });
+}
+
+function configureExtensionCenter(root: HTMLElement, api: DashboardApi): void {
+  root.querySelectorAll<HTMLButtonElement>("[data-extension-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const kind = button.dataset.extensionFilter ?? "all";
+      root.querySelectorAll<HTMLButtonElement>("[data-extension-filter]")
+        .forEach((item) => item.classList.toggle("is-active", item === button));
+      root.querySelectorAll<HTMLElement>("[data-extension-card-kind]").forEach((card) => {
+        card.hidden = kind !== "all" && card.dataset.extensionCardKind !== kind;
+      });
+    });
+  });
+  root.querySelector<HTMLFormElement>("#extension-install-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const data = new FormData(form);
+    const status = form.querySelector<HTMLElement>("#extension-install-status");
+    if (!api.installExtension) return;
+    let manifest: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(String(data.get("manifest") ?? "")) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+      manifest = parsed as Record<string, unknown>;
+    } catch {
+      if (status) status.textContent = tr(localeOf(root), "Manifest must be one JSON object.", "清单必须是一个 JSON 对象。");
+      return;
+    }
+    if (status) status.textContent = tr(localeOf(root), "Validating and quarantining…", "正在验证并隔离…");
+    void api.installExtension(
+      String(data.get("package_kind") ?? "skill") as "skill" | "mcp" | "plugin",
+      manifest,
+    ).then(() => reloadWorkspaceView(root, api, "extensions"))
+      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-extension-state]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.extensionState as "enable" | "disable";
+      const packageId = button.dataset.extensionId ?? "";
+      const hash = button.dataset.extensionHash ?? "";
+      if (!packageId || !hash || !api.setExtensionState) return;
+      if (action === "enable" && !window.confirm(tr(localeOf(root), `Enable ${packageId} at this exact reviewed hash?`, `按当前已审查哈希启用 ${packageId}？`))) return;
+      button.disabled = true;
+      void api.setExtensionState(packageId, action, hash)
+        .then(() => reloadWorkspaceView(root, api, "extensions"))
+        .catch((error) => { button.disabled = false; announce(root, errorText(error, localeOf(root))); });
+    });
+  });
+  root.querySelector<HTMLFormElement>("#extension-tool-search-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const data = new FormData(form);
+    const sessionId = String(data.get("session_id") ?? "");
+    const query = String(data.get("query") ?? "").trim();
+    const host = form.querySelector<HTMLElement>("#extension-tool-results");
+    if (!sessionId || !query || !host || !api.searchSessionTools) return;
+    host.innerHTML = `<p class="fine">${tr(localeOf(root), "Searching frozen catalog…", "正在搜索冻结目录…")}</p>`;
+    void api.searchSessionTools(sessionId, query).then((result) => {
+      host.innerHTML = toolSearchMarkup(result, localeOf(root));
+      bindToolPreview(root, api, host, sessionId);
+    }).catch((error) => { host.textContent = errorText(error, localeOf(root)); });
+  });
+}
+
+function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
+  root.querySelector<HTMLFormElement>("#manual-report-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const data = new FormData(form);
+    const status = form.querySelector<HTMLElement>("#manual-report-status");
+    const entries = lines(data.get("entries"));
+    if (!entries.length || !api.composeManualReport) return;
+    if (status) status.textContent = tr(localeOf(root), "Building evidence-labelled Markdown…", "正在生成带证据标签的 Markdown…");
+    const section = String(data.get("section") ?? "completed") as
+      "summary" | "completed" | "progress" | "decisions" | "blockers" | "next" | "notes";
+    void api.composeManualReport({
+      report_id: String(data.get("report_id") ?? "").trim(),
+      revision: 1,
+      kind: String(data.get("kind") ?? "daily") as "daily" | "weekly",
+      title: String(data.get("title") ?? "").trim(),
+      language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
+      timezone: systemTimeZone(),
+      entries: entries.map((text) => ({ section, text })),
+    }).then(() => reloadWorkspaceView(root, api, "deliverables"))
+      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
+  });
+  root.querySelector<HTMLFormElement>("#deck-from-report-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const data = new FormData(form);
+    const select = form.elements.namedItem("report") as HTMLSelectElement | null;
+    const option = select?.selectedOptions[0];
+    const status = form.querySelector<HTMLElement>("#deck-from-report-status");
+    if (!option || !api.composeDeckFromReport) return;
+    if (status) status.textContent = tr(localeOf(root), "Freezing claims, citations, and slide roles…", "正在冻结主张、引用与页面角色…");
+    void api.composeDeckFromReport({
+      deck_id: String(data.get("deck_id") ?? "").trim(),
+      revision: 1,
+      report_id: option.value,
+      report_revision: Number(option.dataset.revision ?? "1"),
+      language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
+      audience: {
+        audience_id: String(data.get("audience") ?? "team").trim(),
+        purpose: String(data.get("purpose") ?? "").trim(),
+        expertise: String(data.get("expertise") ?? "").trim(),
+      },
+    }).then(() => reloadWorkspaceView(root, api, "deliverables"))
+      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
+  });
+}
+
+function configureAutomation(root: HTMLElement, api: DashboardApi): void {
+  root.querySelector<HTMLFormElement>("#schedule-create-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const data = new FormData(form);
+    const [hour, minute] = String(data.get("time") ?? "09:00").split(":").map(Number);
+    const recurrence = String(data.get("recurrence") ?? "daily");
+    const jobValue = String(data.get("job") ?? "health.check");
+    const status = form.querySelector<HTMLElement>("#schedule-create-status");
+    if (!api.createSchedule) return;
+    const job = jobValue.startsWith("model:")
+      ? { kind: "model_draft" as const, profile_id: jobValue.slice(6), requested_effect: null }
+      : { kind: "deterministic" as const, job: jobValue as "health.check" | "daily.refresh" };
+    const scheduleRecurrence = recurrence === "weekly"
+      ? { kind: "weekly" as const, weekday_monday_zero: Number(data.get("weekday") ?? "0"), hour, minute }
+      : { kind: "daily" as const, hour, minute };
+    if (status) status.textContent = tr(localeOf(root), "Saving a bounded schedule…", "正在保存有界调度…");
+    void api.createSchedule({
+      schedule_id: String(data.get("schedule_id") ?? "").trim(),
+      timezone: systemTimeZone(),
+      recurrence: scheduleRecurrence,
+      missed_run_policy: "create_draft",
+      job,
+    }).then(() => reloadWorkspaceView(root, api, "automation"))
+      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-schedule-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.scheduleAction ?? "";
+      const scheduleId = button.dataset.scheduleId ?? "";
+      const revision = Number(button.dataset.scheduleRevision ?? "0");
+      if (!scheduleId || !revision) return;
+      if (action === "delete" && !window.confirm(tr(
+        localeOf(root),
+        "Remove this schedule and its local run history?",
+        "移除此调度及其本地运行历史？",
+      ))) return;
+      button.disabled = true;
+      const operation = action === "run" && api.runScheduleNow
+        ? api.runScheduleNow(scheduleId).then(() => undefined)
+        : action === "delete" && api.deleteSchedule
+          ? api.deleteSchedule(scheduleId, revision)
+          : (action === "pause" || action === "resume") && api.changeScheduleState
+            ? api.changeScheduleState(scheduleId, action, revision).then(() => undefined)
+            : Promise.resolve();
+      void operation.then(() => reloadWorkspaceView(root, api, "automation"))
+        .catch((error) => { button.disabled = false; announce(root, errorText(error, localeOf(root))); });
+    });
+  });
+}
+
+function safeFilename(value: string): string {
+  return value.normalize("NFKC").replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80) || "conversation";
+}
+
+function downloadJson(filename: string, value: unknown): void {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function commaList(value: FormDataEntryValue | null): string[] {
+  return String(value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function reloadWorkspaceView(
+  root: HTMLElement,
+  api: DashboardApi,
+  view: string,
+): Promise<void> {
+  const snapshot = await api.loadDashboard();
+  renderWorkspace(root, api, snapshot);
+  selectView(root, view);
+}
+
+function escapeStatus(value: string): string {
+  const span = document.createElement("span");
+  span.textContent = value;
+  return span.innerHTML;
 }
 
 function configureProvider(root: HTMLElement, api: DashboardApi): void {
@@ -1100,7 +1740,17 @@ function announce(root: HTMLElement, message: string): void {
   if (target) target.textContent = message;
 }
 
-function configureMusic(root: HTMLElement): void {
+function configureMusic(root: HTMLElement, api: DashboardApi): void {
+  bindSettingsDialog(root, "#music-settings-dialog", "[data-music-open]");
+  const form = root.querySelector<HTMLFormElement>("#music-form");
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void saveMusic(root, api, form);
+  });
+  form?.querySelector<HTMLButtonElement>("[data-music-disable]")?.addEventListener(
+    "click",
+    () => void disableMusic(root, api, form),
+  );
   const button = root.querySelector<HTMLButtonElement>("[data-music-toggle]");
   const disc = root.querySelector<HTMLElement>("[data-music-disc]");
   if (!button || !disc) return;
@@ -1111,6 +1761,73 @@ function configureMusic(root: HTMLElement): void {
       ? tr(localeOf(root), "PAUSE CD", "暂停唱片")
       : tr(localeOf(root), "ROTATE CD", "转动唱片");
   });
+}
+
+async function saveMusic(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  const file = form.querySelector<HTMLInputElement>('input[type="file"]')?.files?.[0];
+  if (!file || !api.configureMusic) return;
+  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
+  buttons.forEach((button) => { button.disabled = true; });
+  try {
+    if (!/\.(json|csv)$/i.test(file.name) || file.size > 2_000_000) {
+      throw new Error(tr(
+        localeOf(root),
+        "Select a JSON or CSV playlist no larger than 2 MB.",
+        "请选择不超过 2 MB 的 JSON 或 CSV 歌单。",
+      ));
+    }
+    await api.configureMusic({
+      enabled: true,
+      filename: file.name,
+      content: await file.text(),
+      local_date: localDate(),
+    });
+    form.reset();
+    await refresh(root, api);
+    announce(root, tr(
+      localeOf(root),
+      "Private playlist imported. Today's track is ready.",
+      "私有歌单已导入，今日推荐已就绪。",
+    ));
+  } catch (error) {
+    buttons.forEach((button) => { button.disabled = false; });
+    announce(root, errorText(error, localeOf(root)));
+  }
+}
+
+async function disableMusic(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  if (!api.configureMusic) return;
+  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
+  buttons.forEach((button) => { button.disabled = true; });
+  try {
+    await api.configureMusic({ enabled: false, local_date: localDate() });
+    form.reset();
+    await refresh(root, api);
+    announce(root, tr(
+      localeOf(root),
+      "Daily track disabled and the imported playlist deleted.",
+      "每日一曲已停用，导入的歌单也已删除。",
+    ));
+  } catch (error) {
+    buttons.forEach((button) => { button.disabled = false; });
+    announce(root, errorText(error, localeOf(root)));
+  }
+}
+
+function localDate(): string {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 async function loadMusicCover(root: HTMLElement, api: DashboardApi): Promise<void> {

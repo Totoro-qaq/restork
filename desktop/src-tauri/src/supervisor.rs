@@ -49,9 +49,10 @@ struct BootstrapPayload {
 
 pub(crate) fn start_core(app: &AppHandle) -> Result<CoreProcess, &'static str> {
     let executable = core_executable(app)?;
+    let state_database = state_database(app)?;
     let mut last_error = "core_start_failed";
     for _attempt in 0..RETRY_LIMIT {
-        match start_attempt(&executable) {
+        match start_attempt(&executable, &state_database) {
             Ok(core) => return Ok(core),
             Err(error) => last_error = error,
         }
@@ -59,7 +60,10 @@ pub(crate) fn start_core(app: &AppHandle) -> Result<CoreProcess, &'static str> {
     Err(last_error)
 }
 
-fn start_attempt(executable: &PathBuf) -> Result<CoreProcess, &'static str> {
+fn start_attempt(
+    executable: &PathBuf,
+    state_database: &PathBuf,
+) -> Result<CoreProcess, &'static str> {
     let port = reserve_port()?;
     let (bootstrap_reader, bootstrap_writer) = bootstrap_pipe()?;
     let (lease_reader, lease_writer) = parent_lease()?;
@@ -68,6 +72,8 @@ fn start_attempt(executable: &PathBuf) -> Result<CoreProcess, &'static str> {
         .arg("serve")
         .arg("--port")
         .arg(port.to_string())
+        .arg("--state-db")
+        .arg(state_database)
         .env(
             "RESTORK_DESKTOP_BOOTSTRAP_FD",
             bootstrap_writer.as_raw_fd().to_string(),
@@ -169,7 +175,7 @@ fn core_executable(app: &AppHandle) -> Result<PathBuf, &'static str> {
         .resource_dir()
         .map_err(|_| "core_resource_unavailable")?;
     let resources = fs::canonicalize(resources).map_err(|_| "core_resource_unavailable")?;
-    let selected = fs::canonicalize(resources.join("core/restork-core/restork-core"))
+    let selected = fs::canonicalize(resources.join("core/restorkd"))
         .map_err(|_| "core_resource_unavailable")?;
     if !selected.starts_with(&resources) || !selected.is_file() {
         return Err("core_resource_invalid");
@@ -183,6 +189,24 @@ fn core_executable(app: &AppHandle) -> Result<PathBuf, &'static str> {
         return Err("core_resource_not_executable");
     }
     Ok(selected)
+}
+
+fn state_database(app: &AppHandle) -> Result<PathBuf, &'static str> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "core_state_unavailable")?;
+    fs::create_dir_all(&directory).map_err(|_| "core_state_unavailable")?;
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
+        .map_err(|_| "core_state_unavailable")?;
+    let directory = fs::canonicalize(directory).map_err(|_| "core_state_unavailable")?;
+    let metadata = directory
+        .symlink_metadata()
+        .map_err(|_| "core_state_unavailable")?;
+    if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
+        return Err("core_state_unavailable");
+    }
+    Ok(directory.join("restork.db"))
 }
 
 fn reserve_port() -> Result<u16, &'static str> {

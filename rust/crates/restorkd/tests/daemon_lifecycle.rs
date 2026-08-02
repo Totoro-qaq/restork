@@ -16,11 +16,17 @@ static DESKTOP_PROCESS_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new((
 fn config_accepts_an_os_selected_port_but_never_a_host_override() {
     assert_eq!(
         ServerConfig::parse(["serve", "--port", "0"]).expect("valid config"),
-        ServerConfig { port: 0 }
+        ServerConfig {
+            port: 0,
+            state_db: None,
+        }
     );
     assert_eq!(
         ServerConfig::parse(["serve"]).expect("automatic port"),
-        ServerConfig { port: 0 }
+        ServerConfig {
+            port: 0,
+            state_db: None,
+        }
     );
     assert_eq!(
         ServerConfig::parse(["serve", "--host", "0.0.0.0"]),
@@ -243,9 +249,12 @@ fn desktop_daemon_still_honors_sigterm_while_the_parent_lease_is_open() {
 
 #[tokio::test]
 async fn daemon_owns_a_loopback_only_listener_and_shuts_down_cleanly() {
-    let bound = bind(ServerConfig { port: 0 })
-        .await
-        .expect("bind loopback listener");
+    let bound = bind(ServerConfig {
+        port: 0,
+        state_db: None,
+    })
+    .await
+    .expect("bind loopback listener");
     let address = bound.address();
     assert_eq!(address.ip(), IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
     assert_ne!(address.port(), 0);

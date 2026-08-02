@@ -80,14 +80,14 @@ Markdown is the durable home for notes and user tasks. SQLite stores operational
 runs, approvals, and events. Rebuildable indexes and link projections can be discarded and created
 again. The Dashboard and CLI never receive the model credential or authority to bypass Core policy.
 
-V1 deliberately needs no LangGraph, graph database, KAG, Valkey, Memory MCP, or Obsidian plugin.
-The accepted post-V1 roadmap keeps one bounded Core loop, moves latency-sensitive runtime work toward
-Rust, and treats Python as an optional capability worker rather than adding a framework-owned agent
-runtime.
+Restork needs no LangGraph, graph database, KAG, Valkey, Memory MCP, or Obsidian plugin for its base
+workflow. The new runtime uses one bounded Rust Core loop; Python is reserved for optional,
+short-lived capability workers when a scientific or document ecosystem materially needs it.
 
 ## Try it in five minutes
 
-The source quickstart is the supported path today. You only need
+The complete V1 Research/Study/Work source workflow remains the supported quickstart while its
+vertical slices move to Rust. You only need
 [`uv`](https://docs.astral.sh/uv/getting-started/installation/); Node.js is required only when
 changing Dashboard source.
 
@@ -108,13 +108,36 @@ address, enter the code, and you are in. The first launch does not need an API k
 a Vault for you, and does not enable weather or any other optional connection. The offline Research
 synthesizer lets you explore the product without sending a model request.
 
+### Try the Rust-first workspace
+
+The Step 12–17 alpha runs the native Core and the same embedded Dashboard. It needs Rust only when
+started from source; desktop packages include the binary.
+
+```bash
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- \
+  serve --port 7337 --state-db ./build/restork-alpha.db
+```
+
+Open the `base_url` printed in the readiness record and enter its one-time pairing code. This alpha
+contains personal daily context, global conversations, model/Profile/Prompt settings, the governed
+Extension Center, report/deck drafts, checkpoints, bounded schedules, evaluation manifests, and
+delegation contracts. The V1 Research/Study/Work execution routes are still being cut over, so use
+`./scripts/quickstart.sh` when you need those complete workflows today.
+
+### Desktop installers
+
+The source now builds macOS, Windows, and Linux candidates. When a signed installer appears on the
+[Releases page](https://github.com/Totoro-qaq/restork/releases), installing and launching it needs no
+Python, Node.js, Rust, `uv`, or package manager. Unsigned CI candidates are for testing only; see the
+[desktop guide](docs/desktop.md) for one-command builds and exact signing gates.
+
 ### Connect only what you want
 
 | I want to… | What to do | What changes |
 |---|---|---|
 | Explore the Dashboard | Nothing else | No model call and no Vault access |
 | Read my Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | Local read access; every write still needs a preview and approval |
-| Use DeepSeek V4 Pro | `uv run restork provider configure` | The key goes directly to macOS Keychain; approved model requests use the governed outbound path |
+| Use DeepSeek V4 Pro | `cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure` | The key goes directly to native credential storage; direct DeepSeek conversations are public-only unless you create a stricter governed Profile |
 | See weather | Enter a city in Weather settings, or press **Use current location** yourself | The feature stays off until enabled; there is no IP-based location lookup |
 | Add calendar or music | Select one local ICS file or a private JSON/CSV playlist | Read-only local import; no account login |
 
@@ -127,19 +150,19 @@ RESTORK_PORT=7444 ./scripts/quickstart.sh
 ### Add DeepSeek when you are ready
 
 ```bash
-uv run restork provider configure
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
 ```
 
-On macOS, the system `security` prompt writes the API key straight to Keychain. The value never
-enters the browser, TOML, command arguments, environment variables, shell history, Vault, SQLite,
-logs, or this repository.
+The platform-native prompt writes the key to macOS Keychain, Windows Credential Manager, or Linux
+Secret Service. The value never enters the browser, TOML, command arguments, environment variables,
+shell history, Vault, SQLite, logs, or this repository.
 
-Restart Restork, then choose how far you want the check to go:
+Restart Restork, then choose how far you want the Rust check to go:
 
 ```bash
-uv run restork doctor             # local configuration and Keychain metadata
-uv run restork doctor --connect   # one bounded GET /models request
-uv run restork doctor --smoke     # one fixed public completion of at most 16 tokens
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --connect
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --smoke
 ```
 
 The smoke check sends no Vault, memory, task, location, calendar, or playlist content and does not
@@ -169,12 +192,15 @@ off. The formats and privacy behavior are documented in [Daily context](docs/dai
 | **Knowledge and tasks** | Read-only Vault retrieval, deterministic wiki-link projection, journaled single-file writes, and preview/approve/apply Markdown tasks |
 | **Research, Study, Work** | Evidence-backed research, guided study and practice, and planning-only repository handoffs |
 | **Memory and daily context** | Four inspectable memory layers, optional weather, one local read-only ICS calendar, and private playlist import |
-| **macOS desktop alpha** | A Tauri Rust supervisor packages the current Python Core and Dashboard, owns the Core lifecycle, and keeps pairing in memory; signed public downloads remain release-gated |
+| **Rust-first workspace alpha** | Native storage/API/provider foundations; personal context; global conversations; Profiles and versioned Prompts; quarantined extensions and frozen tool discovery; report/deck drafts; schedules, recovery, evaluation, and bounded-delegation contracts |
+| **Cross-platform desktop source** | Tauri packages `restorkd` and the Dashboard, owns Unix process groups or a Windows Job Object, and builds macOS, Windows, and Linux candidates without a target-machine runtime |
 
-The signed one-click DMG is not published until its signing and notarization gates pass. Windows and
-Linux builds, a Rust-first Core, system-calendar onboarding, global conversation, model and Prompt
-settings, the Extension Center, reports, presentations, checkpoints, and bounded delegation are
-clearly marked as planned work in the [Steps 12–17 specification](specs/restork-steps12-17.md) and
+The Step 12–17 implementation batch has reached the Step 17 API/domain surface, but it is not being
+mislabelled as a production release. Remaining exit gates include V1 route cutover, native calendar
+onboarding, cancellable conversation SSE, full extension update/rollback/uninstall, approved
+PPTX/PDF rendering, real file restore, packaged credential setup, clean-machine matrices, and
+Windows/Linux signing. Current scope and evidence are tracked in the
+[Steps 12–17 specification](specs/restork-steps12-17.md) and
 [delivery plan](plans/restork-steps12-17.md).
 
 ## Guides
@@ -185,7 +211,7 @@ clearly marked as planned work in the [Steps 12–17 specification](specs/restor
 - [Research](docs/research-workflow.md)
 - [Study](docs/study.md)
 - [Work](docs/work.md)
-- [macOS desktop alpha](docs/desktop.md)
+- [Cross-platform desktop alpha](docs/desktop.md)
 - [Privacy](docs/privacy.md) and [security model](docs/security/threat-model.md)
 
 <details>
@@ -210,13 +236,16 @@ npm --prefix dashboard run lint
 npm --prefix dashboard test
 npm --prefix dashboard run build
 
-# macOS desktop alpha
+# Cross-platform desktop alpha (run the matching build command on each host OS)
 npm --prefix desktop ci
 npm --prefix desktop run fmt:check
 ./scripts/build-desktop-core.sh
 npm --prefix desktop run clippy
 npm --prefix desktop test
-npm --prefix desktop run build:app
+npm --prefix desktop run build:macos
+npm --prefix desktop run build:windows
+npm --prefix desktop run build:linux
+node scripts/smoke-desktop-runtime.mjs
 ./scripts/smoke-desktop-app.sh 10
 ./scripts/smoke-desktop-faults.sh
 
@@ -227,8 +256,8 @@ uv run python scripts/build_release.py --output dist/release
 ```
 
 The provider-free [runtime benchmark](benchmarks/README.md) records readiness, idle memory, binary
-size, and loopback latency without sending a prompt. Rust migration code is not selected by the
-user-facing quickstart until its vertical slice reaches compatibility and recovery parity.
+size, and loopback latency without sending a prompt. The V1 source quickstart stays available until
+each remaining execution route reaches compatibility and recovery parity in Rust.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. The implemented contract lives in
 the [V1 specification](specs/restork-v1.md); the accepted future architecture lives in the

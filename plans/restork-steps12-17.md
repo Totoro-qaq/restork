@@ -1,6 +1,6 @@
 # Restork Rust-first Delivery Plan — Steps 12–17
 
-> Status: Approved — implementation in progress after Gate 1 and ADR 0002 acceptance
+> Status: Gate 2 candidate — implementation reaches Step 17 alpha contracts
 >
 > Version: 0.1 | Date: 2026-08-02
 >
@@ -14,6 +14,19 @@ one trust boundary at a time, and reaches its own rollback point before the next
 
 Gate 1 approved this plan and ADR 0002 on 2026-08-02. No commit or push occurs until Gate 2 reviews
 the final diff, tests, benchmarks, security findings, and remaining external release gates.
+
+### Current Gate 2 boundary
+
+This batch is code-complete for the planned **alpha vertical slices** through Step 17: the Rust
+domains, storage, API contracts, Dashboard management surfaces, scheduler loop, desktop lifecycle,
+and cross-platform candidate-build definitions are present. The production exit gates in the
+specification remain authoritative. In particular, the batch does not claim a signed public
+Windows/Linux release, completed V1 route cutover, executable MCP bridge, PPTX/PDF renderer, real
+file restore, or autonomous subtask executor.
+
+The review should therefore decide whether to merge this bounded alpha foundation, not whether to
+declare Steps 12–17 production-complete. Open items are listed in the specification's
+“Implementation truth at Gate 2” table and must remain visible in README copy and future issues.
 
 ## 2. Dependency graph
 
@@ -57,12 +70,13 @@ introduce their Rust implementations rather than being inferred from the compati
 
 Exit gate: Rust skeleton passes transport/security fixtures and does not receive real effects.
 
-Implementation evidence as of 2026-08-02: the workspace now contains `restork-core`, `restork-api`,
-and `restorkd`; the bounded state machine, loopback readiness/health, local-origin policy, one-time
-Web/CLI pairing, scoped short-lived sessions, empty replay/SSE transport contract, automatic port,
-desktop bootstrap, parent-death lease, and signal shutdown are test-covered. Rust opens no V1
-database and receives no effects. Durable event replay and generated cross-language schemas remain
-required before the 12B exit gate can close.
+Implementation evidence at this Gate 2: the workspace contains the Core, API, storage, provider,
+personal, daily, extension, deliverable, automation, worker, and daemon crates. The bounded state
+machine, loopback policy, one-time Web/CLI pairing, scoped sessions, durable SQLite SSE replay,
+cross-runtime schema bundle, automatic port, desktop bootstrap, parent-death ownership, and signal
+shutdown are test-covered. Rust opens a versioned database with V1 compatibility tables plus the new
+Step 12–17 migrations. Unmigrated V1 execution routes still have no Rust effect path; their full
+cutover and parity suite remain open before Step 12 exits.
 
 ### 12C — Storage, events, and Harness cutover
 
@@ -291,3 +305,7 @@ Before any implementation batch is committed, report:
 - cold/warm startup, RSS, API, SSE, database, worker, package-size, and model-overhead measurements;
 - platform build/install evidence and external signing/notarization blockers;
 - known limitations and explicitly deferred slices.
+
+The current evidence, trust-boundary diff, migration/rollback notes, test counts, desktop smoke
+result, and open production gates are collected in
+[Gate 2 — Steps 12–17 Rust-first alpha](../docs/reviews/gate-2-steps12-17-alpha.md).

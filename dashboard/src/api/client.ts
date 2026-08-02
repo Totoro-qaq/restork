@@ -25,10 +25,28 @@ import type {
   WorkStartInput,
   WorkVerificationReport,
   CalendarConfigurationInput,
+  MusicConfigurationInput,
   ConversationPage,
   ConversationTurn,
   WeatherConfigurationInput,
   WeatherConfigurationResult,
+  CatalogRecordV2,
+  DailyContextV2,
+  PersonalSettingsRecord,
+  ProviderProfileRecordV2,
+  ConfigurationProfileRecordV2,
+  PromptRevisionRecordV2,
+  RunProposalV2,
+  SessionMessageV2,
+  SessionRecordV2,
+  SessionExportV2,
+  SessionSearchHitV2,
+  ToolSearchResultV2,
+  ToolCallPreviewV2,
+  ManualReportInputV2,
+  DeckFromReportInputV2,
+  ScheduleSpecV2,
+  ScheduleRunV2,
 } from "./types";
 
 export interface LocalSession {
@@ -70,14 +88,18 @@ export class LocalApiClient implements DashboardApi {
   }
 
   async loadDashboard(): Promise<DashboardSnapshot> {
+    const emptyPage = { limit: 12, has_more: false, next_cursor: null };
     const [runs, approvals, taskBoard, radar, memory, daily, provider] = await Promise.all([
-      this.#request<{ runs: DashboardSnapshot["runs"]; page: NonNullable<DashboardSnapshot["pagination"]>["runs"] }>("GET", "/v1/runs?limit=12"),
+      this.#request<{ runs: DashboardSnapshot["runs"]; page: NonNullable<DashboardSnapshot["pagination"]>["runs"] }>("GET", "/v1/runs?limit=12")
+        .catch(() => ({ runs: [], page: emptyPage })),
       this.#request<{ approvals: DashboardSnapshot["approvals"]; page: NonNullable<DashboardSnapshot["pagination"]>["approvals"] }>(
         "GET",
         "/v1/approvals?pending_only=false&limit=12",
-      ),
-      this.#request<DashboardSnapshot["taskBoard"] & { page: NonNullable<DashboardSnapshot["pagination"]>["tasks"] }>("GET", "/v1/tasks?limit=12"),
-      this.#request<DashboardSnapshot["radar"] & { page: NonNullable<DashboardSnapshot["pagination"]>["radar"] }>("GET", "/v1/radar?limit=12"),
+      ).catch(() => ({ approvals: [], page: emptyPage })),
+      this.#request<DashboardSnapshot["taskBoard"] & { page: NonNullable<DashboardSnapshot["pagination"]>["tasks"] }>("GET", "/v1/tasks?limit=12")
+        .catch(() => ({ configured: false, tasks: [], page: emptyPage })),
+      this.#request<DashboardSnapshot["radar"] & { page: NonNullable<DashboardSnapshot["pagination"]>["radar"] }>("GET", "/v1/radar?limit=12")
+        .catch(() => ({ configured: false, items: [], page: emptyPage })),
       this.#request<NonNullable<DashboardSnapshot["memory"]> & { page: NonNullable<DashboardSnapshot["pagination"]>["memory"] }>("GET", "/v1/memory?limit=12").catch(
         () => null,
       ),
@@ -89,6 +111,62 @@ export class LocalApiClient implements DashboardApi {
         () => null,
       ),
     ]);
+    const [
+      dailyContext,
+      personal,
+      sessions,
+      extensions,
+      deliverables,
+      schedules,
+      providers,
+      profiles,
+      prompts,
+    ] =
+      await Promise.all([
+        this.#request<DailyContextV2>("GET", "/v1/daily/context").catch(() => null),
+        this.#request<PersonalSettingsRecord>("GET", "/v1/settings/personal").catch(
+          () => null,
+        ),
+        this.#request<{ items: SessionRecordV2[] }>("GET", "/v1/sessions?limit=20")
+          .then((page) => page.items)
+          .catch(() => []),
+        this.#request<{ items: CatalogRecordV2[] }>("GET", "/v1/extensions?limit=20")
+          .then((page) => page.items)
+          .catch(() => []),
+        this.#request<{ items: CatalogRecordV2[] }>("GET", "/v1/deliverables?limit=20")
+          .then((page) => page.items)
+          .catch(() => []),
+        this.#request<{ items: CatalogRecordV2[] }>("GET", "/v1/schedules?limit=20")
+          .then((page) => page.items)
+          .catch(() => []),
+        this.#request<{ items: ProviderProfileRecordV2[] }>("GET", "/v1/provider-profiles")
+          .then((page) => page.items)
+          .catch(() => []),
+        this.#request<{ items: ConfigurationProfileRecordV2[] }>(
+          "GET",
+          "/v1/configuration-profiles",
+        )
+          .then((page) => page.items)
+          .catch(() => []),
+        this.#request<{ items: PromptRevisionRecordV2[] }>("GET", "/v1/prompts/personal")
+          .then((page) => page.items)
+          .catch(() => []),
+      ]);
+    const workspaceV2 = dailyContext || personal || sessions.length || extensions.length
+      || deliverables.length || schedules.length || providers.length || profiles.length
+      || prompts.length
+      ? {
+          dailyContext,
+          personal,
+          sessions,
+          extensions,
+          deliverables,
+          schedules,
+          providers,
+          profiles,
+          prompts,
+        }
+      : undefined;
     return {
       runs: runs.runs,
       approvals: approvals.approvals,
@@ -104,7 +182,226 @@ export class LocalApiClient implements DashboardApi {
         radar: radar.page,
         memory: memory?.page,
       },
+      workspaceV2,
     };
+  }
+
+  async createSession(title: string, profileId: string): Promise<SessionRecordV2> {
+    return this.#request<SessionRecordV2>("POST", "/v1/sessions", {
+      title,
+      profile_id: profileId,
+      locale: document.documentElement.lang || "en",
+    });
+  }
+
+  async sessionMessages(sessionId: string, after = 0): Promise<SessionMessageV2[]> {
+    const page = await this.#request<{ items: SessionMessageV2[] }>(
+      "GET",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/messages?after=${after}&limit=100`,
+    );
+    return page.items;
+  }
+
+  async sendSessionMessage(
+    sessionId: string,
+    content: string,
+    dataClass: WorkDataClass = "public",
+  ): Promise<SessionMessageV2> {
+    return this.#request<SessionMessageV2>(
+      "POST",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
+      { content, context: {}, data_class: dataClass },
+    );
+  }
+
+  async createSessionProposal(
+    sessionId: string,
+    mode: Mode,
+    goal: string,
+    dataClass: WorkDataClass = "public",
+  ): Promise<RunProposalV2> {
+    return this.#request<RunProposalV2>(
+      "POST",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/proposals`,
+      { mode, goal, data_class: dataClass },
+    );
+  }
+
+  async savePersonalSettings(
+    expectedVersion: number | null,
+    settings: PersonalSettingsRecord["settings"],
+  ): Promise<PersonalSettingsRecord> {
+    return this.#request<PersonalSettingsRecord>("PUT", "/v1/settings/personal", {
+      expected_version: expectedVersion,
+      settings,
+    });
+  }
+
+  async saveProviderProfile(
+    expectedRevision: number | null,
+    provider: ProviderProfileRecordV2["provider"],
+  ): Promise<ProviderProfileRecordV2> {
+    return this.#request<ProviderProfileRecordV2>(
+      "PUT",
+      `/v1/provider-profiles/${encodeURIComponent(provider.profile_id)}`,
+      { expected_revision: expectedRevision, provider },
+    );
+  }
+
+  async saveConfigurationProfile(
+    expectedRevision: number | null,
+    profile: ConfigurationProfileRecordV2["profile"],
+  ): Promise<ConfigurationProfileRecordV2> {
+    return this.#request<ConfigurationProfileRecordV2>(
+      "PUT",
+      `/v1/configuration-profiles/${encodeURIComponent(profile.profile_id)}`,
+      { expected_revision: expectedRevision, profile },
+    );
+  }
+
+  async createPromptRevision(
+    promptId: string,
+    expectedRevision: number | null,
+    layer: "skill" | "personal",
+    content: string,
+  ): Promise<PromptRevisionRecordV2> {
+    return this.#request<PromptRevisionRecordV2>(
+      "POST",
+      `/v1/prompts/${encodeURIComponent(promptId)}`,
+      { expected_revision: expectedRevision, layer, content },
+    );
+  }
+
+  async activatePromptRevision(
+    promptId: string,
+    revision: number,
+    expectedActiveRevision: number | null,
+  ): Promise<PromptRevisionRecordV2> {
+    return this.#request<PromptRevisionRecordV2>(
+      "PATCH",
+      `/v1/prompts/${encodeURIComponent(promptId)}/active`,
+      { revision, expected_active_revision: expectedActiveRevision },
+    );
+  }
+
+  async archiveSession(sessionId: string, expectedVersion: number): Promise<SessionRecordV2> {
+    return this.#request<SessionRecordV2>(
+      "PATCH",
+      `/v1/sessions/${encodeURIComponent(sessionId)}`,
+      { action: "archive", expected_version: expectedVersion },
+    );
+  }
+
+  async deleteSession(sessionId: string, expectedVersion: number): Promise<void> {
+    await this.#requestNoContent(
+      "DELETE",
+      `/v1/sessions/${encodeURIComponent(sessionId)}?expected_version=${expectedVersion}`,
+    );
+  }
+
+  async exportSession(sessionId: string): Promise<SessionExportV2> {
+    return this.#request<SessionExportV2>(
+      "GET",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/export`,
+    );
+  }
+
+  async searchSessions(query: string): Promise<SessionSearchHitV2[]> {
+    const result = await this.#request<{ items: SessionSearchHitV2[] }>(
+      "GET",
+      `/v1/sessions/search?q=${encodeURIComponent(query)}&limit=50`,
+    );
+    return result.items;
+  }
+
+  async installExtension(
+    packageKind: "skill" | "mcp" | "plugin",
+    manifest: Record<string, unknown>,
+  ): Promise<CatalogRecordV2> {
+    return this.#request<CatalogRecordV2>("POST", "/v1/extensions", {
+      package_kind: packageKind,
+      manifest,
+    });
+  }
+
+  async setExtensionState(
+    packageId: string,
+    action: "enable" | "disable",
+    expectedHash: string,
+  ): Promise<CatalogRecordV2> {
+    return this.#request<CatalogRecordV2>(
+      "PATCH",
+      `/v1/extensions/${encodeURIComponent(packageId)}`,
+      { action, expected_hash: expectedHash },
+    );
+  }
+
+  async searchSessionTools(sessionId: string, query: string): Promise<ToolSearchResultV2> {
+    return this.#request<ToolSearchResultV2>(
+      "GET",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/tools/search?q=${encodeURIComponent(query)}&limit=20`,
+    );
+  }
+
+  async previewSessionToolCall(
+    sessionId: string,
+    toolId: string,
+    input: Record<string, unknown>,
+  ): Promise<ToolCallPreviewV2> {
+    return this.#request<ToolCallPreviewV2>(
+      "POST",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/tool-call-preview`,
+      { tool_id: toolId, input },
+    );
+  }
+
+  async composeManualReport(input: ManualReportInputV2): Promise<CatalogRecordV2> {
+    return this.#request<CatalogRecordV2>(
+      "POST",
+      "/v1/deliverables/reports/manual",
+      input,
+    );
+  }
+
+  async composeDeckFromReport(input: DeckFromReportInputV2): Promise<CatalogRecordV2> {
+    return this.#request<CatalogRecordV2>(
+      "POST",
+      "/v1/deliverables/decks/from-report",
+      input,
+    );
+  }
+
+  async createSchedule(schedule: ScheduleSpecV2): Promise<CatalogRecordV2> {
+    return this.#request<CatalogRecordV2>("POST", "/v1/schedules", schedule);
+  }
+
+  async changeScheduleState(
+    scheduleId: string,
+    action: "pause" | "resume",
+    expectedRevision: number,
+  ): Promise<CatalogRecordV2> {
+    return this.#request<CatalogRecordV2>(
+      "PATCH",
+      `/v1/schedules/${encodeURIComponent(scheduleId)}`,
+      { action, expected_revision: expectedRevision },
+    );
+  }
+
+  async runScheduleNow(scheduleId: string): Promise<ScheduleRunV2> {
+    return this.#request<ScheduleRunV2>(
+      "POST",
+      `/v1/schedules/${encodeURIComponent(scheduleId)}/run`,
+      undefined,
+      true,
+      `dashboard-schedule-${crypto.randomUUID()}`,
+    );
+  }
+
+  async deleteSchedule(scheduleId: string, expectedRevision: number): Promise<void> {
+    await this.#requestNoContent(
+      "DELETE",
+      `/v1/schedules/${encodeURIComponent(scheduleId)}?expected_revision=${expectedRevision}`,
+    );
   }
 
   async loadPage(kind: DashboardListKind, cursor: string): Promise<DashboardListPage> {
@@ -374,6 +671,18 @@ export class LocalApiClient implements DashboardApi {
     );
   }
 
+  async configureMusic(
+    input: MusicConfigurationInput,
+  ): Promise<NonNullable<DashboardSnapshot["daily"]>["music"]> {
+    return this.#request<NonNullable<DashboardSnapshot["daily"]>["music"]>(
+      "POST",
+      "/v1/daily/music",
+      input,
+      true,
+      `dashboard-music-${crypto.randomUUID()}`,
+    );
+  }
+
   async providerDiagnostics(smoke: boolean): Promise<ProviderDiagnostic> {
     return this.#request<ProviderDiagnostic>(
       "POST",
@@ -475,6 +784,15 @@ export class LocalApiClient implements DashboardApi {
     );
     if (!response.ok) throw await apiError(response);
     return (await response.json()) as T;
+  }
+
+  async #requestNoContent(method: string, path: string): Promise<void> {
+    const response = await this.#fetch(
+      path,
+      { method, headers: { Accept: "application/json" } },
+      true,
+    );
+    if (!response.ok) throw await apiError(response);
   }
 
   async #fetch(path: string, init: RequestInit, authenticated: boolean): Promise<Response> {

@@ -5,7 +5,7 @@ project_root="${0:A:h:h}"
 iterations="${1:-5}"
 app_bundle="${2:-$project_root/desktop/src-tauri/target/release/bundle/macos/Restork.app}"
 main_binary="$app_bundle/Contents/MacOS/restork"
-core_binary="$app_bundle/Contents/Resources/core/restork-core/restork-core"
+core_binary="$app_bundle/Contents/Resources/core/restorkd"
 diagnostics="$HOME/Library/Logs/io.github.totoro-qaq.restork/desktop-events.jsonl"
 
 if [[ ! "$iterations" =~ '^[1-9][0-9]*$' || "$iterations" -gt 50 ]]; then

@@ -5,8 +5,9 @@ use std::{
 };
 
 use restork_core::auth::{
-    Audience, AuthError, CLI_SCOPES, Clock, PairingAuthority, RUNS_READ, RUNS_WRITE, TOKENS_MANAGE,
-    WEB_SCOPES,
+    Audience, AuthError, CHECKPOINTS_RESTORE, CLI_SCOPES, Clock, DELIVERABLES_EXPORT,
+    EXTENSIONS_MANAGE, PROMPTS_MANAGE, PairingAuthority, RUNS_READ, RUNS_WRITE, SCHEDULES_MANAGE,
+    SESSIONS_DELETE, TOKENS_MANAGE, TOOLS_INVOKE, WEB_SCOPES,
 };
 
 #[derive(Debug)]
@@ -139,5 +140,36 @@ fn invalid_ttl_and_capability_escalation_are_rejected() {
     assert_eq!(
         authority.new_pairing_code(Audience::Web, &[]),
         Err(AuthError::ScopeEscalation)
+    );
+}
+
+#[test]
+fn post_v1_capabilities_are_explicit_and_limited_tokens_cannot_cross_domains() {
+    let authority = PairingAuthority::new(Duration::from_secs(300)).expect("authority");
+    for required in [
+        SESSIONS_DELETE,
+        PROMPTS_MANAGE,
+        EXTENSIONS_MANAGE,
+        TOOLS_INVOKE,
+        DELIVERABLES_EXPORT,
+        SCHEDULES_MANAGE,
+        CHECKPOINTS_RESTORE,
+    ] {
+        assert!(WEB_SCOPES.contains(&required), "missing scope {required}");
+    }
+
+    let code = authority
+        .new_pairing_code(Audience::Web, &[SESSIONS_DELETE])
+        .expect("single-purpose pairing code");
+    let token = authority
+        .pair(&code, Audience::Web)
+        .expect("single-purpose token");
+    assert_eq!(
+        authority.verify(token.value(), &[Audience::Web], &[SESSIONS_DELETE]),
+        Ok(token.clone())
+    );
+    assert_eq!(
+        authority.verify(token.value(), &[Audience::Web], &[PROMPTS_MANAGE]),
+        Err(AuthError::MissingScope)
     );
 }

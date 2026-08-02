@@ -4,7 +4,7 @@ set -euo pipefail
 project_root="${0:A:h:h}"
 app_bundle="${1:-$project_root/desktop/src-tauri/target/release/bundle/macos/Restork.app}"
 main_binary="$app_bundle/Contents/MacOS/restork"
-core_binary="$app_bundle/Contents/Resources/core/restork-core/restork-core"
+core_binary="$app_bundle/Contents/Resources/core/restorkd"
 diagnostics="$HOME/Library/Logs/io.github.totoro-qaq.restork/desktop-events.jsonl"
 desktop_pid=""
 core_pid=""

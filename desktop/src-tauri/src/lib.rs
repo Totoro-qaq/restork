@@ -1,4 +1,12 @@
+#[cfg(unix)]
 mod diagnostics;
+#[cfg(windows)]
+#[path = "diagnostics_windows.rs"]
+mod diagnostics;
+#[cfg(unix)]
+mod supervisor;
+#[cfg(windows)]
+#[path = "supervisor_windows.rs"]
 mod supervisor;
 
 use std::sync::Mutex;

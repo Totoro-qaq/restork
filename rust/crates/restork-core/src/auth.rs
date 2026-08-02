@@ -23,6 +23,38 @@ pub const TASKS_WRITE: &str = "tasks:write";
 pub const RADAR_READ: &str = "radar:read";
 pub const RADAR_WRITE: &str = "radar:write";
 pub const DAILY_READ: &str = "daily:read";
+pub const DAILY_CONFIGURE: &str = "daily:configure";
+pub const SETTINGS_READ: &str = "settings:read";
+pub const SETTINGS_WRITE: &str = "settings:write";
+pub const SESSIONS_READ: &str = "sessions:read";
+pub const SESSIONS_WRITE: &str = "sessions:write";
+pub const SESSIONS_EXPORT: &str = "sessions:export";
+pub const SESSIONS_DELETE: &str = "sessions:delete";
+pub const PROFILES_READ: &str = "profiles:read";
+pub const PROFILES_MANAGE: &str = "profiles:manage";
+pub const PROVIDERS_READ: &str = "providers:read";
+pub const PROVIDERS_MANAGE: &str = "providers:manage";
+pub const PROMPTS_READ: &str = "prompts:read";
+pub const PROMPTS_MANAGE: &str = "prompts:manage";
+pub const EXTENSIONS_READ: &str = "extensions:read";
+pub const EXTENSIONS_MANAGE: &str = "extensions:manage";
+pub const MCP_READ: &str = "mcp:read";
+pub const MCP_MANAGE: &str = "mcp:manage";
+pub const TOOLS_DISCOVER: &str = "tools:discover";
+pub const TOOLS_INVOKE: &str = "tools:invoke";
+pub const DELIVERABLES_READ: &str = "deliverables:read";
+pub const DELIVERABLES_COMPOSE: &str = "deliverables:compose";
+pub const DELIVERABLES_EXPORT: &str = "deliverables:export";
+pub const TEMPLATES_MANAGE: &str = "templates:manage";
+pub const SCHEDULES_READ: &str = "schedules:read";
+pub const SCHEDULES_MANAGE: &str = "schedules:manage";
+pub const CHECKPOINTS_READ: &str = "checkpoints:read";
+pub const CHECKPOINTS_RESTORE: &str = "checkpoints:restore";
+pub const SUBTASKS_READ: &str = "subtasks:read";
+pub const SUBTASKS_MANAGE: &str = "subtasks:manage";
+pub const EVALS_READ: &str = "evals:read";
+pub const EVALS_RUN: &str = "evals:run";
+pub const EVALS_EXPORT: &str = "evals:export";
 
 pub const WEB_SCOPES: &[&str] = &[
     RUNS_READ,
@@ -38,6 +70,38 @@ pub const WEB_SCOPES: &[&str] = &[
     RADAR_READ,
     RADAR_WRITE,
     DAILY_READ,
+    DAILY_CONFIGURE,
+    SETTINGS_READ,
+    SETTINGS_WRITE,
+    SESSIONS_READ,
+    SESSIONS_WRITE,
+    SESSIONS_EXPORT,
+    SESSIONS_DELETE,
+    PROFILES_READ,
+    PROFILES_MANAGE,
+    PROVIDERS_READ,
+    PROVIDERS_MANAGE,
+    PROMPTS_READ,
+    PROMPTS_MANAGE,
+    EXTENSIONS_READ,
+    EXTENSIONS_MANAGE,
+    MCP_READ,
+    MCP_MANAGE,
+    TOOLS_DISCOVER,
+    TOOLS_INVOKE,
+    DELIVERABLES_READ,
+    DELIVERABLES_COMPOSE,
+    DELIVERABLES_EXPORT,
+    TEMPLATES_MANAGE,
+    SCHEDULES_READ,
+    SCHEDULES_MANAGE,
+    CHECKPOINTS_READ,
+    CHECKPOINTS_RESTORE,
+    SUBTASKS_READ,
+    SUBTASKS_MANAGE,
+    EVALS_READ,
+    EVALS_RUN,
+    EVALS_EXPORT,
 ];
 pub const CLI_SCOPES: &[&str] = WEB_SCOPES;
 

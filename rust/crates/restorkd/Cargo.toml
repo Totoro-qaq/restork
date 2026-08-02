@@ -8,12 +8,25 @@ rust-version.workspace = true
 [dependencies]
 axum.workspace = true
 libc.workspace = true
+chrono.workspace = true
+restork-automation = { path = "../restork-automation" }
 restork-api = { path = "../restork-api" }
 restork-core = { path = "../restork-core" }
+restork-personal = { path = "../restork-personal" }
+restork-provider = { path = "../restork-provider" }
+restork-storage = { path = "../restork-storage" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 time = { workspace = true, features = ["formatting"] }
-tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal"] }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
+getrandom.workspace = true
 tokio = { workspace = true, features = ["io-util", "sync", "time"] }
