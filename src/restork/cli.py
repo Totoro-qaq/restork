@@ -421,7 +421,12 @@ def _serve(
     )
     print(f"Web pairing code: {pairing.pairing_code}")
     print(f"CLI pairing code: {cli_code}", flush=True)
-    make_server(app, port).run()
+    try:
+        make_server(app, port).run()
+    except KeyboardInterrupt:
+        # A foreground local service should stop quietly when the user follows
+        # the documented Ctrl-C shutdown path.
+        pass
     return 0
 
 

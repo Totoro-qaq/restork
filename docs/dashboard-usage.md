@@ -6,8 +6,17 @@ truth, while Restork reads the selected Vault and applies only approved single-f
 
 ## Open the Dashboard
 
+For a source checkout, the private-default quick start is:
+
 ```bash
-uv run restork --vault-dir /path/to/private-vault serve --port 7337
+./scripts/quickstart.sh
+```
+
+It synchronizes the locked environment and starts Core without selecting a Vault or creating any
+model, weather, calendar, or music configuration. To connect an existing Vault explicitly:
+
+```bash
+./scripts/quickstart.sh --vault-dir /path/to/private-vault
 ```
 
 Open `http://127.0.0.1:7337`, enter the Web pairing code printed in the foreground terminal, and keep
@@ -26,11 +35,25 @@ The Roman-numeral clock is browser-local. Weather is optional and gateway-backed
 are read-only local imports. The record rotates only after user interaction and honors reduced-motion
 preferences. Empty configuration renders setup states and performs no daily-context request.
 
+Weather can be enabled from its Dashboard card by manually entering a display name, latitude, and
+longitude. There is deliberately no “use current location” action: the Dashboard never calls browser
+geolocation and Core never infers a location from an IP address. Disabling weather clears both its
+provider and saved location. The browser does not retain the form values.
+
+The Overview uses a compact two-by-two content matrix on wide screens: latest run and approval above
+Markdown tasks and Radar. It collapses to one column on narrow screens instead of leaving a blank
+grid region.
+
 ## Research
 
 Create a Research run with a question and public sources. Restork returns source/evidence cards,
 grounded versus inferred claims, conflicts, unresolved questions, related-note matches, metrics, and a
 duplicate-safe Markdown note preview. A preview is not a Vault write.
+
+Long-running Core work uses an authenticated `fetch` response stream over SSE. The waiting panel
+shows only durable phases—bounded context, sources/tools, synthesis, and validation—with no invented
+percentage and no private reasoning text. `Last-Event-ID` reconnect resumes from the durable cursor.
+Polling is not used, and WebSocket is unnecessary for this one-way event flow.
 
 ## Study
 

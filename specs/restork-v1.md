@@ -1,6 +1,6 @@
 # Restork V1 Product & Technical Specification
 
-> Status: Implemented — V1 | Version: 1.0 | Date: 2026-08-02
+> Status: Implemented — V1 | Version: 1.1 | Date: 2026-08-02
 >
 > Scope: V1 local-first personal agent for Research, Study, and Work
 >
@@ -275,6 +275,8 @@ Changing from Research or Study to Work always creates a new child run. A run's 
 3. A generic music recommender selects one item from a user-imported private playlist and explains the selection from user-provided metadata or an approved model artifact.
 4. Missing providers, location, calendar, playlist, or cover art produce explicit empty states rather than hidden outbound traffic.
 5. The Dashboard renders cover art inside a rotating CD treatment, with pause and reduced-motion behavior.
+6. Weather location is entered manually or left disabled; Restork does not request browser location or
+   infer it from an IP address.
 
 ## 9. Functional requirements
 
@@ -394,6 +396,16 @@ Rules:
 - **FR-UI-012**: Album art is optional and never bundled from a copyrighted catalog. The rotating-CD presentation supports pause, a static fallback, lazy loading, and safe missing-image behavior.
 - **FR-UI-013**: The repository offers separate, selectable English and Simplified Chinese READMEs with localized GitHub-safe project-native SVGs plus an HD product demonstration GIF generated only from synthetic public data.
 - **FR-UI-014**: Dashboard detects the browser locale, defaults non-Chinese locales to English, and exposes an explicit English/Chinese switch. Only the literal non-sensitive locale preference may be persisted in Web Storage; no canonical or private state may be persisted there.
+- **FR-UI-015**: Dashboard follows run events through header-authenticated `fetch` SSE with incremental
+  UTF-8 decoding, comment heartbeats, `Last-Event-ID` reconnect, event-ID de-duplication, and terminal
+  closure. Tokens never enter the SSE URL; polling and WebSocket are not required.
+- **FR-UI-016**: Long-running actions show accessible bounded-context/source/synthesis/validation phases
+  in the approved visual language without fabricated percentages or streamed private reasoning.
+- **FR-UI-017**: Weather is off by default and accepts only explicit manual label/latitude/longitude
+  configuration. Dashboard does not call geolocation or IP-location services; disabling weather clears
+  provider and location.
+- **FR-UI-018**: The wide Overview uses a balanced two-by-two content matrix and collapses without
+  horizontal overflow on narrow screens.
 
 ## 10. Knowledge indexing and graph readiness
 
@@ -969,6 +981,15 @@ A multi-turn run compacts its working window without losing referenced source id
 
 With synthetic local configuration, Dashboard renders a Roman-numeral clock, weather, read-only calendar events, and a deterministic daily music recommendation with a reduced-motion CD. With no configuration it renders safe setup states and performs zero outbound requests.
 
+Weather can be enabled only from manually supplied coordinates and can be disabled with both provider
+and saved location cleared. The Dashboard never invokes browser/IP geolocation.
+
+### AC-12. One-command first run and live status
+
+A clean source checkout starts with `./scripts/quickstart.sh`, pairs locally without credentials or a
+Vault, and stops cleanly on `Ctrl-C`. A long-running synthetic run streams authenticated durable phases,
+survives UTF-8 frame splitting and cursor reconnect, and never exposes provider reasoning text.
+
 ### 18.1 Automated release-blocking tests
 
 The following are mandatory CI gates; they cannot be replaced by a documented manual test:
@@ -981,10 +1002,10 @@ The following are mandatory CI gates; they cannot be replaced by a documented ma
 | `PRIV-LABEL-001` | Labeled secret variants are absent from captured raw outbound bytes and every persisted/exported artifact |
 | `REC-EFFECT-001` | Crash before/after each effect boundary yields a reconciled state or `user_action_required`, never an automatic unsafe retry |
 | `REL-WRITE-001` | Fault injection at journal, stage, flush, rename, validation, and recovery boundaries preserves either the preimage or the approved new single-file state |
-| `REL-EVENT-001` | SSE snapshot/cursor reconnect loses and duplicates no logical event |
+| `REL-EVENT-001` | Authenticated follow SSE, snapshot/cursor reconnect, UTF-8 chunking, and heartbeats lose and duplicate no logical event |
 | `OSS-CLEAN-001` | Clean checkout, packages, screenshots, diagnostics, docs, and full Git history contain only synthetic/public data |
 | `MEM-RETENTION-001` | Sliding-window compaction, retention, correction, export, deletion, and source purge preserve provenance and never evict protected truth or audit records |
-| `UI-CONTEXT-001` | Missing daily-context configuration causes no outbound traffic; configured weather uses the gateway and calendar/playlist remain local and read-only |
+| `UI-CONTEXT-001` | Missing daily-context configuration causes no outbound traffic; weather is manual-only/no-geolocation and uses the gateway; calendar/playlist remain local and read-only |
 | `README-ASSET-001` | README SVG/GIF assets are GitHub-safe, legible, HD where rasterized, and contain only synthetic/public content |
 
 Manual release checks are limited to UI usability, platform integration, and visual inspection; they may supplement but not waive these gates.

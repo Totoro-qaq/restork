@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 from restork.contracts.outbound import OutboundEnvelope
 from restork.contracts.types import DataClass, PolicyDecision
 from restork.daily.cache import SQLiteDailyCache
+from restork.daily.location import parse_weather_location
 from restork.daily.models import DailyStatus, WeatherSnapshot
 from restork.network.gateway import OutboundGateway, OutboundRequest
 
@@ -69,7 +70,7 @@ class OpenMeteoWeather:
                 message="Unsupported weather provider.",
             )
         try:
-            label, latitude, longitude = _parse_location(location)
+            label, latitude, longitude = parse_weather_location(location)
         except ValueError as error:
             return WeatherSnapshot(
                 configured=True,
@@ -188,21 +189,6 @@ class OpenMeteoWeather:
             expires_at=expires_at,
             attribution="Weather data by Open-Meteo",
         )
-
-
-def _parse_location(value: str) -> tuple[str, float, float]:
-    label = "Configured location"
-    coordinates = value.strip()
-    if "|" in coordinates:
-        supplied_label, coordinates = coordinates.split("|", maxsplit=1)
-        label = supplied_label.strip() or label
-    parts = [part.strip() for part in coordinates.split(",")]
-    if len(parts) != 2:
-        raise ValueError("Weather location must be 'latitude,longitude' or 'label|lat,lon'.")
-    latitude, longitude = (float(part) for part in parts)
-    if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
-        raise ValueError("Weather coordinates are outside valid ranges.")
-    return label[:120], latitude, longitude
 
 
 def _provider_time(value: object) -> datetime:

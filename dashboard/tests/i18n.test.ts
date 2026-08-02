@@ -20,6 +20,7 @@ const emptySnapshot: DashboardSnapshot = {
 afterEach(() => {
   localStorage.clear();
   document.documentElement.lang = "";
+  document.title = "";
 });
 
 describe("Dashboard locales", () => {
@@ -43,6 +44,7 @@ describe("Dashboard locales", () => {
     expect(root.textContent).toContain("What will you research, study, or finish today?");
     expect(root.textContent).not.toContain("仪表盘");
     expect(document.documentElement.lang).toBe("en");
+    expect(document.title).toBe("Restork · Local Agent Workspace");
     expect(localStorage).toHaveLength(0);
   });
 
@@ -55,6 +57,7 @@ describe("Dashboard locales", () => {
     expect(root.textContent).toContain("仪表盘");
     expect(root.textContent).toContain("新建运行");
     expect(document.documentElement.lang).toBe("zh-CN");
+    expect(document.title).toBe("Restork · 本地智能工作台");
     expect(localStorage).toHaveLength(1);
     expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");
   });

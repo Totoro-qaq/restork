@@ -7,6 +7,7 @@ from pathlib import Path
 
 from restork.contracts.types import DataClass
 from restork.daily.cache import SQLiteDailyCache
+from restork.daily.location import parse_weather_location
 from restork.daily.models import DailyStatus
 from restork.daily.weather import OpenMeteoWeather
 from restork.network.gateway import OutboundRequest, OutboundResponse
@@ -87,3 +88,12 @@ def test_weather_returns_stale_cache_when_refresh_fails(tmp_path: Path) -> None:
 
     assert stale.status is DailyStatus.STALE
     assert stale.temperature_c == 27.4
+
+
+def test_manual_weather_location_rejects_non_finite_or_out_of_range_coordinates() -> None:
+    for value in ("Home|nan,1", "Home|1,inf", "Home|91,1", "Home|1,181"):
+        try:
+            parse_weather_location(value)
+        except ValueError:
+            continue
+        raise AssertionError(f"unsafe weather location was accepted: {value}")

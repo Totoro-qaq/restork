@@ -13,6 +13,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from restork.contracts.types import DataClass
+from restork.daily.location import parse_weather_location
 from restork.memory.models import (
     MemoryLayer,
     MemoryRecord,
@@ -228,7 +229,12 @@ def _normalize_profile_value(
         return tuple(item.strip() for item in value if item.strip())
     if not isinstance(value, str):
         raise TypeError("profile field requires text")
-    return value.strip()
+    normalized = value.strip()
+    if location == ("daily", "weather_provider") and normalized not in {"", "open-meteo"}:
+        raise ValueError("weather provider must be empty or 'open-meteo'")
+    if location == ("daily", "weather_location") and normalized:
+        parse_weather_location(normalized)
+    return normalized
 
 
 def _require_expected(current: MemoryRecord, expected_hash: str, next_summary: str) -> None:

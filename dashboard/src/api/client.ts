@@ -1,4 +1,4 @@
-import { EventCursor } from "./events";
+import { EventCursor, EventStreamDecoder } from "./events";
 import type {
   ApprovalRequest,
   DashboardApi,
@@ -20,6 +20,8 @@ import type {
   WorkResultManifest,
   WorkStartInput,
   WorkVerificationReport,
+  WeatherConfigurationInput,
+  MemoryRecord,
 } from "./types";
 
 export class LocalApiClient implements DashboardApi {
@@ -248,6 +250,32 @@ export class LocalApiClient implements DashboardApi {
     );
   }
 
+  async configureWeather(input: WeatherConfigurationInput): Promise<void> {
+    const profile = await this.#request<{ records: MemoryRecord[] }>(
+      "GET",
+      "/v1/memory?layer=profile",
+    );
+    const provider = requiredProfileRecord(profile.records, "profile:daily.weather_provider");
+    const location = requiredProfileRecord(profile.records, "profile:daily.weather_location");
+
+    const disabledProvider = await this.#correctProfile(
+      provider.memory_id,
+      "",
+      provider.content_hash,
+    );
+    const locationValue = input.enabled
+      ? `${input.label.trim()}|${input.latitude},${input.longitude}`
+      : "";
+    await this.#correctProfile(location.memory_id, locationValue, location.content_hash);
+    if (input.enabled) {
+      await this.#correctProfile(
+        provider.memory_id,
+        "open-meteo",
+        disabledProvider.content_hash,
+      );
+    }
+  }
+
   async musicCover(): Promise<Blob | null> {
     const response = await this.#fetch(
       "/v1/daily/music/cover",
@@ -276,6 +304,70 @@ export class LocalApiClient implements DashboardApi {
     );
     if (!response.ok) throw await apiError(response);
     return cursor.accept(await response.text());
+  }
+
+  async streamEvents(
+    runId: string,
+    after: number,
+    onEvent: (event: RunEvent) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const cursor = this.#eventCursors.get(runId) ?? new EventCursor();
+    this.#eventCursors.set(runId, cursor);
+    let terminal = false;
+    while (!signal.aborted && !terminal) {
+      const response = await this.#fetch(
+        `/v1/runs/${encodeURIComponent(runId)}/events?follow=true`,
+        {
+          method: "GET",
+          headers: {
+            Accept: "text/event-stream",
+            "Last-Event-ID": String(Math.max(after, cursor.cursor)),
+          },
+          signal,
+        },
+        true,
+      );
+      if (!response.ok) throw await apiError(response);
+      if (!response.body) throw new Error("Core returned an unreadable event stream");
+      const reader = response.body.getReader();
+      const utf8 = new TextDecoder();
+      const stream = new EventStreamDecoder();
+      const deliver = (events: RunEvent[]): void => {
+        for (const event of cursor.acceptEvents(events)) {
+          onEvent(event);
+          if (["run.completed", "run.failed", "run.cancelled"].includes(event.type)) {
+            terminal = true;
+          }
+        }
+      };
+      while (!signal.aborted && !terminal) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        deliver(stream.push(utf8.decode(value, { stream: true })));
+      }
+      deliver(stream.push(utf8.decode()));
+      deliver(stream.finish());
+      if (!signal.aborted && !terminal) await abortableDelay(750, signal);
+    }
+  }
+
+  async #correctProfile(
+    memoryId: string,
+    value: string,
+    expectedContentHash: string,
+  ): Promise<MemoryRecord> {
+    return this.#request<MemoryRecord>(
+      "PATCH",
+      `/v1/memory/${encodeURIComponent(memoryId)}`,
+      {
+        value,
+        expected_content_hash: expectedContentHash,
+        data_class: "personal",
+      },
+      true,
+      `dashboard-profile-${crypto.randomUUID()}`,
+    );
   }
 
   async #request<T>(
@@ -312,6 +404,30 @@ export class LocalApiClient implements DashboardApi {
       referrerPolicy: "no-referrer",
     });
   }
+}
+
+function requiredProfileRecord(records: MemoryRecord[], memoryId: string): MemoryRecord {
+  const record = records.find((candidate) => candidate.memory_id === memoryId);
+  if (!record) throw new Error("Core did not expose the required private Profile metadata");
+  return record;
+}
+
+function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const onAbort = (): void => {
+      window.clearTimeout(timer);
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, milliseconds);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 async function apiError(response: Response): Promise<Error> {

@@ -92,18 +92,74 @@ V1 不需要 LangGraph、图数据库、KAG、Valkey、Memory MCP 或 Obsidian �
 
 ## 五分钟启动
 
-需要 Python 3.12 与 [`uv`](https://docs.astral.sh/uv/)。只有修改 Dashboard 源码时
-才需要 Node.js。
+日常使用只需要安装
+[`uv`](https://docs.astral.sh/uv/getting-started/installation/)，它会准备锁定的
+Python 3.12 环境。只有修改 Dashboard 源码时才需要 Node.js。
+
+### 1. 用隐私默认值启动
+
+全新安装时，复制这一条命令即可：
 
 ```bash
-git clone https://github.com/Totoro-qaq/restork.git
-cd restork
-uv sync --frozen
-uv run restork serve --port 7337
+git clone https://github.com/Totoro-qaq/restork.git && cd restork && ./scripts/quickstart.sh
 ```
 
-打开 `http://127.0.0.1:7337`，输入 Core 终端打印的 **Web pairing code**。
-工作区仅能从本机访问；停止 Core 会使当前会话 token 失效。
+已经 clone 过仓库时，以后只需执行：
+
+```bash
+./scripts/quickstart.sh
+```
+
+脚本会检查 `uv`、按 lockfile 同步环境，并在
+`http://127.0.0.1:7337` 启动 Core。它不会替你创建模型凭据、选择 Vault 或启用天气。
+在没有任何私有配置的全新环境中，Restork 使用确定性的离线 Research synthesizer，
+不会发起模型请求。
+
+Core 会分别打印 **Web pairing code** 和 **CLI pairing code**。打开上述网址，输入 Web
+配对码并保持终端运行；配对后 Dashboard 的 Overview 能显示各项待配置状态，就代表首次
+启动成功。按 `Ctrl-C` 停止 Core，同时会使当前会话 token 失效。
+
+### 2. 只连接你需要的能力
+
+所有能力都默认不接入，可按需选择：
+
+| 目标 | 配置方式 | 网络或写入影响 |
+|---|---|---|
+| 先体验 Dashboard | 无需配置 | 不调用模型，也不读取 Vault |
+| 读取 Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | 仅本地读取；写入仍需精确预览和审批 |
+| 使用 DeepSeek V4 Pro | 私有 `config.toml` 加 macOS Keychain 条目 | 只有获准的提示词会经过受控 DeepSeek 网关 |
+| 显示天气 | 在私有 Profile 中配置 provider，并手填坐标 | 任一字段为空即停用；Restork 不请求浏览器定位 |
+| 显示日历或音乐 | 私有 Profile 指向一个本地 ICS 或 JSON/CSV 文件 | 只读本地导入，不登录第三方账号 |
+
+无需改文件即可换端口：
+
+```bash
+RESTORK_PORT=7444 ./scripts/quickstart.sh
+```
+
+### 3. 确实需要时再启用 DeepSeek V4 Pro
+
+不做本节配置时，Restork 会保持无凭据的离线模式。当前实时模型凭据使用
+**macOS Keychain**：
+
+1. 选择一个仓库外的绝对路径作为私有配置目录，并确保每次启动前都设置
+   `RESTORK_CONFIG_DIR`。
+2. 把 [`examples/config.example.toml`](examples/config.example.toml) 复制为
+   `$RESTORK_CONFIG_DIR/config.toml`；文件里只放 Keychain 引用，绝不放真实 key。
+3. 在系统的**钥匙串访问**中创建“通用密码”：服务名填 `restork/provider`，账户名填
+   `deepseek`，API key 只放在密码字段。
+4. 在同一个终端执行 `./scripts/quickstart.sh`。
+
+下面的命令只确认条目存在，不会打印密码：
+
+```bash
+/usr/bin/security find-generic-password -s 'restork/provider' -a 'deepseek'
+```
+
+完整目录、备份、恢复和凭据规则见 [`Operations`](docs/operations.md)。不要把 API key
+写入 TOML、shell history、Vault 或本仓库。
+
+### 4. 让个人数据始终留在仓库之外
 
 Profile、状态数据库和 Vault 都应放在仓库之外。全局参数必须写在子命令之前：
 
@@ -115,7 +171,15 @@ uv run restork \
   serve --port 7337
 ```
 
-CLI 使用另一个一次性配对码：
+如需每日上下文，把
+[`examples/profile.example.toml`](examples/profile.example.toml) 复制到
+`/absolute/private-profile/profile.toml`，只编辑想开启的功能，再用
+`--profile-dir /absolute/private-profile` 启动。天气、日历和歌单字段留空即停用；完整格式与
+隐私边界见 [`每日上下文`](docs/daily-context.md)。
+
+### 5. 可选的 CLI 自检
+
+CLI 使用启动时打印的另一个一次性配对码：
 
 ```bash
 uv run restork pair --code '<CLI pairing code>'
@@ -124,12 +188,12 @@ uv run restork health
 uv run restork capabilities
 ```
 
-可以从不含凭据的 [`Profile 示例`](examples/profile.example.toml) 和
-[`配置示例`](examples/config.example.toml) 开始，然后阅读
-[`Dashboard 与 CLI`](docs/dashboard-usage.md)、[`记忆`](docs/memory.md)、
-[`Markdown 任务`](docs/markdown-tasks.md)、[`每日上下文`](docs/daily-context.md)、
+建议先读 [`Dashboard 与 CLI`](docs/dashboard-usage.md)，再按需阅读
+[`记忆`](docs/memory.md)、[`Markdown 任务`](docs/markdown-tasks.md)、
 [`Research`](docs/research-workflow.md)、[`Study`](docs/study.md) 与
-[`Work`](docs/work.md)。
+[`Work`](docs/work.md)。想断开某项能力时，重启时不传 Vault/Profile 参数、清空天气两个
+字段，或把 `config.toml` 移出当前选择的私有配置目录即可；不需要删除或重置 Git
+工作区中的任何内容。
 
 ## 隐私边界
 

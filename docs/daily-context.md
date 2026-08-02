@@ -26,8 +26,16 @@ calendar_ics = "/path/to/private/calendar.ics"
 playlist = "/path/to/private/playlist.json"
 ```
 
+The same two weather fields can be managed from the paired Dashboard. Open the Weather card, enter a
+display name plus latitude and longitude manually, then choose **Save & enable**. Restork provides no
+browser-location button, never calls `navigator.geolocation`, and never infers coordinates from an IP
+address. Leaving weather unconfigured keeps it fully disabled; choosing **Disable** clears both the
+provider and stored location.
+
 Coordinates occur only in the ephemeral Core request to the configured provider. The Dashboard
-receives the display label and weather fields, never the coordinates. Requests use the governed
+receives the display label and weather fields after saving, never the coordinates on later reads.
+The entry form sends coordinates only to the paired loopback Core and does not retain them in Web
+Storage. Requests use the governed
 outbound gateway, an exact `https://api.open-meteo.com` origin, an explicit query-key allowlist, a
 response-size limit, and a 30-minute redacted display cache. Weather attribution and parameters
 follow the [official Open-Meteo forecast documentation](https://open-meteo.com/en/docs).

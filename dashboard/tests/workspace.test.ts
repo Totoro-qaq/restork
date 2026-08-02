@@ -84,8 +84,10 @@ function fakeApi(): DashboardApi {
     applyTask: vi.fn(async () => {
       throw new Error("not used");
     }),
+    configureWeather: vi.fn(async () => undefined),
     musicCover: vi.fn(async () => null),
     events: vi.fn(async () => []),
+    streamEvents: vi.fn(async () => undefined),
   };
 }
 
@@ -159,6 +161,63 @@ describe("authenticated workspace", () => {
     toggle?.click();
     expect(toggle?.getAttribute("aria-pressed")).toBe("true");
     expect(root.querySelector("[data-music-disc]")?.classList).toContain("is-playing");
+  });
+
+  it("configures weather only from manual fields and never requests location", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const configure = vi.spyOn(api, "configureWeather").mockResolvedValue(undefined);
+    const getCurrentPosition = vi.fn();
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: { getCurrentPosition },
+    });
+    mountDashboard(root, {
+      api,
+      snapshot: {
+        ...snapshot,
+        daily: {
+          weather: {
+            configured: false,
+            status: "not_configured",
+            provider: "",
+            location_label: "",
+            condition: "",
+            temperature_c: null,
+            apparent_temperature_c: null,
+            relative_humidity_percent: null,
+            is_day: null,
+            observed_at: null,
+            expires_at: null,
+            attribution: "",
+            message: "Weather is off.",
+          },
+          calendar: { configured: false, status: "not_configured", events: [], message: "" },
+          music: { configured: false, status: "not_configured", recommendation: null, message: "" },
+        },
+      },
+    });
+
+    const form = root.querySelector<HTMLFormElement>("#weather-form");
+    const label = root.querySelector<HTMLInputElement>("#weather-label");
+    const latitude = root.querySelector<HTMLInputElement>("#weather-latitude");
+    const longitude = root.querySelector<HTMLInputElement>("#weather-longitude");
+    if (label && latitude && longitude && form) {
+      label.value = "Home";
+      latitude.value = "31.2304";
+      longitude.value = "121.4737";
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    }
+
+    await vi.waitFor(() => expect(configure).toHaveBeenCalledWith({
+      enabled: true,
+      label: "Home",
+      latitude: 31.2304,
+      longitude: 121.4737,
+    }));
+    expect(getCurrentPosition).not.toHaveBeenCalled();
+    expect(localStorage).toHaveLength(0);
+    expect(sessionStorage).toHaveLength(0);
   });
 
   it("turns a checkbox change into a Core preview instead of browser-owned state", async () => {
@@ -242,6 +301,47 @@ describe("authenticated workspace", () => {
     expect(root.textContent).toContain("Preview only");
     expect(root.querySelector("script")).toBeNull();
     expect(api.radarAction).toHaveBeenCalledWith("radar-1", "research");
+  });
+
+  it("shows an accessible non-percent wait state while Radar research is pending", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const item = {
+      item_id: "radar-wait",
+      lane: "papers" as const,
+      title: "Bounded wait fixture",
+      source: "fixture",
+      url: "https://example.com/wait",
+      summary: "",
+      score: 1,
+      published_at: null,
+      state: "new",
+      data_class: "public",
+    };
+    let finish: ((value: Awaited<ReturnType<DashboardApi["radarAction"]>>) => void) | undefined;
+    vi.spyOn(api, "radarAction").mockImplementation(() => new Promise((resolve) => {
+      finish = resolve;
+    }));
+    mountDashboard(root, {
+      api,
+      snapshot: { ...snapshot, radar: { configured: true, items: [item] } },
+    });
+    root.querySelector<HTMLButtonElement>('[data-view="radar"]')?.click();
+    root.querySelector<HTMLButtonElement>('[data-radar-action="research"]')?.click();
+
+    const waiting = root.querySelector<HTMLElement>(".agent-wait");
+    expect(waiting?.getAttribute("aria-busy")).toBe("true");
+    expect(waiting?.textContent).toContain("Sources & tools");
+    expect(waiting?.textContent).not.toMatch(/\d+%/);
+
+    finish?.({
+      item,
+      run_id: null,
+      research_artifact: null,
+      task_preview_available: false,
+      task_approval_id: null,
+    });
+    await vi.waitFor(() => expect(api.radarAction).toHaveBeenCalled());
   });
 
   it("runs diagnostic-first Study without rendering or retaining an answer", async () => {

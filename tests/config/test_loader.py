@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -63,3 +64,22 @@ def test_runtime_paths_honor_explicit_environment_overrides(tmp_path: Path) -> N
     assert paths.config_dir == tmp_path / "config"
     assert paths.data_dir == tmp_path / "data"
     assert paths.cache_dir == tmp_path / "cache"
+
+
+@pytest.mark.parametrize("value", ["", "   ", "relative/path", "contains\x00nul"])
+def test_runtime_paths_reject_unsafe_environment_overrides(value: str) -> None:
+    with pytest.raises(ValueError):
+        RuntimePaths.from_environ({"RESTORK_DATA_DIR": value})
+
+
+def test_runtime_paths_reject_a_filesystem_root() -> None:
+    with pytest.raises(ValueError, match="filesystem root"):
+        RuntimePaths.from_environ({"RESTORK_DATA_DIR": Path.cwd().anchor})
+
+
+def test_runtime_paths_normalize_parent_segments(tmp_path: Path) -> None:
+    requested = tmp_path / "private" / ".." / "restork-data"
+
+    paths = RuntimePaths.from_environ({"RESTORK_DATA_DIR": os.fspath(requested)})
+
+    assert paths.data_dir == tmp_path / "restork-data"

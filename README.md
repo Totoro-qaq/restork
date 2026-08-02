@@ -96,19 +96,77 @@ semantics, and the same local Dashboard entry point.
 
 ## Five-minute start
 
-Python 3.12 and [`uv`](https://docs.astral.sh/uv/) are required. Node.js is
-needed only when changing Dashboard source.
+[`uv`](https://docs.astral.sh/uv/getting-started/installation/) is the only
+tool needed for normal use; it prepares the locked Python 3.12 environment.
+Node.js is needed only when changing Dashboard source.
+
+### 1. Start with private defaults
+
+For a fresh checkout, paste one command:
 
 ```bash
-git clone https://github.com/Totoro-qaq/restork.git
-cd restork
-uv sync --frozen
-uv run restork serve --port 7337
+git clone https://github.com/Totoro-qaq/restork.git && cd restork && ./scripts/quickstart.sh
 ```
 
-Open `http://127.0.0.1:7337` and enter the **Web pairing code** printed by Core.
-The workspace is loopback-only. Stopping Core invalidates the current session
-token.
+Already cloned? The repeatable start command is simply:
+
+```bash
+./scripts/quickstart.sh
+```
+
+The script verifies `uv`, synchronizes the lockfile, and starts the Core on
+`http://127.0.0.1:7337`. It does not create model credentials, select a Vault,
+or enable weather. On a fresh install with no private configuration, Restork
+uses the deterministic offline Research synthesizer and sends no model request.
+
+Core prints separate **Web pairing code** and **CLI pairing code** values. Open
+the URL, enter the Web code, and keep that terminal open. You are successfully
+running Restork when the paired Dashboard shows the Overview with setup states.
+Stopping Core with `Ctrl-C` invalidates the session token.
+
+### 2. Choose what Restork may use
+
+Everything is opt-in; add only the capability you need:
+
+| Goal | Configuration | Network or write effect |
+|---|---|---|
+| Explore the Dashboard | No configuration | No model request; no Vault access |
+| Read an Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | Local read access; writes still require an exact preview and approval |
+| Use DeepSeek V4 Pro | Private `config.toml` plus macOS Keychain item | Approved prompts cross the governed DeepSeek gateway |
+| Show weather | Private Profile with provider and manually entered coordinates | Disabled while either value is empty; Restork never requests browser location |
+| Show calendar or music | Private Profile pointing to one local ICS or JSON/CSV file | Read-only local import; no account login |
+
+Use another port without editing files:
+
+```bash
+RESTORK_PORT=7444 ./scripts/quickstart.sh
+```
+
+### 3. Enable DeepSeek V4 Pro, only if wanted
+
+Without this step, Restork remains in its credential-free offline mode. Live
+model access currently uses **macOS Keychain**:
+
+1. Choose an absolute private configuration directory and set it as
+   `RESTORK_CONFIG_DIR` before every start.
+2. Copy [`examples/config.example.toml`](examples/config.example.toml) to
+   `$RESTORK_CONFIG_DIR/config.toml`; the file contains a Keychain reference,
+   never the key itself.
+3. In **Keychain Access**, create a Generic Password with service
+   `restork/provider`, account `deepseek`, and the API key in its password field.
+4. Run `./scripts/quickstart.sh` from the same shell.
+
+This check confirms the item exists without revealing its value:
+
+```bash
+/usr/bin/security find-generic-password -s 'restork/provider' -a 'deepseek'
+```
+
+See [`Operations`](docs/operations.md) for exact directory, backup, restore, and
+credential behavior. Do not place an API key in TOML, shell history, the Vault,
+or this repository.
+
+### 4. Keep personal data outside the checkout
 
 Keep your Profile, state database, and Vault outside the repository. Global
 arguments must precede the subcommand:
@@ -121,7 +179,16 @@ uv run restork \
   serve --port 7337
 ```
 
-The CLI uses a separate one-time pairing code:
+To configure daily context, copy
+[`examples/profile.example.toml`](examples/profile.example.toml) to
+`/absolute/private-profile/profile.toml`, edit only the features you want, and
+start with `--profile-dir /absolute/private-profile`. Empty weather, calendar,
+and playlist fields stay disabled. The full formats and privacy boundary are in
+[`Daily context`](docs/daily-context.md).
+
+### 5. Optional CLI check
+
+The CLI uses the separate one-time code printed at startup:
 
 ```bash
 uv run restork pair --code '<CLI pairing code>'
@@ -130,13 +197,13 @@ uv run restork health
 uv run restork capabilities
 ```
 
-Start with the credential-free
-[`profile example`](examples/profile.example.toml) and
-[`config example`](examples/config.example.toml). Then read the guides for
-[`Dashboard & CLI`](docs/dashboard-usage.md), [`Memory`](docs/memory.md),
-[`Markdown tasks`](docs/markdown-tasks.md),
-[`Daily context`](docs/daily-context.md), [`Research`](docs/research-workflow.md),
-[`Study`](docs/study.md), and [`Work`](docs/work.md).
+Start with [`Dashboard & CLI`](docs/dashboard-usage.md), then follow the focused
+guides for [`Memory`](docs/memory.md),
+[`Markdown tasks`](docs/markdown-tasks.md), [`Research`](docs/research-workflow.md),
+[`Study`](docs/study.md), and [`Work`](docs/work.md). To disconnect a capability,
+restart without its Vault/Profile flag, clear both weather fields, or move
+`config.toml` out of the selected private configuration directory. Nothing in
+the Git checkout needs to be deleted or reset.
 
 ## Privacy boundary
 

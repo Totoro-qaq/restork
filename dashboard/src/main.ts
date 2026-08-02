@@ -6,11 +6,13 @@ import type {
   DashboardSnapshot,
   Mode,
   RadarAction,
+  RunEvent,
   WorkDataClass,
   WorkHandoffPreview,
   WorkResultManifest,
 } from "./api/types";
 import {
+  agentWaitMarkup,
   errorText,
   pairingMarkup,
   researchPreviewMarkup,
@@ -24,6 +26,7 @@ import {
   runEventsMarkup,
   workspaceMarkup,
 } from "./ui/render";
+import type { AgentWaitStage } from "./ui/render";
 import { startClock } from "./ui/clock";
 import {
   alternateLocale,
@@ -41,6 +44,7 @@ interface MountOptions {
 }
 
 const coverUrls = new WeakMap<HTMLElement, string>();
+const eventStreams = new WeakMap<HTMLElement, AbortController>();
 
 export function mountDashboard(root: HTMLElement, options: MountOptions = {}): void {
   const api = options.api ?? new LocalApiClient();
@@ -78,6 +82,7 @@ async function pairAndLoad(root: HTMLElement, api: DashboardApi, data: FormData)
 
 function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: DashboardSnapshot): void {
   const locale = localeOf(root);
+  stopEventStream(root);
   releaseCover(root);
   root.innerHTML = workspaceMarkup(snapshot, locale);
   startClock(root);
@@ -119,12 +124,66 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
     button.addEventListener("click", () => void showRun(root, api, snapshot, button));
   });
   configureMusic(root);
+  configureWeather(root, api);
   if (snapshot.daily?.music.recommendation?.cover_available) {
     void loadMusicCover(root, api);
   }
 }
 
+function configureWeather(root: HTMLElement, api: DashboardApi): void {
+  const form = root.querySelector<HTMLFormElement>("#weather-form");
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void saveWeather(root, api, form);
+  });
+  form?.querySelector<HTMLButtonElement>("[data-weather-disable]")?.addEventListener(
+    "click",
+    () => void disableWeather(root, api, form),
+  );
+}
+
+async function saveWeather(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  const data = new FormData(form);
+  const label = String(data.get("label") ?? "").trim();
+  const latitude = Number(data.get("latitude"));
+  const longitude = Number(data.get("longitude"));
+  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
+  buttons.forEach((button) => { button.disabled = true; });
+  try {
+    await api.configureWeather({ enabled: true, label, latitude, longitude });
+    form.reset();
+    await refresh(root, api);
+    announce(root, tr(localeOf(root), "Weather enabled from your manual location.", "已使用手填位置启用天气。"));
+  } catch (error) {
+    buttons.forEach((button) => { button.disabled = false; });
+    announce(root, errorText(error, localeOf(root)));
+  }
+}
+
+async function disableWeather(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
+  buttons.forEach((button) => { button.disabled = true; });
+  try {
+    await api.configureWeather({ enabled: false, label: "", latitude: 0, longitude: 0 });
+    form.reset();
+    await refresh(root, api);
+    announce(root, tr(localeOf(root), "Weather disabled and its saved location cleared.", "天气已停用，保存的位置也已清除。"));
+  } catch (error) {
+    buttons.forEach((button) => { button.disabled = false; });
+    announce(root, errorText(error, localeOf(root)));
+  }
+}
+
 function selectView(root: HTMLElement, view: string): void {
+  if (view !== "runs") stopEventStream(root);
   root.querySelectorAll<HTMLElement>("[data-view-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.viewPanel !== view;
     panel.classList.toggle("is-visible", !panel.hidden);
@@ -169,6 +228,7 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
   const workspaceRoot = String(data.get("workspace_root") ?? "").trim();
   const targetFiles = lines(data.get("target_files"));
   const status = root.querySelector<HTMLElement>("#action-status");
+  const waitHost = root.querySelector<HTMLElement>("#agent-wait-host");
   if (!goal) return;
   if (mode === "work" && (!workspaceRoot || !targetFiles.length)) {
     if (status) {
@@ -181,8 +241,15 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
     return;
   }
   if (status) status.textContent = tr(localeOf(root), "Creating a local run…", "正在创建本地运行…");
+  if (waitHost) waitHost.innerHTML = agentWaitMarkup("prepare", localeOf(root));
+  let stream: AbortController | null = null;
   try {
     const run = await api.createRun(mode, goal, dataClass);
+    let waitStage: AgentWaitStage = "prepare";
+    stream = startEventStream(root, api, run.run_id, 0, (event) => {
+      waitStage = waitStageForEvent(waitStage, event);
+      if (waitHost?.isConnected) waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root));
+    });
     if (status) {
       status.textContent = tr(
         localeOf(root),
@@ -191,6 +258,7 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       );
     }
     if (mode === "study") {
+      if (waitHost) waitHost.innerHTML = agentWaitMarkup("sources", localeOf(root));
       const diagnostic = await api.prepareStudy(run.run_id, goal, targetNote);
       const host = root.querySelector<HTMLElement>("#study-workspace");
       if (host) {
@@ -198,6 +266,7 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
         bindStudyDiagnostic(root, api);
       }
     } else if (mode === "work") {
+      if (waitHost) waitHost.innerHTML = agentWaitMarkup("sources", localeOf(root));
       const plan = await api.planWork(run.run_id, {
         goal,
         workspace_root: workspaceRoot,
@@ -220,10 +289,17 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       }
       clearWorkFields(form);
     } else {
+      if (waitHost) waitHost.innerHTML = agentWaitMarkup("complete", localeOf(root));
       await refresh(root, api, "runs");
     }
+    if (mode !== "research" && waitHost?.isConnected) {
+      waitHost.innerHTML = agentWaitMarkup("complete", localeOf(root));
+    }
   } catch (error) {
+    if (waitHost?.isConnected) waitHost.innerHTML = agentWaitMarkup("error", localeOf(root));
     if (status) status.textContent = errorText(error, localeOf(root));
+  } finally {
+    if (stream && eventStreams.get(root) === stream) stopEventStream(root);
   }
 }
 
@@ -438,6 +514,8 @@ async function decide(root: HTMLElement, api: DashboardApi, button: HTMLButtonEl
 
 async function actOnRadar(root: HTMLElement, api: DashboardApi, button: HTMLButtonElement): Promise<void> {
   button.disabled = true;
+  const target = root.querySelector<HTMLElement>("#research-result");
+  if (target) target.innerHTML = agentWaitMarkup("sources", localeOf(root));
   try {
     const action = button.dataset.radarAction as RadarAction;
     const result = await api.radarAction(
@@ -446,12 +524,13 @@ async function actOnRadar(root: HTMLElement, api: DashboardApi, button: HTMLButt
     );
     await refresh(root, api, action === "make_task" ? "approvals" : "radar");
     if (result.research_artifact) {
-      const target = root.querySelector<HTMLElement>("#research-result");
-      if (target) {
-        target.innerHTML = researchPreviewMarkup(result.research_artifact, localeOf(root));
+      const resultTarget = root.querySelector<HTMLElement>("#research-result");
+      if (resultTarget) {
+        resultTarget.innerHTML = researchPreviewMarkup(result.research_artifact, localeOf(root));
       }
     }
   } catch (error) {
+    if (target) target.innerHTML = agentWaitMarkup("error", localeOf(root));
     button.disabled = false;
     announce(root, errorText(error, localeOf(root)));
   }
@@ -524,14 +603,50 @@ async function showRun(
   if (!detail || !run) return;
   detail.textContent = tr(localeOf(root), "Reading local events…", "读取本地事件…");
   try {
-    detail.innerHTML = runEventsMarkup(
-      run,
-      await api.events(run.summary.run_id, 0),
-      localeOf(root),
-    );
+    const received = await api.events(run.summary.run_id, 0);
+    detail.innerHTML = runEventsMarkup(run, received, localeOf(root));
+    const after = received.at(-1)?.id ?? 0;
+    startEventStream(root, api, run.summary.run_id, after, (event) => {
+      received.push(event);
+      if (detail.isConnected) detail.innerHTML = runEventsMarkup(run, received, localeOf(root));
+    });
   } catch (error) {
     detail.textContent = errorText(error, localeOf(root));
   }
+}
+
+function startEventStream(
+  root: HTMLElement,
+  api: DashboardApi,
+  runId: string,
+  after: number,
+  onEvent: (event: RunEvent) => void,
+): AbortController {
+  stopEventStream(root);
+  const controller = new AbortController();
+  eventStreams.set(root, controller);
+  void api.streamEvents(runId, after, onEvent, controller.signal).catch((error: unknown) => {
+    if (!controller.signal.aborted) announce(root, errorText(error, localeOf(root)));
+  });
+  return controller;
+}
+
+function stopEventStream(root: HTMLElement): void {
+  eventStreams.get(root)?.abort();
+  eventStreams.delete(root);
+}
+
+function waitStageForEvent(current: AgentWaitStage, event: RunEvent): AgentWaitStage {
+  if (["run.failed", "run.cancelled", "research.failed", "study.failed", "work.failed", "model.failed"].includes(event.type)) return "error";
+  if (event.type === "run.completed") return "complete";
+  if (event.type === "retry.scheduled") return "retry";
+  if (event.type === "model.started") return "model";
+  if (["model.completed", "research.evidence_built", "artifact.created"].includes(event.type)) return "verify";
+  if (["research.source_started", "research.source_completed", "tool.requested", "tool.started", "tool.completed"].includes(event.type)) return "sources";
+  const state = typeof event.data.state === "string" ? event.data.state : "";
+  if (state === "verifying") return "verify";
+  if (state === "completed") return "complete";
+  return current;
 }
 
 async function refresh(root: HTMLElement, api: DashboardApi, view = "overview"): Promise<void> {
@@ -590,6 +705,11 @@ function releaseCover(root: HTMLElement): void {
 function applyLocale(root: HTMLElement, locale: Locale): void {
   root.dataset.locale = locale;
   document.documentElement.lang = locale;
+  document.title = tr(
+    locale,
+    "Restork · Local Agent Workspace",
+    "Restork · 本地智能工作台",
+  );
 }
 
 function bindLocaleSwitch(root: HTMLElement, rerender: () => void): void {
