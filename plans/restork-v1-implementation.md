@@ -1,6 +1,6 @@
 # Restork V1 Implementation Blueprint
 
-> Status: Complete — Steps 0–10 and Step 11 macOS internal alpha; Step 12 planned |
+> Status: Complete — Steps 0–10 and Step 11 macOS internal alpha; Steps 12–17 approved and in progress |
 > Version: 1.4 | Date: 2026-08-02
 >
 > Objective: Build a public-ready, local-first personal agent for Research, Study, and Work without exposing private runtime data.
@@ -10,6 +10,8 @@
 > Step 6 detail: [specs/restork-step6.md](../specs/restork-step6.md)
 > Step 11 detail: [plans/restork-step11-desktop.md](restork-step11-desktop.md)
 > Step 12 detail: [plans/restork-step12-cross-platform.md](restork-step12-cross-platform.md)
+> Accepted Rust-first roadmap: [plans/restork-steps12-17.md](restork-steps12-17.md)
+> Accepted roadmap specification: [specs/restork-steps12-17.md](../specs/restork-steps12-17.md)
 
 ## 1. Repository preflight
 
@@ -62,8 +64,10 @@ Every step must preserve these invariants:
 6. **Read-only default**: vault writes require policy and single-use approval; Work V1 prepares handoffs but launches no shell, Git mutation, deployment, message, or executor.
 7. **No hidden LLM passes**: retries, repair, fallback, and delegation are explicit events.
 8. **Public/private separation**: real vaults, profiles, credentials, traces, and indexes stay outside Git.
-9. **No framework creep**: LangGraph, graph servers, KAG, Go, and Rust remain outside the V1 Core;
-   Step 11 deliberately permits Rust only for the Tauri lifecycle/OS boundary.
+9. **No framework creep in the implemented V1 baseline**: LangGraph, graph servers, KAG, Go, and
+   Rust remain outside the V1 Core; Step 11 permits Rust only for the Tauri lifecycle/OS boundary.
+   The proposed Steps 12–17 roadmap changes this only after a replacement ADR approves a Rust-first
+   Core. It still rejects LangGraph and keeps Python as an optional capability worker.
 10. **Synthetic CI**: public tests never depend on the owner's files or credentials.
 11. **Versioned prompts**: production prompts are immutable registry entries; events retain only ID,
     version, and hash, while content and answers remain outside logs.
@@ -96,7 +100,15 @@ flowchart TD
   S9 --> S10
   S6 --> S10
   S10 --> S11["Step 11: macOS Desktop Shell"]
-  S11 --> S12["Step 12: Windows and Linux Desktop"]
+  S11 --> S12["Step 12: Rust Runtime and Cross-platform Desktop"]
+  S12 --> S13["Step 13: Personal Daily Context"]
+  S12 --> S14["Step 14: Conversation, Profiles, Models, and Prompts"]
+  S13 --> S14
+  S14 --> S15["Step 15: Extension Center and Tool Discovery"]
+  S14 --> S16["Step 16: Reports and Presentations"]
+  S15 --> S16
+  S15 --> S17["Step 17: Recovery, Automation, Evaluation, and Bounded Delegation"]
+  S16 --> S17
 ```
 
 ## 5. Parallel execution map
@@ -111,7 +123,12 @@ flowchart TD
 | 5 | Steps 7 and 9A | Research integration and Work planning/handoff can proceed in parallel; neither launches code execution |
 | 6 | Step 10 | Final integration and release gate |
 | 7 | Step 11 | macOS desktop packaging, lifecycle, and protected release gate |
-| 8 | Step 12 | Native Windows and Linux adapters after the macOS contract is stable |
+| 8 | Step 12 | Rust runtime foundation plus native Windows and Linux adapters after ADR approval |
+| 9 | Step 13 | Personal profile, zero-config calendar, optional weather/location, and private music context |
+| 10 | Step 14 | Conversation workspace, Profiles, providers, Prompt Studio, Doctor, and session recall |
+| 11 | Step 15 | Skills, MCP, Plugins, Last 30 Days, and progressive tool discovery |
+| 12 | Step 16 | Evidence-backed daily/weekly reports and controlled presentation export |
+| 13 | Step 17 | Checkpoints, safe scheduling, evaluation, and bounded delegation after the single-run contract is stable |
 
 ## 6. Delivery checkpoints
 
@@ -124,7 +141,10 @@ flowchart TD
 | Controlled work beta | 9 | Work plans and bounded handoff packages are reviewable; Restork does not launch executors |
 | V1 release | 10 | Privacy, recovery, evaluation, and release requirements pass |
 | macOS internal alpha | 11 | Native launcher, packaged Core, automatic pairing, and release pipeline |
-| Cross-platform desktop | 12 | Native Windows/Linux credentials, lifecycle, installers, and signed updates |
+| Rust-first cross-platform runtime | 12 | Native Rust Core foundation plus macOS/Windows/Linux credentials, lifecycle, installers, and updates |
+| Personal workspace | 13–14 | Friendly local profile, daily context, conversation, Profiles, models, prompts, diagnostics, and recall |
+| Extensible deliverables | 15–16 | Governed Skills/MCP/Plugins plus evidence-backed reports and presentations |
+| Controlled autonomy | 17 | Recoverable effects, limited schedules, evaluation, and bounded child tasks |
 
 ## 7. Required PR slicing
 
@@ -143,6 +163,13 @@ The numbered steps are delivery milestones, not single pull requests. Each slice
 | 8 | `8A` diagnostic/path/practice workflow; `8B` review state and evals |
 | 9 | `9A` read-only repository context and handoff contract; `9B` imported-result verification; `9C` Dashboard/CLI integration |
 | 10 | `10A` automated privacy/recovery/security gates; `10B` release artifacts, docs, and final audit |
+| 11 | `11A` frozen Core package; `11B` Tauri supervisor; `11C` session bridge; `11D` release and lifecycle gates |
+| 12 | `12A` ADR/baseline; `12B` Rust compatibility shell; `12C` storage/Harness; `12D` provider/knowledge runtime; `12E` worker protocol; `12F` cross-platform delivery |
+| 13 | `13A` local profile/greeting; `13B` clock/calendar; `13C` optional weather/music |
+| 14 | `14A` UI/onboarding; `14B` intake/loop; `14C` session recall/context refs; `14D` Profiles/models; `14E` Prompt Studio; `14F` Doctor/analytics |
+| 15 | `15A` Skill catalog; `15B` MCP; `15C` Plugin packages; `15D` Tool Search; `15E` Last 30 Days/Skill proposals |
+| 16 | `16A` evidence/report contracts; `16B` Markdown delivery; `16C` DeckSpec/preview; `16D` controlled export |
+| 17 | `17A` checkpoints; `17B` scheduler; `17C` bounded delegation; `17D` evaluation/private trace export |
 
 Step 1 establishes a versioned baseline; it does not permanently freeze contracts. Later changes are additive by default. A breaking change requires a Spec update, compatibility fixtures, and an explicit migration before dependent work.
 

@@ -43,11 +43,12 @@ CJK_TEXT = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 README_RULES = {
     "README.md": {
         "headings": (
-            "## Product proof",
-            "## Why Restork",
-            "## Architecture",
-            "## Five-minute start",
-            "## Privacy boundary",
+            "## See Restork in action",
+            "## One workspace for the way a day actually unfolds",
+            "## Designed to stay understandable",
+            "## How it works",
+            "## Try it in five minutes",
+            "## Available today",
         ),
         "provenance": "synthetic",
         "counterpart": "./README.zh-CN.md",
@@ -59,11 +60,12 @@ README_RULES = {
     },
     "README.zh-CN.md": {
         "headings": (
-            "## 产品实证",
-            "## 为什么是 Restork",
-            "## 架构",
-            "## 五分钟启动",
-            "## 隐私边界",
+            "## 看看 Restork 怎么工作",
+            "## 一天里的研究、学习和工作，本来就会交织在一起",
+            "## 我们希望它始终容易理解",
+            "## 它是怎么工作的",
+            "## 五分钟开始使用",
+            "## 现在可以使用的能力",
         ),
         "provenance": "合成",
         "counterpart": "./README.md",

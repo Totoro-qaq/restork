@@ -1,6 +1,6 @@
 # ADR 0001: Keep the Python Core and add a thin Rust desktop supervisor
 
-- Status: Accepted
+- Status: Superseded by [ADR 0002](0002-rust-first-core-bounded-agent-loop.md)
 - Date: 2026-08-02
 - Scope: Step 11 macOS desktop distribution
 
