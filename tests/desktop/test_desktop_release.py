@@ -200,6 +200,9 @@ def test_desktop_core_build_loads_the_rust_workspace_linker_policy() -> None:
     # --manifest-path argument. Keep the policy at the repository root for
     # contributor/CI commands and build the Core from its workspace as defense
     # in depth; otherwise a packaged macOS Core can miss its Swift LC_RPATH.
-    assert '], cargoEnvironment, join(projectRoot, "rust"));' in build_script
+    assert 'run("cargo", [' in build_script
+    assert '], process.env, join(projectRoot, "rust"));' in build_script
+    assert "process.env.CARGO" not in build_script
+    assert "homedir" not in build_script
     assert "@executable_path/../Frameworks" in cargo_config
     assert "/usr/lib/swift" in cargo_config

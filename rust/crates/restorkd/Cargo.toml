@@ -28,5 +28,5 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
-getrandom.workspace = true
+tempfile = "3.27.0"
 tokio = { workspace = true, features = ["io-util", "sync", "time"] }

@@ -14,5 +14,5 @@ sha2.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "process", "time"] }
 
 [dev-dependencies]
-getrandom.workspace = true
+tempfile = "3.27.0"
 tokio = { workspace = true, features = ["fs", "macros", "rt-multi-thread"] }

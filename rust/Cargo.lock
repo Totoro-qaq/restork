@@ -1264,12 +1264,12 @@ dependencies = [
 name = "restork-worker"
 version = "0.1.0"
 dependencies = [
- "getrandom 0.4.3",
  "libc",
  "restork-extension",
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "tokio",
 ]
 
@@ -1279,7 +1279,6 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chrono",
- "getrandom 0.4.3",
  "libc",
  "restork-api",
  "restork-automation",
@@ -1289,6 +1288,7 @@ dependencies = [
  "restork-storage",
  "serde",
  "serde_json",
+ "tempfile",
  "time",
  "tokio",
  "windows-sys 0.61.2",

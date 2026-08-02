@@ -1,26 +1,13 @@
 #!/usr/bin/env node
 
-import { existsSync, readdirSync } from "node:fs";
 import { chmod, copyFile, mkdir, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-import { homedir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const executableName = process.platform === "win32" ? "restorkd.exe" : "restorkd";
 const outputDirectory = join(projectRoot, "dist", "desktop-runtime");
-const bundledCargo = join(homedir(), ".cargo", "bin", process.platform === "win32" ? "cargo.exe" : "cargo");
-const toolchainRoot = join(homedir(), ".rustup", "toolchains");
-const toolchainCargo = existsSync(toolchainRoot)
-  ? readdirSync(toolchainRoot)
-    .filter((name) => name.startsWith("1.97.1-"))
-    .map((name) => join(toolchainRoot, name, "bin", process.platform === "win32" ? "cargo.exe" : "cargo"))
-    .find(existsSync)
-  : undefined;
-const cargo = process.env.CARGO
-  || (existsSync(bundledCargo) ? bundledCargo : toolchainCargo)
-  || "cargo";
 
 function run(command, args, environment = process.env, workingDirectory = projectRoot) {
   const result = spawnSync(command, args, {
@@ -35,12 +22,7 @@ function run(command, args, environment = process.env, workingDirectory = projec
 if (process.platform === "win32") {
   // Windows cannot execute a .cmd shim directly without cmd.exe. The command
   // is deliberately constant: no path, model, or user input reaches the shell.
-  const commandInterpreter = join(
-    process.env.SystemRoot || "C:\\Windows",
-    "System32",
-    "cmd.exe",
-  );
-  run(commandInterpreter, [
+  run("cmd.exe", [
     "/d",
     "/s",
     "/c",
@@ -49,13 +31,7 @@ if (process.platform === "win32") {
 } else {
   run("npm", ["--prefix", "dashboard", "run", "build"]);
 }
-const cargoDirectory = dirname(cargo);
-const cargoEnvironment = cargo === "cargo" ? process.env : {
-  ...process.env,
-  PATH: `${cargoDirectory}${delimiter}${process.env.PATH || ""}`,
-  RUSTC: process.env.RUSTC || join(cargoDirectory, process.platform === "win32" ? "rustc.exe" : "rustc"),
-};
-run(cargo, [
+run("cargo", [
   "build",
   "--manifest-path",
   join(projectRoot, "rust", "Cargo.toml"),
@@ -63,7 +39,7 @@ run(cargo, [
   "--locked",
   "-p",
   "restorkd",
-], cargoEnvironment, join(projectRoot, "rust"));
+], process.env, join(projectRoot, "rust"));
 
 await rm(outputDirectory, { recursive: true, force: true });
 await mkdir(outputDirectory, { recursive: true, mode: 0o700 });

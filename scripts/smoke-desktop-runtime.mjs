@@ -2,7 +2,6 @@
 
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -10,14 +9,14 @@ import { fileURLToPath } from "node:url";
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const executableName = process.platform === "win32" ? "restorkd.exe" : "restorkd";
-const coreBinary = process.argv[2] || join(projectRoot, "dist", "desktop-runtime", executableName);
+const coreBinary = join(projectRoot, "dist", "desktop-runtime", executableName);
 
 if (!existsSync(coreBinary)) {
   process.stderr.write(`Frozen Core is missing: ${coreBinary}\n`);
   process.exit(2);
 }
 
-const smokeRoot = await mkdtemp(join(tmpdir(), "restork-core-smoke-"));
+const smokeRoot = await mkdtemp(join(projectRoot, ".restork-core-smoke-"));
 const configDirectory = join(smokeRoot, "config");
 const dataDirectory = join(smokeRoot, "data");
 const cacheDirectory = join(smokeRoot, "cache");
@@ -35,7 +34,6 @@ const child = spawn(coreBinary, [
   join(dataDirectory, "restork.db"),
 ], {
   env: {
-    PATH: process.env.PATH || "",
     RESTORK_CONFIG_DIR: configDirectory,
     RESTORK_DATA_DIR: dataDirectory,
     RESTORK_CACHE_DIR: cacheDirectory,
