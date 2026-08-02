@@ -3,6 +3,8 @@
 Restork's daily context is optional. With an empty profile it displays setup states and performs no
 outbound request. Location, calendar, playlist, preferences, and cover files stay outside the Git
 repository and browser storage.
+The only optional Web Storage value anywhere in the Dashboard is the non-sensitive `restork.locale`
+language preference; daily-context fields are never persisted there.
 
 ## Private profile
 

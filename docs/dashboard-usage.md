@@ -14,6 +14,11 @@ Open `http://127.0.0.1:7337`, enter the Web pairing code printed in the foregrou
 that Core process running. A remote URL, hosted Dashboard, browser extension, or cloud database is not
 part of V1.
 
+The Dashboard detects `zh-*` browser locales as Simplified Chinese and defaults every other locale to
+English. Use the visible `EN`/`中文` control on either the pairing page or workspace to switch. An
+explicit switch may persist only `restork.locale` with the literal value `en` or `zh-CN`; session
+tokens and Core data remain memory-only.
+
 ## Home and daily context
 
 The overview shows active runs, pending approvals, Markdown tasks, Radar, and the four memory layers.
@@ -55,7 +60,8 @@ creates a Markdown diff; Core applies it only after approval through the journal
 
 The Memory view shows inspectable metadata for Working, Episodic, Semantic, and Profile layers. Use the
 authenticated API/CLI to build a context manifest, correct/delete eligible records, export privately,
-or purge a source. Browser storage remains empty; refreshing requires Core state again.
+or purge a source. Browser storage contains no memory payload or canonical state; the optional locale
+preference is the only persistent UI value. Refreshing still requires Core state again.
 
 ## CLI
 

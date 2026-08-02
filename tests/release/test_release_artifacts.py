@@ -38,5 +38,8 @@ def test_release_artifacts_are_reproducible_public_and_complete(tmp_path: Path) 
     with tarfile.open(source_archive, "r:gz") as archive:
         names = archive.getnames()
     assert any(name.endswith("assets/readme/hero.svg") for name in names)
+    assert any(name.endswith("assets/readme/hero.zh-CN.svg") for name in names)
+    assert any(name.endswith("assets/readme/architecture.zh-CN.svg") for name in names)
     assert any(name.endswith("assets/readme/demo-hd.gif") for name in names)
+    assert any(name.endswith("README.zh-CN.md") for name in names)
     assert not any("design/" in name or name.endswith(".db") for name in names)

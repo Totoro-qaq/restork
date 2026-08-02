@@ -24,7 +24,7 @@ requires = ["uv_build>=0.11.26,<0.12"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-source-include = ["assets/readme/**"]
+source-include = ["README.zh-CN.md", "assets/readme/**"]
 
 [dependency-groups]
 dev = [

@@ -1,10 +1,15 @@
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="Restork — a local-first agent workspace that turns research into study and work while private knowledge stays local.">
+  <strong>English</strong> · <a href="./README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Restork — a local-first agent workspace for research, study, and work.">
 </p>
 
 <p align="center">
   <a href="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <a href="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml/badge.svg" alt="Release candidate status"></a>
+  <a href="https://github.com/Totoro-qaq/restork/releases"><img src="https://img.shields.io/github/v/release/Totoro-qaq/restork?display_name=tag&amp;sort=semver" alt="Latest GitHub release"></a>
+  <a href="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml/badge.svg" alt="Release provenance status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0ea5e9.svg" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/Python-3.12-8b5cf6.svg" alt="Python 3.12">
   <img src="https://img.shields.io/badge/UI-TypeScript-06b6d4.svg" alt="TypeScript Dashboard">
@@ -13,51 +18,36 @@
 
 <p align="center">
   <strong>Restork = Research + Study + Work.</strong><br>
-  一个 Core，把本地知识与云端推理组织成可审阅、可恢复的研究—学习—工作循环。<br>
-  One Core turns local knowledge and cloud reasoning into a reviewable, recoverable Research–Study–Work loop.
+  One governed Core turns local knowledge and cloud reasoning into a reviewable, recoverable loop.
 </p>
 
-> **当前状态 / Current status — V1 release candidate, Steps 0–10 complete.** 本地 Core、受控 Harness、四层记忆、
-> Markdown 任务、每日上下文、配对式 Web Dashboard，以及带证据卡和笔记预览的
-> Research、Study 与 planning-only Work 三条纵向工作流均已实现；隐私、恢复、安全、评估与可复现发布门禁均已完成。测试与公开演示只使用合成数据，
-> 不会发起真实模型请求。
->
-> The local Core, governed Harness, four-layer memory, Markdown tasks, daily
-> context, paired Web Dashboard, and evidence-backed Research vertical slice
-> are implemented, together with diagnostic-first Study and a planning-only,
-> approval-bound Work handoff. Privacy, recovery, security, evaluation, and
-> reproducible release gates are complete. Tests
-> and public demos use synthetic data and never make live model calls.
-
-## 产品实证 / Product proof
+## Product proof
 
 <p align="center">
   <a href="./assets/readme/demo-poster.webp">
-    <img src="./assets/readme/demo-hd.gif" width="100%" alt="Restork Dashboard cycling through overview, runs, approvals, Markdown tasks, Radar, memory, daily context, and a planning-only Work handoff using synthetic data.">
+    <img src="./assets/readme/demo-hd.gif" width="100%" alt="Restork Dashboard cycling through runs, approvals, Markdown tasks, Radar, memory, daily context, and a planning-only Work handoff using synthetic data.">
   </a>
 </p>
 
-上图由仓库内的真实 Dashboard 构建生成，内容是公开合成夹具。它展示运行、单次审批、
-Markdown 任务、Radar、四层记忆、planning-only Work 交接，以及带罗马数字时钟、天气、只读日历和可旋转唱片的每日上下文。
-
-The capture is generated from the real Dashboard build with public synthetic
+This capture is generated from the real Dashboard build with public synthetic
 fixtures. It shows runs, single-use approvals, Markdown tasks, Radar, four-layer
 memory, a planning-only Work handoff, and daily context with a Roman clock,
-weather, read-only calendar, and an opt-in spinning record.
+weather, a read-only calendar, and an opt-in spinning record. Public demos and
+tests make no live model calls.
 
-## 为什么是 Restork / Why Restork
+## Why Restork
 
-| 原则 / Principle | 中文 | English |
-|---|---|---|
-| **本地知识 / Local knowledge** | Obsidian Markdown 是持久知识与任务的事实源；私有 Vault 不进入仓库。 | Obsidian Markdown is the source of truth for durable knowledge and tasks; private Vaults never enter the repository. |
-| **一个 Core / One Core** | Research、Study、Work 共用同一套类型化 Harness、事件流、预算与策略。 | Research, Study, and Work share one typed Harness, event stream, budget model, and policy system. |
-| **影响前审批 / Approval before impact** | 写入先生成精确预览；批准能力单次、限时且绑定内容摘要。 | Writes begin as exact previews; approval capabilities are single-use, expiring, and digest-bound. |
-| **可检查记忆 / Inspectable memory** | 记忆分层、可导出、可纠正、可删除；不会把模型猜测暗中升级为偏好。 | Memory is layered, exportable, correctable, and deletable; model guesses never silently become preferences. |
+| Principle | Behavior |
+|---|---|
+| **Local knowledge** | Obsidian Markdown remains the source of truth for durable knowledge and tasks. Private Vaults never enter the repository. |
+| **One Core** | Research, Study, and Work share one typed Harness, event stream, budget model, and policy system. |
+| **Approval before impact** | Writes begin as exact previews. Approval capabilities are single-use, expiring, and digest-bound. |
+| **Inspectable memory** | Memory is layered, exportable, correctable, and deletable. Model guesses never silently become preferences. |
 
-## 架构 / Architecture
+## Architecture
 
 <p align="center">
-  <img src="./assets/readme/architecture.svg" width="100%" alt="Restork architecture: private Markdown and profile data feed four local memory layers and a context selector; the governed Core routes approved cloud requests through one outbound gateway.">
+  <img src="./assets/readme/architecture.svg" width="100%" alt="Restork architecture: four local memory layers select bounded context inside Core, while approved cloud requests cross one outbound policy gateway.">
 </p>
 
 ```text
@@ -73,47 +63,41 @@ Restork Core ─ Harness ─ Policy ─ Approval ─ Event log
         └── Outbound Gateway ──► DeepSeek V4 Pro / approved public services
 ```
 
-- **Markdown 真相 / Markdown truth:** 笔记与用户任务。 Notes and user tasks.
-- **SQLite 真相 / SQLite truth:** 运行、步骤、审批、意图与事件。 Runs, steps, approvals, intents, and events.
-- **可重建投影 / Rebuildable projections:** 索引、wiki-link 图与缓存。 Indexes, wiki-link graphs, and caches.
-- **薄客户端 / Thin clients:** Dashboard 与 CLI 不持有模型密钥或执行权限；V1 不发布也不要求 Obsidian 插件。 The Dashboard and CLI own neither model credentials nor execution authority; V1 ships and requires no Obsidian plugin.
+- **Markdown truth:** notes and user tasks.
+- **SQLite truth:** runs, steps, approvals, intents, and events.
+- **Rebuildable projections:** indexes, wiki-link graphs, and optional search caches.
+- **Thin clients:** Dashboard and CLI own neither model credentials nor execution authority.
 
-V1 不需要 LangGraph、图数据库、KAG、Valkey 或 Memory MCP。它们保留为未来的可插拔适配器，
-只有在分布式执行、跨应用记忆或检索评估证明必要时才引入。
+V1 needs no LangGraph, graph database, KAG, Valkey, Memory MCP, or Obsidian
+plugin. Those remain possible adapters only when distributed execution,
+cross-application memory, or retrieval evaluation demonstrates a real need.
 
-V1 needs no LangGraph, graph database, KAG, Valkey, or Memory MCP. They remain
-possible adapters only if distributed execution, cross-application memory, or
-retrieval evaluation later demonstrates a real need.
+## Three modes, one contract
 
-## 现在能做什么 / What works now
-
-| 能力 / Capability | 已实现行为 / Implemented behavior |
+| Mode | Governed flow |
 |---|---|
-| **Core & Harness** | 持久状态机、预算、恢复点、显式重试、DeepSeek V4 Pro provider adapter、代码策略化工具。 Persisted state machine, budgets, recovery checkpoints, explicit retries, a DeepSeek V4 Pro provider adapter, and code-governed tools. |
-| **Local API & UI** | 仅监听 loopback 的 `/v1` API、分离的 Web/CLI 配对码、短期 token、SSE 事件流与响应式 Dashboard。 Loopback-only `/v1` API, separate Web/CLI pairing codes, short-lived tokens, SSE events, and a responsive Dashboard. |
-| **Knowledge & tasks** | 只读 Vault 检索、确定性 wiki-link 投影、单文件日志化写入，以及 Markdown checkbox 任务预览/批准/应用。 Read-only Vault retrieval, deterministic wiki-link projection, journaled single-file writes, and preview/approve/apply for Markdown checkbox tasks. |
-| **Memory** | Working、Episodic、Semantic、Profile 四层；TTL/LRU 只清理瞬态值和可重建缓存。 Four layers—Working, Episodic, Semantic, Profile—with TTL/LRU limited to transient values and rebuildable caches. |
-| **Daily context** | 可选 Open-Meteo 天气、一个本地只读 ICS、私有 JSON/CSV 歌单与本地封面；无配置时不联网。 Optional Open-Meteo weather, one local read-only ICS, and private JSON/CSV playlists with local covers; no configuration means no request. |
-| **Research** | 公共网页、GitHub 与 arXiv 来源 → 有界证据卡 → 引用校验结论、冲突与实验 → 重复安全的 Markdown 预览。 Public web, GitHub, and arXiv sources → bounded evidence cards → citation-validated claims, conflicts, and experiments → duplicate-safe Markdown preview. |
-| **Study** | 先诊断、再生成显式先修与学习路径；无答案泄露的练习、错误驱动复习，以及不可写的进度预览。 Diagnostic first, then explicit prerequisites and learning paths, answer-free practice, error-driven review, and write-disabled progress previews. |
-| **Work** | 只读仓库快照 → 有界计划 → 精确脱敏上下文预览 → 单次审批的本地交接包 → 导入哈希验证；不启动执行器。 Read-only snapshot → bounded plan → exact sanitized context preview → single-use approved local handoff → imported hash verification; no executor launch. |
+| **Research** | Public sources → bounded evidence cards → citation-validated claims and conflicts → duplicate-safe Markdown preview. |
+| **Study** | Diagnostic → explicit prerequisites and learning path → answer-free practice → error-driven spaced review. |
+| **Work** | Read-only repository snapshot → bounded plan → exact redacted handoff preview → single-use local export → imported hash verification. Restork never launches an executor. |
 
-三个模式共享 Core contract、Dashboard 入口与恢复语义，并已完成 V1 纵向交付：
+All three modes share budgets, policy decisions, append-only events, recovery
+semantics, and the same local Dashboard entry point.
 
-The three modes share Core contracts, Dashboard entry points, and recovery
-semantics, and all three V1 vertical slices are implemented:
+## What works
 
-- **Research:** 来源 → 证据卡 → 可追溯结论。 Sources → evidence cards → traceable claims.
-- **Study:** 诊断 → 路径 → 练习 → 间隔复习。 Diagnostic → path → practice → spaced review.
-- **Work:** 只读上下文 → 有界计划 → 审批交接 → 导入验证。 Read-only context → bounded plan → approved handoff → imported verification.
+| Surface | Implemented behavior |
+|---|---|
+| **Core & Harness** | Persisted state machine, budgets, checkpoints, explicit retries, a DeepSeek V4 Pro provider adapter, and code-governed tools. |
+| **Local API** | Loopback-only `/v1` API, separate Web/CLI pairing codes, short-lived tokens, and SSE events. |
+| **Dashboard** | Responsive local Web UI with browser-locale detection and an explicit English/Chinese switch. Only the non-sensitive locale preference may be persisted. |
+| **Knowledge & tasks** | Read-only Vault retrieval, deterministic wiki-link projection, journaled single-file writes, and preview/approve/apply for Markdown checkbox tasks. |
+| **Memory** | Working, Episodic, Semantic, and Profile layers. TTL/LRU is limited to transient values and rebuildable caches. |
+| **Daily context** | Optional Open-Meteo weather, one local read-only ICS calendar, and private JSON/CSV playlists with local covers. No configuration means no request. |
 
-## 五分钟启动 / Five-minute start
+## Five-minute start
 
-需要 Python 3.12 与 [`uv`](https://docs.astral.sh/uv/)。Node.js 只在修改 Dashboard
-源码时需要。
-
-Python 3.12 and [`uv`](https://docs.astral.sh/uv/) are required. Node.js is only
-needed when changing Dashboard source.
+Python 3.12 and [`uv`](https://docs.astral.sh/uv/) are required. Node.js is
+needed only when changing Dashboard source.
 
 ```bash
 git clone https://github.com/Totoro-qaq/restork.git
@@ -122,16 +106,11 @@ uv sync --frozen
 uv run restork serve --port 7337
 ```
 
-打开 `http://127.0.0.1:7337`，输入 Core 终端显示的 **Web pairing code**。
-这是一个仅本机可访问的工作区；关闭 Core 会使当前会话 token 失效。
-
 Open `http://127.0.0.1:7337` and enter the **Web pairing code** printed by Core.
-The workspace is loopback-only, and stopping Core invalidates the current
-session token.
+The workspace is loopback-only. Stopping Core invalidates the current session
+token.
 
-连接你的私有配置和 Vault 时，路径应位于仓库之外；全局参数必须写在子命令前：
-
-To connect a private profile and Vault, keep both outside the repository; global
+Keep your Profile, state database, and Vault outside the repository. Global
 arguments must precede the subcommand:
 
 ```bash
@@ -142,7 +121,7 @@ uv run restork \
   serve --port 7337
 ```
 
-CLI 使用独立配对码 / The CLI uses its own pairing code:
+The CLI uses a separate one-time pairing code:
 
 ```bash
 uv run restork pair --code '<CLI pairing code>'
@@ -151,47 +130,30 @@ uv run restork health
 uv run restork capabilities
 ```
 
-配置示例见 [`examples/profile.example.toml`](examples/profile.example.toml) 与
-[`examples/config.example.toml`](examples/config.example.toml)，详细规则见
-[`Memory`](docs/memory.md)、[`Markdown tasks`](docs/markdown-tasks.md)、
-[`Daily context`](docs/daily-context.md) 与 [`Study`](docs/study.md)。
+Start with the credential-free
+[`profile example`](examples/profile.example.toml) and
+[`config example`](examples/config.example.toml). Then read the guides for
+[`Dashboard & CLI`](docs/dashboard-usage.md), [`Memory`](docs/memory.md),
+[`Markdown tasks`](docs/markdown-tasks.md),
+[`Daily context`](docs/daily-context.md), [`Research`](docs/research-workflow.md),
+[`Study`](docs/study.md), and [`Work`](docs/work.md).
 
-See [`examples/profile.example.toml`](examples/profile.example.toml),
-[`examples/config.example.toml`](examples/config.example.toml), and the
-guides for [`Memory`](docs/memory.md), [`Markdown tasks`](docs/markdown-tasks.md),
-[`Daily context`](docs/daily-context.md), and [`Study`](docs/study.md).
+## Privacy boundary
 
-运行、隐私与发布细节见 [`Operations`](docs/operations.md)、
-[`Privacy`](docs/privacy.md)、[`Dashboard & CLI`](docs/dashboard-usage.md)、
-[`Adversarial review`](docs/adversarial-review.md) 与
-[`Release checklist`](docs/release-checklist.md)。
-
-For operating, privacy, and release details, read [`Operations`](docs/operations.md),
-[`Privacy`](docs/privacy.md), [`Dashboard & CLI`](docs/dashboard-usage.md),
-the [`adversarial review`](docs/adversarial-review.md), and the
-[`release checklist`](docs/release-checklist.md).
-
-## 隐私边界 / Privacy boundary
-
-| 可以公开提交 / Safe to track | 必须留在 Git 外 / Must stay outside Git |
+| Safe to track | Must stay outside Git |
 |---|---|
-| 源代码、Schema、合成 fixtures、公开文档 / Source, schemas, synthetic fixtures, public docs | 真实 Vault、Profile、SQLite、索引、日志与恢复点 / Real Vaults, profiles, SQLite databases, indexes, logs, checkpoints |
-| 无凭据配置样例 / Credential-free configuration examples | API key、token、Keychain 导出、私有 GitHub 内容 / API keys, tokens, Keychain exports, private GitHub content |
-| 合成 Dashboard 截图 / Synthetic Dashboard captures | 真实日历、位置、歌单、封面与工作产物 / Real calendars, locations, playlists, covers, work artifacts |
+| Source, schemas, synthetic fixtures, public docs | Real Vaults, profiles, SQLite databases, indexes, logs, checkpoints |
+| Credential-free configuration examples | API keys, tokens, Keychain exports, private GitHub content |
+| Synthetic Dashboard captures | Real calendars, locations, playlists, covers, work artifacts |
 
-所有 Core 发起的网络请求通过一个出站网关，使用精确 origin、数据分级、响应大小与查询参数
-白名单。公开测试和 CI 不读取个人文件，不需要凭据，也不调用实时模型。请阅读
-[`Threat model`](docs/security/threat-model.md)、[`Outbound network`](docs/security/outbound-network.md)
-与 [`Security policy`](SECURITY.md)。
+Every Core-initiated request crosses one outbound gateway with exact origins,
+data classification, response-size limits, and query-key allowlists. Public CI
+reads no personal files, needs no credentials, and calls no live model. See the
+[`Threat model`](docs/security/threat-model.md),
+[`Outbound network policy`](docs/security/outbound-network.md),
+[`Privacy guide`](docs/privacy.md), and [`Security policy`](SECURITY.md).
 
-Every Core-initiated request passes through one outbound gateway with exact
-origins, data classification, response-size limits, and query-key allowlists.
-Public tests and CI read no personal files, require no credentials, and call no
-live model. Read the [`Threat model`](docs/security/threat-model.md),
-[`Outbound network`](docs/security/outbound-network.md), and
-[`Security policy`](SECURITY.md).
-
-## 开发 / Development
+## Development and contributing
 
 ```bash
 # Core
@@ -206,27 +168,16 @@ npm --prefix dashboard run lint
 npm --prefix dashboard test
 npm --prefix dashboard run build
 
-# Public artifact and package gates
+# Public artifacts and release bundle
+uv run python scripts/audit_readme.py README.md README.zh-CN.md
 ./scripts/scan-public-artifacts.sh
 uv run python scripts/build_release.py --output dist/release
 ```
 
-## 路线图与贡献 / Roadmap & contributing
-
-- Steps 0–6: ✅ 安全基础、Core、Harness、知识、记忆与 Dashboard。 Safety foundation, Core, Harness, knowledge, memory, and Dashboard.
-- Step 7: ✅ Research 来源、证据、预览与评估。 Research sources, evidence, previews, and evaluation.
-- Step 8: ✅ Study 诊断、路径、练习与复习。 Study diagnostics, paths, practice, and review.
-- Step 9: ✅ Work 只读上下文、审批交接与结果验证。 Work read-only context, approved handoff, and result verification.
-- Step 10: ✅ 隐私、恢复、安全、打包与发布审计。 Privacy, recovery, security, packaging, and release audit.
-
-产品约定见 [`V1 specification`](specs/restork-v1.md)，交付切片见
-[`implementation blueprint`](plans/restork-v1-implementation.md)，Step 6 的详细验收见
-[`Step 6 specification`](specs/restork-step6.md)。提交改动前请阅读
-[`CONTRIBUTING.md`](CONTRIBUTING.md)。
-
-See the [`V1 specification`](specs/restork-v1.md), the
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a change. Product
+contracts live in the [`V1 specification`](specs/restork-v1.md), the
 [`implementation blueprint`](plans/restork-v1-implementation.md), and the
-[`Step 6 specification`](specs/restork-step6.md). Read
-[`CONTRIBUTING.md`](CONTRIBUTING.md) before contributing.
+[`Step 6 specification`](specs/restork-step6.md). Release history is recorded
+in [`CHANGELOG.md`](CHANGELOG.md).
 
-Restork 基于 [`MIT License`](LICENSE) 发布。 / Restork is released under the [`MIT License`](LICENSE).
+Restork is released under the [`MIT License`](LICENSE).
