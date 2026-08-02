@@ -2796,12 +2796,15 @@ name = "restork-desktop"
 version = "0.1.2"
 dependencies = [
  "libc",
+ "semver",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tempfile",
  "windows-sys 0.61.2",
 ]
 

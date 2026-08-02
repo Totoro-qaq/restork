@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Restork R</title>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#f59e0b"/><stop offset=".5" stop-color="#ec4899"/><stop offset="1" stop-color="#22c4dc"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="#fbf7ef"/>
+  <path fill="url(#g)" d="M15 12h21c11 0 17 6 17 15 0 7-4 12-10 14l11 12H40L30 42h-3v11H15V12Zm12 10v11h8c4 0 6-2 6-6 0-3-2-5-6-5h-8Z"/>
+</svg>

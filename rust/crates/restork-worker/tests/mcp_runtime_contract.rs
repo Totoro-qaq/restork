@@ -1,0 +1,43 @@
+use std::collections::{BTreeMap, BTreeSet};
+
+use restork_extension::{
+    EnvironmentPolicy, McpTransport, PermissionSet, ResolvedToolCall, SandboxPolicy, Sha256Digest,
+    StdioDefinition,
+};
+use restork_worker::execute_stdio_mcp;
+use serde_json::json;
+
+#[tokio::test]
+async fn reviewed_stdio_mcp_uses_json_rpc_without_shell_or_ambient_environment() {
+    let call = ResolvedToolCall {
+        session_id: "session-mcp".to_owned(),
+        catalog_fingerprint: Sha256Digest::parse("a".repeat(64)).expect("catalog hash"),
+        real_tool_id: "papers.search".to_owned(),
+        package_id: "paper-mcp".to_owned(),
+        package_version: "1.0.0".to_owned(),
+        package_hash: Sha256Digest::parse("b".repeat(64)).expect("package hash"),
+        server_id: "paper-mcp".to_owned(),
+        transport: McpTransport::Stdio(StdioDefinition {
+            executable: env!("CARGO_BIN_EXE_restork-mcp-fixture").to_owned(),
+            argv: Vec::new(),
+            environment: EnvironmentPolicy::isolated(),
+        }),
+        secret_references: BTreeSet::new(),
+        sandbox: SandboxPolicy {
+            max_runtime_ms: 2_000,
+            max_output_bytes: 64 * 1024,
+            allow_network: false,
+            allowed_paths: BTreeSet::new(),
+        },
+        required_permissions: PermissionSet::from_ids(["process:spawn"]).expect("permission"),
+        input: json!({"query": "memory-safe agents"}),
+    };
+
+    let output = execute_stdio_mcp("execution-fixture", &call, &BTreeMap::new())
+        .await
+        .expect("MCP output");
+    assert_eq!(output.protocol_version, "2025-06-18");
+    assert_eq!(output.content["content"][0]["text"], "memory-safe agents");
+    assert_eq!(output.content["ambientHomeInherited"], false);
+    assert!(output.output_is_untrusted);
+}

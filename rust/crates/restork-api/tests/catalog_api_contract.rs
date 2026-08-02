@@ -98,6 +98,38 @@ async fn call_with_idempotency(
     (status, body)
 }
 
+async fn call_with_body_and_idempotency(
+    app: Router,
+    method: Method,
+    path: &str,
+    body: Value,
+    authorization: &str,
+    idempotency_key: &str,
+) -> (StatusCode, Option<Value>) {
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("authorization", authorization)
+                .header("content-type", "application/json")
+                .header("idempotency-key", idempotency_key)
+                .body(Body::from(body.to_string()))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    let body = (!bytes.is_empty()).then(|| serde_json::from_slice(&bytes).expect("JSON"));
+    (status, body)
+}
+
 async fn paired_app() -> (Router, String, TestDirectory) {
     let directory = TestDirectory::new();
     let database = Arc::new(Database::open(directory.0.join("restork.db")).expect("database"));
@@ -216,7 +248,73 @@ async fn extension_install_is_validated_quarantined_and_hash_bound_before_enable
 }
 
 #[tokio::test]
-async fn tool_discovery_is_frozen_to_the_session_profile_and_call_only_creates_a_preview() {
+async fn extension_update_history_and_rollback_are_review_bound() {
+    let (app, authorization, _directory) = paired_app().await;
+    let first_manifest = skill_manifest();
+    let (status, first) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/extensions",
+        Some(json!({"package_kind": "skill", "manifest": first_manifest})),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let first_hash = first.expect("first")["manifest_hash"]
+        .as_str()
+        .expect("first hash")
+        .to_owned();
+    let mut second_manifest = skill_manifest();
+    second_manifest["version"] = json!("2.0.0");
+    second_manifest["provenance"]["content_hash"] = json!("d".repeat(64));
+    let (status, second) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/extensions",
+        Some(json!({"package_kind": "skill", "manifest": second_manifest})),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let second_hash = second.expect("second")["manifest_hash"]
+        .as_str()
+        .expect("second hash")
+        .to_owned();
+
+    let (status, history) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/extensions/synthetic-skill/revisions?limit=10",
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        history.expect("history")["items"]
+            .as_array()
+            .expect("items")
+            .len(),
+        2
+    );
+
+    let (status, rollback) = call_with_body_and_idempotency(
+        app,
+        Method::POST,
+        "/v1/extensions/synthetic-skill/rollback",
+        json!({"expected_hash": second_hash, "target_hash": first_hash}),
+        &authorization,
+        "rollback-synthetic-v1",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let rollback = rollback.expect("rollback");
+    assert_eq!(rollback["state"], "review_required");
+    assert_eq!(rollback["extension"]["state"], "quarantined");
+}
+
+#[tokio::test]
+async fn tool_discovery_preview_digest_and_execution_audit_are_frozen_to_the_session() {
     let (app, authorization, _directory) = paired_app().await;
     let (status, installed) = call(
         app.clone(),
@@ -293,7 +391,7 @@ async fn tool_discovery_is_frozen_to_the_session_profile_and_call_only_creates_a
     assert_eq!(search["items"][0]["tool_id"], "papers.search");
 
     let (status, preview) = call(
-        app,
+        app.clone(),
         Method::POST,
         &format!("/v1/sessions/{session_id}/tool-call-preview"),
         Some(json!({"tool_id": "papers.search", "input": {"query": "Rust agents"}})),
@@ -305,6 +403,36 @@ async fn tool_discovery_is_frozen_to_the_session_profile_and_call_only_creates_a
     assert_eq!(preview["execution_started"], false);
     assert_eq!(preview["state"], "review_required");
     assert_eq!(preview["resolved_call"]["real_tool_id"], "papers.search");
+    let digest = preview["call_digest"].as_str().expect("call digest");
+
+    let (status, execution) = call_with_body_and_idempotency(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/sessions/{session_id}/tool-calls"),
+        json!({
+            "tool_id": "papers.search",
+            "input": {"query": "Rust agents"},
+            "call_digest": digest
+        }),
+        &authorization,
+        "papers-search-1",
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{execution:?}");
+    let execution = execution.expect("execution");
+    assert_eq!(execution["state"], "failed");
+    assert_eq!(execution["error_code"], "unsupported_transport");
+    let execution_id = execution["execution_id"].as_str().expect("execution id");
+    let (status, stored) = call(
+        app,
+        Method::GET,
+        &format!("/v1/tool-executions/{execution_id}"),
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(stored.expect("stored execution")["call_digest"], digest);
 }
 
 #[tokio::test]

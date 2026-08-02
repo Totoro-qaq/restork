@@ -1,0 +1,42 @@
+name: Feature proposal
+description: Propose a focused Research, Study, Work, or platform improvement.
+title: "[Proposal]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Restork adds authority carefully. Describe the user outcome first, then the minimum new capability it needs.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is hard today?
+      description: Describe the concrete research, study, or work situation—not just a technology choice.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What should feel different?
+    validations:
+      required: true
+  - type: dropdown
+    id: authority
+    attributes:
+      label: Does it add authority?
+      options:
+        - No; it is local and read-only
+        - It reads a new local or remote source
+        - It calls a model or network service
+        - It writes, sends, installs, or executes something
+        - I am not sure
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Suggested privacy and recovery boundary
+      description: What should be opt-in, previewed, approved, cancellable, or recoverable?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

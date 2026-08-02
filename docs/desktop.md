@@ -9,8 +9,9 @@ supervisor. The base app does not need Python, Node.js, Rust, `uv`, or a package
 machine. Optional Python capability packs remain outside startup and are launched only by an
 explicitly selected capability.
 
-The source supports macOS, Windows, and Linux. Public downloads remain release-gated: a local or CI
-artifact is an **unsigned alpha candidate**, not an official installer.
+The source supports macOS, Windows, and Linux. Ordinary pull-request CI produces an **unsigned alpha
+candidate**, not an official installer. Only the protected annotated-tag workflow may publish a
+release, and only after real platform signatures and clean-machine verification succeed.
 
 | Platform | Candidate produced by CI | Public-release gate |
 |---|---|---|
@@ -101,9 +102,26 @@ The log is owner-only and bounded to 1 MB. `core_heartbeat_lost`,
 `core_heartbeat_recovered`, `core_heartbeat_failed`, and `core_exited` distinguish lifecycle trouble
 from provider-credential trouble.
 
+The updater accepts HTTPS endpoints without URL credentials and relies on Tauri's independent
+artifact signature before installation. It rejects wrong-target, replayed, equal-version, and
+downgrade updates. A verified updater package is archived before install; Settings can list at most
+the two most recent recovery copies with their version, target, path, and SHA-256. Restork never
+executes one as an automatic downgrade and never places user data inside the application bundle.
+
 ## Release contract
 
-The macOS tag workflow already fails closed unless signing, notarization, stapling, updater signing,
-checksums, and provenance all pass. Windows and Linux CI now build and retain short-lived unsigned
-candidates so platform regressions are visible; they are intentionally excluded from GitHub Release
-publication until their signing and clean-machine gates are wired and verified.
+The protected tag workflow now defines the complete three-platform gate:
+
+- macOS Developer ID signing, notarization, stapling, Gatekeeper assessment, updater signing, and a
+  fresh-runner DMG verification;
+- Windows Authenticode plus timestamping for NSIS/MSI, updater signing, and fresh-runner install,
+  launch, uninstall, and user-data-preservation checks;
+- Linux GPG/AppImage and detached package signatures, updater signing, and fresh-runner install,
+  launch, uninstall, and user-data-preservation checks;
+- target-scoped updater metadata, CycloneDX SBOM, SHA-256 ledger, signed checksums, and GitHub build
+  provenance before one immutable Release is created.
+
+These definitions are source-complete but **not credential-verified on this checkout**. The
+repository has no public signing keys or certificate secrets, so the jobs intentionally fail before
+building if a protected credential is missing. Do not claim a signed release until that tag workflow
+has passed and the downloaded artifact/attestation has been checked.

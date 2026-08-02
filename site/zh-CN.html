@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Restork 是服务于研究、学习与工作的本地优先桌面 Agent 工作台。">
+    <meta name="theme-color" content="#fbf7ef">
+    <meta property="og:title" content="Restork——把研究、学习与工作放进一个受控工作台">
+    <meta property="og:description" content="连接本地 Markdown 与云端或本地模型，让上下文、工具与写入始终可审查、可恢复。">
+    <meta property="og:image" content="./assets/readme/demo-poster.zh-CN.webp">
+    <title>Restork——本地优先 Agent 工作台</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <a class="skip" href="#main">跳到正文</a>
+    <header class="site-header">
+      <a class="brand" href="./zh-CN.html" aria-label="Restork 首页"><span>RES</span><i>TO</i><b>RK</b></a>
+      <nav aria-label="主导航">
+        <a href="#why">为什么是 Restork</a>
+        <a href="#start">开始使用</a>
+        <a href="https://github.com/Totoro-qaq/restork">GitHub</a>
+        <a class="language" href="./" lang="en">EN</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">本地优先 · RUST CORE · MIT</p>
+          <h1>你的笔记，你选的模型，<br><em>一个始终看得懂的 Agent。</em></h1>
+          <p class="lede">Restork 连接本地 Markdown 与云端或本地模型，再把上下文、工具、写入和
+            恢复能力都放在一个可审查的 Core 后面。</p>
+          <div class="actions">
+            <a class="primary" href="https://github.com/Totoro-qaq/restork/blob/main/README.zh-CN.md#五分钟开始使用">从源码体验</a>
+            <a href="https://github.com/Totoro-qaq/restork/releases">桌面端下载</a>
+          </div>
+          <p class="fine">首次启动不会自动开启模型、Vault、天气、日历或定位。</p>
+        </div>
+        <div class="window" aria-label="Restork 架构预览">
+          <div class="window-bar"><span></span><span></span><span></span><strong>RESTORK CORE · 127.0.0.1</strong></div>
+          <img src="./assets/readme/architecture.zh-CN.svg" alt="本地知识与四层记忆先进入受控 Restork Core，再访问获准的模型或工具。" width="1200" height="560">
+        </div>
+      </section>
+
+      <section id="why" class="paper-section">
+        <header><p class="eyebrow">一个 CORE，三种前进方式</p><h2>适应一天里真正交织的事情。</h2></header>
+        <div class="modes">
+          <article><span class="mode research">R</span><h3>Research</h3><p>比较论断、保留证据，并在保存前审查一份带引用的 Markdown 笔记。</p></article>
+          <article><span class="mode study">S</span><h3>Study</h3><p>梳理前置知识，在没有答案泄漏的情况下练习，再复习真正出错的地方。</p></article>
+          <article><span class="mode work">W</span><h3>Work</h3><p>把有限目标整理成计划、日报周报、演示文稿或脱敏交接，并保留可恢复产物。</p></article>
+        </div>
+      </section>
+
+      <section class="proof">
+        <div><p class="eyebrow">真实产品，不是概念图</p><h2>看看一次受控运行。</h2><p>这段公开演示只使用合成数据，也不会发起真实模型请求。</p></div>
+        <img src="./assets/readme/demo-poster.zh-CN.webp" alt="使用公开合成数据展示运行、审批、每日上下文、任务与记忆的 Restork Dashboard。" width="1600" height="1000" loading="lazy">
+      </section>
+
+      <section class="promises">
+        <article><strong>01</strong><h3>Markdown 仍是普通文件</h3><p>接入已有 Obsidian Vault，或另选一个目录。Restork 不会把笔记锁进私有数据库。</p></article>
+        <article><strong>02</strong><h3>思考强度是明确设置</h3><p>可选 DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter 或兼容端点；界面只显示支持的档位。</p></article>
+        <article><strong>03</strong><h3>副作用先审查</h3><p>类型化策略、预览哈希、一次性审批、事件记录与文件检查点都在 Prompt 之外。</p></article>
+        <article><strong>04</strong><h3>桌面生命周期由 Rust 管理</h3><p>自动选端口、启动 Core、检查心跳，并在退出时回收完整进程树。</p></article>
+      </section>
+
+      <section id="start" class="start">
+        <div><p class="eyebrow">五分钟源码体验</p><h2>先看看，再决定连接什么。</h2></div>
+        <pre><code>git clone https://github.com/Totoro-qaq/restork.git
+cd restork
+./scripts/quickstart.sh</code></pre>
+        <p>打开终端打印的本地地址，输入一次性配对码。离线路径不需要 API Key，也不会读取 Vault。</p>
+        <div class="actions">
+          <a class="primary" href="https://github.com/Totoro-qaq/restork/blob/main/README.zh-CN.md">查看完整指南</a>
+          <a href="https://github.com/Totoro-qaq/restork/discussions">加入 Discussions</a>
+        </div>
+      </section>
+    </main>
+
+    <footer><span>RESTORK · RESEARCH + STUDY + WORK</span><span>MIT · 本地优先 · 开放构建</span></footer>
+  </body>
+</html>

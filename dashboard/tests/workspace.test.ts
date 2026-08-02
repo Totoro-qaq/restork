@@ -3,9 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import { mountDashboard } from "../src/main";
 import type {
   ConversationTurn,
+  ConversationOperationCreateResultV2,
+  ConversationOperationV2,
   DashboardApi,
   DashboardSnapshot,
   ProviderDiagnostic,
+  RunEvent,
   SessionMessageV2,
   SessionRecordV2,
   WorkExportResult,
@@ -1066,6 +1069,107 @@ describe("Rust conversation workspace", () => {
     await vi.waitFor(() => expect(root.querySelector("#conversation-wait")?.textContent).toBe(""));
   });
 
+  it("streams durable conversation phases and lets the user cancel the model request", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const state = workspaceSnapshot();
+    state.workspaceV2?.sessions.push({
+      session_id: "session-operation",
+      title: "Cancellable model turn",
+      profile_id: "deepseek",
+      status: "active",
+      version: 1,
+      locale: "en",
+      created_at: "2026-08-03T00:00:00Z",
+      updated_at: "2026-08-03T00:00:00Z",
+      archived_at: null,
+    });
+    api.sessionMessages = vi.fn(async () => []);
+    api.createConversationTurn = vi.fn(async (): Promise<ConversationOperationCreateResultV2> => ({
+      operation: {
+        operation_id: "operation-ui",
+        session_id: "session-operation",
+        user_message_id: "message-user",
+        assistant_message_id: null,
+        state: "queued",
+        phase: "queued",
+        context_preview_hash: null,
+        provider_binding: { reasoning: { effort: "high" } },
+        cancel_requested: false,
+        error_code: null,
+        created_at: "2026-08-03T00:00:01Z",
+        updated_at: "2026-08-03T00:00:01Z",
+        completed_at: null,
+      },
+      user_message: {
+        message_id: "message-user",
+        session_id: "session-operation",
+        sequence: 1,
+        role: "user",
+        content: "Stop this safely",
+        context: {},
+        data_class: "public",
+        created_at: "2026-08-03T00:00:01Z",
+      },
+      replayed: false,
+    }));
+    let finishStream: (() => void) | undefined;
+    let deliverEvent: ((event: RunEvent) => void) | undefined;
+    api.streamConversationOperation = vi.fn(async (_operationId, _after, onEvent) => {
+      deliverEvent = onEvent;
+      onEvent({ id: 2, type: "conversation.model_started", data: { phase: "model" } });
+      await new Promise<void>((resolve) => { finishStream = resolve; });
+    });
+    api.cancelConversationOperation = vi.fn(async (): Promise<ConversationOperationV2> => {
+      deliverEvent?.({
+        id: 3,
+        type: "conversation.cancel_requested",
+        data: { phase: "cancelling" },
+      });
+      deliverEvent?.({
+        id: 4,
+        type: "conversation.cancelled",
+        data: { phase: "cancelled" },
+      });
+      finishStream?.();
+      return {
+        operation_id: "operation-ui",
+        session_id: "session-operation",
+        user_message_id: "message-user",
+        assistant_message_id: null,
+        state: "cancelled",
+        phase: "cancelled",
+        context_preview_hash: null,
+        provider_binding: {},
+        cancel_requested: true,
+        error_code: "cancelled",
+        created_at: "2026-08-03T00:00:01Z",
+        updated_at: "2026-08-03T00:00:02Z",
+        completed_at: "2026-08-03T00:00:02Z",
+      };
+    });
+    mountDashboard(root, { api, snapshot: state });
+
+    const composer = root.querySelector<HTMLFormElement>("#session-message-form");
+    const textarea = composer?.querySelector<HTMLTextAreaElement>("textarea");
+    if (!composer || !textarea) throw new Error("conversation composer");
+    textarea.value = "Stop this safely";
+    composer.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(root.querySelector("#conversation-wait")?.textContent)
+      .toContain("Thinking with the configured model"));
+    root.querySelector<HTMLButtonElement>("[data-conversation-cancel]")?.click();
+    await vi.waitFor(() => expect(api.cancelConversationOperation)
+      .toHaveBeenCalledWith("operation-ui"));
+    await vi.waitFor(() => expect(root.querySelector("#conversation-wait")?.textContent).toBe(""));
+    expect(api.streamConversationOperation).toHaveBeenCalledWith(
+      "operation-ui",
+      0,
+      expect.any(Function),
+      expect.any(AbortSignal),
+    );
+  });
+
   it("renders bilingual extension, deliverable, and automation workspaces without wide-page overflow", () => {
     const root = document.createElement("main");
     const state = workspaceSnapshot();
@@ -1117,6 +1221,149 @@ describe("Rust conversation workspace", () => {
     expect(root.querySelector('input[type="password"]')).toBeNull();
   });
 
+  it("shows immutable extension history and creates a reviewed rollback without executing a tool", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const state = workspaceSnapshot();
+    const currentHash = "c".repeat(64);
+    const previousHash = "b".repeat(64);
+    state.workspaceV2?.extensions.push({
+      package_id: "skill.synthetic",
+      package_kind: "skill",
+      state: "enabled",
+      manifest_hash: currentHash,
+      manifest: { schema_version: 1, version: "2.0.0" },
+      updated_at: "2026-08-03T00:00:00Z",
+    });
+    api.extensionRevisions = vi.fn(async () => [{
+      package_id: "skill.synthetic",
+      package_kind: "skill",
+      state: "disabled",
+      manifest_hash: previousHash,
+      manifest: { schema_version: 1, version: "1.0.0" },
+      updated_at: "2026-08-02T00:00:00Z",
+    }]);
+    api.rollbackExtension = vi.fn(async () => ({
+      package_id: "skill.synthetic",
+      package_kind: "skill",
+      state: "quarantined",
+      manifest_hash: previousHash,
+      manifest: { schema_version: 1, version: "1.0.0" },
+      updated_at: "2026-08-03T00:01:00Z",
+    }));
+    api.executeSessionToolCall = vi.fn();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mountDashboard(root, { api, snapshot: state });
+
+    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+    root.querySelector<HTMLButtonElement>("[data-extension-history]")?.click();
+    await vi.waitFor(() => expect(api.extensionRevisions).toHaveBeenCalledWith("skill.synthetic"));
+    const rollback = root.querySelector<HTMLButtonElement>(".extension-history button");
+    expect(rollback?.textContent).toContain("REVIEW ROLLBACK");
+    rollback?.click();
+    await vi.waitFor(() => expect(api.rollbackExtension)
+      .toHaveBeenCalledWith("skill.synthetic", currentHash, previousHash));
+    expect(api.executeSessionToolCall).not.toHaveBeenCalled();
+  });
+
+  it("offers only provider-supported reasoning levels and saves the frozen policy", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const state = workspaceSnapshot();
+    if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.providerRegistry = {
+      registry_version: 1,
+      items: [
+        {
+          registry_version: 1,
+          kind: "deepseek",
+          id: "deepseek",
+          display_name: "DeepSeek",
+          protocol: "open_ai_chat_completions",
+          default_base_url: "https://api.deepseek.com",
+          endpoint_policy: "exact_official",
+          auth_kind: "bearer",
+          model_discovery: "open_ai_models",
+          request_adapter: "deep_seek",
+          capabilities: {
+            streaming: true,
+            tool_calls: true,
+            json_output: true,
+            reasoning: true,
+            vision: false,
+          },
+          reasoning: {
+            can_disable: true,
+            supported_efforts: ["high", "max"],
+            supports_token_budget: false,
+          },
+          docs_url: "https://api-docs.deepseek.com/",
+        },
+        {
+          registry_version: 1,
+          kind: "qwen",
+          id: "qwen",
+          display_name: "Qwen",
+          protocol: "open_ai_chat_completions",
+          default_base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          endpoint_policy: "exact_official",
+          auth_kind: "bearer",
+          model_discovery: "open_ai_models",
+          request_adapter: "qwen",
+          capabilities: {
+            streaming: true,
+            tool_calls: true,
+            json_output: true,
+            reasoning: true,
+            vision: false,
+          },
+          reasoning: {
+            can_disable: true,
+            supported_efforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
+            supports_token_budget: true,
+          },
+          docs_url: "https://help.aliyun.com/",
+        },
+      ],
+    };
+    api.loadDashboard = vi.fn(async () => state);
+    api.saveProviderProfile = vi.fn(async (_expected, provider) => ({
+      provider,
+      revision: 1,
+      updated_at: "2026-08-03T00:00:00Z",
+    }));
+    mountDashboard(root, { api, snapshot: state });
+
+    root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
+    const form = root.querySelector<HTMLFormElement>("#provider-profile-form");
+    const kind = form?.elements.namedItem("kind") as HTMLSelectElement | null;
+    const effort = form?.elements.namedItem("reasoning_effort") as HTMLSelectElement | null;
+    const budget = form?.elements.namedItem("reasoning_max_tokens") as HTMLInputElement | null;
+    expect(effort?.querySelector<HTMLOptionElement>('option[value="medium"]')?.disabled)
+      .toBe(true);
+
+    if (!form || !kind || !effort || !budget) throw new Error("provider form");
+    kind.value = "qwen";
+    kind.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(effort.querySelector<HTMLOptionElement>('option[value="medium"]')?.disabled)
+      .toBe(false);
+    effort.value = "medium";
+    effort.dispatchEvent(new Event("change", { bubbles: true }));
+    budget.value = "2048";
+    (form.elements.namedItem("profile_id") as HTMLInputElement).value = "qwen-main";
+    (form.elements.namedItem("display_name") as HTMLInputElement).value = "Qwen Main";
+    (form.elements.namedItem("model") as HTMLInputElement).value = "qwen-max";
+    (form.elements.namedItem("secret_ref") as HTMLInputElement).value =
+      "keychain:restork/provider/qwen";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(api.saveProviderProfile).toHaveBeenCalled());
+    expect(api.saveProviderProfile).toHaveBeenCalledWith(null, expect.objectContaining({
+      kind: "qwen",
+      reasoning: { effort: "medium", max_tokens: 2048 },
+    }));
+  });
+
   it("searches only the active session's frozen tool catalog and previews the real call", async () => {
     const root = document.createElement("main");
     const api = fakeApi();
@@ -1146,6 +1393,7 @@ describe("Rust conversation workspace", () => {
       state: "review_required" as const,
       execution_started: false as const,
       output_is_untrusted: true as const,
+      call_digest: "d".repeat(64),
       resolved_call: {
         real_tool_id: "server.synthetic.read",
         package_id: "plugin.synthetic",

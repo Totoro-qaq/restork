@@ -4,18 +4,27 @@ All notable changes to Restork are documented here.
 
 ## Unreleased
 
-- Added the Gate 2 alpha foundation for Steps 12–17: Rust-owned workspace/storage/API domains,
-  native provider and secret-store adapters, bounded capability workers, personal context, global
-  conversations, Profiles, versioned Prompts, extensions, deliverables, schedules, checkpoints,
-  evaluation manifests, and bounded-delegation contracts.
-- Replaced the desktop runtime resource with native `restorkd`, added Unix process-group and Windows
-  Job Object ownership, and added macOS, Windows, and Linux candidate-build configurations plus a
-  cross-platform runtime smoke test.
-- Added bilingual responsive Dashboard surfaces for conversation/session management, frozen tool
-  discovery, extension quarantine, report/deck drafts, and bounded automation.
-- Kept unfinished production exit gates explicit: V1 route cutover, native calendar onboarding,
-  cancellable conversation SSE, complete extension lifecycle, approved PPTX/PDF rendering, real file
-  restore, packaged credential setup, signing, and clean-machine verification are not claimed done.
+- Added a central Provider Registry for DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, and generic
+  OpenAI-compatible endpoints, including provider-scoped reasoning intensity and optional token
+  budgets without silent fallback or private chain-of-thought retention.
+- Added durable cancellable conversation SSE, explicit context preview, macOS EventKit onboarding,
+  and honest Windows/Linux native-calendar capability states with universal read-only ICS fallback.
+- Added real bounded MCP stdio execution, immutable extension revision history, atomic activation,
+  and verified rollback.
+- Added deterministic local PPTX/PDF rendering, evidence/theme/renderer manifests, exact preview and
+  export hashes, content-bearing checkpoints, preview-bound atomic filesystem restore, and a bounded
+  depth-one subtask executor.
+- Hardened the Tauri desktop updater against wrong-target, replay, and downgrade metadata; retained
+  two signature-verified recovery packages; and defined protected macOS, Windows, and Linux signing,
+  notarization/package verification, clean-machine, CycloneDX SBOM, checksum, provenance, and
+  publish gates.
+- Fixed packaged macOS Core runtime linking, preserved compatibility with three exact
+  newline-only pre-release migration checksums while rejecting arbitrary ledger drift, and made
+  clean-machine jobs prove Core readiness plus browser pairing instead of checking only a process.
+- Added a bilingual project site, provider and Hermes comparison guides, launch drafts, issue forms,
+  contribution templates, governance/support policies, and product-focused English/Chinese READMEs.
+- Real public signing remains intentionally unclaimed until protected owner credentials are supplied
+  and the tag workflow passes on clean target runners.
 
 ## 0.1.2 — 2026-08-02
 

@@ -3,8 +3,9 @@ use std::collections::BTreeSet;
 use restork_personal::{
     BudgetLimits, ConfigurationProfile, ConversationSession, DailyContext, DataClass,
     ExplicitFallback, FallbackPolicy, FrozenRunManifestV2, LocalIntakeBoundary, Mode,
-    PersonalSettings, PolicyRef, PromptLayer, PromptManifest, PromptRevision, ProviderKind,
-    ProviderProfile, RunProposal, SourceBinding, Theme, TimeBand, VersionedHashRef, WeekStart,
+    PROVIDER_REGISTRY_VERSION, PersonalSettings, PolicyRef, PromptLayer, PromptManifest,
+    PromptRevision, ProviderKind, ProviderProfile, ReasoningEffort, RunProposal, SourceBinding,
+    Theme, TimeBand, VersionedHashRef, WeekStart, provider_definitions,
 };
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
@@ -225,6 +226,113 @@ fn provider_profiles_are_secret_reference_only_and_never_silently_fallback() {
         "api_key": "must-not-be-accepted"
     });
     assert!(serde_json::from_value::<ProviderProfile>(raw_secret).is_err());
+}
+
+#[test]
+fn provider_registry_is_complete_unique_and_vendor_scoped() {
+    let definitions = provider_definitions();
+    assert_eq!(definitions.len(), 7);
+    assert!(
+        definitions
+            .iter()
+            .all(|definition| definition.registry_version == PROVIDER_REGISTRY_VERSION)
+    );
+    let ids = definitions
+        .iter()
+        .map(|definition| definition.id)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(ids.len(), definitions.len());
+    assert_eq!(ProviderKind::Glm.definition().id, "glm");
+    assert_eq!(ProviderKind::Kimi.definition().id, "kimi");
+    assert_eq!(ProviderKind::Qwen.definition().id, "qwen");
+    assert_eq!(ProviderKind::OpenRouter.definition().id, "openrouter");
+
+    for kind in [
+        ProviderKind::Glm,
+        ProviderKind::Kimi,
+        ProviderKind::Qwen,
+        ProviderKind::OpenRouter,
+    ] {
+        let definition = kind.definition();
+        assert!(
+            ProviderProfile::try_new(
+                definition.id,
+                1,
+                definition.display_name,
+                kind,
+                definition.default_base_url,
+                "fixture-model",
+                Some("keychain:restork/provider/fixture"),
+                FallbackPolicy::Disabled,
+            )
+            .is_ok()
+        );
+        assert!(
+            ProviderProfile::try_new(
+                definition.id,
+                1,
+                definition.display_name,
+                kind,
+                "https://redirect.example.test/v1",
+                "fixture-model",
+                Some("keychain:restork/provider/fixture"),
+                FallbackPolicy::Disabled,
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn reasoning_policy_is_explicit_provider_scoped_and_hash_bound() {
+    let automatic = provider();
+    assert_eq!(automatic.reasoning().effort(), ReasoningEffort::Auto);
+
+    let maximum = provider()
+        .with_reasoning(ReasoningEffort::Max, None)
+        .expect("DeepSeek supports maximum reasoning");
+    assert_eq!(maximum.reasoning().effort(), ReasoningEffort::Max);
+    assert_ne!(automatic.content_hash(), maximum.content_hash());
+
+    assert!(
+        provider()
+            .with_reasoning(ReasoningEffort::Medium, None)
+            .is_err()
+    );
+    assert!(
+        provider()
+            .with_reasoning(ReasoningEffort::High, Some(2_048))
+            .is_err()
+    );
+
+    let qwen = ProviderProfile::try_new(
+        "provider-qwen",
+        1,
+        "Qwen",
+        ProviderKind::Qwen,
+        ProviderKind::Qwen.definition().default_base_url,
+        "qwen-max",
+        Some("keychain:restork/provider/qwen"),
+        FallbackPolicy::Disabled,
+    )
+    .expect("valid Qwen provider")
+    .with_reasoning(ReasoningEffort::Medium, Some(2_048))
+    .expect("Qwen supports an explicit budget");
+    assert_eq!(qwen.reasoning().max_tokens(), Some(2_048));
+
+    let generic = ProviderProfile::try_new(
+        "provider-compatible",
+        1,
+        "Compatible",
+        ProviderKind::OpenAiCompatible,
+        "https://models.example.test/v1",
+        "vendor-model",
+        Some("keychain:restork/provider/compatible"),
+        FallbackPolicy::Disabled,
+    )
+    .expect("valid generic provider");
+    assert_eq!(generic.reasoning().effort(), ReasoningEffort::Auto);
+    assert!(generic.with_reasoning(ReasoningEffort::High, None).is_err());
 }
 
 #[test]

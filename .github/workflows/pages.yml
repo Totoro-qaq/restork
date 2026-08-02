@@ -1,0 +1,44 @@
+name: Project site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "assets/readme/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - name: Assemble static site
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d build/pages/assets/readme
+          cp site/index.html site/zh-CN.html site/styles.css site/favicon.svg build/pages/
+          cp assets/readme/architecture.svg assets/readme/architecture.zh-CN.svg build/pages/assets/readme/
+          cp assets/readme/demo-poster.webp assets/readme/demo-poster.zh-CN.webp build/pages/assets/readme/
+          touch build/pages/.nojekyll
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: build/pages
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

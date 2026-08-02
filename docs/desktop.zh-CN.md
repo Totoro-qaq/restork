@@ -8,8 +8,8 @@ Restork 现在把原生 Rust `restorkd` Core、中英文 Dashboard 与 Tauri 2 R
 一起。目标电脑无需安装 Python、Node.js、Rust、`uv` 或包管理器；可选 Python 能力包不进入
 启动路径，只会在用户明确选择对应能力后按需启动。
 
-源码已经适配 macOS、Windows 和 Linux。公开下载仍受发布门禁约束：本地或 CI 生成的是
-**未签名内测候选包**，不是官方安装包。
+源码已经适配 macOS、Windows 和 Linux。普通 PR CI 生成的是**未签名内测候选包**，不是官方
+安装包。只有受保护的 annotated tag 工作流可以发布，而且必须先通过真实平台签名与干净机器验证。
 
 | 平台 | CI 生成的候选包 | 正式发布门禁 |
 |---|---|---|
@@ -95,8 +95,21 @@ Profile 只保存引用。安装包内的原生密钥配置弹窗仍是发布门
 `core_heartbeat_recovered`、`core_heartbeat_failed` 和 `core_exited` 可以把生命周期故障与
 Provider 凭据故障区分开。
 
+更新器只接受不含 URL 凭据的 HTTPS 端点，并在安装前依赖 Tauri 的独立产物签名。目标错误、重放、
+相同版本与降级都会被拒绝。签名验证后的更新包会在安装前存档；设置页最多列出最近两个恢复副本，
+包括版本、目标、路径与 SHA-256。Restork 不会自动执行降级，也不会把用户数据放进应用包。
+
 ## 发布契约
 
-macOS tag 工作流已经采用失败关闭：签名、公证、stapling、更新签名、校验和与 provenance
-任一失败都不会发布。Windows 和 Linux CI 现在也会构建并短期保留未签名候选包，用来及时发现
-平台回归；在签名与干净机器门禁完成前，它们会被明确排除在 GitHub Release 之外。
+受保护 tag 工作流已经定义完整三平台门禁：
+
+- macOS Developer ID、公证、stapling、Gatekeeper、更新签名，以及新 runner 上的 DMG 验证；
+- Windows NSIS/MSI 的 Authenticode 与时间戳、更新签名，以及新 runner 上的安装、启动、卸载与
+  用户数据保留检查；
+- Linux GPG/AppImage 与独立包签名、更新签名，以及新 runner 上的安装、启动、卸载与数据保留；
+- 发布前统一生成目标范围内的更新元数据、CycloneDX SBOM、SHA-256 清单、签名校验和与 GitHub
+  provenance，最后才创建不可变 Release。
+
+这些定义在源码中已经完整，但**当前 checkout 没有经过真实凭据验证**。仓库不会保存公开签名私钥
+或证书 Secret；任何受保护凭据缺失时，工作流都会在构建前故意失败。只有 tag 工作流通过，并且
+重新下载验证产物和 attestation 后，才能宣称已经发布签名版本。

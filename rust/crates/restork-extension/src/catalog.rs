@@ -5,7 +5,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    ExtensionError, McpTransport, PermissionSet, PluginManifest, Sha256Digest, ToolManifest,
+    ExtensionError, McpTransport, PermissionSet, PluginManifest, SandboxPolicy, Sha256Digest,
+    ToolManifest,
     validation::{validate_identifier, validate_plain_text, validate_version},
 };
 
@@ -20,6 +21,8 @@ pub struct ToolDescriptor {
     pub package_hash: Sha256Digest,
     pub server_id: String,
     pub server_permissions: PermissionSet,
+    pub secret_references: BTreeSet<String>,
+    pub sandbox: SandboxPolicy,
     pub manifest: ToolManifest,
     pub transport: McpTransport,
 }
@@ -31,6 +34,13 @@ impl ToolDescriptor {
         validate_identifier(&self.server_id)?;
         self.manifest.validate()?;
         self.transport.validate()?;
+        self.sandbox.validate(&self.server_permissions)?;
+        for reference in &self.secret_references {
+            validate_identifier(reference)?;
+            if !reference.starts_with("secret:") {
+                return Err(ExtensionError::InvalidSecretReference);
+            }
+        }
         if !self
             .manifest
             .required_permissions
@@ -86,6 +96,8 @@ impl ToolRegistry {
                     package_hash: plugin.provenance.content_hash.clone(),
                     server_id: server.id.clone(),
                     server_permissions: server.requested_permissions.clone(),
+                    secret_references: server.secret_references.clone(),
+                    sandbox: server.sandbox.clone(),
                     manifest: tool.clone(),
                     transport: server.transport.clone(),
                 })
@@ -223,6 +235,8 @@ impl FrozenToolCatalog {
             package_hash: descriptor.package_hash.clone(),
             server_id: descriptor.server_id.clone(),
             transport: descriptor.transport.clone(),
+            secret_references: descriptor.secret_references.clone(),
+            sandbox: descriptor.sandbox.clone(),
             required_permissions: descriptor.server_permissions.clone(),
             input,
         })
@@ -247,6 +261,8 @@ pub struct ResolvedToolCall {
     pub package_hash: Sha256Digest,
     pub server_id: String,
     pub transport: McpTransport,
+    pub secret_references: BTreeSet<String>,
+    pub sandbox: SandboxPolicy,
     pub required_permissions: PermissionSet,
     pub input: Value,
 }

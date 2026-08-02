@@ -8,6 +8,7 @@ mod supervisor;
 #[cfg(windows)]
 #[path = "supervisor_windows.rs"]
 mod supervisor;
+mod updates;
 
 use std::sync::Mutex;
 use std::thread;
@@ -20,6 +21,9 @@ use tauri_plugin_updater::UpdaterExt;
 
 use diagnostics::Diagnostics;
 use supervisor::{CoreProcess, readiness_request, start_core};
+use updates::{RecoveryArtifact, UpdateStorage, recovery_artifacts};
+#[cfg(not(debug_assertions))]
+use updates::{accepts_update, archive_verified_update};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
 const HEARTBEAT_FAILURE_LIMIT: u8 = 3;
@@ -212,6 +216,25 @@ fn desktop_retry(app: AppHandle, state: State<'_, DesktopState>) -> Result<(), S
 #[tauri::command]
 fn desktop_quit(app: AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+fn desktop_update_recovery(
+    app: AppHandle,
+    window: WebviewWindow,
+    state: State<'_, DesktopState>,
+) -> Result<Vec<RecoveryArtifact>, String> {
+    let inner = state
+        .inner
+        .lock()
+        .map_err(|_| "desktop_state_unavailable")?;
+    require_dashboard_window(&window, inner.origin.as_deref())?;
+    let data_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "update_recovery_unavailable")?;
+    let storage = UpdateStorage::open(&data_root).map_err(str::to_owned)?;
+    Ok(recovery_artifacts(&storage))
 }
 
 fn require_dashboard_window(
@@ -435,12 +458,43 @@ fn launch_update_check(app: AppHandle) {
             let Ok(Some(update)) = updater.check().await else {
                 return;
             };
+            let Ok(data_root) = app.path().app_data_dir() else {
+                return;
+            };
+            let Ok(storage) = UpdateStorage::open(&data_root) else {
+                return;
+            };
+            let Some(expected_target) = tauri_plugin_updater::target() else {
+                return;
+            };
+            if update.download_url.scheme() != "https"
+                || !update.download_url.username().is_empty()
+                || update.download_url.password().is_some()
+                || !accepts_update(
+                    &update.current_version,
+                    &update.version,
+                    &update.target,
+                    &expected_target,
+                    &storage,
+                )
+            {
+                if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
+                    inner.record("update_policy_rejected");
+                }
+                return;
+            }
             let Ok(bytes) = update.download(|_, _| {}, || {}).await else {
                 if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
                     inner.record("update_download_failed");
                 }
                 return;
             };
+            if archive_verified_update(&storage, &update.version, &update.target, &bytes).is_err() {
+                if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
+                    inner.record("update_recovery_archive_failed");
+                }
+                return;
+            }
 
             let state = app.state::<DesktopState>();
             if let Ok(mut inner) = state.inner.lock() {
@@ -498,6 +552,7 @@ pub fn run() {
             desktop_store_session,
             desktop_retry,
             desktop_quit,
+            desktop_update_recovery,
         ])
         .setup(|app| {
             let diagnostics = Diagnostics::create(app.handle()).ok();

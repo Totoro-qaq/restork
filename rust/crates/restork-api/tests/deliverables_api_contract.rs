@@ -68,6 +68,39 @@ async fn call(
     (status, body)
 }
 
+async fn call_raw(
+    app: Router,
+    method: Method,
+    path: &str,
+    body: Value,
+    authorization: &str,
+    idempotency_key: &str,
+) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("content-type", "application/json")
+                .header("authorization", authorization)
+                .header("idempotency-key", idempotency_key)
+                .body(Body::from(body.to_string()))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes()
+        .to_vec();
+    (status, headers, bytes)
+}
+
 async fn paired_app() -> (Router, String, TestDirectory) {
     let directory = TestDirectory::new();
     let database = Arc::new(Database::open(directory.0.join("restork.db")).expect("database"));
@@ -292,7 +325,7 @@ async fn dashboard_report_marks_manual_claims_and_can_freeze_a_deck_outline_from
     );
 
     let (status, deck) = call(
-        app,
+        app.clone(),
         Method::POST,
         "/v1/deliverables/decks/from-report",
         Some(json!({
@@ -320,5 +353,61 @@ async fn dashboard_report_marks_manual_claims_and_can_freeze_a_deck_outline_from
     assert_eq!(
         deck["artifact"]["slides"][1]["citation_refs"][0],
         "source:validated-report"
+    );
+
+    let (status, preview) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/deliverables/deck:manual/1/render-preview",
+        Some(json!({"format": "pptx"})),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let preview = preview.expect("render preview");
+    assert_eq!(preview["state"], "review_required");
+    assert_eq!(preview["manifest"]["macro_free"], true);
+    let artifact_hash = preview["manifest"]["artifact_hash"]
+        .as_str()
+        .expect("artifact hash");
+    let (status, headers, bytes) = call_raw(
+        app.clone(),
+        Method::POST,
+        "/v1/deliverables/deck:manual/1/render",
+        json!({"format": "pptx", "expected_artifact_hash": artifact_hash}),
+        &authorization,
+        "render-deck-manual-pptx",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(bytes.starts_with(b"PK\x03\x04"));
+    assert_eq!(
+        headers
+            .get("x-restork-artifact-sha256")
+            .and_then(|value| value.to_str().ok()),
+        Some(artifact_hash)
+    );
+    assert_eq!(
+        headers
+            .get("x-restork-idempotent-replay")
+            .and_then(|value| value.to_str().ok()),
+        Some("false")
+    );
+    let (status, replay_headers, replay_bytes) = call_raw(
+        app,
+        Method::POST,
+        "/v1/deliverables/deck:manual/1/render",
+        json!({"format": "pptx", "expected_artifact_hash": artifact_hash}),
+        &authorization,
+        "render-deck-manual-pptx",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(replay_bytes, bytes);
+    assert_eq!(
+        replay_headers
+            .get("x-restork-idempotent-replay")
+            .and_then(|value| value.to_str().ok()),
+        Some("true")
     );
 }

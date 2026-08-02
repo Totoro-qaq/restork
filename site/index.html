@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Restork is a local-first desktop agent workspace for research, study, and work.">
+    <meta name="theme-color" content="#fbf7ef">
+    <meta property="og:title" content="Restork — one governed workspace for research, study, and work">
+    <meta property="og:description" content="Bring local Markdown and cloud or local models into a reviewable, recoverable desktop workflow.">
+    <meta property="og:image" content="./assets/readme/demo-poster.webp">
+    <title>Restork — local-first agent workspace</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="Restork home"><span>RES</span><i>TO</i><b>RK</b></a>
+      <nav aria-label="Primary navigation">
+        <a href="#why">Why Restork</a>
+        <a href="#start">Start</a>
+        <a href="https://github.com/Totoro-qaq/restork">GitHub</a>
+        <a class="language" href="./zh-CN.html" lang="zh-CN">中文</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">LOCAL-FIRST · RUST CORE · MIT</p>
+          <h1>Your notes, your models,<br><em>one understandable agent.</em></h1>
+          <p class="lede">Restork connects local Markdown with cloud or local models, then keeps
+            context, tools, writes, and recovery behind one reviewable Core.</p>
+          <div class="actions">
+            <a class="primary" href="https://github.com/Totoro-qaq/restork#try-it-in-five-minutes">Try from source</a>
+            <a href="https://github.com/Totoro-qaq/restork/releases">Desktop releases</a>
+          </div>
+          <p class="fine">No provider, Vault, weather, calendar, or location is enabled on first launch.</p>
+        </div>
+        <div class="window" aria-label="Restork architecture preview">
+          <div class="window-bar"><span></span><span></span><span></span><strong>RESTORK CORE · 127.0.0.1</strong></div>
+          <img src="./assets/readme/architecture.svg" alt="Local knowledge and four memory layers pass through the governed Restork Core before approved model or tool access." width="1200" height="560">
+        </div>
+      </section>
+
+      <section id="why" class="paper-section">
+        <header><p class="eyebrow">ONE CORE, THREE WAYS TO MOVE</p><h2>Work the way a real day unfolds.</h2></header>
+        <div class="modes">
+          <article><span class="mode research">R</span><h3>Research</h3><p>Compare claims, keep evidence attached, and review a cited Markdown note before saving it.</p></article>
+          <article><span class="mode study">S</span><h3>Study</h3><p>Build prerequisites, practice without answer leakage, and revisit what you actually missed.</p></article>
+          <article><span class="mode work">W</span><h3>Work</h3><p>Turn a bounded goal into a plan, report, presentation, or redacted handoff with recoverable artifacts.</p></article>
+        </div>
+      </section>
+
+      <section class="proof">
+        <div><p class="eyebrow">THE PRODUCT, NOT A MOCKUP</p><h2>Watch a governed run.</h2><p>This public recording uses synthetic data and makes no live model request.</p></div>
+        <img src="./assets/readme/demo-poster.webp" alt="Restork Dashboard with runs, approvals, daily context, tasks, and memory using synthetic public data." width="1600" height="1000" loading="lazy">
+      </section>
+
+      <section class="promises">
+        <article><strong>01</strong><h3>Markdown stays ordinary</h3><p>Use an existing Obsidian Vault or a separate folder. Restork does not turn your notes into a proprietary database.</p></article>
+        <article><strong>02</strong><h3>Reasoning is a real setting</h3><p>Choose DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, or a compatible endpoint. Only supported intensity levels appear.</p></article>
+        <article><strong>03</strong><h3>Effects are reviewable</h3><p>Typed policy, preview hashes, one-use approvals, event history, and file checkpoints live outside prompt text.</p></article>
+        <article><strong>04</strong><h3>Desktop lifecycle is owned</h3><p>The Rust shell selects a port, supervises Core, checks heartbeats, and terminates its complete process tree.</p></article>
+      </section>
+
+      <section id="start" class="start">
+        <div><p class="eyebrow">FIVE-MINUTE SOURCE START</p><h2>Explore first. Connect things later.</h2></div>
+        <pre><code>git clone https://github.com/Totoro-qaq/restork.git
+cd restork
+./scripts/quickstart.sh</code></pre>
+        <p>Open the printed loopback URL and enter the one-time pairing code. The offline path needs no API key and reads no Vault.</p>
+        <div class="actions">
+          <a class="primary" href="https://github.com/Totoro-qaq/restork">Read the full guide</a>
+          <a href="https://github.com/Totoro-qaq/restork/discussions">Join Discussions</a>
+        </div>
+      </section>
+    </main>
+
+    <footer><span>RESTORK · RESEARCH + STUDY + WORK</span><span>MIT · LOCAL-FIRST · BUILT IN THE OPEN</span></footer>
+  </body>
+</html>

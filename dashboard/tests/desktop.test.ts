@@ -21,6 +21,15 @@ describe("desktop session bridge", () => {
           expires_at: "2099-01-01T00:00:00Z",
         } as T;
       }
+      if (command === "desktop_update_recovery") {
+        return [{
+          version: "0.1.3",
+          target: "darwin-aarch64",
+          filename: "/private/recovery/Restork.app.tar.gz",
+          sha256: "a".repeat(64),
+          verified_at_unix: 1785700000,
+        }] as T;
+      }
       return undefined as T;
     });
 
@@ -42,12 +51,16 @@ describe("desktop session bridge", () => {
       expires_at: "2099-01-01T00:00:00Z",
     });
     await bridge?.store({ accessToken: "replacement-token", expiresAt: "2099-01-01T00:00:00.000Z" });
+    await expect(bridge?.recovery()).resolves.toEqual([
+      expect.objectContaining({ version: "0.1.3", target: "darwin-aarch64" }),
+    ]);
 
-    expect(invoke).toHaveBeenLastCalledWith("desktop_store_session", {
+    expect(invoke).toHaveBeenCalledWith("desktop_store_session", {
       session: {
         accessToken: "replacement-token",
         expiresAt: "2099-01-01T00:00:00.000Z",
       },
     });
+    expect(invoke).toHaveBeenLastCalledWith("desktop_update_recovery");
   });
 });

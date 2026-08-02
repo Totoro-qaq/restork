@@ -22,9 +22,9 @@ const cargo = process.env.CARGO
   || (existsSync(bundledCargo) ? bundledCargo : toolchainCargo)
   || "cargo";
 
-function run(command, args, environment = process.env) {
+function run(command, args, environment = process.env, workingDirectory = projectRoot) {
   const result = spawnSync(command, args, {
-    cwd: projectRoot,
+    cwd: workingDirectory,
     env: environment,
     stdio: "inherit",
   });
@@ -63,7 +63,7 @@ run(cargo, [
   "--locked",
   "-p",
   "restorkd",
-], cargoEnvironment);
+], cargoEnvironment, join(projectRoot, "rust"));
 
 await rm(outputDirectory, { recursive: true, force: true });
 await mkdir(outputDirectory, { recursive: true, mode: 0o700 });

@@ -27,6 +27,9 @@ import type {
   CalendarConfigurationInput,
   MusicConfigurationInput,
   ConversationPage,
+  ConversationOperationCreateResultV2,
+  ConversationOperationV2,
+  ContextPreviewRecordV2,
   ConversationTurn,
   WeatherConfigurationInput,
   WeatherConfigurationResult,
@@ -34,6 +37,7 @@ import type {
   DailyContextV2,
   PersonalSettingsRecord,
   ProviderProfileRecordV2,
+  ProviderRegistryV2,
   ConfigurationProfileRecordV2,
   PromptRevisionRecordV2,
   RunProposalV2,
@@ -43,6 +47,9 @@ import type {
   SessionSearchHitV2,
   ToolSearchResultV2,
   ToolCallPreviewV2,
+  ToolExecutionV2,
+  RenderDownloadV2,
+  RenderPreviewV2,
   ManualReportInputV2,
   DeckFromReportInputV2,
   ScheduleSpecV2,
@@ -65,6 +72,7 @@ export class LocalApiClient implements DashboardApi {
   #rotationPromise: Promise<void> | null = null;
   readonly #onSession: ((session: LocalSession) => Promise<void>) | undefined;
   readonly #eventCursors = new Map<string, EventCursor>();
+  readonly #operationCursors = new Map<string, EventCursor>();
 
   constructor(options: LocalApiClientOptions = {}) {
     this.#onSession = options.onSession;
@@ -119,6 +127,7 @@ export class LocalApiClient implements DashboardApi {
       deliverables,
       schedules,
       providers,
+      providerRegistry,
       profiles,
       prompts,
     ] =
@@ -142,6 +151,7 @@ export class LocalApiClient implements DashboardApi {
         this.#request<{ items: ProviderProfileRecordV2[] }>("GET", "/v1/provider-profiles")
           .then((page) => page.items)
           .catch(() => []),
+        this.#request<ProviderRegistryV2>("GET", "/v1/providers").catch(() => null),
         this.#request<{ items: ConfigurationProfileRecordV2[] }>(
           "GET",
           "/v1/configuration-profiles",
@@ -153,7 +163,7 @@ export class LocalApiClient implements DashboardApi {
           .catch(() => []),
       ]);
     const workspaceV2 = dailyContext || personal || sessions.length || extensions.length
-      || deliverables.length || schedules.length || providers.length || profiles.length
+      || deliverables.length || schedules.length || providers.length || providerRegistry || profiles.length
       || prompts.length
       ? {
           dailyContext,
@@ -163,6 +173,7 @@ export class LocalApiClient implements DashboardApi {
           deliverables,
           schedules,
           providers,
+          providerRegistry: providerRegistry ?? undefined,
           profiles,
           prompts,
         }
@@ -212,6 +223,98 @@ export class LocalApiClient implements DashboardApi {
       `/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
       { content, context: {}, data_class: dataClass },
     );
+  }
+
+  async createConversationTurn(
+    sessionId: string,
+    content: string,
+    dataClass: WorkDataClass = "public",
+    contextPreviewHash: string | null = null,
+  ): Promise<ConversationOperationCreateResultV2> {
+    return this.#request<ConversationOperationCreateResultV2>(
+      "POST",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/turns`,
+      {
+        content,
+        context: {},
+        data_class: dataClass,
+        context_preview_hash: contextPreviewHash,
+      },
+      true,
+      `dashboard-turn-${crypto.randomUUID()}`,
+    );
+  }
+
+  async createContextPreview(
+    sessionId: string,
+    dataClass: WorkDataClass,
+    items: Array<{ name: string; content: string }>,
+  ): Promise<ContextPreviewRecordV2> {
+    return this.#request<ContextPreviewRecordV2>(
+      "POST",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/context-preview`,
+      { data_class: dataClass, items },
+    );
+  }
+
+  async cancelConversationOperation(operationId: string): Promise<ConversationOperationV2> {
+    return this.#request<ConversationOperationV2>(
+      "POST",
+      `/v1/operations/${encodeURIComponent(operationId)}/cancel`,
+      {},
+      true,
+      `dashboard-cancel-${crypto.randomUUID()}`,
+    );
+  }
+
+  async streamConversationOperation(
+    operationId: string,
+    after: number,
+    onEvent: (event: RunEvent) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const cursor = this.#operationCursors.get(operationId) ?? new EventCursor();
+    this.#operationCursors.set(operationId, cursor);
+    let terminal = false;
+    while (!signal.aborted && !terminal) {
+      const response = await this.#fetch(
+        `/v1/operations/${encodeURIComponent(operationId)}/events?follow=true`,
+        {
+          method: "GET",
+          headers: {
+            Accept: "text/event-stream",
+            "Last-Event-ID": String(Math.max(after, cursor.cursor)),
+          },
+          signal,
+        },
+        true,
+      );
+      if (!response.ok) throw await apiError(response);
+      if (!response.body) throw new Error("Core returned an unreadable operation stream");
+      const reader = response.body.getReader();
+      const utf8 = new TextDecoder();
+      const stream = new EventStreamDecoder();
+      const deliver = (events: RunEvent[]): void => {
+        for (const event of cursor.acceptEvents(events)) {
+          onEvent(event);
+          if ([
+            "conversation.completed",
+            "conversation.failed",
+            "conversation.cancelled",
+          ].includes(event.type)) {
+            terminal = true;
+          }
+        }
+      };
+      while (!signal.aborted && !terminal) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        deliver(stream.push(utf8.decode(value, { stream: true })));
+      }
+      deliver(stream.push(utf8.decode()));
+      deliver(stream.finish());
+      if (!signal.aborted && !terminal) await abortableDelay(500, signal);
+    }
   }
 
   async createSessionProposal(
@@ -336,6 +439,29 @@ export class LocalApiClient implements DashboardApi {
     );
   }
 
+  async extensionRevisions(packageId: string): Promise<CatalogRecordV2[]> {
+    const result = await this.#request<{ items: CatalogRecordV2[] }>(
+      "GET",
+      `/v1/extensions/${encodeURIComponent(packageId)}/revisions?limit=20`,
+    );
+    return result.items;
+  }
+
+  async rollbackExtension(
+    packageId: string,
+    expectedHash: string,
+    targetHash: string,
+  ): Promise<CatalogRecordV2> {
+    const result = await this.#request<{ extension: CatalogRecordV2 }>(
+      "POST",
+      `/v1/extensions/${encodeURIComponent(packageId)}/rollback`,
+      { expected_hash: expectedHash, target_hash: targetHash },
+      true,
+      `dashboard-extension-rollback-${crypto.randomUUID()}`,
+    );
+    return result.extension;
+  }
+
   async searchSessionTools(sessionId: string, query: string): Promise<ToolSearchResultV2> {
     return this.#request<ToolSearchResultV2>(
       "GET",
@@ -355,6 +481,23 @@ export class LocalApiClient implements DashboardApi {
     );
   }
 
+  async executeSessionToolCall(
+    sessionId: string,
+    preview: ToolCallPreviewV2,
+  ): Promise<ToolExecutionV2> {
+    return this.#request<ToolExecutionV2>(
+      "POST",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/tool-calls`,
+      {
+        tool_id: preview.resolved_call.real_tool_id,
+        input: preview.resolved_call.input,
+        call_digest: preview.call_digest,
+      },
+      true,
+      `dashboard-mcp-${crypto.randomUUID()}`,
+    );
+  }
+
   async composeManualReport(input: ManualReportInputV2): Promise<CatalogRecordV2> {
     return this.#request<CatalogRecordV2>(
       "POST",
@@ -369,6 +512,44 @@ export class LocalApiClient implements DashboardApi {
       "/v1/deliverables/decks/from-report",
       input,
     );
+  }
+
+  async previewDeliverableRender(
+    deliverableId: string,
+    revision: number,
+    format: "pptx" | "pdf",
+  ): Promise<RenderPreviewV2> {
+    return this.#request<RenderPreviewV2>(
+      "POST",
+      `/v1/deliverables/${encodeURIComponent(deliverableId)}/${revision}/render-preview`,
+      { format },
+    );
+  }
+
+  async exportDeliverableRender(preview: RenderPreviewV2): Promise<RenderDownloadV2> {
+    const { deck_id: deckId, deck_revision: revision, format, artifact_hash: hash } = preview.manifest;
+    const response = await this.#fetch(
+      `/v1/deliverables/${encodeURIComponent(deckId)}/${revision}/render`,
+      {
+        method: "POST",
+        headers: {
+          Accept: format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          "Content-Type": "application/json",
+          "Idempotency-Key": `dashboard-render-${crypto.randomUUID()}`,
+        },
+        body: JSON.stringify({ format, expected_artifact_hash: hash }),
+      },
+      true,
+    );
+    if (!response.ok) throw await apiError(response);
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const filename = disposition.match(/filename="([^"]+)"/)?.[1]
+      ?? `${deckId}-v${revision}.${format}`;
+    return {
+      blob: await response.blob(),
+      filename,
+      artifactHash: response.headers.get("x-restork-artifact-sha256") ?? hash,
+    };
   }
 
   async createSchedule(schedule: ScheduleSpecV2): Promise<CatalogRecordV2> {
@@ -668,6 +849,30 @@ export class LocalApiClient implements DashboardApi {
       input,
       true,
       `dashboard-calendar-${crypto.randomUUID()}`,
+    );
+  }
+
+  async connectNativeCalendar(
+    detailScope: "busy_only" | "titles",
+  ): Promise<NonNullable<DashboardSnapshot["daily"]>["calendar"]> {
+    return this.#request<NonNullable<DashboardSnapshot["daily"]>["calendar"]>(
+      "POST",
+      "/v1/daily/calendar/native/connect",
+      { detail_scope: detailScope },
+      true,
+      `dashboard-native-calendar-${crypto.randomUUID()}`,
+    );
+  }
+
+  async disconnectNativeCalendar(): Promise<
+    NonNullable<DashboardSnapshot["daily"]>["calendar"]
+  > {
+    return this.#request<NonNullable<DashboardSnapshot["daily"]>["calendar"]>(
+      "DELETE",
+      "/v1/daily/calendar/native",
+      undefined,
+      true,
+      `dashboard-native-calendar-disconnect-${crypto.randomUUID()}`,
     );
   }
 

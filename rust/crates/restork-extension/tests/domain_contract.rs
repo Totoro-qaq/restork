@@ -325,6 +325,13 @@ fn a_frozen_session_catalog_never_expands_and_resolves_the_real_tool() {
             package_hash: Sha256Digest::parse(HASH_A).expect("package hash"),
             server_id: "paper-mcp".into(),
             server_permissions: permissions(&["network:papers", "vault:write"]),
+            secret_references: BTreeSet::new(),
+            sandbox: SandboxPolicy {
+                max_runtime_ms: 30_000,
+                max_output_bytes: 1_000_000,
+                allow_network: true,
+                allowed_paths: BTreeSet::new(),
+            },
             manifest: fetch_tool,
             transport: transport.clone(),
         })
@@ -344,6 +351,13 @@ fn a_frozen_session_catalog_never_expands_and_resolves_the_real_tool() {
             package_hash: Sha256Digest::parse(HASH_A).expect("package hash"),
             server_id: "paper-mcp".into(),
             server_permissions: permissions(&["network:papers"]),
+            secret_references: BTreeSet::new(),
+            sandbox: SandboxPolicy {
+                max_runtime_ms: 30_000,
+                max_output_bytes: 1_000_000,
+                allow_network: true,
+                allowed_paths: BTreeSet::new(),
+            },
             manifest: tool("papers.citations", &["network:papers"]),
             transport,
         })

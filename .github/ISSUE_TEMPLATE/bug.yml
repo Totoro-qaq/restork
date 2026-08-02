@@ -1,0 +1,64 @@
+name: Bug report
+description: Report a reproducible Restork problem without including private data.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Restork. Never attach a real API key, Vault note, work artifact, location, calendar, playlist, or private log. Report security issues through private vulnerability reporting instead.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - Desktop lifecycle or updater
+        - Dashboard
+        - Rust Core or local API
+        - Provider or model
+        - MCP, Skill, or Plugin
+        - Research, Study, or Work workflow
+        - Packaging or documentation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.2 or full commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [macOS, Windows, Linux, Browser-only source start, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction with synthetic data
+      description: Give the smallest safe sequence that reproduces the problem.
+      placeholder: "1. Start…\n2. Select…\n3. Observe…"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Paste only metadata you have inspected. Remove paths, prompts, notes, ids, tokens, and credentials.
+      render: text
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Privacy check
+      options:
+        - label: I checked that this report contains no secret or private user content.
+          required: true

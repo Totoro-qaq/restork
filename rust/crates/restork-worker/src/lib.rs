@@ -20,6 +20,10 @@ use tokio::{
     time::timeout,
 };
 
+mod mcp;
+
+pub use mcp::{McpExecutionOutput, McpRuntimeError, execute_stdio_mcp};
+
 const PROTOCOL_VERSION: u8 = 1;
 const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
