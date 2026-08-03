@@ -36,11 +36,16 @@ from restork.api.auth import (
     PairingAuthority,
 )
 from restork.api.pagination import page_metadata, page_window
+from restork.config.models import KeychainReference
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import ApprovalDecision, EffectPhase, Mode, RunPhase
 from restork.conversation.models import ConversationInput
 from restork.conversation.service import ConversationService
+from restork.daily.apple_music import AppleMusicError
+from restork.daily.netease import NetEaseMusicError
+from restork.daily.qqmusic import QQMusicError
 from restork.daily.service import DailyContextService
+from restork.daily.sources import music_source_registry
 from restork.dashboard.models import (
     RadarAction,
     RadarActionRequest,
@@ -69,6 +74,7 @@ from restork.research.store import SQLiteResearchStore
 from restork.research.workflow import ResearchRunRequest, ResearchWorkflow
 from restork.runtime.budget import BudgetExceeded
 from restork.runtime.runner import Harness
+from restork.secrets import KeychainSecretStore
 from restork.storage.approvals import SQLiteApprovalStore
 from restork.storage.budgets import SQLiteBudgetStore
 from restork.storage.events import SQLiteEventStore
@@ -129,6 +135,23 @@ class CalendarConfigurationPayload(BaseModel):
     filename: str = Field(default="", max_length=255)
     content: str = Field(default="", max_length=2_000_000)
     timezone: str = Field(default="", max_length=128)
+
+
+class MusicConfigurationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    source: Literal["file", "qqmusic", "netease", "apple-music"] = "file"
+    filename: str = Field(default="", max_length=255)
+    content: str = Field(default="", max_length=2_000_000)
+    share_url: str = Field(default="", max_length=2_048)
+    local_date: str = Field(default="", max_length=10)
+
+
+class MusicRefreshPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    local_date: str = Field(default="", max_length=10)
 
 
 _SSE_TERMINAL_STATES = {RunPhase.COMPLETED, RunPhase.FAILED, RunPhase.CANCELLED}
@@ -1231,19 +1254,105 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(error)) from error
         return snapshot.model_dump(mode="json")
 
-    @app.get("/v1/daily/music/cover")
-    def read_daily_music_cover(
+    @app.get("/v1/daily/music/sources")
+    def list_daily_music_sources(
         _: Annotated[AccessToken, Depends(read_daily)],
-    ) -> FileResponse:
+    ) -> list[dict[str, object]]:
+        present = False
         try:
-            path, media_type = configured_daily().music_cover()
-        except (KeyError, OSError, TypeError, ValueError) as error:
+            present = KeychainSecretStore().exists(
+                KeychainReference(
+                    value="keychain:restork/music/apple/developer-token"
+                )
+            )
+        except OSError:
+            pass
+        return [
+            item.model_dump(mode="json")
+            for item in music_source_registry(
+                apple_developer_credential_present=present
+            )
+        ]
+
+    @app.post("/v1/daily/music")
+    async def configure_daily_music(
+        body: MusicConfigurationPayload,
+        _: Annotated[AccessToken, Depends(write_memory)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        if body.enabled and body.source == "file" and (not body.filename or not body.content):
+            raise HTTPException(status_code=422, detail="Select a non-empty JSON or CSV playlist")
+        if (
+            body.enabled
+            and body.source in {"qqmusic", "netease", "apple-music"}
+            and not body.share_url.strip()
+        ):
+            raise HTTPException(status_code=422, detail="Paste a public playlist share link")
+        if (
+            body.enabled
+            and body.source in {"qqmusic", "netease", "apple-music"}
+            and (body.filename or body.content)
+        ):
+            raise HTTPException(status_code=422, detail="Choose one playlist source")
+        try:
+            snapshot = await configured_daily().configure_music(
+                enabled=body.enabled,
+                source=body.source,
+                filename=body.filename,
+                content=body.content,
+                share_url=body.share_url,
+                local_date=body.local_date,
+            )
+        except (AppleMusicError, NetEaseMusicError, QQMusicError) as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        except (OSError, TypeError, UnicodeError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return snapshot.model_dump(mode="json")
+
+    @app.post("/v1/daily/music/refresh")
+    async def refresh_daily_music(
+        body: MusicRefreshPayload,
+        _: Annotated[AccessToken, Depends(write_memory)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        try:
+            snapshot = await configured_daily().refresh_music(local_date=body.local_date)
+        except (AppleMusicError, NetEaseMusicError, QQMusicError) as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        except (OSError, TypeError, UnicodeError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return snapshot.model_dump(mode="json")
+
+    @app.get("/v1/daily/music/cover")
+    async def read_daily_music_cover(
+        _: Annotated[AccessToken, Depends(read_daily)],
+    ) -> Response:
+        try:
+            content, media_type = await configured_daily().music_cover()
+        except (
+            AppleMusicError,
+            KeyError,
+            NetEaseMusicError,
+            OSError,
+            QQMusicError,
+            TypeError,
+            ValueError,
+        ) as error:
             raise HTTPException(status_code=404, detail="Daily cover is unavailable") from error
-        return FileResponse(
-            path,
-            media_type=media_type,
-            headers={"Cache-Control": "private, no-store"},
-        )
+        headers = {"Cache-Control": "private, no-store"}
+        if isinstance(content, Path):
+            return FileResponse(content, media_type=media_type, headers=headers)
+        return Response(content=content, media_type=media_type, headers=headers)
 
     @app.post("/v1/runs")
     async def create_run(

@@ -149,7 +149,23 @@ one-command contributor builds.
 | Read my Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | Local read access; every write still needs a preview and approval |
 | Use a cloud or local model | Open **Settings → Providers**; use the native credential command for a cloud key | Choose DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, or a compatible endpoint; only supported reasoning levels appear |
 | See weather | Enter a city in Weather settings, or press **Use current location** yourself | The feature stays off until enabled; there is no IP-based location lookup |
-| Add calendar or music | Select one local ICS file or a private JSON/CSV playlist | Read-only local import; no account login |
+| Add a calendar | Connect the system calendar when available, or select one local ICS file | Read-only access; the device date and time zone work without either |
+| Get a daily track | Choose QQ Music, NetEase, Apple Music, or a private JSON/CSV playlist | Explicit read-only sync; no account passwords/cookies, audio, or lyrics; capabilities and evidence gaps stay visible |
+
+Open **Daily track → Connect playlist**, choose a source, paste its ordinary public playlist link,
+and press **Connect & sync**. QQ Music and NetEase are experimental, credential-free, read-only
+adapters. QQ Music can add current Hong Kong chart evidence; NetEase reports an evidence gap rather
+than inventing why a song is hot. Apple Music uses the official catalog API and needs a developer
+token in native credential storage first:
+
+```bash
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- music apple configure
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- music apple status
+```
+
+The token is not your Apple ID password and never enters the Dashboard or SQLite. Refresh is always
+manual, and disconnect removes only Restork's managed snapshot. See the
+[daily-context privacy contract](docs/daily-context.md).
 
 Use a different local port without editing a file:
 
@@ -212,7 +228,7 @@ off. The formats and privacy behavior are documented in [Daily context](docs/dai
 | **Dashboard and local API** | Responsive English/Chinese UI, loopback-only `/v1` API, separate Web/CLI pairing, and short-lived sessions |
 | **Knowledge and tasks** | Read-only Vault retrieval, deterministic wiki-link projection, journaled single-file writes, and preview/approve/apply Markdown tasks |
 | **Research, Study, Work** | Evidence-backed research, guided study and practice, and planning-only repository handoffs |
-| **Memory and daily context** | Four inspectable memory layers, optional weather, system date/month without permission, explicit macOS EventKit access, universal read-only ICS fallback, and private playlist import |
+| **Memory and daily context** | Four inspectable memory layers, optional weather, system date/month without permission, explicit macOS EventKit access, universal read-only ICS fallback, and provider-neutral local/QQ/NetEase/Apple Music sources |
 | **Models and extensions** | DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, and generic endpoints; provider-scoped reasoning; versioned Prompts; real bounded MCP stdio execution; immutable extension revisions and rollback |
 | **Artifacts and recovery** | Deterministic macro-free PPTX/PDF, exact artifact hashes, content-bearing checkpoints, preview-bound filesystem restore, schedules, evaluations, and depth-one bounded child execution |
 | **Cross-platform desktop source** | Tauri packages `restorkd` and the Dashboard, owns Unix process groups or a Windows Job Object, verifies signed updates, keeps bounded recovery copies, and builds macOS, Windows, and Linux candidates without a target-machine runtime |

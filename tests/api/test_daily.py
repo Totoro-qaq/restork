@@ -160,6 +160,54 @@ def test_daily_calendar_import_is_private_and_uses_explicit_system_timezone(
     assert not (profile.root / "calendar.ics").exists()
 
 
+def test_daily_music_import_and_disconnect_manage_only_private_core_copy(
+    tmp_path: Path,
+) -> None:
+    profile = PrivateProfileStore(tmp_path / "profile")
+    client, auth = _client(tmp_path, profile)
+    content = json.dumps(
+        {
+            "items": [
+                {
+                    "id": "synthetic-imported-track",
+                    "title": "Synthetic Imported Track",
+                    "artist": "Fixture Artist",
+                }
+            ]
+        }
+    )
+
+    imported = client.post(
+        "/v1/daily/music",
+        headers={**auth, "Idempotency-Key": "music-import-1"},
+        json={
+            "enabled": True,
+            "source": "file",
+            "filename": "export.json",
+            "content": content,
+            "local_date": "2026-08-03",
+        },
+    )
+
+    assert imported.status_code == 200
+    assert imported.json()["recommendation"]["title"] == "Synthetic Imported Track"
+    assert profile.load().daily.playlist == "playlist.json"
+    managed = profile.root / "playlist.json"
+    assert managed.is_file()
+    assert managed.stat().st_mode & 0o777 == 0o600
+
+    disabled = client.post(
+        "/v1/daily/music",
+        headers={**auth, "Idempotency-Key": "music-disable-1"},
+        json={"enabled": False, "local_date": "2026-08-03"},
+    )
+
+    assert disabled.status_code == 200
+    assert disabled.json()["status"] == "not_configured"
+    assert profile.load().daily.playlist == ""
+    assert not managed.exists()
+
+
 def test_daily_endpoint_serves_only_authenticated_reviewed_local_cover(
     tmp_path: Path,
 ) -> None:

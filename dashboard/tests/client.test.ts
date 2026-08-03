@@ -105,6 +105,7 @@ describe("LocalApiClient private playlist configuration", () => {
     await client.pair("pairing-code");
     await client.configureMusic({
       enabled: true,
+      source: "file",
       filename: "playlist.csv",
       content: "title,artist\nSynthetic Song,Fixture\n",
       local_date: "2026-08-02",
@@ -180,6 +181,67 @@ describe("LocalApiClient provider diagnostics", () => {
     expect(JSON.parse(String(init?.body))).toEqual({ smoke: true });
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer paired-token");
     expect(String(init?.body)).not.toMatch(/api.?key|secret/i);
+  });
+
+  it("rotates a resumed near-expiry session before running the check", async () => {
+    const responses = [
+      jsonResponse({
+        access_token: "sleeping-token",
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      }),
+      jsonResponse({
+        access_token: "recovered-token",
+        expires_at: new Date(Date.now() + 300_000).toISOString(),
+      }),
+      jsonResponse({
+        schema_version: 1,
+        provider: "deepseek",
+        model: "deepseek-v4-pro",
+        status: "connected",
+      }),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+
+    await client.pair("pairing-code");
+    await client.providerDiagnostics(false);
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      "/v1/pair",
+      "/v1/token/rotate",
+      "/v1/providers/deepseek/diagnostics",
+    ]);
+    expect(new Headers(fetchMock.mock.calls[2][1]?.headers).get("Authorization"))
+      .toBe("Bearer recovered-token");
+  });
+
+  it("retries one transient loopback transport failure and does not loop", async () => {
+    const report = {
+      schema_version: 1,
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+      status: "connected",
+    };
+    let diagnosticAttempts = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (path) => {
+      if (path === "/v1/pair") return jsonResponse({ access_token: "paired-token" });
+      diagnosticAttempts += 1;
+      if (diagnosticAttempts === 1) throw new TypeError("temporary loopback disconnect");
+      return jsonResponse(report);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+
+    await client.pair("pairing-code");
+    await expect(client.providerDiagnostics(false)).resolves.toMatchObject(report);
+
+    expect(diagnosticAttempts).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
 

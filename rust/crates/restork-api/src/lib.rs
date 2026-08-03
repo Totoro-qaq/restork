@@ -42,9 +42,12 @@ use restork_core::auth::{
     SETTINGS_WRITE, SUBTASKS_MANAGE, TOKENS_MANAGE, TOOLS_DISCOVER, TOOLS_INVOKE,
 };
 use restork_daily::{
-    CalendarEvent, CalendarSnapshot, DailyClient, DailyError, MusicSnapshot,
-    NativeCalendarCapability, PlaylistItem, WeatherLocation, WeatherSnapshot,
-    connect_native_calendar, music_snapshot, native_calendar_capability, parse_ics, parse_playlist,
+    CalendarEvent, CalendarSnapshot, DailyClient, DailyError, MusicDiscovery, MusicSnapshot,
+    MusicSourceDocument, MusicSourceSummary, NativeCalendarCapability, PlaylistItem,
+    WeatherLocation, WeatherSnapshot, apple_developer_token_reference,
+    apple_music_user_token_reference, connect_native_calendar, music_snapshot_with_context,
+    music_source_registry, native_calendar_capability, parse_ics, parse_playlist,
+    selected_music_cover_url,
 };
 use restork_deliverables::{
     deck::{
@@ -66,7 +69,7 @@ use restork_personal::{
     ProviderProfile, RunProposal, provider_definitions,
 };
 use restork_provider::{
-    ChatMessage, ProviderClient, ProviderDiagnostic as RuntimeProviderDiagnostic,
+    ChatMessage, NativeSecretStore, ProviderClient, ProviderDiagnostic as RuntimeProviderDiagnostic,
 };
 use restork_render::{RenderFormat, render_deck};
 use restork_storage::{
@@ -85,6 +88,10 @@ use url::{Host, Url};
 
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
 const FORBIDDEN_QUERY_KEYS: [&str; 3] = ["access_token", "authorization", "token"];
+// Access tokens remain five-minute capabilities. Only the rotation endpoint
+// accepts an otherwise-expired token inside this recovery window so a sleeping
+// desktop WebView can resume without restarting Core.
+const TOKEN_ROTATION_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 #[derive(Serialize)]
 struct Readiness<'a> {
@@ -191,9 +198,20 @@ struct NativeCalendarConnect {
 struct MusicConfiguration {
     enabled: bool,
     #[serde(default)]
+    source: String,
+    #[serde(default)]
     filename: String,
     #[serde(default)]
     content: String,
+    #[serde(default)]
+    share_url: String,
+    #[serde(default)]
+    local_date: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MusicRefresh {
     #[serde(default)]
     local_date: String,
 }
@@ -658,6 +676,12 @@ fn build_router(state: ApiState) -> Router {
             "/v1/daily/music",
             axum::routing::post(configure_daily_music),
         )
+        .route("/v1/daily/music/sources", get(list_music_sources))
+        .route(
+            "/v1/daily/music/refresh",
+            axum::routing::post(refresh_daily_music),
+        )
+        .route("/v1/daily/music/cover", get(daily_music_cover))
         .route("/v1/providers", get(list_provider_registry))
         .route("/v1/provider-profiles", get(list_provider_profiles))
         .route(
@@ -950,13 +974,18 @@ async fn parse_pair_payload(request: Request) -> Result<PairPayload, Box<Respons
 }
 
 async fn rotate_token(State(state): State<ApiState>, headers: HeaderMap) -> Response {
-    let current = match authorize(&state.authority, &headers, TOKENS_MANAGE) {
-        Ok(token) => token,
+    let value = match bearer_value(&headers) {
+        Ok(value) => value,
         Err(response) => return *response,
+    };
+    let audiences = if headers.contains_key(header::ORIGIN) {
+        &[Audience::Web][..]
+    } else {
+        &[Audience::Web, Audience::Cli][..]
     };
     match state
         .authority
-        .rotate(current.value(), &[Audience::Web, Audience::Cli])
+        .rotate_with_grace(value, audiences, TOKEN_ROTATION_GRACE)
     {
         Ok(token) => token_response(&token),
         Err(error) => auth_error_response(error),
@@ -1212,7 +1241,23 @@ fn daily_music_snapshot(storage: &Database, local_date: &str) -> Result<MusicSna
         .cloned()
         .and_then(|items| serde_json::from_value::<Vec<PlaylistItem>>(items).ok())
         .unwrap_or_default();
-    Ok(music_snapshot(&items, local_date))
+    let source = record
+        .preference
+        .get("source")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<MusicSourceSummary>(value).ok());
+    let discoveries = record
+        .preference
+        .get("discoveries")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<Vec<MusicDiscovery>>(value).ok())
+        .unwrap_or_default();
+    Ok(music_snapshot_with_context(
+        &items,
+        source,
+        &discoveries,
+        local_date,
+    ))
 }
 
 async fn configure_daily_weather(State(state): State<ApiState>, request: Request) -> Response {
@@ -1558,6 +1603,16 @@ async fn disconnect_native_calendar(State(state): State<ApiState>, request: Requ
     Json(CalendarSnapshot::system_only()).into_response()
 }
 
+async fn list_music_sources(State(state): State<ApiState>, headers: HeaderMap) -> Response {
+    if let Err(response) = authorize(&state.authority, &headers, DAILY_READ) {
+        return *response;
+    }
+    let credential_present = NativeSecretStore
+        .exists(apple_developer_token_reference())
+        .await;
+    Json(music_source_registry(credential_present)).into_response()
+}
+
 async fn configure_daily_music(State(state): State<ApiState>, request: Request) -> Response {
     if let Err(response) = authorize(&state.authority, request.headers(), DAILY_CONFIGURE) {
         return *response;
@@ -1591,6 +1646,94 @@ async fn configure_daily_music(State(state): State<ApiState>, request: Request) 
         }
         return Json(MusicSnapshot::disabled()).into_response();
     }
+    let local_date = match music_local_date(&payload.local_date) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let source_kind = if payload.source.is_empty() {
+        if payload.share_url.is_empty() {
+            "file"
+        } else {
+            "qqmusic"
+        }
+    } else {
+        payload.source.as_str()
+    };
+    if matches!(source_kind, "qqmusic" | "netease" | "apple-music") {
+        if payload.filename.len() + payload.content.len() != 0 {
+            return error_response(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "remote music setup accepts only a playlist share link",
+            );
+        }
+        if payload.share_url.is_empty() {
+            return error_response(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "a playlist share link is required",
+            );
+        }
+        let Some(client) = state.daily.as_ref() else {
+            return error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "music catalog transport is unavailable",
+            );
+        };
+        let document = match source_kind {
+            "qqmusic" => client.sync_qq_music(&payload.share_url, &local_date).await,
+            "netease" => {
+                client
+                    .sync_netease_music(&payload.share_url, &local_date)
+                    .await
+            }
+            "apple-music" => {
+                let secret_store = NativeSecretStore;
+                let developer_token = match secret_store
+                    .resolve(apple_developer_token_reference())
+                    .await
+                {
+                    Ok(secret) => secret,
+                    Err(_) => {
+                        return error_response(
+                            StatusCode::CONFLICT,
+                            "Apple Music developer token is not configured; run `restorkd music apple configure`",
+                        );
+                    }
+                };
+                let music_user_token = secret_store
+                    .resolve(apple_music_user_token_reference())
+                    .await
+                    .ok();
+                client
+                    .sync_apple_music(
+                        &payload.share_url,
+                        &local_date,
+                        developer_token.expose(),
+                        music_user_token.as_ref().map(|secret| secret.expose()),
+                    )
+                    .await
+            }
+            _ => unreachable!("source kind was bounded above"),
+        };
+        let document = match document {
+            Ok(document) => document,
+            Err(DailyError::InvalidInput) => {
+                return error_response(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "music playlist share link or native credential is invalid",
+                );
+            }
+            Err(DailyError::Unavailable | DailyError::InvalidResponse) => {
+                return error_response(
+                    StatusCode::BAD_GATEWAY,
+                    "music playlist provider is temporarily unavailable",
+                );
+            }
+        };
+        return persist_connected_music(storage, document, &local_date, &updated_at);
+    }
+    if source_kind != "file" || !payload.share_url.is_empty() {
+        return error_response(StatusCode::UNPROCESSABLE_ENTITY, "music source is invalid");
+    }
     let items = match parse_playlist(&payload.filename, &payload.content) {
         Ok(items) => items,
         Err(_) => {
@@ -1600,27 +1743,255 @@ async fn configure_daily_music(State(state): State<ApiState>, request: Request) 
             );
         }
     };
-    let local_date = if payload.local_date.is_empty() {
-        Utc::now().date_naive().to_string()
-    } else if NaiveDate::parse_from_str(&payload.local_date, "%Y-%m-%d").is_ok() {
-        payload.local_date.clone()
-    } else {
-        return error_response(StatusCode::UNPROCESSABLE_ENTITY, "local date is invalid");
+    let source = MusicSourceSummary {
+        provider: "local-file".to_owned(),
+        label: payload.filename.clone(),
+        item_count: items.len(),
+        synced_at: Some(updated_at.clone()),
+        public_url: String::new(),
+        refresh_supported: false,
+        experimental: false,
+        official_api: false,
+        read_only: true,
+        requires_user_consent: false,
+        supports_charts: false,
     };
-    let snapshot = music_snapshot(&items, &local_date);
-    let preference = serde_json::json!({"items": items});
-    if let Err(error) = storage.put_music_preferences("playlist", &preference, &updated_at) {
-        return storage_error_response(error);
+    let snapshot = music_snapshot_with_context(&items, Some(source.clone()), &[], &local_date);
+    let preference = serde_json::json!({"items": items, "source": source, "discoveries": []});
+    if preference_size(&preference).is_err() {
+        return error_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "playlist snapshot exceeds its private storage bound",
+        );
     }
-    if let Err(error) = storage.put_daily_source(
-        "music",
-        true,
-        &serde_json::json!({"explicit": true}),
+    if let Err(error) = storage.put_music_snapshot(
+        "playlist",
+        &preference,
+        &serde_json::json!({"explicit": true, "read_only": true}),
         &serde_json::json!({
+            "provider": "file",
             "filename": payload.filename,
             "source_revision": bytes_digest(payload.content.as_bytes()),
         }),
         &updated_at,
+    ) {
+        return storage_error_response(error);
+    }
+    Json(snapshot).into_response()
+}
+
+async fn refresh_daily_music(State(state): State<ApiState>, request: Request) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), DAILY_CONFIGURE) {
+        return *response;
+    }
+    if let Err(response) = require_idempotency_key(request.headers()) {
+        return response;
+    }
+    let Some(storage) = state.storage.as_ref() else {
+        return storage_unavailable();
+    };
+    let payload = match parse_json::<MusicRefresh>(request, 8 * 1024).await {
+        Ok(payload) => payload,
+        Err(response) => return *response,
+    };
+    let local_date = match music_local_date(&payload.local_date) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let source = match storage.daily_source("music") {
+        Ok(Some(source)) if source.enabled => source,
+        Ok(_) => {
+            return error_response(StatusCode::CONFLICT, "music source is not configured");
+        }
+        Err(error) => return storage_error_response(error),
+    };
+    let Some(provider) = source
+        .config
+        .get("provider")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return error_response(StatusCode::CONFLICT, "music source cannot be refreshed");
+    };
+    if !matches!(provider, "qqmusic" | "netease" | "apple-music") {
+        return error_response(
+            StatusCode::CONFLICT,
+            "the configured music source does not support refresh",
+        );
+    }
+    let Some(source_identity) = source
+        .config
+        .get("source_identity")
+        .or_else(|| source.config.get("playlist_id"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return error_response(StatusCode::CONFLICT, "music source cannot be refreshed");
+    };
+    let Some(client) = state.daily.as_ref() else {
+        return error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "music catalog transport is unavailable",
+        );
+    };
+    let document = match provider {
+        "qqmusic" => client.sync_qq_music_id(source_identity, &local_date).await,
+        "netease" => {
+            client
+                .sync_netease_music_id(source_identity, &local_date)
+                .await
+        }
+        "apple-music" => {
+            let secret_store = NativeSecretStore;
+            let developer_token = match secret_store
+                .resolve(apple_developer_token_reference())
+                .await
+            {
+                Ok(secret) => secret,
+                Err(_) => {
+                    return error_response(
+                        StatusCode::CONFLICT,
+                        "Apple Music developer token is not configured; the previous snapshot remains available",
+                    );
+                }
+            };
+            let music_user_token = secret_store
+                .resolve(apple_music_user_token_reference())
+                .await
+                .ok();
+            client
+                .sync_apple_music_id(
+                    source_identity,
+                    &local_date,
+                    developer_token.expose(),
+                    music_user_token.as_ref().map(|secret| secret.expose()),
+                )
+                .await
+        }
+        _ => unreachable!("provider was bounded above"),
+    };
+    let document = match document {
+        Ok(document) => document,
+        Err(_) => {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                "music refresh failed; the previous snapshot remains available",
+            );
+        }
+    };
+    let updated_at = match now_rfc3339() {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    persist_connected_music(storage, document, &local_date, &updated_at)
+}
+
+async fn daily_music_cover(State(state): State<ApiState>, request: Request) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), DAILY_READ) {
+        return *response;
+    }
+    let timezone = match single_query_value(request.uri().query(), "timezone") {
+        Ok(Some(value)) => match value.parse::<Tz>() {
+            Ok(value) => value,
+            Err(_) => return invalid_query(),
+        },
+        Ok(None) => chrono_tz::UTC,
+        Err(()) => return invalid_query(),
+    };
+    let local_date = Utc::now().with_timezone(&timezone).date_naive().to_string();
+    let Some(storage) = state.storage.as_ref() else {
+        return storage_unavailable();
+    };
+    let provider = match storage.daily_source("music") {
+        Ok(Some(source)) if source.enabled => source
+            .config
+            .get("provider")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let items = match storage.music_preferences() {
+        Ok(Some(record)) => record
+            .preference
+            .get("items")
+            .cloned()
+            .and_then(|value| serde_json::from_value::<Vec<PlaylistItem>>(value).ok())
+            .unwrap_or_default(),
+        Ok(None) => Vec::new(),
+        Err(error) => return storage_error_response(error),
+    };
+    let Some(cover_url) = selected_music_cover_url(&items, &local_date) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Some(client) = state.daily.as_ref() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let (payload, media_type) = match client.music_cover(&provider, &cover_url).await {
+        Ok(value) => value,
+        Err(_) => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let mut response = Response::new(Body::from(payload));
+    let Ok(content_type) = HeaderValue::from_str(&media_type) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, content_type);
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    response
+}
+
+fn music_local_date(value: &str) -> Result<String, Response> {
+    if value.is_empty() {
+        return Ok(Utc::now().date_naive().to_string());
+    }
+    NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .map(|date| date.to_string())
+        .map_err(|_| error_response(StatusCode::UNPROCESSABLE_ENTITY, "local date is invalid"))
+}
+
+fn preference_size(value: &serde_json::Value) -> Result<(), ()> {
+    serde_json::to_vec(value)
+        .ok()
+        .filter(|payload| payload.len() <= 2_000_000)
+        .map(|_| ())
+        .ok_or(())
+}
+
+fn persist_connected_music(
+    storage: &Database,
+    document: MusicSourceDocument,
+    local_date: &str,
+    updated_at: &str,
+) -> Response {
+    let snapshot = music_snapshot_with_context(
+        &document.items,
+        Some(document.source.clone()),
+        &document.discoveries,
+        local_date,
+    );
+    let preference = serde_json::json!({
+        "items": document.items,
+        "source": document.source,
+        "discoveries": document.discoveries,
+    });
+    if preference_size(&preference).is_err() {
+        return error_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "normalized music snapshot exceeds its private storage bound",
+        );
+    }
+    if let Err(error) = storage.put_music_snapshot(
+        "playlist",
+        &preference,
+        &serde_json::json!({"explicit": true, "read_only": true}),
+        &serde_json::json!({
+            "provider": document.provider,
+            "source_identity": document.source_identity,
+        }),
+        updated_at,
     ) {
         return storage_error_response(error);
     }
@@ -5533,6 +5904,20 @@ fn authorize(
     headers: &HeaderMap,
     required_scope: &str,
 ) -> Result<AccessToken, Box<Response>> {
+    let value = bearer_value(headers)?;
+    let token = authority
+        .verify(value, &[Audience::Web, Audience::Cli], &[required_scope])
+        .map_err(|error| Box::new(auth_error_response(error)))?;
+    if headers.contains_key(header::ORIGIN) && token.audience() != Audience::Web {
+        return Err(Box::new(error_response(
+            StatusCode::FORBIDDEN,
+            "browser requests require a Web audience token",
+        )));
+    }
+    Ok(token)
+}
+
+fn bearer_value(headers: &HeaderMap) -> Result<&str, Box<Response>> {
     let authorization = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -5549,16 +5934,7 @@ fn authorize(
             "Bearer authorization is required",
         )));
     }
-    let token = authority
-        .verify(value, &[Audience::Web, Audience::Cli], &[required_scope])
-        .map_err(|error| Box::new(auth_error_response(error)))?;
-    if headers.contains_key(header::ORIGIN) && token.audience() != Audience::Web {
-        return Err(Box::new(error_response(
-            StatusCode::FORBIDDEN,
-            "browser requests require a Web audience token",
-        )));
-    }
-    Ok(token)
+    Ok(value)
 }
 
 fn auth_error_response(error: AuthError) -> Response {

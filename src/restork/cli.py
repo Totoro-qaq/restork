@@ -20,11 +20,15 @@ from restork.api.app import create_app
 from restork.api.auth import CLI_AUDIENCE, CLI_SCOPES, PairingAuthority
 from restork.api.server import make_server
 from restork.config.loader import load_config
+from restork.config.models import KeychainReference
 from restork.contracts.task import BudgetSpec, DataPolicy, TaskSpec, ToolPolicy
 from restork.contracts.types import DataClass, Mode
 from restork.conversation.service import ConversationService
 from restork.conversation.store import SQLiteConversationStore
+from restork.daily.apple_music import AppleMusicClient
 from restork.daily.cache import SQLiteDailyCache
+from restork.daily.netease import NetEaseMusicClient
+from restork.daily.qqmusic import QQMusicClient
 from restork.daily.service import DailyContextService
 from restork.daily.weather import OpenMeteoWeather
 from restork.dashboard.radar import SQLiteRadarStore
@@ -399,6 +403,13 @@ def _serve(
         if task_board.configured
         else None
     )
+    keychain = KeychainSecretStore()
+    apple_developer_reference = KeychainReference(
+        value="keychain:restork/music/apple/developer-token"
+    )
+    apple_user_reference = KeychainReference(
+        value="keychain:restork/music/apple/music-user-token"
+    )
     daily = DailyContextService(
         profile_store,
         OpenMeteoWeather(
@@ -429,12 +440,86 @@ def _serve(
             ),
             SQLiteDailyCache.create(database),
         ),
+        qqmusic=QQMusicClient(
+            DefaultOutboundGateway(
+                OutboundPolicy(
+                    allowed_origins=frozenset(
+                        {
+                            "https://c.y.qq.com",
+                            "https://u.y.qq.com",
+                            "https://y.gtimg.cn",
+                        }
+                    ),
+                    maximum_data_class=DataClass.PERSONAL,
+                    maximum_response_bytes=2_000_000,
+                    allowed_query_keys=frozenset(
+                        {
+                            "type",
+                            "json",
+                            "utf8",
+                            "onlysong",
+                            "disstid",
+                            "format",
+                            "g_tk",
+                            "loginUin",
+                            "hostUin",
+                            "inCharset",
+                            "outCharset",
+                            "notice",
+                            "platform",
+                            "needNewCode",
+                        }
+                    ),
+                ),
+                timeout_seconds=20.0,
+            )
+        ),
+        netease=NetEaseMusicClient(
+            DefaultOutboundGateway(
+                OutboundPolicy(
+                    allowed_origins=frozenset(
+                        {
+                            "https://music.163.com",
+                            "https://p1.music.126.net",
+                            "https://p2.music.126.net",
+                            "https://p3.music.126.net",
+                            "https://p4.music.126.net",
+                        }
+                    ),
+                    maximum_data_class=DataClass.PERSONAL,
+                    maximum_response_bytes=4_000_000,
+                    allowed_query_keys=frozenset({"id", "n", "s"}),
+                ),
+                timeout_seconds=20.0,
+            )
+        ),
+        apple_music=AppleMusicClient(
+            DefaultOutboundGateway(
+                OutboundPolicy(
+                    allowed_origins=frozenset(
+                        {
+                            "https://api.music.apple.com",
+                            "https://is1-ssl.mzstatic.com",
+                            "https://is2-ssl.mzstatic.com",
+                            "https://is3-ssl.mzstatic.com",
+                            "https://is4-ssl.mzstatic.com",
+                            "https://is5-ssl.mzstatic.com",
+                        }
+                    ),
+                    maximum_data_class=DataClass.PERSONAL,
+                    maximum_response_bytes=4_000_000,
+                    allowed_query_keys=frozenset({"include", "offset", "limit"}),
+                ),
+                timeout_seconds=20.0,
+            ),
+            lambda: keychain.resolve(apple_developer_reference),
+            lambda: keychain.resolve(apple_user_reference),
+        ),
     )
     research_store = SQLiteResearchStore.create(database)
     study_store = SQLiteStudyStore.create(database)
     work_store = SQLiteWorkStore.create(database)
     config_path = runtime_paths.config_dir / "config.toml"
-    keychain = KeychainSecretStore()
     provider_active = config_path.is_file()
     synthesizer: ResearchSynthesizer
     provider: object | None = None

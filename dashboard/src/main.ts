@@ -1187,15 +1187,42 @@ async function runProviderDiagnostic(
         summary.textContent = report.status.replaceAll("_", " ");
       }
     }
-  } catch {
+  } catch (error) {
     if (root.contains(host)) {
-      host.innerHTML = providerErrorMarkup(localeOf(root));
+      const activeLocale = localeOf(root);
+      host.innerHTML = providerErrorMarkup(
+        activeLocale,
+        safeProviderFailureDetail(error, activeLocale),
+      );
     }
   } finally {
     buttons.forEach((button) => {
       if (root.contains(button)) button.disabled = false;
     });
   }
+}
+
+function safeProviderFailureDetail(error: unknown, activeLocale: Locale): string {
+  const message = errorText(error, activeLocale).toLowerCase();
+  if (message.includes("invalid or expired access token") || message.includes("bearer authorization")) {
+    return tr(
+      activeLocale,
+      "The private local session expired and could not be renewed. Restart Restork once.",
+      "本地私有会话已过期且未能续期，请重启一次 Restork。",
+    );
+  }
+  if (error instanceof TypeError || /fetch|network|connection|unreachable/.test(message)) {
+    return tr(
+      activeLocale,
+      "The local Core was still unreachable after one bounded retry.",
+      "经过一次有界重试后，仍无法连接本地 Core。",
+    );
+  }
+  return tr(
+    activeLocale,
+    "Core rejected the request before a safe provider report was available.",
+    "Core 在生成安全的模型检查报告前拒绝了请求。",
+  );
 }
 
 function configureWeather(root: HTMLElement, api: DashboardApi): void {
@@ -2157,8 +2184,21 @@ function configureMusic(root: HTMLElement, api: DashboardApi): void {
   const form = root.querySelector<HTMLFormElement>("#music-form");
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
-    void saveMusic(root, api, form);
+    void syncMusicSource(root, api, form);
   });
+  form?.querySelector<HTMLSelectElement>("#music-source")?.addEventListener(
+    "change",
+    () => updateMusicSourceHelp(root, form),
+  );
+  if (form) updateMusicSourceHelp(root, form);
+  form?.querySelector<HTMLButtonElement>("[data-music-file]")?.addEventListener(
+    "click",
+    () => void saveMusicFile(root, api, form),
+  );
+  form?.querySelector<HTMLButtonElement>("[data-music-refresh]")?.addEventListener(
+    "click",
+    () => void refreshMusic(root, api, form),
+  );
   form?.querySelector<HTMLButtonElement>("[data-music-disable]")?.addEventListener(
     "click",
     () => void disableMusic(root, api, form),
@@ -2175,15 +2215,93 @@ function configureMusic(root: HTMLElement, api: DashboardApi): void {
   });
 }
 
-async function saveMusic(
+function updateMusicSourceHelp(root: HTMLElement, form: HTMLFormElement): void {
+  const select = form.querySelector<HTMLSelectElement>("#music-source");
+  const target = form.querySelector<HTMLElement>("[data-music-source-help]");
+  const option = select?.selectedOptions[0];
+  if (!select || !target || !option) return;
+  const source = select.value;
+  target.textContent = source === "apple-music"
+    ? option.dataset.status === "ready"
+      ? tr(localeOf(root), "Official Apple Music API credential is ready.", "Apple Music 官方 API 凭据已就绪。")
+      : tr(localeOf(root), `Native setup required: ${option.dataset.setup || "restorkd music apple configure"}`, `需要先配置系统凭据：${option.dataset.setup || "restorkd music apple configure"}`)
+    : tr(localeOf(root), "Experimental, credential-free and read-only; only public playlist metadata is read.", "实验性、无需凭据且只读；仅获取公开歌单元数据。");
+}
+
+async function syncMusicSource(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  if (!api.configureMusic) return;
+  const data = new FormData(form);
+  const shareUrl = String(data.get("share_url") ?? "").trim();
+  const source = String(data.get("source") ?? "qqmusic");
+  try {
+    if (!(["qqmusic", "netease", "apple-music"] as string[]).includes(source)) {
+      throw new Error(tr(localeOf(root), "Choose a supported music source.", "请选择受支持的音乐来源。"));
+    }
+    const selected = form.querySelector<HTMLSelectElement>("#music-source")?.selectedOptions[0];
+    if (source === "apple-music" && selected?.dataset.status !== "ready") {
+      const command = selected?.dataset.setup || "restorkd music apple configure";
+      throw new Error(tr(
+        localeOf(root),
+        `Configure the Apple Music developer token in native credential storage first: ${command}`,
+        `请先把 Apple Music developer token 配置到系统凭据库：${command}`,
+      ));
+    }
+    const parsed = new URL(shareUrl);
+    const hosts: Record<string, string[]> = {
+      qqmusic: ["i2.y.qq.com", "y.qq.com", "www.y.qq.com"],
+      netease: ["music.163.com", "www.music.163.com", "y.music.163.com"],
+      "apple-music": ["music.apple.com"],
+    };
+    if (parsed.protocol !== "https:" || !hosts[source].includes(parsed.hostname)) {
+      throw new Error(tr(
+        localeOf(root),
+        "Paste an HTTPS playlist link from the selected source.",
+        "请粘贴来自所选来源的 HTTPS 歌单链接。",
+      ));
+    }
+    setMusicBusy(form, true, tr(
+      localeOf(root),
+      source === "qqmusic"
+        ? "Syncing the private snapshot and checking current Cantonese chart candidates…"
+        : "Syncing and validating a private local playlist snapshot…",
+      source === "qqmusic"
+        ? "正在同步私有快照，并检查当前粤语榜单候选……"
+        : "正在同步并校验本地私有歌单快照……",
+    ));
+    await api.configureMusic({
+      enabled: true,
+      source: source as "qqmusic" | "netease" | "apple-music",
+      share_url: shareUrl,
+      local_date: localDate(),
+    });
+    form.reset();
+    await refresh(root, api);
+    announce(root, tr(
+      localeOf(root),
+      source === "qqmusic"
+        ? "QQ Music connected. Daily analysis and current chart discoveries are ready."
+        : "Music source connected. The private daily snapshot is ready.",
+      source === "qqmusic"
+        ? "QQ 音乐已连接，今日分析和当前榜单发现已经就绪。"
+        : "音乐来源已连接，私有每日快照已经就绪。",
+    ));
+  } catch (error) {
+    setMusicBusy(form, false, errorText(error, localeOf(root)));
+    announce(root, errorText(error, localeOf(root)));
+  }
+}
+
+async function saveMusicFile(
   root: HTMLElement,
   api: DashboardApi,
   form: HTMLFormElement,
 ): Promise<void> {
   const file = form.querySelector<HTMLInputElement>('input[type="file"]')?.files?.[0];
   if (!file || !api.configureMusic) return;
-  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
-  buttons.forEach((button) => { button.disabled = true; });
   try {
     if (!/\.(json|csv)$/i.test(file.name) || file.size > 2_000_000) {
       throw new Error(tr(
@@ -2192,8 +2310,14 @@ async function saveMusic(
         "请选择不超过 2 MB 的 JSON 或 CSV 歌单。",
       ));
     }
+    setMusicBusy(form, true, tr(
+      localeOf(root),
+      "Importing the local private snapshot…",
+      "正在导入本地私有快照……",
+    ));
     await api.configureMusic({
       enabled: true,
+      source: "file",
       filename: file.name,
       content: await file.text(),
       local_date: localDate(),
@@ -2206,7 +2330,32 @@ async function saveMusic(
       "私有歌单已导入，今日推荐已就绪。",
     ));
   } catch (error) {
-    buttons.forEach((button) => { button.disabled = false; });
+    setMusicBusy(form, false, errorText(error, localeOf(root)));
+    announce(root, errorText(error, localeOf(root)));
+  }
+}
+
+async function refreshMusic(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  if (!api.refreshMusic) return;
+  try {
+    setMusicBusy(form, true, tr(
+      localeOf(root),
+      "Refreshing the playlist, song details, and Cantonese chart evidence…",
+      "正在刷新歌单、歌曲资料和粤语榜单证据……",
+    ));
+    await api.refreshMusic(localDate());
+    await refresh(root, api);
+    announce(root, tr(
+      localeOf(root),
+      "Music snapshot refreshed. Your previous snapshot would have been kept on failure.",
+      "音乐快照已刷新；如果刷新失败，旧快照会继续保留。",
+    ));
+  } catch (error) {
+    setMusicBusy(form, false, errorText(error, localeOf(root)));
     announce(root, errorText(error, localeOf(root)));
   }
 }
@@ -2217,9 +2366,12 @@ async function disableMusic(
   form: HTMLFormElement,
 ): Promise<void> {
   if (!api.configureMusic) return;
-  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
-  buttons.forEach((button) => { button.disabled = true; });
   try {
+    setMusicBusy(form, true, tr(
+      localeOf(root),
+      "Disconnecting and deleting only Restork's managed copy…",
+      "正在断开连接，并仅删除 Restork 管理的副本……",
+    ));
     await api.configureMusic({ enabled: false, local_date: localDate() });
     form.reset();
     await refresh(root, api);
@@ -2229,8 +2381,20 @@ async function disableMusic(
       "每日一曲已停用，导入的歌单也已删除。",
     ));
   } catch (error) {
-    buttons.forEach((button) => { button.disabled = false; });
+    setMusicBusy(form, false, errorText(error, localeOf(root)));
     announce(root, errorText(error, localeOf(root)));
+  }
+}
+
+function setMusicBusy(form: HTMLFormElement, busy: boolean, message: string): void {
+  form.setAttribute("aria-busy", String(busy));
+  form.querySelectorAll<HTMLButtonElement>("button").forEach((button) => {
+    button.disabled = busy;
+  });
+  const status = form.querySelector<HTMLElement>("[data-music-sync-status]");
+  if (status) {
+    status.textContent = message;
+    status.classList.toggle("is-busy", busy);
   }
 }
 

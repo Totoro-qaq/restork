@@ -57,6 +57,30 @@ fn optional_daily_sources_are_explicit_bounded_and_clearable() {
     assert!(database.music_preferences().expect("playlist").is_none());
 
     database
+        .put_music_snapshot(
+            "playlist",
+            &json!({"items": [{"item_id": "track-2", "title": "Atomic Song"}]}),
+            &json!({"explicit": true, "read_only": true}),
+            &json!({"provider": "qqmusic", "playlist_id": "1234567890"}),
+            "2026-08-02T12:01:00Z",
+        )
+        .expect("atomic music snapshot");
+    assert_eq!(
+        database
+            .music_preferences()
+            .expect("playlist")
+            .expect("stored playlist")
+            .preference["items"][0]["title"],
+        "Atomic Song"
+    );
+    let music_source = database
+        .daily_source("music")
+        .expect("music source")
+        .expect("enabled music source");
+    assert!(music_source.enabled);
+    assert_eq!(music_source.config["provider"], "qqmusic");
+
+    database
         .put_daily_cache(
             "weather-current",
             &json!({"configured": true}),

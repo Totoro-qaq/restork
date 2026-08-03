@@ -448,12 +448,84 @@ export interface MusicRecommendation {
   album: string;
   tags: string[];
   analysis: string;
+  recommendation_reason?: string;
+  song_analysis?: string;
+  popularity_reason?: string;
+  language?: string;
+  genre?: string;
+  published_on?: string | null;
+  source_url?: string;
   cover_available: boolean;
 }
 
 export type MusicConfigurationInput =
   | { enabled: false; local_date?: string }
-  | { enabled: true; filename: string; content: string; local_date: string };
+  | {
+      enabled: true;
+      source: "file";
+      filename: string;
+      content: string;
+      local_date: string;
+    }
+  | {
+      enabled: true;
+      source: "qqmusic" | "netease" | "apple-music";
+      share_url: string;
+      local_date: string;
+    };
+
+export interface MusicSourceCapabilities {
+  read_only: boolean;
+  refresh_supported: boolean;
+  supports_public_playlists: boolean;
+  supports_library: boolean;
+  supports_charts: boolean;
+  requires_user_consent: boolean;
+}
+
+export interface MusicSourceDefinition {
+  provider: "local-file" | "qqmusic" | "netease" | "apple-music";
+  label: string;
+  stability: "stable" | "official" | "experimental";
+  credential_mode: "none" | "native_secret";
+  setup_status: "ready" | "credential_missing" | "unavailable";
+  setup_command: string;
+  capabilities: MusicSourceCapabilities;
+}
+
+export interface MusicDiscovery {
+  item_id: string;
+  title: string;
+  artist: string;
+  album: string;
+  language: string;
+  genre: string;
+  label: string;
+  published_on: string | null;
+  chart_name: string;
+  chart_rank: number;
+  chart_updated_on: string | null;
+  affinity_artist: string;
+  affinity_count: number;
+  recommendation_reason: string;
+  song_analysis: string;
+  popularity_reason: string;
+  source_url: string;
+}
+
+export interface MusicSourceSummary {
+  provider: string;
+  label: string;
+  item_count: number;
+  synced_at: string | null;
+  public_url: string;
+  refresh_supported: boolean;
+  experimental: boolean;
+  official_api?: boolean;
+  read_only?: boolean;
+  requires_user_consent?: boolean;
+  supports_charts?: boolean;
+}
 
 export interface DailySnapshot {
   weather: WeatherSnapshot;
@@ -475,6 +547,8 @@ export interface DailySnapshot {
     configured: boolean;
     status: DailyStatus;
     recommendation: MusicRecommendation | null;
+    source?: MusicSourceSummary | null;
+    discoveries?: MusicDiscovery[];
     message: string;
   };
 }
@@ -858,6 +932,7 @@ export interface DashboardSnapshot {
   } | null;
   daily: DailySnapshot | null;
   provider: ProviderDiagnostic | null;
+  musicSources?: MusicSourceDefinition[];
   pagination?: Partial<Record<DashboardListKind, PageInfo>>;
   workspaceV2?: RustWorkspaceSnapshot;
 }
@@ -1002,6 +1077,7 @@ export interface DashboardApi {
   ): Promise<DailySnapshot["calendar"]>;
   disconnectNativeCalendar?(): Promise<DailySnapshot["calendar"]>;
   configureMusic?(input: MusicConfigurationInput): Promise<DailySnapshot["music"]>;
+  refreshMusic?(localDate: string): Promise<DailySnapshot["music"]>;
   providerDiagnostics(smoke: boolean): Promise<ProviderDiagnostic>;
   musicCover(): Promise<Blob | null>;
   events(runId: string, after: number): Promise<RunEvent[]>;

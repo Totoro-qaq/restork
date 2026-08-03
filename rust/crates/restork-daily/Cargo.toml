@@ -9,10 +9,11 @@ rust-version.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 futures-util.workspace = true
-reqwest = { workspace = true, default-features = false, features = ["json", "query", "rustls", "stream"] }
+reqwest = { workspace = true, default-features = false, features = ["json", "query", "rustls", "stream", "system-proxy"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2.workspace = true
+url.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 eventkit = { version = "=0.3.8", features = ["async"] }

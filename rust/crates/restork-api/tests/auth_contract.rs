@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, SystemTime},
+};
 
 use axum::{
     Router,
@@ -6,7 +9,7 @@ use axum::{
     http::{Method, Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use restork_core::auth::{Audience, CLI_SCOPES, PairingAuthority};
+use restork_core::auth::{Audience, CLI_SCOPES, Clock, PairingAuthority};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -43,6 +46,26 @@ async fn call(
 
 fn authority() -> PairingAuthority {
     PairingAuthority::new(Duration::from_secs(300)).expect("authority")
+}
+
+#[derive(Debug)]
+struct TestClock(Mutex<SystemTime>);
+
+impl TestClock {
+    fn new(now: SystemTime) -> Self {
+        Self(Mutex::new(now))
+    }
+
+    fn advance(&self, duration: Duration) {
+        let mut now = self.0.lock().expect("clock lock");
+        *now = now.checked_add(duration).expect("fixture time");
+    }
+}
+
+impl Clock for TestClock {
+    fn now(&self) -> SystemTime {
+        *self.0.lock().expect("clock lock")
+    }
 }
 
 #[tokio::test]
@@ -240,6 +263,75 @@ async fn browser_requests_reject_cli_tokens_and_rotation_is_single_session() {
         "/v1/health",
         None,
         &[("authorization", &new_authorization)],
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn rotation_recovers_a_suspended_web_session_without_reopening_other_routes() {
+    let clock = Arc::new(TestClock::new(SystemTime::UNIX_EPOCH));
+    let authority =
+        PairingAuthority::with_clock(Duration::from_secs(60), clock.clone()).expect("authority");
+    let code = authority.initial_pairing_code();
+    let app = restork_api::router(authority);
+    let (status, _, paired) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/pair",
+        Some(json!({"code": code})),
+        &[
+            ("content-type", "application/json"),
+            ("origin", "http://127.0.0.1:7337"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let expired = paired.expect("paired token")["access_token"]
+        .as_str()
+        .expect("access token")
+        .to_owned();
+    let expired_authorization = format!("Bearer {expired}");
+
+    clock.advance(Duration::from_secs(61));
+    let (status, _, rotated) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/token/rotate",
+        None,
+        &[
+            ("authorization", &expired_authorization),
+            ("origin", "http://127.0.0.1:7337"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let recovered = rotated.expect("rotated token")["access_token"]
+        .as_str()
+        .expect("access token")
+        .to_owned();
+    let recovered_authorization = format!("Bearer {recovered}");
+
+    let (status, _, body) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/health",
+        None,
+        &[
+            ("authorization", &recovered_authorization),
+            ("origin", "http://127.0.0.1:7337"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, Some(json!({"status": "ready", "schema": "v1"})));
+
+    let (status, _, _) = call(
+        app,
+        Method::GET,
+        "/v1/health",
+        None,
+        &[("authorization", &expired_authorization)],
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
