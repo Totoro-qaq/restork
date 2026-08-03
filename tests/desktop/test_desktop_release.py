@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import struct
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
@@ -183,8 +184,33 @@ def test_pages_workflow_is_pinned_and_deploys_only_public_static_assets() -> Non
         assert re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", action), action
     assert "path: build/pages" in source
     assert "site/index.html site/zh-CN.html" in source
+    assert "social-preview.png assets/readme/social-preview.zh-CN.png" in source
     assert "README" not in source
     assert "secrets." not in source
+
+
+def test_site_social_previews_are_language_matched_and_share_safe() -> None:
+    root = Path(__file__).parents[2]
+    cases = (
+        (
+            root / "assets" / "readme" / "social-preview.png",
+            root / "site" / "index.html",
+            "https://totoro-qaq.github.io/restork/assets/readme/social-preview.png",
+        ),
+        (
+            root / "assets" / "readme" / "social-preview.zh-CN.png",
+            root / "site" / "zh-CN.html",
+            "https://totoro-qaq.github.io/restork/assets/readme/social-preview.zh-CN.png",
+        ),
+    )
+    for image, page, public_url in cases:
+        payload = image.read_bytes()
+        assert payload.startswith(b"\x89PNG\r\n\x1a\n")
+        assert struct.unpack(">II", payload[16:24]) == (1280, 640)
+        assert len(payload) < 1_000_000
+        source = page.read_text(encoding="utf-8")
+        assert public_url in source
+        assert 'name="twitter:card" content="summary_large_image"' in source
 
 
 def test_desktop_core_build_loads_the_rust_workspace_linker_policy() -> None:
