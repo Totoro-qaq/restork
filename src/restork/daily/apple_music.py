@@ -87,19 +87,20 @@ class AppleMusicClient:
     ) -> PlaylistDocument:
         developer_token = await asyncio.to_thread(self._developer_token)
         _validate_secret(developer_token)
-        music_user_token = ""
+        resolved_user_credential: str | None = None
         if self._music_user_token is not None:
             try:
-                music_user_token = await asyncio.to_thread(self._music_user_token)
-                _validate_secret(music_user_token)
+                candidate = await asyncio.to_thread(self._music_user_token)
+                _validate_secret(candidate)
+                resolved_user_credential = candidate
             except LookupError:
-                music_user_token = ""
+                pass
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {developer_token}",
         }
-        if music_user_token:
-            headers["Music-User-Token"] = music_user_token
+        if resolved_user_credential is not None:
+            headers["Music-User-Token"] = resolved_user_credential
         endpoint = (
             f"{_API_ORIGIN}/v1/catalog/{storefront}/playlists/"
             f"{quote(playlist_id, safe='._-')}?include=tracks"
