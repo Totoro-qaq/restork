@@ -29,6 +29,8 @@ _PUBLIC_RASTERS = {
     "assets/readme/demo-hd.zh-CN.gif",
     "assets/readme/demo-poster.webp",
     "assets/readme/demo-poster.zh-CN.webp",
+    "assets/readme/social-preview.png",
+    "assets/readme/social-preview.zh-CN.png",
     "desktop/src-tauri/icons/icon.png",
 }
 _PLACEHOLDER_USERS = {"demo", "example", "name", "user", "username"}
