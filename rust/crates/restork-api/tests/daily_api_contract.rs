@@ -112,6 +112,25 @@ async fn daily_context_is_zero_configuration_and_all_optional_sources_require_ex
     assert_eq!(snapshot["music"]["configured"], false);
     assert!(snapshot["native_calendar"]["adapter"].as_str().is_some());
 
+    let (status, sources) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/daily/music/sources",
+        None,
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let sources = sources.expect("music source registry");
+    assert_eq!(sources[0]["provider"], "local-file");
+    assert_eq!(sources[1]["provider"], "qqmusic");
+    assert_eq!(sources[1]["stability"], "experimental");
+    assert_eq!(sources[2]["provider"], "netease");
+    assert_eq!(sources[3]["provider"], "apple-music");
+    assert_eq!(sources[3]["stability"], "official");
+    assert_eq!(sources[3]["capabilities"]["supports_library"], false);
+
     let (status, capability) = call(
         app.clone(),
         Method::GET,
@@ -209,10 +228,15 @@ async fn daily_context_is_zero_configuration_and_all_optional_sources_require_ex
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        music.expect("music")["recommendation"]["title"],
-        "Synthetic Song"
+    let music = music.expect("music");
+    assert_eq!(music["recommendation"]["title"], "Synthetic Song");
+    assert_eq!(music["source"]["provider"], "local-file");
+    assert!(
+        music["recommendation"]["recommendation_reason"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
     );
+    assert_eq!(music["discoveries"], json!([]));
 
     let (status, snapshot) = call(
         app,

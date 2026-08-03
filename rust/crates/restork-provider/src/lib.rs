@@ -7,7 +7,7 @@ mod secrets;
 
 use std::time::{Duration, Instant};
 
-use reqwest::{Client, StatusCode, redirect::Policy};
+use reqwest::{Client, RequestBuilder, StatusCode, redirect::Policy};
 use restork_personal::{
     ModelDiscovery, ProviderAuthKind, ProviderProfile, ProviderProtocol, ProviderRequestAdapter,
     ReasoningEffort,
@@ -127,8 +127,9 @@ impl ProviderClient {
     pub async fn diagnose(&self, profile: &ProviderProfile, smoke: bool) -> ProviderDiagnostic {
         let started = Instant::now();
         let result = if smoke {
+            let smoke_profile = fixed_smoke_profile(profile);
             self.chat(
-                profile,
+                &smoke_profile,
                 &[ChatMessage {
                     role: "user".to_owned(),
                     content: "Reply with exactly OK.".to_owned(),
@@ -136,13 +137,18 @@ impl ProviderClient {
                 16,
             )
             .await
-            .map(|completion| DiagnosticSuccess {
-                request_id: completion.request_id,
-                prompt_tokens: completion.prompt_tokens,
-                completion_tokens: completion.completion_tokens,
-                total_tokens: completion.total_tokens,
-                connection_checked: true,
-                model_available: Some(true),
+            .and_then(|completion| {
+                if completion.content.trim() != "OK" {
+                    return Err(ProviderError::InvalidResponse);
+                }
+                Ok(DiagnosticSuccess {
+                    request_id: completion.request_id,
+                    prompt_tokens: completion.prompt_tokens,
+                    completion_tokens: completion.completion_tokens,
+                    total_tokens: completion.total_tokens,
+                    connection_checked: true,
+                    model_available: Some(true),
+                })
             })
         } else {
             self.check_models(profile).await
@@ -268,11 +274,8 @@ impl ProviderClient {
             ModelDiscovery::ManualOnly => Vec::new(),
             ModelDiscovery::OllamaTags => {
                 let response = self
-                    .client
-                    .get(format!("{}/api/tags", profile.base_url()))
-                    .send()
-                    .await
-                    .map_err(map_transport)?;
+                    .send_idempotent(self.client.get(format!("{}/api/tags", profile.base_url())))
+                    .await?;
                 let status = response.status();
                 let payload: Value = response
                     .json()
@@ -284,12 +287,12 @@ impl ProviderClient {
             ModelDiscovery::OpenAiModels => {
                 let secret = self.resolve_secret(profile).await?;
                 let response = self
-                    .client
-                    .get(format!("{}/models", profile.base_url()))
-                    .bearer_auth(secret.expose())
-                    .send()
-                    .await
-                    .map_err(map_transport)?;
+                    .send_idempotent(
+                        self.client
+                            .get(format!("{}/models", profile.base_url()))
+                            .bearer_auth(secret.expose()),
+                    )
+                    .await?;
                 let status = response.status();
                 let payload: Value = response
                     .json()
@@ -312,6 +315,34 @@ impl ProviderClient {
             models,
             latency_ms: elapsed_ms(started),
         })
+    }
+
+    /// Retry only idempotent provider discovery, once, and only when the first
+    /// attempt clearly failed before a useful response. Chat completions are
+    /// never replayed automatically because doing so can duplicate cost.
+    async fn send_idempotent(
+        &self,
+        request: RequestBuilder,
+    ) -> Result<reqwest::Response, ProviderError> {
+        let retry = request.try_clone();
+        match request.send().await {
+            Ok(response) if retryable_discovery_status(response.status()) => {
+                let Some(retry) = retry else {
+                    return Ok(response);
+                };
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                retry.send().await.map_err(map_transport)
+            }
+            Ok(response) => Ok(response),
+            Err(error) if error.is_connect() && !error.is_timeout() => {
+                let Some(retry) = retry else {
+                    return Err(map_transport(error));
+                };
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                retry.send().await.map_err(map_transport)
+            }
+            Err(error) => Err(map_transport(error)),
+        }
     }
 
     async fn check_models(
@@ -436,6 +467,13 @@ impl ProviderClient {
             .await
             .map_err(|_| ProviderError::CredentialMissing)
     }
+}
+
+fn fixed_smoke_profile(profile: &ProviderProfile) -> ProviderProfile {
+    profile
+        .clone()
+        .with_reasoning(ReasoningEffort::Off, None)
+        .unwrap_or_else(|_| profile.clone())
 }
 
 struct DiagnosticSuccess {
@@ -607,6 +645,10 @@ fn map_transport(error: reqwest::Error) -> ProviderError {
     }
 }
 
+fn retryable_discovery_status(status: StatusCode) -> bool {
+    matches!(status.as_u16(), 502..=504)
+}
+
 fn map_status(status: StatusCode, payload: &Value) -> Result<(), ProviderError> {
     if status.is_success() {
         return Ok(());
@@ -750,6 +792,23 @@ mod tests {
         let ollama =
             build_ollama_chat_request(&ollama_profile, &messages, 32).expect("Ollama request");
         assert_eq!(ollama["think"], "high");
+    }
+
+    #[test]
+    fn fixed_smoke_disables_reasoning_and_retries_only_transient_discovery_statuses() {
+        let messages = [ChatMessage {
+            role: "user".to_owned(),
+            content: "Reply with exactly OK.".to_owned(),
+        }];
+        let smoke = fixed_smoke_profile(&profile(ProviderKind::DeepSeek));
+        let request =
+            build_openai_chat_request(&smoke, &messages, 16).expect("fixed smoke request");
+        assert_eq!(request["thinking"]["type"], "disabled");
+        assert!(retryable_discovery_status(StatusCode::BAD_GATEWAY));
+        assert!(retryable_discovery_status(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(retryable_discovery_status(StatusCode::GATEWAY_TIMEOUT));
+        assert!(!retryable_discovery_status(StatusCode::TOO_MANY_REQUESTS));
+        assert!(!retryable_discovery_status(StatusCode::UNAUTHORIZED));
     }
 
     #[test]

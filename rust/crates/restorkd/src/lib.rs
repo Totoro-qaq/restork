@@ -21,7 +21,7 @@ use restork_storage::{Database, StorageError};
 use serde::Serialize;
 use tokio::net::TcpListener;
 
-pub const HELP: &str = "Restork local runtime\n\nUsage:\n  restorkd serve [--port <0-65535>] [--state-db <path>]\n  restorkd provider configure\n  restorkd doctor [--connect | --smoke]\n\nThe listener is always bound to 127.0.0.1. Port 0 asks the OS to select a free port. Provider setup delegates the secret prompt to native credential storage.\n";
+pub const HELP: &str = "Restork local runtime\n\nUsage:\n  restorkd serve [--port <0-65535>] [--state-db <path>]\n  restorkd provider configure\n  restorkd doctor [--connect | --smoke]\n  restorkd music apple configure\n  restorkd music apple configure-user-token\n  restorkd music apple status\n\nThe listener is always bound to 127.0.0.1. Port 0 asks the OS to select a free port. Provider and Apple Music setup delegate secret prompts to native credential storage.\n";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ServerConfig {

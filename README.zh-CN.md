@@ -141,7 +141,21 @@ Python、Node.js、Rust、`uv` 或包管理器。精确状态与一条命令构�
 | 读取我的 Obsidian Vault | `./scripts/quickstart.sh --vault-dir /absolute/private/vault` | 仅在本地读取；任何写入仍要先预览并审批 |
 | 使用云端或本地模型 | 打开**设置 → 模型供应商**；云端 Key 使用原生凭据命令 | 可选 DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter 或兼容端点；只显示真正支持的思考档位 |
 | 查看天气 | 在天气设置中输入城市，或自己点击**使用当前位置** | 启用前始终关闭；不会通过 IP 猜测位置 |
-| 加入日历或音乐 | 选择一个本地 ICS 文件，或私有 JSON/CSV 歌单 | 只读本地导入，不要求登录账号 |
+| 加入日历 | 可用时连接系统日历，或选择一个本地 ICS 文件 | 只读访问；即使不连接，日期和时区也会跟随设备 |
+| 使用每日一曲 | 选择 QQ 音乐、网易云、Apple Music 或私有 JSON/CSV 歌单 | 显式只读同步；不接收账号密码/Cookie，不下载音频和歌词；来源能力与证据缺口始终可见 |
+
+打开**每日一曲 → 连接歌单**，选择来源，粘贴普通的公开歌单分享链接，再点**连接并同步**。
+QQ 音乐与网易云是无需凭据的实验性只读适配；QQ 音乐可以附上香港榜单证据，网易云没有经过
+核验的当前榜单证据时会明确说不知道，不会编造“为什么火”。Apple Music 只走官方 Catalog
+API，需要先把 developer token 放进系统凭据库：
+
+```bash
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- music apple configure
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- music apple status
+```
+
+这里需要的不是 Apple ID 密码，token 也不会进入 Dashboard 或 SQLite。刷新始终由你手动触发；
+断开连接只会删除 Restork 管理的快照。完整边界见[每日上下文隐私说明](docs/daily-context.md)。
 
 想换一个本地端口，不用改配置文件：
 
@@ -199,7 +213,7 @@ uv run restork \
 | **Dashboard 与本地 API** | 响应式中英文界面、仅监听 loopback 的 `/v1` API、独立 Web/CLI 配对与短期会话 |
 | **知识与任务** | 只读 Vault 检索、确定性 wiki-link 投影、日志化单文件写入，以及 Markdown 任务的预览/审批/应用 |
 | **Research、Study、Work** | 带证据的研究、引导式学习与练习，以及只做规划的仓库交接 |
-| **记忆与每日上下文** | 四层可检查记忆、可选天气、无需权限的系统日期/月历、显式 macOS EventKit 接入、通用只读 ICS 后备与私有歌单导入 |
+| **记忆与每日上下文** | 四层可检查记忆、可选天气、无需权限的系统日期/月历、显式 macOS EventKit 接入、通用只读 ICS 后备，以及统一的本地/QQ/网易云/Apple Music 来源 |
 | **模型与扩展** | DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter 与通用端点；供应商范围内思考强度；版本化 Prompt；真实有界 MCP stdio 执行；不可变扩展修订和回滚 |
 | **产物与恢复** | 确定性无宏 PPTX/PDF、精确产物哈希、包含真实内容的检查点、绑定预览的文件系统恢复、调度、评估与深度一有界子任务 |
 | **跨平台桌面源码** | Tauri 打包 `restorkd` 与 Dashboard，使用 Unix 进程组或 Windows Job Object 管理生命周期，验证签名更新并保留有限恢复副本，同时生成无需目标机运行时的三平台候选包 |

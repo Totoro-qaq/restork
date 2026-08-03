@@ -52,7 +52,55 @@ back to the source calendar. There is no OAuth or calendar account. The browser 
 system time zone with each import/read so calendar dates match the Roman-numeral local clock.
 Upcoming events are bounded, and `CLASS:PRIVATE` or `CLASS:CONFIDENTIAL` summaries appear as `Busy`.
 
-## Private playlist
+## Private playlist and open music sources
+
+The paired Dashboard exposes one normalized read-only contract with four source adapters:
+
+| Source | Stability | Credential | Evidence capability |
+|---|---|---|---|
+| Local JSON/CSV | stable | none | user-authored metadata only |
+| QQ Music public playlist | experimental | none | current bounded Hong Kong chart when available |
+| NetEase public playlist | experimental | none | playlist metadata; no unverified chart claim |
+| Apple Music public catalog playlist | official API | native developer token | official catalog metadata; no chart claim |
+
+For every remote source, Restork extracts only a canonical playlist identity, discards share-owner
+and tracking fields, and writes a normalized private snapshot to Core's data store. QQ Music and
+NetEase accept no login, cookie, password, phone number, or QR flow. Apple Music never accepts a
+token in the Dashboard; configure it through the native credential prompt:
+
+```bash
+restorkd music apple configure
+restorkd music apple status
+```
+
+The optional `restorkd music apple configure-user-token` command reserves a Music User Token for a
+future explicitly authorized library capability. The current registry reports `supports_library`
+as false and never falls back to scraping. On macOS the values live in Keychain; Windows uses
+Credential Manager and Linux uses Secret Service. The developer token is not an Apple ID password.
+
+Local JSON/CSV imports remain the zero-network fallback. The managed copy is validated, bounded to
+2 MB and 2,000 items, and stays inside the private profile. The desktop Rust Core uses local SQLite;
+the Python compatibility runtime uses a profile file with `0600` permissions.
+
+QQ Music and NetEase are experimental because their public web playlist responses are not presented
+as stable general-purpose developer contracts. They are isolated adapters and can fail or be
+disabled without changing the normalized file format. Apple Music uses only the official API.
+Refresh is explicit and read-only. A failed refresh keeps the last valid snapshot; disconnect
+deletes only Restork's managed copy. No audio or lyrics are downloaded.
+
+On each successful connected refresh, Restork checks a bounded slice of QQ Music's Hong Kong chart,
+keeps entries whose catalog language is `粤语`, excludes tracks already in the playlist, and ranks
+the remainder using local artist counts. Up to five discoveries include a source link, release and
+genre metadata, a preference connection, and current chart rank/update evidence. The evidence is
+displayed as the reason a track is currently hot; Restork does not invent a popularity explanation
+when no chart evidence exists. These discovery requests go through the same outbound gateway,
+origin allowlist, response limits, and audit controls as other connectors. Rust also respects an
+operator-owned macOS or Windows system proxy (including a global V2Ray proxy) while keeping the
+destination allowlist and redirect denial in force.
+
+NetEase and Apple Music currently expose structured song metadata but no independently verified
+current chart source. Their **Why it is hot** section therefore states the evidence gap. Provider
+text is untrusted data, escaped in the Dashboard, and never interpreted as a prompt or instruction.
 
 JSON accepts either an array or an object with an `items` array. CSV uses the same field names:
 

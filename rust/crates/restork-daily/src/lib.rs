@@ -1,8 +1,8 @@
 //! Optional, consent-driven daily context for the Rust Core.
 //!
-//! Network destinations are fixed Open-Meteo origins. Calendar and playlist
-//! imports are bounded local snapshots; no location or source is inferred at
-//! startup.
+//! Network destinations are fixed Open-Meteo and explicitly enabled music
+//! catalog origins. Calendar and playlist imports are bounded private snapshots;
+//! no location or source is inferred at startup.
 
 use std::{collections::BTreeMap, time::Duration};
 
@@ -18,6 +18,19 @@ const WEATHER_ORIGIN: &str = "https://api.open-meteo.com/v1/forecast";
 const MAX_RESPONSE_BYTES: usize = 1_000_000;
 const MAX_ICS_BYTES: usize = 2_000_000;
 const MAX_PLAYLIST_BYTES: usize = 2_000_000;
+
+mod apple_music;
+mod music_source;
+mod netease;
+mod qqmusic;
+
+pub use apple_music::{AppleMusicDocument, AppleMusicPlaylistIdentity, parse_apple_music_playlist};
+pub use music_source::{
+    MusicSourceCapabilities, MusicSourceDefinition, MusicSourceDocument,
+    apple_developer_token_reference, apple_music_user_token_reference, music_source_registry,
+};
+pub use netease::{NeteaseMusicDocument, parse_netease_playlist_id};
+pub use qqmusic::{QqMusicDocument, parse_qqmusic_playlist_id};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DailyError {
@@ -333,6 +346,7 @@ fn digest_parts(parts: &[&str]) -> String {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlaylistItem {
+    #[serde(alias = "id")]
     pub item_id: String,
     pub title: String,
     #[serde(default)]
@@ -341,8 +355,24 @@ pub struct PlaylistItem {
     pub album: String,
     #[serde(default)]
     pub tags: Vec<String>,
-    #[serde(default)]
+    #[serde(default, alias = "note")]
     pub analysis: String,
+    #[serde(default)]
+    pub cover_url: String,
+    #[serde(default)]
+    pub source_provider: String,
+    #[serde(default)]
+    pub source_item_id: String,
+    #[serde(default)]
+    pub source_url: String,
+    #[serde(default)]
+    pub language: String,
+    #[serde(default)]
+    pub genre: String,
+    #[serde(default)]
+    pub published_on: Option<String>,
+    #[serde(default)]
+    pub popularity_reason: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -353,7 +383,54 @@ pub struct MusicRecommendation {
     pub album: String,
     pub tags: Vec<String>,
     pub analysis: String,
+    pub recommendation_reason: String,
+    pub song_analysis: String,
+    pub popularity_reason: String,
+    pub language: String,
+    pub genre: String,
+    pub published_on: Option<String>,
+    pub source_url: String,
     pub cover_available: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MusicDiscovery {
+    pub item_id: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub language: String,
+    pub genre: String,
+    pub label: String,
+    pub published_on: Option<String>,
+    pub chart_name: String,
+    pub chart_rank: usize,
+    pub chart_updated_on: Option<String>,
+    pub affinity_artist: String,
+    pub affinity_count: usize,
+    pub recommendation_reason: String,
+    pub song_analysis: String,
+    pub popularity_reason: String,
+    pub source_url: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MusicSourceSummary {
+    pub provider: String,
+    pub label: String,
+    pub item_count: usize,
+    pub synced_at: Option<String>,
+    pub public_url: String,
+    pub refresh_supported: bool,
+    pub experimental: bool,
+    #[serde(default)]
+    pub official_api: bool,
+    #[serde(default = "default_true")]
+    pub read_only: bool,
+    #[serde(default)]
+    pub requires_user_consent: bool,
+    #[serde(default)]
+    pub supports_charts: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -361,6 +438,8 @@ pub struct MusicSnapshot {
     pub configured: bool,
     pub status: String,
     pub recommendation: Option<MusicRecommendation>,
+    pub source: Option<MusicSourceSummary>,
+    pub discoveries: Vec<MusicDiscovery>,
     pub message: String,
 }
 
@@ -371,9 +450,16 @@ impl MusicSnapshot {
             configured: false,
             status: "not_configured".to_owned(),
             recommendation: None,
-            message: "Import a private JSON or CSV playlist to enable daily tracks.".to_owned(),
+            source: None,
+            discoveries: Vec::new(),
+            message: "Connect a supported music source or import a private JSON/CSV playlist."
+                .to_owned(),
         }
     }
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 pub struct DailyClient {
@@ -386,11 +472,24 @@ impl DailyClient {
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(12))
             .redirect(Policy::none())
-            .no_proxy()
             .user_agent("Restork/0.1 daily-context")
             .build()
             .map_err(|_| DailyError::Unavailable)?;
         Ok(Self { client })
+    }
+
+    /// Fetch album art only through a provider-owned, adapter-validated origin.
+    pub async fn music_cover(
+        &self,
+        provider: &str,
+        cover_url: &str,
+    ) -> Result<(Vec<u8>, String), DailyError> {
+        match provider {
+            "qqmusic" => self.qq_music_cover(cover_url).await,
+            "netease" => self.netease_music_cover(cover_url).await,
+            "apple-music" => self.apple_music_cover(cover_url).await,
+            _ => Err(DailyError::InvalidInput),
+        }
     }
 
     pub async fn resolve_location(
@@ -500,12 +599,19 @@ struct CurrentWeather {
 }
 
 async fn bounded_json<T: DeserializeOwned>(response: Response) -> Result<T, DailyError> {
+    bounded_json_with_limit(response, MAX_RESPONSE_BYTES).await
+}
+
+async fn bounded_json_with_limit<T: DeserializeOwned>(
+    response: Response,
+    maximum: usize,
+) -> Result<T, DailyError> {
     if !response.status().is_success() {
         return Err(DailyError::Unavailable);
     }
     if response
         .content_length()
-        .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+        .is_some_and(|length| length > maximum as u64)
     {
         return Err(DailyError::InvalidResponse);
     }
@@ -513,7 +619,7 @@ async fn bounded_json<T: DeserializeOwned>(response: Response) -> Result<T, Dail
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|_| DailyError::Unavailable)?;
-        if bytes.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+        if bytes.len().saturating_add(chunk.len()) > maximum {
             return Err(DailyError::InvalidResponse);
         }
         bytes.extend_from_slice(&chunk);
@@ -744,6 +850,14 @@ fn parse_playlist_csv(content: &str) -> Result<Vec<PlaylistItem>, DailyError> {
                 .map(str::to_owned)
                 .collect(),
             analysis: field("analysis"),
+            cover_url: String::new(),
+            source_provider: String::new(),
+            source_item_id: String::new(),
+            source_url: String::new(),
+            language: String::new(),
+            genre: String::new(),
+            published_on: None,
+            popularity_reason: String::new(),
         });
     }
     Ok(items)
@@ -781,10 +895,27 @@ fn csv_row(line: &str) -> Result<Vec<String>, DailyError> {
 fn validate_playlist_item(item: &PlaylistItem) -> Result<(), DailyError> {
     normalized_identifier(&item.item_id, 128)?;
     normalized_text(&item.title, 240)?;
-    for value in [&item.artist, &item.album, &item.analysis] {
+    for value in [
+        &item.artist,
+        &item.album,
+        &item.analysis,
+        &item.source_provider,
+        &item.source_item_id,
+        &item.language,
+        &item.genre,
+        &item.popularity_reason,
+    ] {
         if !value.is_empty() {
             normalized_text(value, 2_000)?;
         }
+    }
+    for value in [&item.cover_url, &item.source_url] {
+        if !value.is_empty() {
+            validate_https_url(value)?;
+        }
+    }
+    if let Some(value) = &item.published_on {
+        NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| DailyError::InvalidInput)?;
     }
     if item.tags.len() > 32 {
         return Err(DailyError::InvalidInput);
@@ -796,6 +927,16 @@ fn validate_playlist_item(item: &PlaylistItem) -> Result<(), DailyError> {
 }
 
 pub fn music_snapshot(items: &[PlaylistItem], local_date: &str) -> MusicSnapshot {
+    music_snapshot_with_context(items, None, &[], local_date)
+}
+
+#[must_use]
+pub fn music_snapshot_with_context(
+    items: &[PlaylistItem],
+    source: Option<MusicSourceSummary>,
+    discoveries: &[MusicDiscovery],
+    local_date: &str,
+) -> MusicSnapshot {
     if items.is_empty() {
         return MusicSnapshot::disabled();
     }
@@ -805,6 +946,28 @@ pub fn music_snapshot(items: &[PlaylistItem], local_date: &str) -> MusicSnapshot
     let seed = u64::from_le_bytes(digest[..8].try_into().expect("digest prefix"));
     let index = usize::try_from(seed % items.len() as u64).unwrap_or_default();
     let item = &items[index];
+    let recommendation_reason =
+        "Selected by a deterministic daily rotation from your private playlist.".to_owned();
+    let song_analysis = if item.analysis.is_empty() {
+        let facts = [
+            item.published_on
+                .as_ref()
+                .map(|value| format!("released {value}")),
+            (!item.language.is_empty()).then(|| format!("language: {}", item.language)),
+            (!item.genre.is_empty()).then(|| format!("genre: {}", item.genre)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+        if facts.is_empty() {
+            "No reviewed song-detail evidence is cached yet. Refresh the connected source."
+                .to_owned()
+        } else {
+            format!("QQ Music structured metadata records {}.", facts.join("; "))
+        }
+    } else {
+        item.analysis.clone()
+    };
     MusicSnapshot {
         configured: true,
         status: "ready".to_owned(),
@@ -814,11 +977,44 @@ pub fn music_snapshot(items: &[PlaylistItem], local_date: &str) -> MusicSnapshot
             artist: item.artist.clone(),
             album: item.album.clone(),
             tags: item.tags.clone(),
-            analysis: item.analysis.clone(),
-            cover_available: false,
+            analysis: recommendation_reason.clone(),
+            recommendation_reason,
+            song_analysis,
+            popularity_reason: item.popularity_reason.clone(),
+            language: item.language.clone(),
+            genre: item.genre.clone(),
+            published_on: item.published_on.clone(),
+            source_url: item.source_url.clone(),
+            cover_available: !item.cover_url.is_empty(),
         }),
-        message: "Selected deterministically from the private imported playlist.".to_owned(),
+        source,
+        discoveries: discoveries.iter().take(5).cloned().collect(),
+        message: "Selected deterministically from the private playlist snapshot.".to_owned(),
     }
+}
+
+#[must_use]
+pub fn selected_music_cover_url(items: &[PlaylistItem], local_date: &str) -> Option<String> {
+    let snapshot = music_snapshot(items, local_date);
+    let selected = snapshot.recommendation?;
+    items
+        .iter()
+        .find(|item| item.item_id == selected.item_id)
+        .map(|item| item.cover_url.clone())
+        .filter(|value| !value.is_empty())
+}
+
+fn validate_https_url(value: &str) -> Result<(), DailyError> {
+    let parsed = url::Url::parse(value).map_err(|_| DailyError::InvalidInput)?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(DailyError::InvalidInput);
+    }
+    Ok(())
 }
 
 fn normalized_text(value: &str, maximum: usize) -> Result<String, DailyError> {

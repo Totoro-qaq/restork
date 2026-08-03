@@ -236,6 +236,44 @@ impl Database {
         })
     }
 
+    /// Atomically replace the managed music snapshot and its enabled source.
+    /// A failed refresh therefore cannot expose a partially updated source.
+    pub fn put_music_snapshot(
+        &self,
+        preference_id: &str,
+        preference: &Value,
+        consent: &Value,
+        config: &Value,
+        updated_at: &str,
+    ) -> Result<(), StorageError> {
+        validate_identifier(preference_id)?;
+        validate_object(preference, "music preference must be a JSON object")?;
+        validate_object(consent, "daily source consent must be a JSON object")?;
+        validate_object(config, "daily source config must be a JSON object")?;
+        validate_timestamp(updated_at)?;
+        let preference_document = serde_json::to_string(preference)?;
+        let consent_document = serde_json::to_string(consent)?;
+        let config_document = serde_json::to_string(config)?;
+        let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute("DELETE FROM music_preferences", [])?;
+        transaction.execute(
+            "INSERT INTO music_preferences (preference_id, preference_json, imported_at) \
+             VALUES (?1, ?2, ?3)",
+            params![preference_id, preference_document, updated_at],
+        )?;
+        transaction.execute(
+            "INSERT INTO daily_source_settings \
+             (source, enabled, consent_json, config_json, updated_at) VALUES \
+             ('music', 1, ?1, ?2, ?3) ON CONFLICT(source) DO UPDATE SET \
+             enabled = 1, consent_json = excluded.consent_json, \
+             config_json = excluded.config_json, updated_at = excluded.updated_at",
+            params![consent_document, config_document, updated_at],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn music_preferences(&self) -> Result<Option<MusicPreferenceRecord>, StorageError> {
         let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
         connection

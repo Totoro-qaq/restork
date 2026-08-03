@@ -97,7 +97,7 @@ export class LocalApiClient implements DashboardApi {
 
   async loadDashboard(): Promise<DashboardSnapshot> {
     const emptyPage = { limit: 12, has_more: false, next_cursor: null };
-    const [runs, approvals, taskBoard, radar, memory, daily, provider] = await Promise.all([
+    const [runs, approvals, taskBoard, radar, memory, daily, provider, musicSources] = await Promise.all([
       this.#request<{ runs: DashboardSnapshot["runs"]; page: NonNullable<DashboardSnapshot["pagination"]>["runs"] }>("GET", "/v1/runs?limit=12")
         .catch(() => ({ runs: [], page: emptyPage })),
       this.#request<{ approvals: DashboardSnapshot["approvals"]; page: NonNullable<DashboardSnapshot["pagination"]>["approvals"] }>(
@@ -118,6 +118,10 @@ export class LocalApiClient implements DashboardApi {
       this.#request<ProviderDiagnostic>("GET", "/v1/providers/deepseek").catch(
         () => null,
       ),
+      this.#request<NonNullable<DashboardSnapshot["musicSources"]>>(
+        "GET",
+        "/v1/daily/music/sources",
+      ).catch(() => []),
     ]);
     const [
       dailyContext,
@@ -186,6 +190,7 @@ export class LocalApiClient implements DashboardApi {
       memory,
       daily,
       provider,
+      musicSources,
       pagination: {
         runs: runs.page,
         approvals: approvals.page,
@@ -888,17 +893,32 @@ export class LocalApiClient implements DashboardApi {
     );
   }
 
+  async refreshMusic(
+    localDate: string,
+  ): Promise<NonNullable<DashboardSnapshot["daily"]>["music"]> {
+    return this.#request<NonNullable<DashboardSnapshot["daily"]>["music"]>(
+      "POST",
+      "/v1/daily/music/refresh",
+      { local_date: localDate },
+      true,
+      `dashboard-music-refresh-${crypto.randomUUID()}`,
+    );
+  }
+
   async providerDiagnostics(smoke: boolean): Promise<ProviderDiagnostic> {
     return this.#request<ProviderDiagnostic>(
       "POST",
       "/v1/providers/deepseek/diagnostics",
       { smoke },
+      true,
+      undefined,
+      true,
     );
   }
 
   async musicCover(): Promise<Blob | null> {
     const response = await this.#fetch(
-      "/v1/daily/music/cover",
+      `/v1/daily/music/cover?timezone=${encodeURIComponent(systemTimeZone())}`,
       { method: "GET", headers: { Accept: "image/png,image/jpeg,image/webp" } },
       true,
     );
@@ -978,6 +998,7 @@ export class LocalApiClient implements DashboardApi {
     body?: object,
     authenticated = true,
     idempotencyKey?: string,
+    retryTransient = false,
   ): Promise<T> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -986,6 +1007,7 @@ export class LocalApiClient implements DashboardApi {
       path,
       { method, headers, body: body === undefined ? undefined : JSON.stringify(body) },
       authenticated,
+      retryTransient,
     );
     if (!response.ok) throw await apiError(response);
     return (await response.json()) as T;
@@ -1000,21 +1022,26 @@ export class LocalApiClient implements DashboardApi {
     if (!response.ok) throw await apiError(response);
   }
 
-  async #fetch(path: string, init: RequestInit, authenticated: boolean): Promise<Response> {
+  async #fetch(
+    path: string,
+    init: RequestInit,
+    authenticated: boolean,
+    retryTransient = false,
+  ): Promise<Response> {
     const headers = new Headers(init.headers);
     if (authenticated) {
       if (!this.#token) throw new Error("Pair this browser with Restork Core first");
       if (this.#expiresAt <= Date.now() + 120_000) await this.#rotateSession();
       headers.set("Authorization", `Bearer ${this.#token}`);
     }
-    return fetch(path, {
+    return fetchWithTransientRetry(path, {
       ...init,
       headers,
       cache: "no-store",
       credentials: "omit",
       redirect: "error",
       referrerPolicy: "no-referrer",
-    });
+    }, retryTransient);
   }
 
   async #acceptSession(accessToken: string, expiresAt?: string): Promise<void> {
@@ -1032,7 +1059,7 @@ export class LocalApiClient implements DashboardApi {
     if (this.#rotationPromise) return this.#rotationPromise;
     const token = this.#token;
     if (!token) return Promise.reject(new Error("Pair this browser with Restork Core first"));
-    this.#rotationPromise = fetch("/v1/token/rotate", {
+    this.#rotationPromise = fetchWithTransientRetry("/v1/token/rotate", {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -1042,7 +1069,7 @@ export class LocalApiClient implements DashboardApi {
       credentials: "omit",
       redirect: "error",
       referrerPolicy: "no-referrer",
-    })
+    }, true)
       .then(async (response) => {
         if (!response.ok) throw await apiError(response);
         const payload = (await response.json()) as {
@@ -1107,6 +1134,24 @@ function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void
     }, milliseconds);
     signal.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+async function fetchWithTransientRetry(
+  path: string,
+  init: RequestInit,
+  enabled: boolean,
+): Promise<Response> {
+  try {
+    return await fetch(path, init);
+  } catch (error) {
+    if (!enabled || !(error instanceof TypeError) || init.signal?.aborted) throw error;
+    if (init.signal) {
+      await abortableDelay(180, init.signal);
+    } else {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 180));
+    }
+    return fetch(path, init);
+  }
 }
 
 export function systemTimeZone(): string {

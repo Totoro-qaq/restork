@@ -13,6 +13,10 @@ must still authenticate unless it is exchanging an interactive, single-use pairi
   first exchange attempt, including a wrong-audience attempt.
 - Access tokens are short-lived and bound to `restork-web` or `restork-cli` plus explicit
   scopes. Rotation preserves the audience and scopes and immediately revokes the old token.
+- A suspended desktop WebView may miss its scheduled rotation. Only `/v1/token/rotate` accepts
+  the otherwise-expired token inside a seven-day recovery window; every data and effect endpoint
+  continues to reject it. A successful recovery immediately replaces the old token, and Core
+  process exit destroys both the active token and its recovery window.
 - Revocation and expiry fail closed. Core never accepts credentials in a query parameter,
   cookie, or SSE URL; clients send a bearer token only in the `Authorization` header.
 
@@ -47,6 +51,15 @@ The provider surfaces are:
 The POST is intentionally ordinary bounded request/response traffic. Run-event SSE is unnecessary for
 these short diagnostics, and neither polling nor WebSocket is exposed.
 
+Music sources follow the same split. `GET /v1/daily/music/sources` returns only source capabilities
+and readiness. QQ Music and NetEase accept public share links but no credentials. Apple Music's
+developer token and optional Music User Token are resolved from native credential storage only
+inside Core for the duration of an official API request; neither value is accepted by a loopback
+request, returned to the browser, serialized to SQLite, logged, or placed in an audit envelope.
+Album art is fetched through the authenticated Core proxy after an adapter validates an exact
+provider-owned image origin. Remote metadata is escaped as untrusted content and never promoted to
+prompt instructions.
+
 ## Desktop session bridge
 
 The macOS shell does not bypass local API authentication. Core writes the desktop Web pairing code
@@ -60,6 +73,11 @@ store only the short-lived Dashboard session. Each session call also checks the 
 the exact randomly selected runtime origin, and `/` path in Rust. The token is retained only in Rust
 and WebView memory so reload and scheduled rotation work without Web Storage. Application quit clears
 the session and terminates the owned Core child.
+
+When macOS sleeps or throttles the WebView past the five-minute access-token lifetime, the next
+Dashboard request renews through the rotation-only recovery window before touching user data. A
+loopback transport failure is retried once after a short delay; HTTP authorization, policy, model,
+and credential failures are never retried blindly.
 
 The Rust supervisor also owns Core availability without broadening API authority. It retains the
 direct child and process group and probes the public metadata-only `/v1/readiness` route every two

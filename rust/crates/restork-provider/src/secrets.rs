@@ -18,7 +18,10 @@ impl ResolvedSecret {
         Ok(Self(Zeroizing::new(value)))
     }
 
-    pub(crate) fn expose(&self) -> &str {
+    /// Borrow the zeroizing value for an outbound authenticated request.
+    ///
+    /// Callers must not serialize, log, clone, or persist this value.
+    pub fn expose(&self) -> &str {
         self.0.as_str()
     }
 }
@@ -149,7 +152,7 @@ async fn configure_native(reference: &str) -> Result<(), SecretError> {
     let status = tokio::process::Command::new("/usr/bin/secret-tool")
         .args([
             "store",
-            "--label=Restork model provider",
+            "--label=Restork native secret",
             "service",
             service,
             "account",
@@ -239,7 +242,7 @@ async fn configure_native(reference: &str) -> Result<(), SecretError> {
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
-    let mut username = "deepseek\0".encode_utf16().collect::<Vec<_>>();
+    let mut username = "restork\0".encode_utf16().collect::<Vec<_>>();
     username.resize(256, 0);
     let mut password = vec![0_u16; 16_385];
     let mut save = 0;

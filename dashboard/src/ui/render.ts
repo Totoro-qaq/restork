@@ -1,8 +1,11 @@
 import type {
   ApprovalRequest,
+  CalendarEvent,
   ConversationTurn,
   DashboardSnapshot,
   MemoryRecord,
+  MusicDiscovery,
+  MusicSourceDefinition,
   PageInfo,
   ProviderDefinitionV2,
   ProviderDiagnostic,
@@ -407,10 +410,11 @@ export function providerWaitMarkup(smoke: boolean, locale: Locale = "en"): strin
   </section>`;
 }
 
-export function providerErrorMarkup(locale: Locale = "en"): string {
+export function providerErrorMarkup(locale: Locale = "en", detail = ""): string {
   return `<article class="provider-diagnostic-result is-action" data-provider-status="provider_unavailable">
     <strong>${tr(locale, "CHECK FAILED", "检查失败")}</strong>
     <p>${tr(locale, "The bounded provider check could not complete. Review Core and try again.", "有界模型检查未能完成，请检查 Core 后重试。")}</p>
+    ${detail ? `<small>${escapeHtml(tr(locale, `Core reported: ${detail}`, `Core 返回：${detail}`))}</small>` : ""}
   </article>`;
 }
 
@@ -764,6 +768,19 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
   const nativeCalendar = daily?.native_calendar;
   const music = daily?.music;
   const recommendation = music?.recommendation;
+  const fallbackMusicSources: Array<Pick<MusicSourceDefinition, "provider" | "label" | "stability" | "setup_status" | "setup_command">> = [
+    { provider: "qqmusic", label: "QQ Music", stability: "experimental", setup_status: "ready", setup_command: "" },
+    { provider: "netease", label: "NetEase Cloud Music", stability: "experimental", setup_status: "ready", setup_command: "" },
+    { provider: "apple-music", label: "Apple Music", stability: "official", setup_status: "credential_missing", setup_command: "restorkd music apple configure" },
+  ];
+  const musicSources = (snapshot.musicSources?.length ? snapshot.musicSources : fallbackMusicSources)
+    .filter((source) => source.provider !== "local-file");
+  const currentMusicProvider = music?.source?.provider && music?.source?.provider !== "local-file"
+    ? music.source.provider
+    : "qqmusic";
+  const musicSourceOptions = musicSources.map((source) => `<option value="${escapeHtml(source.provider)}" data-status="${escapeHtml(source.setup_status)}" data-setup="${escapeHtml(source.setup_command)}" ${source.provider === currentMusicProvider ? "selected" : ""}>${escapeHtml(source.label)} · ${escapeHtml(source.stability)}${source.setup_status === "credential_missing" ? tr(locale, " · setup needed", " · 需要配置") : ""}</option>`).join("");
+  const calendarDate = systemDaily?.local_date;
+  const weekStart = snapshot.workspaceV2?.personal?.settings.week_start;
   return `<section class="daily-context" aria-label="${tr(locale, "Daily context", "每日上下文")}">
     <article class="daily-card clock-card">
       <header><h2>${tr(locale, "Local time", "本地时间")}</h2><span>LOCAL</span></header>
@@ -788,7 +805,7 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
       </dialog>
     </article>
     <article class="daily-card calendar-card"><header><h2>${tr(locale, "Calendar", "日历")}</h2><span>${escapeHtml(calendar?.configured ? calendar.status : systemDaily ? "system" : "local")}</span></header>
-      <ol>${calendar?.events.slice(0, 3).map((event) => `<li><time>${formatDate(event.starts_at, locale)}</time><b>${escapeHtml(event.title)}</b>${event.redacted ? `<small>${tr(locale, "PRIVATE · REDACTED", "私有 · 已脱敏")}</small>` : ""}</li>`).join("") || `<li class="daily-empty"><time>${escapeHtml(systemDaily?.local_date ?? new Intl.DateTimeFormat(locale === "zh-CN" ? "zh-CN" : "en-US", { dateStyle: "full" }).format(new Date()))}</time><b>${tr(locale, "Following this device's clock and time zone", "已跟随本设备时钟与时区")}</b><small>${tr(locale, "Event import is optional.", "事件导入是可选项。")}</small></li>`}</ol>
+      ${calendarMonth(calendarDate, calendar?.events ?? [], weekStart, locale)}
       <button type="button" class="settings-trigger" data-calendar-open>${calendar?.configured ? tr(locale, "CALENDAR SETTINGS", "日历设置") : tr(locale, "CONNECT CALENDAR", "连接日历")}</button>
       <dialog id="calendar-settings-dialog" class="settings-dialog calendar-settings" aria-labelledby="calendar-settings-title">
         <form id="calendar-form">
@@ -802,20 +819,211 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
         </form>
       </dialog>
     </article>
-    <article class="daily-card music-card"><header><h2>${tr(locale, "Daily track", "每日一曲")}</h2><span>${escapeHtml(music?.status ?? "offline")}</span></header>
-      ${recommendation ? `<div class="music-layout"><div class="disc" data-music-disc><div class="disc-label"><span>RESTORK</span><img id="music-cover" alt="${escapeHtml(tr(locale, `${recommendation.title} cover`, `${recommendation.title} 封面`))}" hidden></div></div><div class="music-copy"><strong>${escapeHtml(recommendation.title)}</strong><p>${escapeHtml([recommendation.artist, recommendation.album].filter(Boolean).join(" · ") || tr(locale, "Private playlist", "私有歌单"))}</p><small>${escapeHtml(recommendation.analysis)}</small><button type="button" data-music-toggle aria-pressed="false">${tr(locale, "ROTATE CD", "转动唱片")}</button></div></div>` : `<p class="daily-empty">${escapeHtml(music?.message ?? tr(locale, "Import a private JSON/CSV playlist to create daily recommendations.", "导入私有 JSON/CSV 歌单后生成每日推荐。"))}</p>`}
-      <button type="button" class="settings-trigger" data-music-open>${music?.configured ? tr(locale, "REPLACE PLAYLIST", "更换歌单") : tr(locale, "IMPORT PLAYLIST", "导入歌单")}</button>
+    <article class="daily-card music-card"><header><h2>${tr(locale, "Daily track", "每日一曲")}</h2><span>${escapeHtml(music?.source?.provider ?? music?.status ?? "offline")}</span></header>
+      ${recommendation ? `<div class="music-layout"><div class="disc" data-music-disc><div class="disc-label"><span>RESTORK</span><img id="music-cover" alt="${escapeHtml(tr(locale, `${recommendation.title} cover`, `${recommendation.title} 封面`))}" hidden></div></div><div class="music-copy"><strong>${escapeHtml(recommendation.title)}</strong><p>${escapeHtml([recommendation.artist, recommendation.album].filter(Boolean).join(" · ") || tr(locale, "Private playlist", "私有歌单"))}</p>${musicRecommendationInsights(recommendation, music?.source?.provider ?? "", locale)}<div class="music-track-actions"><button type="button" data-music-toggle aria-pressed="false">${tr(locale, "ROTATE CD", "转动唱片")}</button>${recommendation.source_url ? `<a href="${escapeHtml(recommendation.source_url)}" target="_blank" rel="noopener noreferrer">${tr(locale, "SOURCE", "来源")}</a>` : ""}</div></div></div>` : `<p class="daily-empty">${escapeHtml(music?.message ?? tr(locale, "Connect a supported music source or import a private JSON/CSV playlist.", "连接受支持的音乐来源，或导入私有 JSON/CSV 歌单。"))}</p>`}
+      ${musicSourceSummary(music?.source, locale)}
+      ${musicDiscoveries(music?.discoveries ?? [], locale)}
+      <button type="button" class="settings-trigger" data-music-open>${music?.configured ? tr(locale, "MANAGE PLAYLIST", "管理歌单") : tr(locale, "CONNECT PLAYLIST", "连接歌单")}</button>
       <dialog id="music-settings-dialog" class="settings-dialog music-settings" aria-labelledby="music-settings-title">
         <form id="music-form">
-          <header><strong id="music-settings-title">${tr(locale, "PRIVATE PLAYLIST", "私有歌单")}</strong><button type="button" class="dialog-close" data-settings-close aria-label="${tr(locale, "Close playlist settings", "关闭歌单设置")}">×</button></header>
-          <p>${tr(locale, "Import JSON or CSV. The file stays in Core storage and is never uploaded by the Dashboard.", "导入 JSON 或 CSV；文件只进入 Core 私有存储，Dashboard 不会把它上传到第三方。")}</p>
-          <label for="music-file">${tr(locale, "Playlist file", "歌单文件")}<input id="music-file" name="playlist" type="file" accept=".json,.csv,application/json,text/csv" required></label>
-          <div class="music-actions"><button type="submit">${tr(locale, "IMPORT & ENABLE", "导入并启用")}</button>${music?.configured ? `<button type="button" class="quiet-button" data-music-disable>${tr(locale, "DISABLE & DELETE", "停用并删除")}</button>` : ""}</div>
-          <small>${tr(locale, "Required field: title. Optional: item_id, artist, album, tags separated by |, and analysis. Maximum 2 MB.", "必填字段：title；可选字段：item_id、artist、album、用 | 分隔的 tags，以及 analysis。最大 2 MB。")}</small>
+          <header><strong id="music-settings-title">${tr(locale, "PRIVATE MUSIC SOURCE", "私有音乐来源")}</strong><button type="button" class="dialog-close" data-settings-close aria-label="${tr(locale, "Close playlist settings", "关闭歌单设置")}">×</button></header>
+          <p>${tr(locale, "Choose a source, then paste one public playlist link. QQ Music and NetEase need no login or cookies; Apple Music uses an official API token kept in native credential storage.", "选择来源并粘贴一个公开歌单链接。QQ 音乐和网易云无需登录或 Cookie；Apple Music 使用只保存在系统凭据库中的官方 API token。")}</p>
+          <label for="music-source">${tr(locale, "Music source", "音乐来源")}<select id="music-source" name="source">${musicSourceOptions}</select></label>
+          <label for="music-share-url">${tr(locale, "Public playlist share link", "公开歌单分享链接")}<input id="music-share-url" name="share_url" type="url" inputmode="url" autocomplete="off" maxlength="2048" placeholder="https://…" required></label>
+          <div class="music-actions"><button type="submit">${tr(locale, "CONNECT & SYNC", "连接并同步")}</button>${music?.source?.refresh_supported ? `<button type="button" class="quiet-button" data-music-refresh>${tr(locale, "REFRESH SNAPSHOT", "刷新快照")}</button>` : ""}${music?.configured ? `<button type="button" class="quiet-button" data-music-disable>${tr(locale, "DISCONNECT & DELETE", "断开并删除")}</button>` : ""}</div>
+          <p class="music-sync-status" data-music-source-help>${tr(locale, "Experimental sources are read-only. Apple Music is official and needs `restorkd music apple configure` first.", "实验性来源均为只读。Apple Music 为官方接口，需要先运行 `restorkd music apple configure`。")}</p>
+          <p class="music-sync-status" data-music-sync-status role="status">${tr(locale, "Nothing is sent until you press Connect. Account passwords, cookies, audio and lyrics are never accepted.", "只有点击“连接”后才会联网；Restork 永不接收账号密码、Cookie、音频或歌词。")}</p>
+          <details><summary>${tr(locale, "Use a JSON/CSV file instead", "改用 JSON/CSV 文件")}</summary><label for="music-file">${tr(locale, "Playlist file", "歌单文件")}<input id="music-file" name="playlist" type="file" accept=".json,.csv,application/json,text/csv"></label><button type="button" data-music-file>${tr(locale, "IMPORT LOCAL FILE", "导入本地文件")}</button></details>
+          <small>${tr(locale, "Refresh is manual and failure keeps the last valid private snapshot. Provider capabilities and stability are exposed by Core.", "仅手动刷新；失败时会保留上次有效的私有快照。来源能力与稳定性由 Core 明确展示。")}</small>
         </form>
       </dialog>
     </article>
   </section>`;
+}
+
+function calendarMonth(
+  localDate: string | undefined,
+  events: CalendarEvent[],
+  weekStartSetting: string | undefined,
+  locale: Locale,
+): string {
+  const selectedDate = parseLocalCalendarDate(localDate);
+  const year = selectedDate.getFullYear();
+  const month = selectedDate.getMonth();
+  const todayKey = calendarDateKey(selectedDate);
+  const weekStart = weekStartSetting === "sunday"
+    ? 0
+    : weekStartSetting === "monday"
+      ? 1
+      : locale === "zh-CN" ? 0 : 1;
+  const weekdayLabels = locale === "zh-CN"
+    ? ["日", "一", "二", "三", "四", "五", "六"]
+    : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const orderedWeekdays = Array.from(
+    { length: 7 },
+    (_, index) => weekdayLabels[(weekStart + index) % 7],
+  );
+  const leadingCells = (new Date(year, month, 1).getDay() - weekStart + 7) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const eventsByDay = new Map<string, CalendarEvent[]>();
+  for (const event of events) {
+    const key = calendarEventDateKey(event);
+    if (!key) continue;
+    const dayEvents = eventsByDay.get(key) ?? [];
+    dayEvents.push(event);
+    eventsByDay.set(key, dayEvents);
+  }
+  const cells = Array.from({ length: 42 }, (_, index) => {
+    const day = index - leadingCells + 1;
+    if (day < 1 || day > daysInMonth) {
+      return `<span class="calendar-day is-blank" aria-hidden="true"></span>`;
+    }
+    const date = new Date(year, month, day);
+    const key = calendarDateKey(date);
+    const eventCount = eventsByDay.get(key)?.length ?? 0;
+    const dateLabel = new Intl.DateTimeFormat(locale, { dateStyle: "full" }).format(date);
+    const eventLabel = eventCount
+      ? tr(locale, `${eventCount} event${eventCount === 1 ? "" : "s"}`, `${eventCount} 个事件`)
+      : tr(locale, "No events", "无事件");
+    const classes = [
+      "calendar-day",
+      key === todayKey ? "is-today" : "",
+      eventCount ? "has-events" : "",
+    ].filter(Boolean).join(" ");
+    return `<time class="${classes}" datetime="${key}"${key === todayKey ? ' aria-current="date"' : ""} aria-label="${escapeHtml(`${dateLabel}, ${eventLabel}`)}"><span>${day}</span>${eventCount ? `<i aria-hidden="true"></i>` : ""}</time>`;
+  }).join("");
+  const monthLabel = new Intl.DateTimeFormat(locale, { month: "long" }).format(selectedDate);
+  const secondaryLabel = locale === "zh-CN"
+    ? chineseCalendarDate(selectedDate)
+    : new Intl.DateTimeFormat(locale, { weekday: "long" }).format(selectedDate);
+  const upcoming = events
+    .filter((event) => {
+      const key = calendarEventDateKey(event);
+      return key && key >= todayKey;
+    })
+    .sort((left, right) => Date.parse(left.starts_at) - Date.parse(right.starts_at))
+    .slice(0, 2);
+  return `<div class="calendar-month" aria-label="${escapeHtml(tr(locale, `${monthLabel} ${year} calendar`, `${year}年${monthLabel}月历`))}">
+    <div class="calendar-month-heading"><strong>${escapeHtml(monthLabel)}</strong><span>${year}</span>${secondaryLabel ? `<em>${escapeHtml(secondaryLabel)}</em>` : ""}</div>
+    <div class="calendar-weekdays" aria-hidden="true">${orderedWeekdays.map((day) => `<span>${day}</span>`).join("")}</div>
+    <div class="calendar-month-grid">${cells}</div>
+    <div class="calendar-agenda" aria-label="${tr(locale, "Upcoming calendar events", "近期日历事件")}">
+      ${upcoming.map((event) => `<p><time datetime="${escapeHtml(event.starts_at)}">${escapeHtml(calendarAgendaTime(event, selectedDate, locale))}</time><span><b>${escapeHtml(event.title)}</b>${event.redacted ? `<small>${tr(locale, "PRIVATE / REDACTED", "私有 / 已脱敏")}</small>` : ""}</span></p>`).join("") || `<p class="calendar-agenda-empty"><span><b>${tr(locale, "The month follows this device", "月份已跟随本设备")}</b><small>${tr(locale, "Connecting events is optional.", "连接事件是可选项。")}</small></span></p>`}
+    </div>
+  </div>`;
+}
+
+function parseLocalCalendarDate(value: string | undefined): Date {
+  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    if (
+      date.getFullYear() === Number(match[1])
+      && date.getMonth() === Number(match[2]) - 1
+      && date.getDate() === Number(match[3])
+    ) return date;
+  }
+  return new Date();
+}
+
+function calendarDateKey(date: Date): string {
+  const year = String(date.getFullYear()).padStart(4, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function calendarEventDateKey(event: CalendarEvent): string {
+  if (event.all_day && /^\d{4}-\d{2}-\d{2}/.test(event.starts_at)) {
+    return event.starts_at.slice(0, 10);
+  }
+  const date = new Date(event.starts_at);
+  return Number.isNaN(date.getTime()) ? "" : calendarDateKey(date);
+}
+
+function chineseCalendarDate(date: Date): string {
+  try {
+    const formatted = new Intl.DateTimeFormat("zh-CN-u-ca-chinese", {
+      month: "long",
+      day: "numeric",
+    }).format(date);
+    return formatted.replace(/(\d+)日/, (_, day: string) => chineseLunarDay(Number(day)));
+  } catch {
+    return "";
+  }
+}
+
+function chineseLunarDay(day: number): string {
+  const digits = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+  if (day <= 0 || day > 30) return String(day);
+  if (day <= 10) return `初${day === 10 ? "十" : digits[day]}`;
+  if (day < 20) return `十${digits[day - 10]}`;
+  if (day === 20) return "二十";
+  if (day < 30) return `廿${digits[day - 20]}`;
+  return "三十";
+}
+
+function calendarAgendaTime(event: CalendarEvent, today: Date, locale: Locale): string {
+  const eventDate = event.all_day && /^\d{4}-\d{2}-\d{2}/.test(event.starts_at)
+    ? parseLocalCalendarDate(event.starts_at.slice(0, 10))
+    : new Date(event.starts_at);
+  if (Number.isNaN(eventDate.getTime())) return tr(locale, "Scheduled", "已安排");
+  const sameDay = calendarEventDateKey(event) === calendarDateKey(today);
+  if (event.all_day) {
+    return sameDay
+      ? tr(locale, "All day", "全天")
+      : new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(eventDate);
+  }
+  return new Intl.DateTimeFormat(locale, sameDay
+    ? { hour: "2-digit", minute: "2-digit" }
+    : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(eventDate);
+}
+
+function musicRecommendationInsights(
+  recommendation: NonNullable<NonNullable<DashboardSnapshot["daily"]>["music"]["recommendation"]>,
+  provider: string,
+  locale: Locale,
+): string {
+  const reason = tr(
+    locale,
+    "Selected from your private playlist with a stable daily rotation, so the same day can be replayed and explained.",
+    "来自你的私有歌单，并通过稳定的每日轮换选中，因此同一天的结果可以复现和解释。",
+  );
+  const facts = [
+    recommendation.published_on ? tr(locale, `released ${musicDate(recommendation.published_on, locale)}`, `发行于 ${musicDate(recommendation.published_on, locale)}`) : "",
+    recommendation.language ? tr(locale, `language ${recommendation.language}`, `语种 ${recommendation.language}`) : "",
+    recommendation.genre ? tr(locale, `genre ${recommendation.genre}`, `流派 ${recommendation.genre}`) : "",
+  ].filter(Boolean).join(tr(locale, "; ", "；"));
+  const analysis = facts || recommendation.song_analysis || tr(
+    locale,
+    "No reviewed song-detail evidence is cached yet. Refresh the source to analyze today's track.",
+    "尚未缓存经过核验的歌曲资料；刷新来源后即可分析今日歌曲。",
+  );
+  const popularity = recommendation.popularity_reason || (provider === "qqmusic"
+    ? tr(locale, "No current chart evidence was recorded for this track, so Restork will not invent a reason for its popularity.", "本次没有记录到这首歌的当前榜单证据，因此 Restork 不会编造它走红的原因。")
+    : tr(locale, "Popularity evidence is available only after an explicit connected-source refresh.", "只有主动刷新联网来源后，才会显示热度证据。"));
+  return `<dl class="music-insights"><div><dt>${tr(locale, "WHY TODAY", "为什么推荐")}</dt><dd>${escapeHtml(reason)}</dd></div><div><dt>${tr(locale, "SONG NOTES", "歌曲解读")}</dt><dd>${escapeHtml(analysis)}</dd></div><div><dt>${tr(locale, "WHY IT IS HOT", "为什么火")}</dt><dd>${escapeHtml(popularity)}</dd></div></dl>`;
+}
+
+function musicSourceSummary(
+  source: NonNullable<DashboardSnapshot["daily"]>["music"]["source"] | undefined,
+  locale: Locale,
+): string {
+  if (!source) return "";
+  const synced = source.synced_at ? musicDate(source.synced_at, locale) : tr(locale, "local", "本地");
+  return `<p class="music-source-summary"><b>${escapeHtml(source.label || source.provider)}</b><span>${source.item_count} ${tr(locale, "tracks", "首")} · ${tr(locale, "synced", "同步于")} ${escapeHtml(synced)}</span>${source.experimental ? `<em>${tr(locale, "EXPERIMENTAL · READ ONLY", "实验性 · 只读")}</em>` : ""}</p>`;
+}
+
+function musicDiscoveries(discoveries: MusicDiscovery[], locale: Locale): string {
+  if (!discoveries.length) return "";
+  return `<details class="music-discoveries"><summary>${tr(locale, `Connected discoveries (${discoveries.length})`, `联网发现（${discoveries.length}）`)}</summary><div>${discoveries.map((item) => {
+    const affinity = item.affinity_count > 0
+      ? tr(locale, `Your playlist contains ${item.affinity_count} track(s) by ${item.affinity_artist}; this recommendation stays close to that preference.`, `你的歌单收录了 ${item.affinity_artist} 的 ${item.affinity_count} 首作品，这次推荐与已有偏好相连。`)
+      : tr(locale, "A current Cantonese chart entry that expands beyond the artists already in your playlist.", "一首当前上榜的粤语歌，用来扩展你现有歌手圈之外的发现。")
+    const facts = [item.published_on ? tr(locale, `released ${musicDate(item.published_on, locale)}`, `发行于 ${musicDate(item.published_on, locale)}`) : "", item.language, item.genre, item.label].filter(Boolean).join(tr(locale, " · ", " · "));
+    const popularity = tr(locale, `#${item.chart_rank} on ${item.chart_name}${item.chart_updated_on ? ` · updated ${musicDate(item.chart_updated_on, locale)}` : ""}.`, `${item.chart_name}第 ${item.chart_rank} 位${item.chart_updated_on ? ` · 更新于 ${musicDate(item.chart_updated_on, locale)}` : ""}。`);
+    return `<article><header><b>#${item.chart_rank} ${escapeHtml(item.title)}</b><a href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">${tr(locale, "SOURCE", "来源")}</a></header><p>${escapeHtml(item.artist)}${item.album ? ` · ${escapeHtml(item.album)}` : ""}</p><small><b>${tr(locale, "For you:", "推荐给你：")}</b> ${escapeHtml(affinity)}</small><small><b>${tr(locale, "Song:", "歌曲：")}</b> ${escapeHtml(facts || item.song_analysis)}</small><small><b>${tr(locale, "Evidence:", "热度证据：")}</b> ${escapeHtml(popularity)}</small></article>`;
+  }).join("")}</div></details>`;
 }
 
 function radarItem(item: RadarItem, locale: Locale): string {
@@ -880,6 +1088,14 @@ function formatDate(value: string, locale: Locale): string {
   return Number.isNaN(date.getTime())
     ? tr(locale, "unknown", "未知")
     : new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(date);
+}
+
+function musicDate(value: string, locale: Locale): string {
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime())
+    ? tr(locale, "unknown", "未知")
+    : new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
 }
 
 function localeSwitch(locale: Locale): string {

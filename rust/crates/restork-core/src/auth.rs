@@ -373,6 +373,19 @@ impl PairingAuthority {
     }
 
     pub fn rotate(&self, value: &str, audiences: &[Audience]) -> Result<AccessToken, AuthError> {
+        self.rotate_with_grace(value, audiences, Duration::ZERO)
+    }
+
+    /// Replace a token that is still valid or expired within a tightly bounded
+    /// recovery window. Expired tokens remain unusable for every other API
+    /// operation; this exists so a suspended desktop WebView can recover its
+    /// short-lived session after its timers resume.
+    pub fn rotate_with_grace(
+        &self,
+        value: &str,
+        audiences: &[Audience],
+        grace: Duration,
+    ) -> Result<AccessToken, AuthError> {
         let replacement_value = random_hex::<32>()?;
         let now = self.clock.now();
         let mut state = self
@@ -382,7 +395,11 @@ impl PairingAuthority {
         let token_index = secret_position(&state.tokens, value, |item| &item.value)
             .ok_or(AuthError::InvalidOrExpiredToken)?;
         let current = &state.tokens[token_index];
-        if current.expires_at <= now {
+        let recoverable_until = current
+            .expires_at
+            .checked_add(grace)
+            .ok_or(AuthError::InvalidTtl)?;
+        if recoverable_until <= now {
             state.tokens.remove(token_index);
             return Err(AuthError::InvalidOrExpiredToken);
         }

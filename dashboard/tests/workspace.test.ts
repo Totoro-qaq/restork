@@ -7,6 +7,7 @@ import type {
   ConversationOperationV2,
   DashboardApi,
   DashboardSnapshot,
+  MusicConfigurationInput,
   ProviderDiagnostic,
   RunEvent,
   SessionMessageV2,
@@ -125,6 +126,22 @@ function fakeApi(): DashboardApi {
       events: [],
       message: "",
     })),
+    configureMusic: vi.fn(async () => ({
+      configured: false,
+      status: "not_configured" as const,
+      recommendation: null,
+      source: null,
+      discoveries: [],
+      message: "",
+    })),
+    refreshMusic: vi.fn(async () => ({
+      configured: false,
+      status: "not_configured" as const,
+      recommendation: null,
+      source: null,
+      discoveries: [],
+      message: "",
+    })),
     providerDiagnostics: vi.fn(async () => {
       throw new Error("not used");
     }),
@@ -220,6 +237,10 @@ describe("authenticated workspace", () => {
 
   it("renders an accessible local clock and reduced-dependency daily context", () => {
     const root = document.createElement("main");
+    const eventStart = new Date();
+    eventStart.setHours(10, 30, 0, 0);
+    const eventEnd = new Date(eventStart);
+    eventEnd.setHours(11, 0, 0, 0);
     mountDashboard(root, {
       api: fakeApi(),
       snapshot: {
@@ -240,7 +261,19 @@ describe("authenticated workspace", () => {
             attribution: "",
             message: "Configure private weather.",
           },
-          calendar: { configured: false, status: "not_configured", events: [], message: "Select ICS." },
+          calendar: {
+            configured: true,
+            status: "ready",
+            events: [{
+              event_id: "event-today",
+              title: "Private focus block",
+              starts_at: eventStart.toISOString(),
+              ends_at: eventEnd.toISOString(),
+              all_day: false,
+              redacted: false,
+            }],
+            message: "",
+          },
           music: {
             configured: true,
             status: "ready",
@@ -254,6 +287,34 @@ describe("authenticated workspace", () => {
               analysis: "Selected from public synthetic metadata.",
               cover_available: false,
             },
+            source: {
+              provider: "qqmusic",
+              label: "Private fixture",
+              item_count: 12,
+              synced_at: "2026-08-03T08:00:00Z",
+              public_url: "https://y.qq.com/n/ryqq_v2/playlist/1",
+              refresh_supported: true,
+              experimental: true,
+            },
+            discoveries: [{
+              item_id: "qqmusic:new-track",
+              title: "New <Cantonese> Track",
+              artist: "Example Artist",
+              album: "Current Album",
+              language: "粤语",
+              genre: "Pop",
+              label: "Example Label",
+              published_on: "2026-07-31",
+              chart_name: "Hong Kong chart",
+              chart_rank: 2,
+              chart_updated_on: "2026-08-03",
+              affinity_artist: "Example Artist",
+              affinity_count: 3,
+              recommendation_reason: "Fixture reason.",
+              song_analysis: "Fixture analysis.",
+              popularity_reason: "Fixture evidence.",
+              source_url: "https://y.qq.com/n/ryqq/songDetail/new-track",
+            }],
           },
         },
       },
@@ -261,11 +322,174 @@ describe("authenticated workspace", () => {
 
     expect(root.querySelector("#clock-title")?.textContent).toContain("Roman numeral");
     expect(root.querySelector("#clock-text")?.textContent).not.toContain("读取");
+    expect(root.querySelectorAll(".calendar-weekdays > span")).toHaveLength(7);
+    expect(root.querySelectorAll(".calendar-month-grid > .calendar-day")).toHaveLength(42);
+    expect(root.querySelector('.calendar-day[aria-current="date"]')).not.toBeNull();
+    expect(root.querySelector(".calendar-day.has-events")).not.toBeNull();
+    expect(root.querySelector(".calendar-agenda")?.textContent).toContain("Private focus block");
     expect(root.textContent).toContain("Synthetic Track");
+    expect(root.textContent).toContain("Connected discoveries (1)");
+    expect(root.textContent).toContain("New <Cantonese> Track");
+    expect(root.querySelector<HTMLDetailsElement>(".music-discoveries")?.open).toBe(false);
+    expect(root.querySelector("script")).toBeNull();
     const toggle = root.querySelector<HTMLButtonElement>("[data-music-toggle]");
     toggle?.click();
     expect(toggle?.getAttribute("aria-pressed")).toBe("true");
     expect(root.querySelector("[data-music-disc]")?.classList).toContain("is-playing");
+  });
+
+  it("connects a QQ Music share link only after explicit submit", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    let finish: ((value: NonNullable<DashboardSnapshot["daily"]>["music"]) => void) | undefined;
+    const configure = vi.fn(
+      (input: MusicConfigurationInput) => {
+        void input;
+        return new Promise<NonNullable<DashboardSnapshot["daily"]>["music"]>(
+          (resolve) => { finish = resolve; },
+        );
+      },
+    );
+    api.configureMusic = configure;
+    mountDashboard(root, {
+      api,
+      snapshot: {
+        ...snapshot,
+        daily: {
+          weather: {
+            configured: false,
+            status: "not_configured",
+            provider: "",
+            location_label: "",
+            condition: "",
+            temperature_c: null,
+            apparent_temperature_c: null,
+            relative_humidity_percent: null,
+            is_day: null,
+            observed_at: null,
+            expires_at: null,
+            attribution: "",
+            message: "",
+          },
+          calendar: { configured: false, status: "not_configured", events: [], message: "" },
+          music: { configured: false, status: "not_configured", recommendation: null, message: "" },
+        },
+      },
+    });
+
+    expect(configure).not.toHaveBeenCalled();
+    const form = root.querySelector<HTMLFormElement>("#music-form");
+    const input = root.querySelector<HTMLInputElement>("#music-share-url");
+    if (form && input) {
+      input.value = "https://i2.y.qq.com/n3/other/pages/details/playlist.html?id=123";
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    }
+
+    await vi.waitFor(() => expect(configure).toHaveBeenCalledWith(expect.objectContaining({
+      enabled: true,
+      source: "qqmusic",
+      share_url: "https://i2.y.qq.com/n3/other/pages/details/playlist.html?id=123",
+    })));
+    expect(form?.getAttribute("aria-busy")).toBe("true");
+    expect(root.querySelector("[data-music-sync-status]")?.textContent).toContain("current Cantonese chart");
+    finish?.({
+      configured: true,
+      status: "ready",
+      recommendation: null,
+      source: null,
+      discoveries: [],
+      message: "",
+    });
+    await vi.waitFor(() => expect(api.loadDashboard).toHaveBeenCalled());
+    expect(localStorage).toHaveLength(0);
+    expect(sessionStorage).toHaveLength(0);
+  });
+
+  it("selects a credential-free NetEase adapter without accepting account data", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const configure = vi.fn(async () => ({
+      configured: true,
+      status: "ready" as const,
+      recommendation: null,
+      source: null,
+      discoveries: [],
+      message: "",
+    }));
+    api.configureMusic = configure;
+    mountDashboard(root, {
+      api,
+      snapshot: {
+        ...snapshot,
+        musicSources: [
+          {
+            provider: "netease",
+            label: "NetEase Cloud Music",
+            stability: "experimental",
+            credential_mode: "none",
+            setup_status: "ready",
+            setup_command: "",
+            capabilities: {
+              read_only: true,
+              refresh_supported: true,
+              supports_public_playlists: true,
+              supports_library: false,
+              supports_charts: false,
+              requires_user_consent: false,
+            },
+          },
+        ],
+        daily: {
+          weather: { configured: false, status: "not_configured", provider: "", location_label: "", condition: "", temperature_c: null, apparent_temperature_c: null, relative_humidity_percent: null, is_day: null, observed_at: null, expires_at: null, attribution: "", message: "" },
+          calendar: { configured: false, status: "not_configured", events: [], message: "" },
+          music: { configured: false, status: "not_configured", recommendation: null, message: "" },
+        },
+      },
+    });
+    const form = root.querySelector<HTMLFormElement>("#music-form");
+    const source = root.querySelector<HTMLSelectElement>("#music-source");
+    const input = root.querySelector<HTMLInputElement>("#music-share-url");
+    if (form && source && input) {
+      source.value = "netease";
+      source.dispatchEvent(new Event("change", { bubbles: true }));
+      input.value = "https://music.163.com/playlist?id=42&userid=discarded";
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    }
+    await vi.waitFor(() => expect(configure).toHaveBeenCalledWith(expect.objectContaining({
+      source: "netease",
+      share_url: "https://music.163.com/playlist?id=42&userid=discarded",
+    })));
+    expect(root.querySelector("[data-music-source-help]")?.textContent).toContain("credential-free");
+  });
+
+  it("keeps an unconfigured Apple Music token out of the Dashboard", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const configure = vi.fn();
+    api.configureMusic = configure;
+    mountDashboard(root, {
+      api,
+      snapshot: {
+        ...snapshot,
+        daily: {
+          weather: { configured: false, status: "not_configured", provider: "", location_label: "", condition: "", temperature_c: null, apparent_temperature_c: null, relative_humidity_percent: null, is_day: null, observed_at: null, expires_at: null, attribution: "", message: "" },
+          calendar: { configured: false, status: "not_configured", events: [], message: "" },
+          music: { configured: false, status: "not_configured", recommendation: null, message: "" },
+        },
+      },
+    });
+    const form = root.querySelector<HTMLFormElement>("#music-form");
+    const source = root.querySelector<HTMLSelectElement>("#music-source");
+    const input = root.querySelector<HTMLInputElement>("#music-share-url");
+    if (form && source && input) {
+      source.value = "apple-music";
+      source.dispatchEvent(new Event("change", { bubbles: true }));
+      input.value = "https://music.apple.com/hk/playlist/synthetic/pl.u-1234";
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    }
+    await vi.waitFor(() => expect(root.querySelector("[data-music-sync-status]")?.textContent).toContain("restorkd music apple configure"));
+    expect(configure).not.toHaveBeenCalled();
+    expect(root.querySelector('input[name="token"]')).toBeNull();
   });
 
   it("configures weather from a city without requesting browser location", async () => {

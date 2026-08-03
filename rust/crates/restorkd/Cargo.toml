@@ -12,6 +12,7 @@ chrono.workspace = true
 restork-automation = { path = "../restork-automation" }
 restork-api = { path = "../restork-api" }
 restork-core = { path = "../restork-core" }
+restork-daily = { path = "../restork-daily" }
 restork-personal = { path = "../restork-personal" }
 restork-provider = { path = "../restork-provider" }
 restork-storage = { path = "../restork-storage" }

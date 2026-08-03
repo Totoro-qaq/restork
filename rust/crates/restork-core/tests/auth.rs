@@ -127,6 +127,36 @@ fn rotation_revocation_and_expiry_are_fail_closed() {
 }
 
 #[test]
+fn rotation_grace_recovers_suspended_clients_but_remains_bounded() {
+    let clock = Arc::new(TestClock::new(SystemTime::UNIX_EPOCH));
+    let authority =
+        PairingAuthority::with_clock(Duration::from_secs(60), clock.clone()).expect("authority");
+    let token = authority
+        .pair(&authority.initial_pairing_code(), Audience::Web)
+        .expect("Web token");
+
+    clock.advance(Duration::from_secs(61));
+    let recovered = authority
+        .rotate_with_grace(token.value(), &[Audience::Web], Duration::from_secs(300))
+        .expect("recover within grace");
+    assert_eq!(recovered.audience(), Audience::Web);
+    assert_eq!(
+        authority.verify(token.value(), &[Audience::Web], &[]),
+        Err(AuthError::InvalidOrExpiredToken)
+    );
+
+    clock.advance(Duration::from_secs(361));
+    assert_eq!(
+        authority.rotate_with_grace(
+            recovered.value(),
+            &[Audience::Web],
+            Duration::from_secs(300),
+        ),
+        Err(AuthError::InvalidOrExpiredToken)
+    );
+}
+
+#[test]
 fn invalid_ttl_and_capability_escalation_are_rejected() {
     assert!(matches!(
         PairingAuthority::new(Duration::ZERO),

@@ -2,6 +2,7 @@
 use std::io::IsTerminal;
 use std::io::{self, Write};
 
+use restork_daily::{apple_developer_token_reference, apple_music_user_token_reference};
 use restork_personal::{FallbackPolicy, ProviderKind, ProviderProfile};
 use restork_provider::{NativeSecretStore, ProviderClient};
 use restorkd::{HELP, ServerConfig, bind, desktop::DesktopRuntime};
@@ -19,6 +20,27 @@ async fn main() {
     if matches!(arguments.as_slice(), [provider, configure] if provider == "provider" && configure == "configure")
     {
         std::process::exit(configure_provider().await);
+    }
+    if matches!(arguments.as_slice(), [music, apple, configure] if music == "music" && apple == "apple" && configure == "configure")
+    {
+        std::process::exit(
+            configure_native_secret(
+                apple_developer_token_reference(),
+                "Apple Music developer token",
+            )
+            .await,
+        );
+    }
+    if matches!(arguments.as_slice(), [music, apple, configure] if music == "music" && apple == "apple" && configure == "configure-user-token")
+    {
+        std::process::exit(
+            configure_native_secret(apple_music_user_token_reference(), "Apple Music user token")
+                .await,
+        );
+    }
+    if matches!(arguments.as_slice(), [music, apple, status] if music == "music" && apple == "apple" && status == "status")
+    {
+        std::process::exit(apple_music_status().await);
     }
     if matches!(arguments.as_slice(), [doctor] if doctor == "doctor") {
         std::process::exit(run_doctor(false, false).await);
@@ -94,6 +116,44 @@ async fn configure_provider() -> i32 {
             2
         }
     }
+}
+
+async fn configure_native_secret(reference: &str, label: &str) -> i32 {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    if !io::stdin().is_terminal() {
+        eprintln!("restorkd: native secret setup requires an interactive terminal");
+        return 2;
+    }
+    match NativeSecretStore.configure_interactive(reference).await {
+        Ok(()) => {
+            println!("{label} saved in native credential storage.");
+            println!("Restart Restork Core, then reconnect or refresh the Apple Music source.");
+            0
+        }
+        Err(_) => {
+            eprintln!("restorkd: native credential setup did not complete");
+            2
+        }
+    }
+}
+
+async fn apple_music_status() -> i32 {
+    let store = NativeSecretStore;
+    let developer_token = store.exists(apple_developer_token_reference()).await;
+    let music_user_token = store.exists(apple_music_user_token_reference()).await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "schema_version": 1,
+            "provider": "apple-music",
+            "status": if developer_token { "ready" } else { "credential_missing" },
+            "developer_token_present": developer_token,
+            "music_user_token_present": music_user_token,
+            "supports_public_playlists": developer_token,
+            "supports_library": false,
+        })
+    );
+    if developer_token { 0 } else { 2 }
 }
 
 async fn run_doctor(connect: bool, smoke: bool) -> i32 {

@@ -6,9 +6,12 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from restork.daily.apple_music import AppleMusicClient
 from restork.daily.calendar import LocalCalendar
-from restork.daily.models import CalendarSnapshot, DailySnapshot
+from restork.daily.models import CalendarSnapshot, DailySnapshot, MusicSnapshot
 from restork.daily.music import LocalMusicLibrary
+from restork.daily.netease import NetEaseMusicClient
+from restork.daily.qqmusic import QQMusicClient
 from restork.daily.weather import OpenMeteoWeather, ResolvedWeatherLocation
 from restork.memory.profile import PrivateProfileStore
 from restork.weather_location import parse_weather_location
@@ -22,11 +25,23 @@ class DailyContextService:
         *,
         calendar: LocalCalendar | None = None,
         music: LocalMusicLibrary | None = None,
+        qqmusic: QQMusicClient | None = None,
+        netease: NetEaseMusicClient | None = None,
+        apple_music: AppleMusicClient | None = None,
     ) -> None:
         self._profile = profile
         self._weather = weather
         self._calendar = calendar or LocalCalendar(profile.root)
         self._music = music or LocalMusicLibrary(profile.root)
+        self._music_sources: dict[
+            str, QQMusicClient | NetEaseMusicClient | AppleMusicClient
+        ] = {}
+        if qqmusic is not None:
+            self._music_sources["qqmusic"] = qqmusic
+        if netease is not None:
+            self._music_sources["netease"] = netease
+        if apple_music is not None:
+            self._music_sources["apple-music"] = apple_music
 
     async def snapshot(
         self,
@@ -113,16 +128,95 @@ class DailyContextService:
         self._correct_profile("profile:daily.calendar_ics", managed_name)
         return self._calendar.snapshot(managed_name, timezone.key)
 
-    def music_cover(self, *, on_date: date | None = None) -> tuple[Path, str]:
+    async def configure_music(
+        self,
+        *,
+        enabled: bool,
+        source: str = "file",
+        filename: str = "",
+        content: str = "",
+        share_url: str = "",
+        local_date: str = "",
+    ) -> MusicSnapshot:
+        """Import or synchronize one private managed playlist after explicit user action."""
+
+        profile = self._profile.load()
+        selected_date = _music_date(local_date, profile.locale.timezone)
+        if not enabled:
+            self._correct_profile("profile:daily.playlist", "")
+            self._music.clear_managed_import()
+            return self._music.snapshot("", profile.preferences.music_genres, on_date=selected_date)
+        if source == "file":
+            managed_name = self._music.import_playlist(filename, content)
+        elif source in {"qqmusic", "netease", "apple-music"}:
+            connector = self._music_sources.get(source)
+            if connector is None:
+                raise RuntimeError(f"{source} connector is not configured")
+            document = await connector.synchronize(
+                share_url,
+                on_date=selected_date,
+                preferred_genres=profile.preferences.music_genres,
+            )
+            managed_name = self._music.replace_managed_document(document)
+        else:
+            raise ValueError("Unsupported playlist source.")
+        self._correct_profile("profile:daily.playlist", managed_name)
+        return self._music.snapshot(
+            managed_name,
+            profile.preferences.music_genres,
+            on_date=selected_date,
+        )
+
+    async def refresh_music(self, *, local_date: str = "") -> MusicSnapshot:
+        """Refresh an existing remote source without replacing a valid snapshot on failure."""
+
+        profile = self._profile.load()
+        if not profile.daily.playlist:
+            raise ValueError("Connect a remote music playlist before refreshing.")
+        source = self._music.source(profile.daily.playlist)
+        if source is None or not source.refresh_supported:
+            raise ValueError("The current playlist source does not support refresh.")
+        connector = self._music_sources.get(source.provider)
+        if connector is None:
+            raise RuntimeError(f"{source.provider} connector is not configured")
+        selected_date = _music_date(local_date, profile.locale.timezone)
+        document = await connector.synchronize_id(
+            source.source_id,
+            on_date=selected_date,
+            preferred_genres=profile.preferences.music_genres,
+        )
+        managed_name = self._music.replace_managed_document(document)
+        if managed_name != profile.daily.playlist:
+            self._correct_profile("profile:daily.playlist", managed_name)
+        return self._music.snapshot(
+            managed_name,
+            profile.preferences.music_genres,
+            on_date=selected_date,
+        )
+
+    async def music_cover(
+        self, *, on_date: date | None = None
+    ) -> tuple[Path | bytes, str]:
         profile = self._profile.load()
         selected_date = on_date or datetime.now(
             _profile_timezone(profile.locale.timezone)
         ).date()
-        return self._music.cover(
+        playlist, selected = self._music.selected_item(
             profile.daily.playlist,
             profile.preferences.music_genres,
             on_date=selected_date,
         )
+        if selected.cover_path:
+            return self._music.cover(
+                profile.daily.playlist,
+                profile.preferences.music_genres,
+                on_date=selected_date,
+            )
+        connector = self._music_sources.get(selected.source_provider)
+        if selected.cover_url and connector is not None:
+            return await connector.fetch_cover(selected.cover_url)
+        del playlist
+        raise KeyError("recommended item has no cover")
 
     def _correct_profile(self, memory_id: str, value: str) -> None:
         current = self._profile.get(memory_id)
@@ -149,3 +243,14 @@ def _selected_timezone(profile_value: str, override: str | None) -> ZoneInfo:
         except ZoneInfoNotFoundError as error:
             raise ValueError("System timezone is invalid.") from error
     return _profile_timezone(profile_value)
+
+
+def _music_date(value: str, timezone_name: str) -> date:
+    if not value:
+        return datetime.now(_profile_timezone(timezone_name)).date()
+    if len(value) != 10:
+        raise ValueError("Local music date is invalid.")
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError("Local music date is invalid.") from error
