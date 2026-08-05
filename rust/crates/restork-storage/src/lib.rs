@@ -40,7 +40,7 @@ pub use workspace::{
     StoredSessionMessage,
 };
 
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 11;
 
 const MIGRATION_LEDGER: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -308,6 +308,7 @@ const AUTOMATION: &str = include_str!("../migrations/0007_automation.sql");
 const INTERACTIVE_CORE: &str = include_str!("../migrations/0008_interactive_core.sql");
 const EXTENSION_RUNTIME: &str = include_str!("../migrations/0009_extension_runtime.sql");
 const ARTIFACT_RECOVERY: &str = include_str!("../migrations/0010_artifact_recovery.sql");
+const MAIL_AWARENESS: &str = include_str!("../migrations/0011_mail_awareness.sql");
 
 #[derive(Clone, Copy)]
 struct Migration {
@@ -316,7 +317,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 10] = [
+const MIGRATIONS: [Migration; 11] = [
     Migration {
         version: 1,
         name: "v1_schema_adoption",
@@ -366,6 +367,11 @@ const MIGRATIONS: [Migration; 10] = [
         version: 10,
         name: "artifact_recovery",
         sql: ARTIFACT_RECOVERY,
+    },
+    Migration {
+        version: 11,
+        name: "mail_awareness",
+        sql: MAIL_AWARENESS,
     },
 ];
 

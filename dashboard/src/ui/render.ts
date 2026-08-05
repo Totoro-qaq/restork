@@ -4,6 +4,7 @@ import type {
   ConversationTurn,
   DashboardSnapshot,
   MemoryRecord,
+  MailSnapshot,
   MusicDiscovery,
   MusicResearchSummary,
   MusicSourceDefinition,
@@ -92,10 +93,15 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
       <main class="workspace">
         <header class="topline">
           <p>&gt; <span id="greeting">${escapeHtml(greeting)}</span><span class="caret" aria-hidden="true"></span></p>
-          <div class="topline-actions">${localeSwitch(locale)}<button class="quiet-button" id="refresh" type="button">${tr(locale, "REFRESH", "刷新")}</button></div>
+          <div class="topline-actions">${mailIndicator(snapshot, locale)}${localeSwitch(locale)}<button class="quiet-button" id="refresh" type="button">${tr(locale, "REFRESH", "刷新")}</button></div>
         </header>
         <p id="global-status" class="sr-only" role="status"></p>
-        <section id="action-panel" class="action-panel" hidden>
+        ${mailSettings(snapshot, locale)}
+        <section id="action-panel" class="action-panel" aria-labelledby="action-panel-title" hidden>
+          <header class="action-panel-header">
+            <div><small>${tr(locale, "NEW RUN", "新建运行")}</small><strong id="action-panel-title">${tr(locale, "Start a Research run", "新建 Research 运行")}</strong></div>
+            <button class="action-panel-close" type="button" data-run-panel-close aria-label="${tr(locale, "Close new run", "收起新建运行")}">×</button>
+          </header>
           <form id="run-form">
             <input type="hidden" name="mode" id="run-mode" value="research">
             <label for="run-goal">${tr(locale, "Goal", "目标")}</label>
@@ -126,15 +132,17 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
           <div id="study-workspace" class="study-workspace" aria-live="polite"></div>
           <div id="work-workspace" class="work-workspace" aria-live="polite"></div>
         </section>
-        <section class="metrics" aria-label="${tr(locale, "Run overview", "运行概览")}">
-          ${metric("research", tr(locale, "Active runs", "进行中运行"), String(active.length), modeCounts(active, locale))}
-          ${metric("approval", tr(locale, "Pending approvals", "待审批"), String(pending.length), tr(locale, "Single-use · expires", "单次能力 · 到期失效"))}
-          ${metric("work", tr(locale, "Markdown tasks", "Markdown 任务"), String(incomplete.length), snapshot.taskBoard.configured ? tr(locale, "Markdown is canonical", "Markdown 为准") : tr(locale, "Vault not configured", "尚未配置 Vault"))}
-          ${metric("study", tr(locale, "Memory records", "记忆记录"), String(memories.length), tr(locale, "Four layers · locally governed", "四层 · 本地可控"))}
+        <section class="view is-visible" data-view-panel="overview">
+          <section class="metrics" aria-label="${tr(locale, "Run overview", "运行概览")}">
+            ${metric("research", tr(locale, "Active runs", "进行中运行"), String(active.length), modeCounts(active, locale))}
+            ${metric("approval", tr(locale, "Pending approvals", "待审批"), String(pending.length), tr(locale, "Single-use · expires", "单次能力 · 到期失效"))}
+            ${metric("work", tr(locale, "Markdown tasks", "Markdown 任务"), String(incomplete.length), snapshot.taskBoard.configured ? tr(locale, "Markdown is canonical", "Markdown 为准") : tr(locale, "Vault not configured", "尚未配置 Vault"))}
+            ${metric("study", tr(locale, "Memory records", "记忆记录"), String(memories.length), tr(locale, "Four layers · locally governed", "四层 · 本地可控"))}
+          </section>
+          ${providerSetup(snapshot, locale)}
+          ${dailyContext(snapshot, locale)}
+          ${overview(snapshot, locale)}
         </section>
-        ${providerSetup(snapshot, locale)}
-        ${dailyContext(snapshot, locale)}
-        <section class="view is-visible" data-view-panel="overview">${overview(snapshot, locale)}</section>
         <section class="view" data-view-panel="runs" hidden>${runsView(snapshot.runs, snapshot.pagination?.runs, locale)}</section>
         <section class="view" data-view-panel="approvals" hidden>${approvalsView(snapshot.approvals, snapshot.pagination?.approvals, locale)}</section>
         <section class="view" data-view-panel="tasks" hidden>${tasksView(snapshot, locale)}</section>
@@ -147,6 +155,53 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
         ${v2 ? `<section class="view" data-view-panel="settings" hidden>${personalSettingsWorkspace(snapshot, locale)}</section>` : ""}
       </main>
     </section>`;
+}
+
+function mailIndicator(snapshot: DashboardSnapshot, locale: Locale): string {
+  const mail = snapshot.daily?.mail;
+  if (!mail) return "";
+  const label = mail.configured && mail.unread_count !== null
+    ? tr(locale, `${mail.unread_count} unread`, `${mail.unread_count} 封未读`)
+    : mail.configured
+      ? tr(locale, "Mail paused", "邮件暂停")
+      : tr(locale, "Mail off", "邮件未启用");
+  return `<button class="mail-indicator status-${escapeHtml(mail.status)}" type="button" data-mail-open aria-label="${escapeHtml(tr(locale, `Mail: ${label}`, `邮件：${label}`))}"><span aria-hidden="true">✉</span><strong data-mail-count aria-live="polite">${escapeHtml(label)}</strong><i aria-hidden="true"></i></button>`;
+}
+
+function mailSettings(snapshot: DashboardSnapshot, locale: Locale): string {
+  const mail = snapshot.daily?.mail;
+  const capability = snapshot.daily?.native_mail;
+  if (!mail || !capability) return "";
+  const canConnect = capability.available && !mail.configured;
+  return `<dialog id="mail-settings-dialog" class="settings-dialog mail-settings" aria-labelledby="mail-settings-title">
+    <section>
+      <header><strong id="mail-settings-title">${tr(locale, "PRIVATE MAIL AWARENESS", "私有邮件提醒")}</strong><button type="button" class="dialog-close" data-settings-close aria-label="${tr(locale, "Close mail settings", "关闭邮件设置")}">×</button></header>
+      <p>${tr(locale, "Restork reads one number from the already-running macOS Mail app: the aggregate unread count. Senders, subjects, bodies, account addresses, and attachments are never requested.", "Restork 只从已经运行的 macOS 邮件读取一个数字：未读总数。它不会请求发件人、主题、正文、账户地址或附件。")}</p>
+      <dl class="mail-privacy"><div><dt>${tr(locale, "ACCESS", "访问范围")}</dt><dd>${tr(locale, "Unread count only", "仅未读数量")}</dd></div><div><dt>${tr(locale, "UPDATE", "更新方式")}</dt><dd>${tr(locale, "Private SSE · 15-second local sample", "私有 SSE · 本地每 15 秒采样")}</dd></div><div><dt>${tr(locale, "STATUS", "状态")}</dt><dd data-mail-dialog-status aria-live="polite">${escapeHtml(mailStatusText(mail, locale))}</dd></div></dl>
+      <p class="fine">${escapeHtml(mailCapabilityText(capability.available, capability.platform, locale))}</p>
+      <div class="mail-actions">
+        ${mail.configured ? `<button type="button" data-native-mail-disconnect>${tr(locale, "DISCONNECT MAIL", "断开邮件")}</button>` : `<button type="button" data-native-mail-connect ${canConnect ? "" : "disabled"}>${tr(locale, "CONNECT MAIL", "连接邮件")}</button>`}
+      </div>
+    </section>
+  </dialog>`;
+}
+
+function mailStatusText(mail: MailSnapshot, locale: Locale): string {
+  if (!mail.configured) return tr(locale, "Off — no access requested", "未启用 · 尚未请求权限");
+  if (mail.status === "fresh" && mail.unread_count !== null) {
+    return tr(locale, `${mail.unread_count} unread · live`, `${mail.unread_count} 封未读 · 实时`);
+  }
+  if (mail.status === "stale") return tr(locale, "Waiting for macOS Mail", "正在等待 macOS 邮件");
+  if (mail.status === "denied") return tr(locale, "Permission denied in System Settings", "系统设置中的权限已被拒绝");
+  if (mail.status === "unsupported") return tr(locale, "Unavailable on this platform", "当前平台不可用");
+  return tr(locale, "Temporarily unavailable", "暂时不可用");
+}
+
+function mailCapabilityText(available: boolean, platform: string, locale: Locale): string {
+  if (available && platform === "macos") {
+    return tr(locale, "Open Mail first, then Connect. macOS will ask once; Restork never launches Mail silently.", "请先打开系统邮件，再点连接。macOS 会询问一次；Restork 不会静默启动邮件。");
+  }
+  return tr(locale, "This build has no native mail adapter. Nothing will be requested.", "当前构建没有原生邮件适配器，不会请求任何账户数据。");
 }
 
 function personalGreeting(snapshot: DashboardSnapshot, locale: Locale): string {
@@ -1235,11 +1290,11 @@ function eventRow(event: RunEvent): string {
 }
 
 function navButton(view: string, icon: string, label: string, active: boolean, count?: number): string {
-  return `<button class="nav-item ${active ? "is-active" : ""}" type="button" data-view="${view}"><b class="icon">${icon}</b>${label}${count ? `<em>${count}</em>` : ""}</button>`;
+  return `<button class="nav-item ${active ? "is-active" : ""}" type="button" data-view="${view}"${active ? ' aria-current="page"' : ""}><b class="icon">${icon}</b>${label}${count ? `<em>${count}</em>` : ""}</button>`;
 }
 
 function modeButton(mode: string, icon: string, description: string): string {
-  return `<button class="mode" type="button" data-mode="${mode}"><b class="icon ${mode}">${icon}</b><span><strong>${mode}</strong><small>${description}</small></span></button>`;
+  return `<button class="mode" type="button" data-mode="${mode}" aria-controls="action-panel" aria-expanded="false" aria-pressed="false"><b class="icon ${mode}">${icon}</b><span><strong>${mode}</strong><small>${description}</small></span></button>`;
 }
 
 function metric(kind: string, label: string, value: string, note: string): string {

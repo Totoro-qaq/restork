@@ -369,7 +369,7 @@ impl Database {
 }
 
 fn validate_daily_source(source: &str) -> Result<(), StorageError> {
-    if matches!(source, "weather" | "calendar" | "music") {
+    if matches!(source, "weather" | "calendar" | "music" | "mail") {
         Ok(())
     } else {
         Err(StorageError::Invalid("daily source is invalid"))

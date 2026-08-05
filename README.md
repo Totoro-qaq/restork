@@ -154,6 +154,7 @@ boundary, install steps, and contributor builds.
 | Use a cloud or local model | Open **Settings → Providers**; use the native credential command for a cloud key | Choose DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, or a compatible endpoint; only supported reasoning levels appear |
 | See weather | Enter a city in Weather settings, or press **Use current location** yourself | The feature stays off until enabled; there is no IP-based location lookup |
 | Add a calendar | Connect the system calendar when available, or select one local ICS file | Read-only access; the device date and time zone work without either |
+| See unread mail | On macOS, open Mail and press **Connect Mail** in the top-bar indicator | Live aggregate count only; no sender, subject, body, account address, or model access |
 | Get a daily track | Choose QQ Music, NetEase, Apple Music, or a private JSON/CSV playlist | Explicit read-only sync; no account passwords/cookies, audio, or lyrics; capabilities and evidence gaps stay visible |
 
 Open **Daily track → Connect playlist**, choose a source, paste its ordinary public playlist link,
@@ -176,6 +177,12 @@ track's public metadata to DeepSeek V4 Flash, requires server-side web search, v
 sources, and returns bilingual song notes. It does not send the whole playlist or listening history.
 Popularity stays an explicit evidence gap unless two independent current sources support it. The
 paid action is manual, cached locally for 36 hours, and never retried automatically.
+
+Mail awareness is a macOS Alpha capability and stays off until you connect it. Restork samples only
+the aggregate unread number every 15 seconds and streams changes to the local Dashboard over SSE;
+the value is never stored or sent to a model. Closing Mail pauses the indicator, and disconnecting
+removes Restork's consent setting. Windows/Linux adapters remain unavailable rather than asking for
+mail passwords. See the [daily-context privacy contract](docs/daily-context.md).
 
 Use a different local port without editing a file:
 

@@ -52,6 +52,27 @@ back to the source calendar. There is no OAuth or calendar account. The browser 
 system time zone with each import/read so calendar dates match the Roman-numeral local clock.
 Upcoming events are bounded, and `CLASS:PRIVATE` or `CLASS:CONFIDENTIAL` summaries appear as `Busy`.
 
+## Private unread-mail awareness
+
+The macOS desktop Alpha can optionally show one aggregate unread count from the already-running
+system Mail app. It is disabled by default. Restork does not probe Mail on startup: open Mail, open
+the Dashboard's Mail dialog, and press **Connect Mail** yourself. macOS then presents its Apple
+Events permission prompt.
+
+The fixed native script asks for `unread count of inbox` and accepts no input. It never requests an
+account address, sender, recipient, subject, body, snippet, attachment, mailbox listing, message ID,
+or per-message timestamp. Consent and adapter settings are stored locally; the count itself remains
+ephemeral and is excluded from SQLite, logs, memory, Vault content, prompts, and model context.
+
+Core samples the count every 15 seconds while connected. An authenticated loopback-only SSE stream
+sends a new snapshot only when the count or status changes and otherwise sends a heartbeat. The
+Dashboard updates just the Mail indicator. It retries transient stream interruptions with bounded
+backoff. Closing Mail pauses the count without letting Restork launch it; disconnecting disables the
+source. The initial permission wait is bounded to 45 seconds and later samples to eight seconds.
+
+Windows and Linux expose an unavailable native adapter in this step and request no credentials.
+Restork does not silently fall back to IMAP passwords, OAuth, cookies, or web scraping.
+
 ## Private playlist and open music sources
 
 The paired Dashboard exposes one normalized read-only contract with four source adapters:

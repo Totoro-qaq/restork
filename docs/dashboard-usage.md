@@ -138,6 +138,19 @@ private managed read-only import and interprets it using the browser's current I
 so it follows the same device time as the clock. Disabling calendar removes only Restork's managed
 copy, never the source file.
 
+On the macOS desktop Alpha, the top-bar **Mail** indicator is optional and off by default. Open the
+system Mail app, open the indicator, then press **Connect Mail**. macOS asks for Apple Events access
+once. The native adapter requests only the aggregate unread count: no account address, sender,
+subject, body, attachment, or per-message identifier crosses into Restork. The count is not written
+to SQLite, logs, memory, a Vault, or a model context.
+
+While connected, Core samples that one local number every 15 seconds and sends changes through an
+authenticated loopback SSE stream. The Dashboard updates only the compact indicator and reconnects
+transient interruptions with bounded backoff. If Mail is closed, the indicator pauses instead of
+launching it. **Disconnect Mail** disables the source. Windows and Linux builds currently show the
+adapter as unavailable and never ask for mail credentials. GitHub discovery and Hacker News remain
+cache/manual-refresh data because they do not need this personal live channel.
+
 The Overview uses a compact two-by-two content matrix on wide screens: latest run and approval above
 Markdown tasks and Radar. It collapses to one column on narrow screens instead of leaving a blank
 grid region.

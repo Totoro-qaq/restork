@@ -6,5 +6,7 @@
   <string>Restork reads a bounded, read-only calendar snapshot after you press Connect. It never edits your events.</string>
   <key>NSCalendarsUsageDescription</key>
   <string>Restork reads a bounded, read-only calendar snapshot after you press Connect. It never edits your events.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>After you press Connect, Restork asks macOS Mail only for the aggregate unread count. It never reads senders, subjects, or message bodies.</string>
 </dict>
 </plist>

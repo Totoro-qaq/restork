@@ -88,6 +88,51 @@ describe("LocalApiClient calendar configuration", () => {
   });
 });
 
+describe("LocalApiClient private mail awareness", () => {
+  it("connects explicitly and streams only the validated unread-count snapshot", async () => {
+    const mail = {
+      configured: true,
+      status: "fresh",
+      provider: "macos-mail",
+      unread_count: 4,
+      observed_at: "2026-08-05T12:00:00Z",
+      message: "Aggregate only",
+    };
+    const responses = [
+      jsonResponse({ access_token: "paired-token" }),
+      jsonResponse(mail),
+      new Response(
+        `id: 1\nevent: mail.snapshot\ndata: ${JSON.stringify({ ...mail, unread_count: 5 })}\n\n`,
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      ),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+
+    await client.pair("pairing-code");
+    await client.connectNativeMail();
+    const controller = new AbortController();
+    let unread: number | null = null;
+    await client.streamMail((snapshot) => {
+      unread = snapshot.unread_count;
+      controller.abort();
+    }, controller.signal);
+
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/daily/mail/native/connect");
+    expect(new Headers(fetchMock.mock.calls[1][1]?.headers).get("Idempotency-Key"))
+      .toMatch(/^dashboard-native-mail-/);
+    expect(fetchMock.mock.calls[2][0]).toBe("/v1/daily/mail/events");
+    expect(new Headers(fetchMock.mock.calls[2][1]?.headers).get("Authorization"))
+      .toBe("Bearer paired-token");
+    expect(unread).toBe(5);
+  });
+});
+
 describe("LocalApiClient conversation model branches", () => {
   it("sends an explicit bounded fork request without provider credentials", async () => {
     const responses = [

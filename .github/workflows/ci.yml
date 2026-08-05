@@ -94,8 +94,14 @@ jobs:
       - name: Ad-hoc sign internal test bundle
         run: >-
           codesign --force --deep --sign - --timestamp=none
+          --entitlements desktop/src-tauri/Entitlements.plist
           desktop/src-tauri/target/release/bundle/macos/Restork.app
       - run: codesign --verify --deep --strict --verbose=2 desktop/src-tauri/target/release/bundle/macos/Restork.app
+      - name: Verify aggregate unread-mail entitlement
+        run: >-
+          codesign --display --entitlements :-
+          desktop/src-tauri/target/release/bundle/macos/Restork.app 2>&1
+          | grep -q com.apple.security.automation.apple-events
 
   desktop-windows-linux:
     timeout-minutes: 45

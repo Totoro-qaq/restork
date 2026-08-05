@@ -152,6 +152,63 @@ function fakeApi(): DashboardApi {
   };
 }
 
+function dailyWithMail(
+  configured: boolean,
+  unreadCount: number | null,
+): NonNullable<DashboardSnapshot["daily"]> {
+  return {
+    weather: {
+      configured: false,
+      status: "not_configured",
+      provider: "",
+      location_label: "",
+      condition: "",
+      temperature_c: null,
+      apparent_temperature_c: null,
+      relative_humidity_percent: null,
+      is_day: null,
+      observed_at: null,
+      expires_at: null,
+      attribution: "",
+      message: "",
+    },
+    calendar: { configured: false, status: "not_configured", events: [], message: "" },
+    native_calendar: {
+      platform: "macos",
+      adapter: "eventkit",
+      available: true,
+      status: "available",
+      detail_scopes: ["busy_only", "titles"],
+      message: "",
+    },
+    mail: {
+      configured,
+      status: configured ? "fresh" : "not_configured",
+      provider: configured ? "macos-mail" : "",
+      unread_count: unreadCount,
+      observed_at: configured ? "2026-08-05T12:00:00Z" : null,
+      message: "",
+    },
+    native_mail: {
+      platform: "macos",
+      adapter: "mail-app-apple-events",
+      available: true,
+      status: "available",
+      detail_scopes: ["unread_count"],
+      refresh_interval_seconds: 15,
+      message: "",
+    },
+    music: {
+      configured: false,
+      status: "not_configured",
+      recommendation: null,
+      source: null,
+      discoveries: [],
+      message: "",
+    },
+  };
+}
+
 describe("authenticated workspace", () => {
   it("renders Core data as text and keeps browser storage empty", () => {
     const root = document.createElement("main");
@@ -254,10 +311,126 @@ describe("authenticated workspace", () => {
     const root = document.createElement("main");
     mountDashboard(root, { api: fakeApi(), snapshot });
 
+    root.querySelector<HTMLButtonElement>('[data-mode="research"]')?.click();
+    expect(root.querySelector<HTMLElement>("#action-panel")?.hidden).toBe(false);
     root.querySelector<HTMLButtonElement>('[data-view="tasks"]')?.click();
 
-    expect(root.querySelector<HTMLElement>('[data-view-panel="tasks"]')?.hidden).toBe(false);
-    expect(root.querySelector<HTMLElement>('[data-view-panel="overview"]')?.hidden).toBe(true);
+    const tasks = root.querySelector<HTMLElement>('[data-view-panel="tasks"]');
+    const overview = root.querySelector<HTMLElement>('[data-view-panel="overview"]');
+    expect(tasks?.hidden).toBe(false);
+    expect(overview?.hidden).toBe(true);
+    expect(overview?.contains(root.querySelector(".metrics"))).toBe(true);
+    expect(overview?.contains(root.querySelector(".provider-console"))).toBe(true);
+    expect(overview?.contains(root.querySelector(".daily-context"))).toBe(true);
+    expect(root.querySelector('[data-view="tasks"]')?.getAttribute("aria-current")).toBe("page");
+    expect(root.querySelector('[data-view="overview"]')?.hasAttribute("aria-current")).toBe(false);
+    expect(root.querySelector<HTMLElement>("#action-panel")?.hidden).toBe(true);
+  });
+
+  it("keeps the selected page when the user refreshes Core data", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    mountDashboard(root, { api, snapshot });
+
+    root.querySelector<HTMLButtonElement>('[data-view="memory"]')?.click();
+    root.querySelector<HTMLButtonElement>("#refresh")?.click();
+
+    await vi.waitFor(() => {
+      expect(api.loadDashboard).toHaveBeenCalledOnce();
+      expect(root.querySelector<HTMLElement>('[data-view-panel="memory"]')?.hidden).toBe(false);
+      expect(root.querySelector('[data-view="memory"]')?.getAttribute("aria-current")).toBe("page");
+    });
+  });
+
+  it("lets a new run be toggled, closed, and dismissed with Escape", () => {
+    const root = document.createElement("main");
+    document.body.append(root);
+    mountDashboard(root, { api: fakeApi(), snapshot });
+    const research = root.querySelector<HTMLButtonElement>('[data-mode="research"]');
+    const study = root.querySelector<HTMLButtonElement>('[data-mode="study"]');
+    const panel = root.querySelector<HTMLElement>("#action-panel");
+
+    research?.click();
+    expect(panel?.hidden).toBe(false);
+    expect(research?.getAttribute("aria-expanded")).toBe("true");
+    research?.click();
+    expect(panel?.hidden).toBe(true);
+    expect(research?.getAttribute("aria-expanded")).toBe("false");
+
+    study?.click();
+    panel?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(panel?.hidden).toBe(true);
+    expect(document.activeElement).toBe(study);
+
+    study?.click();
+    root.querySelector<HTMLButtonElement>("[data-run-panel-close]")?.click();
+    expect(panel?.hidden).toBe(true);
+    root.remove();
+  });
+
+  it("keeps mode drafts while switching between Study and Work", () => {
+    const root = document.createElement("main");
+    mountDashboard(root, { api: fakeApi(), snapshot });
+
+    root.querySelector<HTMLButtonElement>('[data-mode="study"]')?.click();
+    const target = root.querySelector<HTMLInputElement>("#study-target-note");
+    if (target) target.value = "Study/Bayes.md";
+    root.querySelector<HTMLButtonElement>('[data-mode="work"]')?.click();
+    const workRoot = root.querySelector<HTMLInputElement>("#work-root");
+    if (workRoot) workRoot.value = "/private/example";
+    root.querySelector<HTMLButtonElement>('[data-mode="study"]')?.click();
+
+    expect(target?.value).toBe("Study/Bayes.md");
+    expect(target?.hidden).toBe(false);
+    expect(workRoot?.value).toBe("/private/example");
+  });
+
+  it("updates only the aggregate unread count through the private mail stream", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const streamMail = vi.fn<NonNullable<DashboardApi["streamMail"]>>(async (onSnapshot) => {
+      onSnapshot({
+        configured: true,
+        status: "fresh",
+        provider: "macos-mail",
+        unread_count: 7,
+        observed_at: "2026-08-05T12:00:15Z",
+        message: "PRIVATE SUBJECT MUST NEVER RENDER",
+      });
+    });
+    api.streamMail = streamMail;
+
+    mountDashboard(root, {
+      api,
+      snapshot: { ...snapshot, daily: dailyWithMail(true, 2) },
+      locale: "zh-CN",
+    });
+
+    await vi.waitFor(() => expect(root.querySelector("[data-mail-count]")?.textContent).toBe("7 封未读"));
+    expect(streamMail).toHaveBeenCalledOnce();
+    expect(root.textContent).toContain("仅未读数量");
+    expect(root.textContent).not.toContain("PRIVATE SUBJECT MUST NEVER RENDER");
+  });
+
+  it("does not request Mail access until the user presses Connect", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const connected = dailyWithMail(true, 3).mail!;
+    const connect = vi.fn(async () => connected);
+    api.connectNativeMail = connect;
+    vi.spyOn(api, "loadDashboard").mockResolvedValue({
+      ...snapshot,
+      daily: dailyWithMail(true, 3),
+    });
+
+    mountDashboard(root, { api, snapshot: { ...snapshot, daily: dailyWithMail(false, null) } });
+    expect(connect).not.toHaveBeenCalled();
+    root.querySelector<HTMLButtonElement>("[data-native-mail-connect]")?.click();
+
+    await vi.waitFor(() => {
+      expect(connect).toHaveBeenCalledOnce();
+      expect(root.querySelector("[data-mail-count]")?.textContent).toBe("3 unread");
+    });
   });
 
   it("renders an accessible local clock and reduced-dependency daily context", () => {
