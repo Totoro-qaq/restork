@@ -39,13 +39,55 @@ not request a private chain-of-thought for display and does not save one as a tr
 3. For cloud providers, create the secret through the native credential flow and paste only its
    reference, such as `keychain:restork/provider/deepseek`.
 4. Save the Provider Profile, then bind it to a governed Work Profile.
-5. Run **Test connection** before using it with a real task.
+5. On the saved Provider Profile card, run **Test model** before using it with a real task. The test
+   uses that exact saved provider and model; it does not route through DeepSeek unless DeepSeek was
+   the selected profile.
 
-The API key never enters Dashboard JavaScript. From a source checkout, the native setup command is:
+The Overview **Model Center** mirrors these profiles. Its selector displays the exact model, sends
+diagnostics with the selected profile ID, and changes the setup command with the provider. Entries
+that have not been saved yet are configuration shortcuts, not usable model fallbacks, so their test
+buttons remain disabled.
+
+## Switch models during a conversation
+
+Open **Conversation → Use another model** to continue with another configured Profile. Inspired by
+Hermes Agent's quick model picker, Restork shows the exact provider/model and keeps provider setup in
+Settings. The trust behavior is intentionally different: Restork does not rewrite an active
+conversation's frozen Profile in place.
+
+Instead, Core creates a separate conversation branch. It copies at most the 24 most recent messages
+and 120 KB, removes prior request/provider/tool metadata, checks every copied message against the
+target Profile's data-class limit, and atomically rejects a stale source. The original conversation
+and audit chain remain unchanged. A public-only cloud Profile therefore cannot inherit personal or
+confidential messages; choose a sufficiently private Profile or start a clean conversation.
+
+The API key never enters Dashboard JavaScript. From a source checkout, the native setup command is
+provider-scoped (omitting the kind keeps the backward-compatible DeepSeek default):
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure qwen
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure kimi
 ```
+
+Supported credential kinds are `deepseek`, `glm`, `kimi`, `qwen`, `openrouter`, and
+`open_ai_compatible`. The command prints the non-secret native reference to copy into the Provider
+Profile. Ollama is loopback-only and needs no credential.
+
+## DeepSeek model roles and connection tests
+
+One DeepSeek API key can authorize multiple DeepSeek model IDs; Restork does not ask you to duplicate
+the secret. The built-in routing is explicit rather than a silent fallback:
+
+| Role | Model | API | Dashboard/CLI check |
+|---|---|---|---|
+| Primary conversation and synthesis | `deepseek-v4-pro` | `/chat/completions` | **Test V4 Pro** / `restorkd doctor --smoke` |
+| Bounded web research | `deepseek-v4-flash` | `/responses` with required server-side `web_search` | **Test V4 Flash web search** / `restorkd doctor --web-search` |
+
+**Check key & models** (or `restorkd doctor --connect`) checks authentication and model discovery
+without generating an answer. A model smoke test is separate because a successful `/models` call
+does not prove inference or web-search capability. Diagnostics never fail over to the other model.
+The paid Flash search request has no automatic retry, so a timeout cannot silently duplicate cost.
 
 ## Local Ollama
 

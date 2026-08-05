@@ -133,13 +133,17 @@ behavioral parity.
 
 ### Desktop installers
 
-The source builds macOS, Windows, and Linux candidates. The protected release workflow signs each
-platform, notarizes and staples macOS, verifies updater signatures, generates an SBOM and provenance,
-and tests the downloaded installers on clean runners before publication. It fails closed until the
-owner configures real signing identities. Once a signed installer appears on the
-[Releases page](https://github.com/Totoro-qaq/restork/releases), the target machine needs no Python,
-Node.js, Rust, `uv`, or package manager. See the [desktop guide](docs/desktop.md) for exact status and
-one-command contributor builds.
+The [Releases page](https://github.com/Totoro-qaq/restork/releases) now supports a public Apple
+Silicon macOS Alpha. Download the DMG visibly labeled `UNSIGNED-ALPHA`; the target Mac needs no
+Python, Node.js, Rust, `uv`, or package manager. This early build is ad-hoc signed and has a
+separately signed updater, checksums, SBOM, provenance, and clean-machine lifecycle tests, but it is
+**not Apple Developer-ID-signed or notarized**. Follow the per-app **Open** / **Open Anyway** steps;
+never disable Gatekeeper globally.
+
+The protected stable workflow remains separate: macOS Developer ID/notarization, Windows
+Authenticode, Linux package signatures, and their complete clean-machine matrix must all pass before
+those platforms are called stable. See the [desktop guide](docs/desktop.md) for the exact trust
+boundary, install steps, and contributor builds.
 
 ### Connect only what you want
 
@@ -167,6 +171,12 @@ The token is not your Apple ID password and never enters the Dashboard or SQLite
 manual, and disconnect removes only Restork's managed snapshot. See the
 [daily-context privacy contract](docs/daily-context.md).
 
+When a recommendation needs more context, press **Research online**. Restork sends only that selected
+track's public metadata to DeepSeek V4 Flash, requires server-side web search, validates public HTTPS
+sources, and returns bilingual song notes. It does not send the whole playlist or listening history.
+Popularity stays an explicit evidence gap unless two independent current sources support it. The
+paid action is manual, cached locally for 36 hours, and never retried automatically.
+
 Use a different local port without editing a file:
 
 ```bash
@@ -178,21 +188,26 @@ RESTORK_PORT=7444 ./scripts/quickstart.sh
 Open **Settings → Providers** to choose an exact model and its supported reasoning intensity. Restork
 ships definitions for DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, and OpenAI-compatible endpoints.
 Profiles are model-specific, so you can use a quicker model for a bounded child task and a stronger
-one for synthesis without a silent fallback. See the [provider guide](docs/providers.md) for the
-capability table and endpoint rules.
+one for synthesis without a silent fallback. After saving, use **Test model** on that exact Provider
+Profile card; non-DeepSeek selections are never tested through the built-in DeepSeek route. See the
+[provider guide](docs/providers.md) for the capability table and endpoint rules.
 
-For a cloud key, use the native credential flow. The current CLI command configures the built-in
-DeepSeek credential; additional packaged native onboarding is release-gated rather than putting a
-secret field in the Dashboard:
+Inside a conversation, **Use another model** creates a checked branch with bounded recent context;
+it never rewrites the original Profile or moves private messages into a narrower cloud boundary.
+
+For a cloud key, use the provider-scoped native credential flow rather than a secret field in the
+Dashboard. Omitting the kind keeps the built-in DeepSeek default:
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure qwen
 ```
 
 The platform-native prompt writes the key to macOS Keychain, Windows Credential Manager, or Linux
 Secret Service. The value never enters the browser, TOML, command arguments, environment variables,
 shell history, Vault, SQLite, logs, or this repository. Dashboard stores only a native secret
-reference.
+reference. Supported credential kinds are `deepseek`, `glm`, `kimi`, `qwen`, `openrouter`, and
+`open_ai_compatible`; local Ollama needs no key.
 
 Restart Restork, then choose how far you want the Rust check to go:
 
@@ -200,11 +215,14 @@ Restart Restork, then choose how far you want the Rust check to go:
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --connect
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --smoke
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --web-search
 ```
 
-The smoke check sends no Vault, memory, task, location, calendar, or playlist content and does not
-print the model response. See [Operations](docs/operations.md) for private directories, backup,
-restore, and credentials.
+`--connect` checks the shared key and model catalog, `--smoke` tests V4 Pro synthesis, and
+`--web-search` tests V4 Flash plus server-side search. The smoke checks send no Vault, memory, task,
+location, calendar, or playlist content and do not print the model response. See
+[model providers](docs/providers.md) for exact routing and [Operations](docs/operations.md) for
+private directories, backup, restore, and credentials.
 
 ### Keep your personal data outside the checkout
 
@@ -233,11 +251,11 @@ off. The formats and privacy behavior are documented in [Daily context](docs/dai
 | **Artifacts and recovery** | Deterministic macro-free PPTX/PDF, exact artifact hashes, content-bearing checkpoints, preview-bound filesystem restore, schedules, evaluations, and depth-one bounded child execution |
 | **Cross-platform desktop source** | Tauri packages `restorkd` and the Dashboard, owns Unix process groups or a Windows Job Object, verifies signed updates, keeps bounded recovery copies, and builds macOS, Windows, and Linux candidates without a target-machine runtime |
 
-Steps 18–22 are implemented in source and covered by deterministic local gates. A source-complete
-release is not the same as a signed public build: real Developer ID, Authenticode, Linux GPG, updater
-keys, notarization, and clean-runner results remain protected owner credentials and workflow evidence.
-The workflow will not publish without them. Exact contracts and remaining credential-dependent proof
-live in the [Steps 18–22 specification](specs/restork-steps18-22.md) and
+Steps 18–22 are implemented in source and covered by deterministic local gates. The public macOS
+Alpha is intentionally outside Apple Developer ID trust; a protected stable release still requires
+real Developer ID, Authenticode, Linux GPG, notarization, and clean-runner evidence. Exact contracts
+and remaining credential-dependent proof live in the
+[Steps 18–22 specification](specs/restork-steps18-22.md) and
 [delivery plan](plans/restork-steps18-22.md).
 
 ## Guides
@@ -300,7 +318,9 @@ each remaining execution route reaches compatibility and recovery parity in Rust
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. The implemented product contracts
 live in the [V1 specification](specs/restork-v1.md) and
-[Steps 18–22 specification](specs/restork-steps18-22.md). Release history is in
+[Steps 18–22 specification](specs/restork-steps18-22.md); the conversation model-branch and public
+macOS Alpha boundary is frozen in the [Step 26 specification](specs/restork-step26-model-branch-and-public-alpha.md).
+Release history is in
 [CHANGELOG.md](CHANGELOG.md).
 
 </details>

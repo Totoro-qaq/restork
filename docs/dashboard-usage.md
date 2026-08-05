@@ -41,7 +41,7 @@ tokens and Core data remain memory-only.
 
 ## Model access
 
-The Overview **Model access** card is the discoverable DeepSeek entry point. It shows local
+The Overview **Model access** card is the built-in DeepSeek quick path. It shows local
 configuration/Keychain status and the exact secure setup command:
 
 ```bash
@@ -58,12 +58,34 @@ Run the command in Terminal. macOS Keychain prompts for the API key directly; th
 password or API-key input and never receives, stores, copies, or renders the credential. Restart Core
 after setup so the card can reflect the new provider wiring.
 
-**Test connection** performs an explicit bounded `/models` access check. **Public smoke test** adds one
-fixed public, maximum-16-token completion and displays only status, latency, safe request ID, and token
-usage. It does not send Vault, memory, task, location, calendar, playlist, or daily-context content,
-and it never displays the completion body. These short request/response diagnostics use a bounded
-authenticated POST. SSE remains reserved for long-running run events; polling and WebSocket add no
-value here.
+The three actions deliberately test different layers with the same Keychain credential:
+
+| Action | Model/request | What it proves |
+|---|---|---|
+| **Check key & models** | `GET /models` | Authentication plus availability of the selected model IDs |
+| **Test V4 Pro** | `deepseek-v4-pro` via Chat Completions | One fixed public maximum-16-token synthesis response |
+| **Test V4 Flash web search** | `deepseek-v4-flash` via Responses + server-side `web_search` | The model responds and the required search tool actually completes |
+
+The tests display only status, model, latency, safe request ID, and token usage. They do not send
+Vault, memory, task, location, calendar, playlist, or daily-context content, and never display the
+completion body. V4 Flash web search may incur a small model/tool charge and is never retried
+automatically. These short request/response diagnostics use bounded authenticated POSTs. SSE remains
+reserved for long-running run events; polling and WebSocket add no value here.
+
+This diagnostic intentionally tests transport and tool capability, not generated wording or research quality. Real daily-song
+research has a stricter gate: it must also return validated sources, or Core preserves the previous
+cache and reports an evidence failure.
+
+Restork is not limited to DeepSeek. Open **Settings → Providers**, choose and save a concrete GLM,
+Kimi, Qwen, Ollama, OpenRouter, DeepSeek, or OpenAI-compatible Provider Profile, then press
+**Test model** on that saved card. The diagnostic endpoint uses the selected profile ID, exact model,
+endpoint policy, native secret reference, and vendor adapter; it never substitutes the built-in
+DeepSeek profile. A saved DeepSeek V4 Flash card additionally exposes **Test web search**.
+
+The Dashboard **Model Center** lists those saved profiles and the providers that can still be added.
+Selecting a saved profile tests that exact provider/model pair. Selecting an unconfigured provider
+shows its provider-scoped terminal command (for example `restorkd provider configure qwen`, or
+`ollama serve` for local Ollama) and keeps network-test buttons disabled until the profile is saved.
 
 ## Rust-first workspace pages
 
@@ -71,6 +93,11 @@ value here.
 configured Profile deliberately. The built-in direct DeepSeek option is public-only. Before a tool
 or source can be accessed, conversation produces a separate reviewable Run proposal. Session search
 uses local FTS, histories scroll inside a bounded region, and export/archive/delete are explicit.
+
+The exact provider/model is visible above the message history. **Use another model** creates a new
+branch instead of mutating that frozen choice: it carries at most 24 recent messages / 120 KB,
+strips old execution metadata, and asks Core to re-check the target Profile's data boundary. The
+original conversation remains available in the session rail.
 
 **Settings** contains personal display preferences, Provider records, Configuration Profiles, and
 immutable Prompt revisions. The API-key field is intentionally absent: a Provider stores only a
@@ -166,9 +193,12 @@ uv run restork provider configure
 uv run restork doctor
 uv run restork doctor --connect
 uv run restork doctor --smoke
+uv run restork doctor --web-search
 ```
 
-Only the last two commands access DeepSeek; `--smoke` implies the connection check.
+Only the last three commands access DeepSeek. `--smoke` tests V4 Pro; `--web-search` tests V4 Flash
+and its server-side search capability. Both imply the model-list connection check and use the same
+native credential.
 
 Exchange the separate CLI pairing code, then keep the returned token only for the current shell:
 

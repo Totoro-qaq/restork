@@ -15,7 +15,7 @@ from restork.storage.runs import SQLiteRunStore
 
 class FakeProviderDiagnostics:
     def __init__(self) -> None:
-        self.smoke_requests: list[bool] = []
+        self.smoke_requests: list[tuple[bool, str]] = []
 
     def status(self) -> ProviderDiagnosticReport:
         return ProviderDiagnosticReport(
@@ -27,9 +27,15 @@ class FakeProviderDiagnostics:
             connection_checked=False,
         )
 
-    async def diagnose(self, *, smoke: bool = False) -> ProviderDiagnosticReport:
-        self.smoke_requests.append(smoke)
+    async def diagnose(
+        self,
+        *,
+        smoke: bool = False,
+        target: str = "primary",
+    ) -> ProviderDiagnosticReport:
+        self.smoke_requests.append((smoke, target))
         return ProviderDiagnosticReport(
+            model="deepseek-v4-flash" if target == "web_search" else "deepseek-v4-pro",
             status="smoke_passed" if smoke else "connected",
             message="Synthetic diagnostic complete.",
             config_present=True,
@@ -79,12 +85,19 @@ def test_provider_status_and_diagnostics_are_authenticated_and_keyless(
         headers=auth,
         json={"smoke": True},
     )
+    web_search = client.post(
+        "/v1/providers/deepseek/diagnostics",
+        headers=auth,
+        json={"smoke": True, "target": "web_search"},
+    )
 
     assert status.status_code == 200
     assert status.json()["setup_command"] == "uv run restork provider configure"
     assert smoke.status_code == 200
     assert smoke.json()["status"] == "smoke_passed"
-    assert diagnostics.smoke_requests == [True]
+    assert web_search.status_code == 200
+    assert web_search.json()["model"] == "deepseek-v4-flash"
+    assert diagnostics.smoke_requests == [(True, "primary"), (True, "web_search")]
     assert "api_key" not in smoke.text.casefold()
     assert "secret" not in smoke.text.casefold()
 

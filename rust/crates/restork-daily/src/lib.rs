@@ -376,6 +376,28 @@ pub struct PlaylistItem {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MusicEvidenceSource {
+    pub title: String,
+    pub url: String,
+    pub publisher: String,
+    pub published_on: Option<String>,
+    pub supports: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MusicResearchSummary {
+    pub status: String,
+    pub model: String,
+    pub researched_at: String,
+    pub song_analysis_en: String,
+    pub song_analysis_zh_cn: String,
+    pub popularity_reason_en: String,
+    pub popularity_reason_zh_cn: String,
+    pub popularity_supported: bool,
+    pub sources: Vec<MusicEvidenceSource>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct MusicRecommendation {
     pub item_id: String,
     pub title: String,
@@ -391,6 +413,8 @@ pub struct MusicRecommendation {
     pub published_on: Option<String>,
     pub source_url: String,
     pub cover_available: bool,
+    #[serde(default)]
+    pub research: Option<MusicResearchSummary>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -986,6 +1010,7 @@ pub fn music_snapshot_with_context(
             published_on: item.published_on.clone(),
             source_url: item.source_url.clone(),
             cover_available: !item.cover_url.is_empty(),
+            research: None,
         }),
         source,
         discoveries: discoveries.iter().take(5).cloned().collect(),

@@ -1,6 +1,6 @@
 # ADR 0005: Separate unsigned candidates from protected signed releases
 
-- Status: Accepted for Steps 18–22 execution
+- Status: Accepted; macOS Alpha exception defined by [ADR 0006](0006-public-macos-alpha.md)
 - Date: 2026-08-03
 - Deciders: Totoro (project owner), Restork maintainers
 - Extends: [ADR 0002](0002-rust-first-core-bounded-agent-loop.md)

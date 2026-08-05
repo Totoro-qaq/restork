@@ -36,13 +36,49 @@ Restork 只记录所选策略、持久阶段、最终回答与汇总用量；不
 3. 云端模型通过原生凭据流程保存 Key；界面里只填写引用，例如
    `keychain:restork/provider/deepseek`。
 4. 保存 Provider Profile，再把它绑定到一个受控 Work Profile。
-5. 在真实任务前运行**测试连接**。
+5. 在保存后的 Provider Profile 卡片上运行**测试模型**。它会使用刚才保存的供应商与精确模型；
+   只有你选择 DeepSeek Profile 时才会走 DeepSeek。
 
-API Key 不会进入 Dashboard JavaScript。从源码使用时，可运行原生配置命令：
+首页的**模型中心**会同步显示这些 Profile。选择器会展示精确模型，诊断请求会携带所选 Profile
+ID，终端配置命令也会随供应商变化。尚未保存的条目只是配置入口，不是可用的模型回退，因此
+测试按钮会保持禁用。
+
+## 在对话中切换模型
+
+打开**对话 → 换一个模型继续**，即可选择另一个已配置 Profile。这个快速选择入口借鉴了 Hermes
+Agent：显示精确供应商/模型，把供应商接入留在设置页。但 Restork 的信任语义不同——它不会在
+原地改写当前对话已经冻结的 Profile。
+
+Core 会创建一个独立对话分支：最多复制最近 24 条消息与 120 KB，移除旧请求、供应商和工具
+元数据，逐条检查目标 Profile 的数据分类上限，并在源对话已变化时原子拒绝。原对话与审计链保持
+不变。因此 public-only 云端 Profile 不能继承 personal 或 confidential 消息；请选择边界足够的
+Profile，或者从空白对话开始。
+
+API Key 不会进入 Dashboard JavaScript。从源码使用时，原生配置命令按供应商区分；省略类型时
+仍默认配置 DeepSeek：
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure qwen
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure kimi
 ```
+
+可配置 `deepseek`、`glm`、`kimi`、`qwen`、`openrouter` 与 `open_ai_compatible`。命令会打印
+一个不含 Key 的原生引用，把它填入对应 Provider Profile 即可；本地 Ollama 不需要密钥。
+
+## DeepSeek 模型分工与连接测试
+
+一个 DeepSeek API Key 可以调用多个 DeepSeek 模型 ID，Restork 不会要求你重复保存同一密钥。
+内置分工是显式路由，不是失败后的静默回退：
+
+| 用途 | 模型 | API | Dashboard / CLI 测试 |
+|---|---|---|---|
+| 主要对话与综合 | `deepseek-v4-pro` | `/chat/completions` | **测试 V4 Pro** / `restorkd doctor --smoke` |
+| 有界联网研究 | `deepseek-v4-flash` | `/responses`，强制服务端 `web_search` | **测试 V4 Flash 联网** / `restorkd doctor --web-search` |
+
+**检查 Key 与模型**（或 `restorkd doctor --connect`）只验证鉴权与模型发现，不生成回答。模型
+短句测试必须单独执行，因为 `/models` 成功不代表推理或联网工具一定可用。诊断不会偷偷切到另一个
+模型；Flash 的付费联网请求也不会自动重试，避免超时后重复计费。
 
 ## 本地 Ollama
 

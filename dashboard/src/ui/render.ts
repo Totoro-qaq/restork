@@ -5,10 +5,12 @@ import type {
   DashboardSnapshot,
   MemoryRecord,
   MusicDiscovery,
+  MusicResearchSummary,
   MusicSourceDefinition,
   PageInfo,
   ProviderDefinitionV2,
   ProviderDiagnostic,
+  ProviderKindV2,
   RadarItem,
   ResearchArtifact,
   PracticeAttemptResult,
@@ -130,7 +132,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
           ${metric("work", tr(locale, "Markdown tasks", "Markdown 任务"), String(incomplete.length), snapshot.taskBoard.configured ? tr(locale, "Markdown is canonical", "Markdown 为准") : tr(locale, "Vault not configured", "尚未配置 Vault"))}
           ${metric("study", tr(locale, "Memory records", "记忆记录"), String(memories.length), tr(locale, "Four layers · locally governed", "四层 · 本地可控"))}
         </section>
-        ${providerSetup(snapshot.provider, locale)}
+        ${providerSetup(snapshot, locale)}
         ${dailyContext(snapshot, locale)}
         <section class="view is-visible" data-view-panel="overview">${overview(snapshot, locale)}</section>
         <section class="view" data-view-panel="runs" hidden>${runsView(snapshot.runs, snapshot.pagination?.runs, locale)}</section>
@@ -164,20 +166,79 @@ function personalGreeting(snapshot: DashboardSnapshot, locale: Locale): string {
 function conversationWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
   const sessions = snapshot.workspaceV2?.sessions ?? [];
   const profiles = snapshot.workspaceV2?.profiles ?? [];
+  const providers = new Map(
+    (snapshot.workspaceV2?.providers ?? []).map((record) => [
+      record.provider.profile_id,
+      record.provider,
+    ]),
+  );
   const active = sessions.find((session) => session.status === "active");
   const customProfiles = profiles.filter(({ profile }) =>
-    profile.profile_id !== "safe-mode" && profile.profile_id !== "deepseek"
+    profile.profile_id !== "safe-mode"
+      && profile.profile_id !== "deepseek"
+      && providers.has(profile.provider_profile_id)
   );
+  const profileLabel = (profile: (typeof profiles)[number]["profile"]): string => {
+    const provider = providers.get(profile.provider_profile_id);
+    const model = provider
+      ? `${provider.display_name} / ${provider.model}`
+      : profile.provider_profile_id;
+    return `${profile.name} / ${model} / ${profile.maximum_data_class}`;
+  };
+  const builtInDeepSeek = providers.get("deepseek");
+  const builtInDeepSeekLabel = builtInDeepSeek
+    ? `${builtInDeepSeek.display_name} / ${builtInDeepSeek.model}`
+    : "DeepSeek V4 Pro";
+  const availableProfiles = [
+    {
+      profileId: "safe-mode",
+      label: tr(locale, "Safe Mode / local only / confidential", "安全模式 / 仅本地 / confidential"),
+    },
+    {
+      profileId: "deepseek",
+      label: `${builtInDeepSeekLabel} / ${tr(locale, "cloud / public only", "云端 / 仅 public")}`,
+    },
+    ...customProfiles.map(({ profile }) => ({
+      profileId: profile.profile_id,
+      label: profileLabel(profile),
+    })),
+  ];
+  const activeProfileLabel = availableProfiles.find(
+    ({ profileId }) => profileId === active?.profile_id,
+  )?.label ?? active?.profile_id ?? tr(locale, "No model selected", "尚未选择模型");
+  const firstAlternative = availableProfiles.find(
+    ({ profileId }) => profileId !== active?.profile_id,
+  )?.profileId;
+  const forkProfileOptions = availableProfiles.map(({ profileId, label }) => {
+    const current = profileId === active?.profile_id;
+    const selected = profileId === firstAlternative;
+    return `<option value="${escapeHtml(profileId)}" ${current ? "disabled" : ""} ${selected ? "selected" : ""}>${escapeHtml(label)}</option>`;
+  }).join("");
+  const alternativeCount = availableProfiles.filter(
+    ({ profileId }) => profileId !== active?.profile_id,
+  ).length;
   return `<article class="paper-card full-card conversation-workspace">
     <header><div><p class="eyebrow">WORKSPACE · TOOL-FREE INTAKE</p><h2>${tr(locale, "Conversation", "对话工作区")}</h2></div><span class="ribbon study">LOCAL</span></header>
     <div class="conversation-layout">
       <aside class="session-rail">
-        <form id="session-create-form"><label for="session-title">${tr(locale, "New conversation", "新建对话")}</label><div><input id="session-title" name="title" maxlength="240" required placeholder="${tr(locale, "What are we working on?", "这次想做什么？")}"><button type="submit">+</button></div><label for="session-profile" class="sr-only">${tr(locale, "Conversation profile", "对话 Profile")}</label><select id="session-profile" name="profile_id" aria-describedby="session-profile-help"><option value="safe-mode">${tr(locale, "Safe Mode · local only", "安全模式 · 仅本地")}</option><option value="deepseek">DeepSeek V4 Pro · ${tr(locale, "cloud · public only", "云端 · 仅 public")}</option>${customProfiles.map(({ profile }) => `<option value="${escapeHtml(profile.profile_id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.maximum_data_class)}</option>`).join("")}</select><small id="session-profile-help">${tr(locale, "The selected profile is frozen for this conversation; cloud use is never selected silently.", "所选 Profile 会固定到本次对话；系统绝不会静默切换到云端。")}</small></form>
+        <form id="session-create-form"><label for="session-title">${tr(locale, "New conversation", "新建对话")}</label><div><input id="session-title" name="title" maxlength="240" required placeholder="${tr(locale, "What are we working on?", "这次想做什么？")}"><button type="submit">+</button></div><label for="session-profile" class="sr-only">${tr(locale, "Conversation profile", "对话 Profile")}</label><select id="session-profile" name="profile_id" aria-describedby="session-profile-help"><option value="safe-mode">${tr(locale, "Safe Mode / local only", "安全模式 / 仅本地")}</option><option value="deepseek">${escapeHtml(builtInDeepSeekLabel)} / ${tr(locale, "cloud / public only", "云端 / 仅 public")}</option>${customProfiles.map(({ profile }) => `<option value="${escapeHtml(profile.profile_id)}">${escapeHtml(profileLabel(profile))}</option>`).join("")}</select><small id="session-profile-help">${tr(locale, "The selected profile freezes this exact provider and model for the conversation; cloud use is never selected silently.", "所选 Profile 会把精确的供应商与模型固定到本次对话；系统绝不会静默切换到云端。")}</small></form>
         <form id="session-search-form" class="compact-search"><label class="sr-only" for="session-search">${tr(locale, "Search conversations", "搜索对话")}</label><input id="session-search" name="query" maxlength="256" placeholder="${tr(locale, "Search message history", "搜索消息历史")}"><button type="submit">⌕</button></form><div id="session-search-results" aria-live="polite"></div>
-        <div class="session-list">${sessions.map((session) => `<button type="button" data-session-select="${escapeHtml(session.session_id)}" data-session-title="${escapeHtml(session.title)}" data-session-profile="${escapeHtml(session.profile_id)}" data-session-version="${session.version}" class="session-item ${session.session_id === active?.session_id ? "is-active" : ""}"><strong>${escapeHtml(session.title)}</strong><small>${escapeHtml(session.profile_id)} · ${formatDate(session.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "Create a conversation to begin locally.", "新建一个对话，从本地开始。")}</p>`}</div>
+        <div class="session-list">${sessions.map((session) => `<button type="button" data-session-select="${escapeHtml(session.session_id)}" data-session-title="${escapeHtml(session.title)}" data-session-profile="${escapeHtml(session.profile_id)}" data-session-version="${session.version}" data-session-updated-at="${escapeHtml(session.updated_at)}" class="session-item ${session.session_id === active?.session_id ? "is-active" : ""}"><strong>${escapeHtml(session.title)}</strong><small>${escapeHtml(session.profile_id)} · ${formatDate(session.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "Create a conversation to begin locally.", "新建一个对话，从本地开始。")}</p>`}</div>
       </aside>
-      <section class="conversation-pane" data-active-session="${escapeHtml(active?.session_id ?? "")}" data-active-profile="${escapeHtml(active?.profile_id ?? "safe-mode")}">
+      <section class="conversation-pane" data-active-session="${escapeHtml(active?.session_id ?? "")}" data-active-profile="${escapeHtml(active?.profile_id ?? "safe-mode")}" data-active-updated-at="${escapeHtml(active?.updated_at ?? "")}">
         <header><div><small>${tr(locale, "Selected conversation", "当前对话")}</small><strong id="conversation-title">${escapeHtml(active?.title ?? tr(locale, "No conversation selected", "尚未选择对话"))}</strong></div><div class="session-actions"><span>${tr(locale, "No tools before proposal review", "提案确认前不调用工具")}</span><button type="button" data-session-export ${active ? "" : "disabled"}>${tr(locale, "EXPORT", "导出")}</button><button type="button" data-session-archive ${active ? "" : "disabled"}>${tr(locale, "ARCHIVE", "归档")}</button><button type="button" class="danger-text" data-session-delete ${active ? "" : "disabled"}>${tr(locale, "DELETE", "删除")}</button></div></header>
+        <section class="conversation-model-bar" aria-label="${tr(locale, "Conversation model", "对话模型")}">
+          <div class="model-profile-current"><small>MODEL PROFILE · ${tr(locale, "FROZEN", "已固定")}</small><strong id="conversation-profile-label">${escapeHtml(activeProfileLabel)}</strong><span>${tr(locale, "This exact provider and model remain attached to the original audit chain.", "这个供应商与模型会继续绑定原对话的审计链。")}</span></div>
+          <details ${active ? "" : "hidden"}>
+            <summary>${tr(locale, "Use another model", "换一个模型继续")}</summary>
+            <form id="session-fork-form" data-source-updated-at="${escapeHtml(active?.updated_at ?? "")}">
+              <label>${tr(locale, "Configured Profile", "已配置 Profile")}<select name="profile_id" ${alternativeCount ? "" : "disabled"}>${forkProfileOptions}</select></label>
+              <p>${tr(locale, "Restork creates a separate branch, copies at most 24 recent messages / 120 KB, and checks every data boundary first. The original conversation stays unchanged.", "Restork 会新建独立分支，最多复制最近 24 条消息 / 120 KB，并先检查每条数据边界；原对话保持不变。")}</p>
+              <div><button type="submit" ${alternativeCount ? "" : "disabled"}>${tr(locale, "FORK WITH THIS MODEL", "用这个模型分叉")}</button><button type="button" class="quiet-button" data-open-provider-settings>${tr(locale, "MODEL SETTINGS", "模型设置")}</button></div>
+              <p id="session-fork-status" role="status"></p>
+            </form>
+          </details>
+        </section>
         <div id="conversation-messages" class="conversation-messages" tabindex="0" aria-live="polite"><p class="empty">${active ? tr(locale, "Loading local messages…", "正在加载本地消息…") : tr(locale, "Choose or create a conversation.", "请选择或新建对话。")}</p></div>
         <div id="conversation-wait" aria-live="polite"></div>
         <details class="context-preview" ${active && active.profile_id !== "safe-mode" ? "" : "hidden"}><summary>${tr(locale, "Add local files with an exact context preview", "添加本地文件并预览确切上下文")}</summary><form id="context-preview-form"><label>${tr(locale, "Text files (explicit selection only)", "文本文件（仅明确选择）")}<input name="files" type="file" multiple accept=".md,.txt,.json,.csv,.ts,.tsx,.js,.jsx,.py,.rs,.go,.toml,.yaml,.yml"></label><label>${tr(locale, "Data class", "数据分类")}<select name="data_class"><option value="public">public</option><option value="personal">personal</option><option value="confidential">confidential</option></select></label><button type="submit">${tr(locale, "PREVIEW CONTEXT", "预览上下文")}</button></form><div id="context-preview-result" role="status"><p class="fine">${tr(locale, "Restork reads only files you choose here. The preview expires in 15 minutes and can be used once.", "Restork 只读取你在这里选择的文件；预览 15 分钟后过期且只能使用一次。")}</p></div></details>
@@ -270,7 +331,7 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
         <p class="fine">${tr(locale, "Your display name is not sent to a model unless a profile explicitly opts in.", "称呼默认不会发送给模型，只有明确启用的 Profile 才会包含它。")}</p>
       </section>
       <section class="settings-section"><header><div><small>MODEL CENTER</small><h3>${tr(locale, "Providers", "模型供应商")}</h3></div><span>${providers.length}</span></header>
-        <div class="settings-records">${providers.map((record) => `<article><strong>${escapeHtml(record.provider.display_name)}</strong><span>${escapeHtml(record.provider.kind)} · ${escapeHtml(record.provider.model)}</span><small>v${record.revision} · ${tr(locale, "reasoning", "思考强度")} ${escapeHtml(record.provider.reasoning?.effort ?? "auto")} · ${record.provider.secret_ref ? tr(locale, "native secret reference", "原生密钥引用") : tr(locale, "no secret", "无需密钥")}</small><button type="button" data-provider-edit="${escapeHtml(record.provider.profile_id)}" data-provider-record="${escapeHtml(JSON.stringify(record))}">${tr(locale, "EDIT", "编辑")}</button></article>`).join("") || `<p class="empty">${tr(locale, "Choose a cloud provider, local Ollama, or a generic OpenAI-compatible endpoint.", "选择云端供应商、本地 Ollama 或通用 OpenAI 兼容端点。")}</p>`}</div>
+        <div class="settings-records">${providers.map((record) => `<article data-provider-profile-card="${escapeHtml(record.provider.profile_id)}"><strong>${escapeHtml(record.provider.display_name)}</strong><span>${escapeHtml(record.provider.kind)} · ${escapeHtml(record.provider.model)}</span><small>v${record.revision} · ${tr(locale, "reasoning", "思考强度")} ${escapeHtml(record.provider.reasoning?.effort ?? "auto")} · ${record.provider.secret_ref ? tr(locale, "native secret reference", "原生密钥引用") : tr(locale, "no secret", "无需密钥")}</small><div class="provider-record-actions"><button type="button" data-provider-edit="${escapeHtml(record.provider.profile_id)}" data-provider-record="${escapeHtml(JSON.stringify(record))}">${tr(locale, "EDIT", "编辑")}</button><button type="button" data-provider-profile-test="${escapeHtml(record.provider.profile_id)}" data-provider-model="${escapeHtml(record.provider.model)}">${tr(locale, "TEST MODEL", "测试模型")}</button>${record.provider.kind === "deepseek" && record.provider.model === "deepseek-v4-flash" ? `<button type="button" data-provider-profile-test="${escapeHtml(record.provider.profile_id)}" data-provider-model="${escapeHtml(record.provider.model)}" data-provider-web-search="true">${tr(locale, "TEST WEB SEARCH", "测试联网")}</button>` : ""}</div><div data-provider-profile-result role="status" aria-live="polite"></div></article>`).join("") || `<p class="empty">${tr(locale, "Choose a cloud provider, local Ollama, or a generic OpenAI-compatible endpoint.", "选择云端供应商、本地 Ollama 或通用 OpenAI 兼容端点。")}</p>`}</div>
         <form id="provider-profile-form" data-version="0">
           <label>ID<input name="profile_id" required maxlength="80" pattern="[A-Za-z0-9._-]+" placeholder="deepseek-main"></label>
           <label>${tr(locale, "Name", "名称")}<input name="display_name" required maxlength="120" placeholder="DeepSeek V4 Pro"></label>
@@ -282,7 +343,7 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
           <label>${tr(locale, "Native secret reference (never the key)", "原生密钥引用（绝不是 Key 本身）")}<input name="secret_ref" maxlength="256" placeholder="keychain:restork/provider/deepseek"></label>
           <button type="submit">${tr(locale, "SAVE PROVIDER", "保存供应商")}</button><p id="provider-profile-status" role="status"></p>
         </form>
-        <p class="fine">${tr(locale, "Each provider exposes only supported reasoning levels. The selected policy is frozen with the profile and run; Restork does not retain or display private chain-of-thought. Cloud keys use the native secret prompt or CLI and never pass through Dashboard JavaScript.", "每个供应商只显示真正支持的思考档位；所选策略会随 Profile 与运行冻结。Restork 不保存、也不展示模型的私有思维链。云端 Key 只经原生密钥提示或 CLI，绝不经过 Dashboard JavaScript。")}</p>
+        <p class="fine">${tr(locale, "Save a Provider Profile, then test that exact provider and model from its card. Configure cloud keys with `restorkd provider configure <kind>` and paste only the printed native reference here. Each provider exposes only supported reasoning levels; Restork never retains private chain-of-thought or passes a key through Dashboard JavaScript.", "先保存 Provider Profile，再从对应卡片测试该供应商与精确模型。云端 Key 使用 `restorkd provider configure <类型>` 配置，这里只填写命令打印的原生引用。每个供应商只显示真正支持的思考档位；Restork 不保存私有思维链，Key 也绝不经过 Dashboard JavaScript。")}</p>
       </section>
       <section class="settings-section"><header><div><small>PROMPT STUDIO</small><h3>${tr(locale, "Versioned instructions", "版本化指令")}</h3></div><span>${prompts.length}</span></header>
         <div class="settings-records prompt-history">${prompts.map((record) => `<article><strong>${escapeHtml(record.prompt.prompt_id)} · v${record.prompt.revision}</strong><span>${escapeHtml(record.prompt.layer)} · ${escapeHtml(record.content_hash.slice(0, 12))}…</span><small>${record.active ? tr(locale, "ACTIVE", "当前启用") : formatDate(record.created_at, locale)}</small>${record.active ? "" : `<button type="button" data-prompt-activate="${record.prompt.revision}" data-prompt-id="${escapeHtml(record.prompt.prompt_id)}" data-active-revision="${activePrompt?.prompt.revision ?? 0}">${tr(locale, "ACTIVATE", "启用")}</button>`}</article>`).join("") || `<p class="empty">${tr(locale, "Create a personal or Skill prompt revision. Core policy cannot be edited here.", "新建个人或 Skill Prompt 修订；Core Policy 不能在这里编辑。")}</p>`}</div>
@@ -391,21 +452,32 @@ export function providerDiagnosticMarkup(
       : tr(locale, `${report.total_tokens} test tokens`, `${report.total_tokens} 个测试 token`),
   ].filter((value): value is string => value !== null);
   return `<article class="provider-diagnostic-result ${successful ? "is-ready" : "is-action"}" data-provider-status="${escapeHtml(report.status)}">
-    <strong>${escapeHtml(report.status.replaceAll("_", " ").toUpperCase())}</strong>
+    <strong>${escapeHtml(report.model)} · ${escapeHtml(report.status.replaceAll("_", " ").toUpperCase())}</strong>
     <p>${escapeHtml(providerStatusMessage(report.status, locale))}</p>
     ${facts.length ? `<small>${facts.map(escapeHtml).join(" · ")}</small>` : ""}
     ${report.restart_required ? `<em>${tr(locale, "Restart Restork Core before starting a model-backed run.", "启动模型任务前，请重启 Restork Core。")}</em>` : ""}
   </article>`;
 }
 
-export function providerWaitMarkup(smoke: boolean, locale: Locale = "en"): string {
+export function providerWaitMarkup(
+  smoke: boolean,
+  locale: Locale = "en",
+  target: "primary" | "web_search" = "primary",
+  model?: string,
+): string {
+  const webSearch = target === "web_search";
+  const label = model ?? (webSearch ? "deepseek-v4-flash" : smoke ? "selected model" : "model access");
   return `<section class="provider-wait" role="status" aria-live="polite" aria-busy="true">
     <div class="typewriter-motion" aria-hidden="true"><i></i><i></i><i></i><span></span></div>
-    <div><small>${smoke ? "FIXED PUBLIC SMOKE TEST" : "BOUNDED MODEL ACCESS CHECK"}</small>
-      <strong>${smoke
+    <div><small>${escapeHtml(label.toUpperCase())} · ${webSearch ? "WEB SEARCH" : smoke ? "FIXED PUBLIC SMOKE TEST" : "MODEL ACCESS"}</small>
+      <strong>${webSearch
+        ? tr(locale, "Running one minimal server-side web search…", "正在运行一次最小服务端联网检索……")
+        : smoke
         ? tr(locale, "Waiting for the fixed low-token completion…", "正在等待固定的低 token 短句响应…")
         : tr(locale, "Checking authentication and model access…", "正在检查认证与模型权限…")}</strong>
-      <p>${tr(locale, "No Vault, memory, task, location, or daily-context content is included.", "不会包含 Vault、记忆、任务、位置或每日上下文内容。")}</p>
+      <p>${webSearch
+        ? tr(locale, "Uses a fixed public query and may incur a small API charge; no personal context is included.", "使用固定公开查询，可能产生少量 API 费用；不包含任何个人上下文。")
+        : tr(locale, "No Vault, memory, task, location, or daily-context content is included.", "不会包含 Vault、记忆、任务、位置或每日上下文内容。")}</p>
     </div>
   </section>`;
 }
@@ -600,26 +672,73 @@ export function errorText(error: unknown, locale: Locale = "en"): string {
     : tr(locale, "Unexpected local error", "发生意外的本地错误");
 }
 
-function providerSetup(report: ProviderDiagnostic | null, locale: Locale): string {
-  const setupCommand = report?.setup_command ?? "restorkd provider configure";
-  const status = report?.status ?? "provider_unavailable";
+function providerNativeCommand(kind: ProviderKindV2): string {
+  return kind === "ollama"
+    ? "ollama serve"
+    : `restorkd provider configure ${kind}`;
+}
+
+function providerSetup(snapshot: DashboardSnapshot, locale: Locale): string {
+  const report = snapshot.provider;
+  const records = snapshot.workspaceV2?.providers ?? [];
+  const definitions = snapshot.workspaceV2?.providerRegistry?.items ?? [];
+  const configured = records.map(({ provider }) => ({
+    profileId: provider.profile_id,
+    displayName: provider.display_name,
+    kind: provider.kind,
+    model: provider.model,
+    authKind: definitions.find((item) => item.kind === provider.kind)?.auth_kind
+      ?? (provider.kind === "ollama" ? "none" : "bearer"),
+  }));
+  if (report && !configured.some((item) => item.profileId === report.provider)) {
+    configured.unshift({
+      profileId: report.provider,
+      displayName: report.provider === "deepseek" ? "DeepSeek V4 Pro" : report.provider,
+      kind: report.provider === "deepseek" ? "deepseek" : "open_ai_compatible",
+      model: report.model,
+      authKind: "bearer",
+    });
+  }
+  const selected = configured.find((item) => item.profileId === report?.provider)
+    ?? configured[0];
+  const selectedKind = selected?.kind ?? "deepseek";
+  const selectedModel = selected?.model ?? report?.model ?? "deepseek-v4-pro";
+  const setupCommand = providerNativeCommand(selectedKind);
+  const status = report && report.provider === selected?.profileId
+    ? report.status
+    : selected
+    ? "not_tested"
+    : "setup_required";
+  const configuredOptions = configured.map((item) => `<option value="${escapeHtml(item.profileId)}" data-provider-profile-id="${escapeHtml(item.profileId)}" data-provider-kind="${escapeHtml(item.kind)}" data-provider-model="${escapeHtml(item.model)}" data-provider-name="${escapeHtml(item.displayName)}" data-provider-auth-kind="${escapeHtml(item.authKind)}" data-provider-configured="true" ${item.profileId === selected?.profileId ? "selected" : ""}>${escapeHtml(`${item.displayName} / ${item.model}`)}</option>`).join("");
+  const availableOptions = definitions.map((definition) => `<option value="setup:${escapeHtml(definition.kind)}" data-provider-profile-id="" data-provider-kind="${escapeHtml(definition.kind)}" data-provider-model="" data-provider-name="${escapeHtml(definition.display_name)}" data-provider-auth-kind="${escapeHtml(definition.auth_kind)}" data-provider-configured="false">${escapeHtml(tr(locale, `Add ${definition.display_name}`, `配置 ${definition.display_name}`))}</option>`).join("");
+  const setupHelp = selectedKind === "ollama"
+    ? tr(locale, "No API key is needed. Restork only connects to the exact local loopback endpoint saved in this profile.", "无需 API Key。Restork 只会连接这个 Profile 中保存的本机 loopback 地址。")
+    : tr(locale, "The command stores the key in native credentials. Only its non-secret reference is saved in the profile.", "命令会把 Key 存入系统凭据库，Profile 只保存不含密钥的引用。")
+  const reportMarkup = report && report.provider === selected?.profileId
+    ? providerDiagnosticMarkup(report, locale)
+    : `<p>${selected
+      ? tr(locale, "This saved model has not been tested in this view yet.", "这个已保存模型尚未在当前页面测试。")
+      : tr(locale, "Choose a provider, finish its local setup, then test the exact model.", "请选择供应商，完成本地配置后再测试精确模型。")}</p>`;
   return `<section class="provider-console" aria-labelledby="provider-title">
     <header>
-      <div><p class="eyebrow">MODEL ACCESS · KEYCHAIN</p><h2 id="provider-title">DeepSeek V4 Pro</h2></div>
+      <div><p class="eyebrow">MODEL CENTER · NATIVE CREDENTIALS</p><h2 id="provider-title" data-provider-selected-name>${escapeHtml(selected?.displayName ?? tr(locale, "Choose a provider", "选择供应商"))}</h2><small data-provider-selected-model>${escapeHtml(selected ? `${selected.kind} / ${selectedModel}` : tr(locale, "No model profile saved", "尚未保存模型 Profile"))}</small></div>
       <span class="provider-status" data-provider-summary="${escapeHtml(status)}">${escapeHtml(status.replaceAll("_", " "))}</span>
     </header>
     <div class="provider-instructions">
-      <p>${tr(locale, "Add or replace the API key in Terminal. The browser never receives it.", "请在终端添加或替换 API Key；浏览器永远不会接收它。")}</p>
-      <code>${escapeHtml(setupCommand)}</code>
-      <small>${tr(locale, "macOS Keychain prompts securely · restart Core after setup", "由 macOS Keychain 安全提示输入 · 配置后重启 Core")}</small>
+      <label class="provider-picker" for="provider-profile-selector"><span>${tr(locale, "Provider and model", "供应商与模型")}</span><select id="provider-profile-selector" data-provider-selector>${configuredOptions ? `<optgroup label="${tr(locale, "Saved models", "已保存模型")}">${configuredOptions}</optgroup>` : ""}${availableOptions ? `<optgroup label="${tr(locale, "Add a provider", "添加供应商")}">${availableOptions}</optgroup>` : ""}</select></label>
+      <code data-provider-command>${escapeHtml(setupCommand)}</code>
+      <small data-provider-setup-help>${escapeHtml(setupHelp)}</small>
+      <small>${tr(locale, "Add or replace the API key in Terminal. The browser never receives it.", "请在终端添加或替换 API Key；浏览器永远不会接收它。")}</small>
     </div>
     <div class="provider-actions">
-      <button type="button" data-provider-diagnostic="connect">${tr(locale, "TEST CONNECTION", "测试连接")}</button>
-      <button type="button" class="quiet-button" data-provider-diagnostic="smoke">${tr(locale, "PUBLIC SMOKE TEST", "公开短句测试")}</button>
-      <small>${tr(locale, "Connection checks /models. Smoke sends one fixed public sentence (max 16 tokens).", "连接测试仅检查 /models；短句测试只发送固定公开句子（最多 16 token）。")}</small>
+      <button type="button" data-provider-diagnostic="connect" ${selected ? "" : "disabled"}>${tr(locale, "CHECK ACCESS", "检查权限")}</button>
+      <button type="button" class="quiet-button" data-provider-diagnostic="smoke" ${selected ? "" : "disabled"}>${tr(locale, "TEST MODEL", "测试模型")}</button>
+      <button type="button" class="quiet-button web-search-button" data-provider-diagnostic="web_search" ${selectedKind === "deepseek" ? "" : "hidden"}>${tr(locale, "TEST MUSIC WEB WORKER", "测试歌曲联网模型")}</button>
+      <button type="button" class="quiet-button manage-providers-button" data-open-provider-settings>${tr(locale, "MANAGE MODELS", "管理模型")}</button>
+      <small>${tr(locale, "Access checks model discovery when supported. Test model sends one fixed public low-token sentence. The DeepSeek music worker test is separate and may incur a small charge.", "权限检查会在供应商支持时读取模型列表；测试模型只发送固定的公开低 token 短句；DeepSeek 歌曲联网模型单独测试，可能产生少量费用。")}</small>
     </div>
     <div id="provider-diagnostic-result" class="provider-diagnostic-host" role="status" aria-live="polite">
-      ${report ? providerDiagnosticMarkup(report, locale) : `<p>${tr(locale, "Provider status is temporarily unavailable.", "暂时无法读取模型接入状态。")}</p>`}
+      ${reportMarkup}
     </div>
   </section>`;
 }
@@ -675,6 +794,18 @@ function providerStatusMessage(status: ProviderDiagnostic["status"], locale: Loc
     invalid_response: [
       "The provider returned an unexpected diagnostic response.",
       "模型服务返回了非预期的诊断响应。",
+    ],
+    web_search_not_executed: [
+      "The model responded, but its required web-search tool did not run.",
+      "模型已经响应，但要求的联网搜索工具没有执行。",
+    ],
+    structured_output_invalid: [
+      "Web search completed, but the bounded structured result was invalid.",
+      "联网搜索已完成，但有界结构化结果无效。",
+    ],
+    sources_missing: [
+      "Web search completed without a valid public HTTPS source.",
+      "联网搜索已完成，但没有返回有效的公网 HTTPS 来源。",
     ],
     policy_denied: [
       "Restork's outbound policy denied this check.",
@@ -791,8 +922,8 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
         <line data-clock-hour class="clock-hand hour-hand" x1="50" y1="53" x2="50" y2="29"></line><line data-clock-minute class="clock-hand minute-hand" x1="50" y1="54" x2="50" y2="19"></line><line data-clock-second class="clock-hand second-hand" x1="50" y1="57" x2="50" y2="16"></line><circle class="clock-pin" cx="50" cy="50" r="2.5"></circle>
       </svg><time id="clock-text">${tr(locale, "Reading local time…", "读取本地时间…")}</time>
     </article>
-    <article class="daily-card weather-card"><header><h2>${tr(locale, "Weather", "天气")}</h2><span>${escapeHtml(weather?.status ?? "offline")}</span></header>
-      ${weather?.configured && weather.temperature_c !== null ? `<strong class="weather-temperature">${weather.temperature_c.toFixed(1)}°</strong><p>${escapeHtml(weather.condition)} · ${tr(locale, "feels like", "体感")} ${weather.apparent_temperature_c?.toFixed(1) ?? "–"}°</p><small>${escapeHtml(weather.location_label)} · ${tr(locale, "humidity", "湿度")} ${weather.relative_humidity_percent ?? "–"}%</small><em>${escapeHtml(weather.attribution)}</em>` : `<p class="daily-empty">${escapeHtml(weather?.message ?? tr(locale, "Configure weather in the private Profile; no network request is being made.", "在私有 Profile 中配置天气；当前没有网络请求。"))}</p>`}
+    <article class="daily-card weather-card"><header><h2>${tr(locale, "Weather", "天气")}</h2><span>${escapeHtml(dailyStatusLabel(weather?.status ?? "offline", locale))}</span></header>
+      ${weather?.configured && weather.temperature_c !== null ? `<strong class="weather-temperature">${weather.temperature_c.toFixed(1)}°</strong><p>${escapeHtml(weather.condition)} · ${tr(locale, "feels like", "体感")} ${weather.apparent_temperature_c?.toFixed(1) ?? "–"}°</p><small>${escapeHtml(weather.location_label)} · ${tr(locale, "humidity", "湿度")} ${weather.relative_humidity_percent ?? "–"}%</small><em>${escapeHtml(weather.attribution)}</em>` : `<p class="daily-empty">${escapeHtml(localeCompatibleMessage(weather?.message, locale) || tr(locale, "Configure weather in the private Profile; no network request is being made.", "天气尚未启用；可以手动填写城市，也可以在明确授权后使用一次当前位置。"))}</p>`}
       <button type="button" class="settings-trigger" data-weather-open>${weather?.configured ? tr(locale, "CHANGE LOCATION", "修改位置") : tr(locale, "SET UP WEATHER", "设置天气")}</button>
       <dialog id="weather-settings-dialog" class="settings-dialog weather-settings" aria-labelledby="weather-settings-title">
         <form id="weather-form">
@@ -804,7 +935,7 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
         </form>
       </dialog>
     </article>
-    <article class="daily-card calendar-card"><header><h2>${tr(locale, "Calendar", "日历")}</h2><span>${escapeHtml(calendar?.configured ? calendar.status : systemDaily ? "system" : "local")}</span></header>
+    <article class="daily-card calendar-card"><header><h2>${tr(locale, "Calendar", "日历")}</h2><span>${escapeHtml(dailyStatusLabel(calendar?.configured ? calendar.status : systemDaily ? "system" : "local", locale))}</span></header>
       ${calendarMonth(calendarDate, calendar?.events ?? [], weekStart, locale)}
       <button type="button" class="settings-trigger" data-calendar-open>${calendar?.configured ? tr(locale, "CALENDAR SETTINGS", "日历设置") : tr(locale, "CONNECT CALENDAR", "连接日历")}</button>
       <dialog id="calendar-settings-dialog" class="settings-dialog calendar-settings" aria-labelledby="calendar-settings-title">
@@ -819,8 +950,8 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
         </form>
       </dialog>
     </article>
-    <article class="daily-card music-card"><header><h2>${tr(locale, "Daily track", "每日一曲")}</h2><span>${escapeHtml(music?.source?.provider ?? music?.status ?? "offline")}</span></header>
-      ${recommendation ? `<div class="music-layout"><div class="disc" data-music-disc><div class="disc-label"><span>RESTORK</span><img id="music-cover" alt="${escapeHtml(tr(locale, `${recommendation.title} cover`, `${recommendation.title} 封面`))}" hidden></div></div><div class="music-copy"><strong>${escapeHtml(recommendation.title)}</strong><p>${escapeHtml([recommendation.artist, recommendation.album].filter(Boolean).join(" · ") || tr(locale, "Private playlist", "私有歌单"))}</p>${musicRecommendationInsights(recommendation, music?.source?.provider ?? "", locale)}<div class="music-track-actions"><button type="button" data-music-toggle aria-pressed="false">${tr(locale, "ROTATE CD", "转动唱片")}</button>${recommendation.source_url ? `<a href="${escapeHtml(recommendation.source_url)}" target="_blank" rel="noopener noreferrer">${tr(locale, "SOURCE", "来源")}</a>` : ""}</div></div></div>` : `<p class="daily-empty">${escapeHtml(music?.message ?? tr(locale, "Connect a supported music source or import a private JSON/CSV playlist.", "连接受支持的音乐来源，或导入私有 JSON/CSV 歌单。"))}</p>`}
+    <article class="daily-card music-card"><header><h2>${tr(locale, "Daily track", "每日一曲")}</h2><span>${escapeHtml(music?.source?.provider ?? dailyStatusLabel(music?.status ?? "offline", locale))}</span></header>
+      ${recommendation ? `<div class="music-layout"><div class="disc" data-music-disc><div class="disc-label"><span>RESTORK</span><img id="music-cover" alt="${escapeHtml(tr(locale, `${recommendation.title} cover`, `${recommendation.title} 封面`))}" hidden></div></div><div class="music-copy"><strong>${escapeHtml(recommendation.title)}</strong><p>${escapeHtml([recommendation.artist, recommendation.album].filter(Boolean).join(" · ") || tr(locale, "Private playlist", "私有歌单"))}</p>${musicRecommendationInsights(recommendation, music?.source?.provider ?? "", locale)}<div class="music-track-actions"><button type="button" data-music-toggle aria-pressed="false">${tr(locale, "ROTATE CD", "转动唱片")}</button><button type="button" data-music-research aria-describedby="music-research-consent">${tr(locale, "RESEARCH ONLINE", "联网分析")}</button>${recommendation.source_url ? `<a href="${escapeHtml(recommendation.source_url)}" target="_blank" rel="noopener noreferrer">${tr(locale, "TRACK SOURCE", "歌曲来源")}</a>` : ""}</div><small id="music-research-consent" class="music-research-consent" role="status">${tr(locale, "Uses the same API key with V4 Flash Web Search. Sends only this title, artist and album; a small API charge may apply.", "使用同一 API Key 调用 V4 Flash 联网检索；只发送当前歌名、歌手与专辑，可能产生少量 API 费用。")}</small></div></div>` : `<p class="daily-empty">${escapeHtml(localeCompatibleMessage(music?.message, locale) || tr(locale, "Connect a supported music source or import a private JSON/CSV playlist.", "连接受支持的音乐来源，或导入私有 JSON/CSV 歌单。"))}</p>`}
       ${musicSourceSummary(music?.source, locale)}
       ${musicDiscoveries(music?.discoveries ?? [], locale)}
       <button type="button" class="settings-trigger" data-music-open>${music?.configured ? tr(locale, "MANAGE PLAYLIST", "管理歌单") : tr(locale, "CONNECT PLAYLIST", "连接歌单")}</button>
@@ -984,6 +1115,7 @@ function musicRecommendationInsights(
   provider: string,
   locale: Locale,
 ): string {
+  const research = recommendation.research;
   const reason = tr(
     locale,
     "Selected from your private playlist with a stable daily rotation, so the same day can be replayed and explained.",
@@ -994,15 +1126,60 @@ function musicRecommendationInsights(
     recommendation.language ? tr(locale, `language ${recommendation.language}`, `语种 ${recommendation.language}`) : "",
     recommendation.genre ? tr(locale, `genre ${recommendation.genre}`, `流派 ${recommendation.genre}`) : "",
   ].filter(Boolean).join(tr(locale, "; ", "；"));
-  const analysis = facts || recommendation.song_analysis || tr(
+  const legacyAnalysis = localeCompatibleMusicText(recommendation.song_analysis, locale);
+  const legacyPopularity = localeCompatibleMusicText(recommendation.popularity_reason, locale);
+  const analysis = (research
+    ? (locale === "zh-CN" ? research.song_analysis_zh_cn : research.song_analysis_en)
+    : "") || facts || legacyAnalysis || tr(
     locale,
-    "No reviewed song-detail evidence is cached yet. Refresh the source to analyze today's track.",
-    "尚未缓存经过核验的歌曲资料；刷新来源后即可分析今日歌曲。",
+    "No reviewed song-detail evidence is cached yet. Choose Research online to investigate today's track.",
+    "尚未缓存经过核验的歌曲资料；可点击“联网分析”研究今日歌曲。",
   );
-  const popularity = recommendation.popularity_reason || (provider === "qqmusic"
+  const popularity = (research
+    ? (locale === "zh-CN" ? research.popularity_reason_zh_cn : research.popularity_reason_en)
+    : "") || legacyPopularity || (provider === "qqmusic"
     ? tr(locale, "No current chart evidence was recorded for this track, so Restork will not invent a reason for its popularity.", "本次没有记录到这首歌的当前榜单证据，因此 Restork 不会编造它走红的原因。")
-    : tr(locale, "Popularity evidence is available only after an explicit connected-source refresh.", "只有主动刷新联网来源后，才会显示热度证据。"));
-  return `<dl class="music-insights"><div><dt>${tr(locale, "WHY TODAY", "为什么推荐")}</dt><dd>${escapeHtml(reason)}</dd></div><div><dt>${tr(locale, "SONG NOTES", "歌曲解读")}</dt><dd>${escapeHtml(analysis)}</dd></div><div><dt>${tr(locale, "WHY IT IS HOT", "为什么火")}</dt><dd>${escapeHtml(popularity)}</dd></div></dl>`;
+    : tr(locale, "Popularity evidence is available after an explicit online research pass.", "主动执行一次联网分析后，才会显示热度证据。"));
+  return `<dl class="music-insights"><div><dt>${tr(locale, "WHY TODAY", "为什么推荐")}</dt><dd>${escapeHtml(reason)}</dd></div><div><dt>${tr(locale, "SONG NOTES", "歌曲解读")}</dt><dd>${escapeHtml(analysis)}</dd></div><div><dt>${tr(locale, "WHY IT IS HOT", "为什么火")}</dt><dd>${escapeHtml(popularity)}</dd></div></dl>${musicResearchSources(research, locale)}`;
+}
+
+function localeCompatibleMusicText(value: string | null | undefined, locale: Locale): string {
+  return localeCompatibleMessage(value, locale);
+}
+
+function localeCompatibleMessage(value: string | null | undefined, locale: Locale): string {
+  const text = value?.trim() ?? "";
+  if (!text) return "";
+  if (locale === "zh-CN") {
+    return /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u.test(text) ? text : "";
+  }
+  return /[A-Za-z]{2}/u.test(text) ? text : "";
+}
+
+function dailyStatusLabel(status: string, locale: Locale): string {
+  const labels: Record<string, readonly [string, string]> = {
+    not_configured: ["off", "未启用"],
+    offline: ["offline", "离线"],
+    ready: ["ready", "就绪"],
+    fresh: ["fresh", "最新"],
+    stale: ["stale", "已过期"],
+    error: ["error", "异常"],
+    system: ["system", "系统"],
+    local: ["local", "本地"],
+  };
+  const label = labels[status];
+  return label ? tr(locale, label[0], label[1]) : status;
+}
+
+function musicResearchSources(
+  research: MusicResearchSummary | null | undefined,
+  locale: Locale,
+): string {
+  if (!research?.sources.length) return "";
+  const status = research.status === "stale"
+    ? tr(locale, "STALE CACHE", "缓存已过期")
+    : research.status.toUpperCase();
+  return `<details class="music-research-sources"><summary>${tr(locale, `WEB EVIDENCE · ${research.sources.length} SOURCES`, `联网证据 · ${research.sources.length} 个来源`)}</summary><div><small>${escapeHtml(research.model)} · ${escapeHtml(status)} · ${escapeHtml(musicDate(research.researched_at, locale))}</small>${research.sources.map((source, index) => `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer"><b>${index + 1}</b><span>${escapeHtml(source.title)}</span><em>${escapeHtml(source.publisher || tr(locale, "public source", "公开来源"))}</em></a>`).join("")}</div></details>`;
 }
 
 function musicSourceSummary(
@@ -1022,7 +1199,12 @@ function musicDiscoveries(discoveries: MusicDiscovery[], locale: Locale): string
       : tr(locale, "A current Cantonese chart entry that expands beyond the artists already in your playlist.", "一首当前上榜的粤语歌，用来扩展你现有歌手圈之外的发现。")
     const facts = [item.published_on ? tr(locale, `released ${musicDate(item.published_on, locale)}`, `发行于 ${musicDate(item.published_on, locale)}`) : "", item.language, item.genre, item.label].filter(Boolean).join(tr(locale, " · ", " · "));
     const popularity = tr(locale, `#${item.chart_rank} on ${item.chart_name}${item.chart_updated_on ? ` · updated ${musicDate(item.chart_updated_on, locale)}` : ""}.`, `${item.chart_name}第 ${item.chart_rank} 位${item.chart_updated_on ? ` · 更新于 ${musicDate(item.chart_updated_on, locale)}` : ""}。`);
-    return `<article><header><b>#${item.chart_rank} ${escapeHtml(item.title)}</b><a href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">${tr(locale, "SOURCE", "来源")}</a></header><p>${escapeHtml(item.artist)}${item.album ? ` · ${escapeHtml(item.album)}` : ""}</p><small><b>${tr(locale, "For you:", "推荐给你：")}</b> ${escapeHtml(affinity)}</small><small><b>${tr(locale, "Song:", "歌曲：")}</b> ${escapeHtml(facts || item.song_analysis)}</small><small><b>${tr(locale, "Evidence:", "热度证据：")}</b> ${escapeHtml(popularity)}</small></article>`;
+    const song = facts || localeCompatibleMusicText(item.song_analysis, locale) || tr(
+      locale,
+      "No reviewed song details are available yet.",
+      "暂时没有经过核验的歌曲资料。",
+    );
+    return `<article><header><b>#${item.chart_rank} ${escapeHtml(item.title)}</b><a href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">${tr(locale, "SOURCE", "来源")}</a></header><p>${escapeHtml(item.artist)}${item.album ? ` · ${escapeHtml(item.album)}` : ""}</p><small><b>${tr(locale, "For you:", "推荐给你：")}</b> ${escapeHtml(affinity)}</small><small><b>${tr(locale, "Song:", "歌曲：")}</b> ${escapeHtml(song)}</small><small><b>${tr(locale, "Evidence:", "热度证据：")}</b> ${escapeHtml(popularity)}</small></article>`;
   }).join("")}</div></details>`;
 }
 

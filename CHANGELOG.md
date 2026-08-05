@@ -9,6 +9,8 @@ All notable changes to Restork are documented here.
   budgets without silent fallback or private chain-of-thought retention.
 - Added durable cancellable conversation SSE, explicit context preview, macOS EventKit onboarding,
   and honest Windows/Linux native-calendar capability states with universal read-only ICS fallback.
+- Added an in-conversation model picker inspired by Hermes Agent that forks a bounded context into a
+  separately governed Profile instead of silently rewriting the original conversation or audit chain.
 - Added real bounded MCP stdio execution, immutable extension revision history, atomic activation,
   and verified rollback.
 - Added deterministic local PPTX/PDF rendering, evidence/theme/renderer manifests, exact preview and
@@ -23,8 +25,9 @@ All notable changes to Restork are documented here.
   clean-machine jobs prove Core readiness plus browser pairing instead of checking only a process.
 - Added a bilingual project site, provider and Hermes comparison guides, launch drafts, issue forms,
   contribution templates, governance/support policies, and product-focused English/Chinese READMEs.
-- Real public signing remains intentionally unclaimed until protected owner credentials are supplied
-  and the tag workflow passes on clean target runners.
+- Added a visibly labeled, ad-hoc-signed Apple Silicon macOS Alpha release path with a Tauri-signed
+  updater, SHA-256 ledger, SBOM, provenance, and downloaded-DMG lifecycle checks. Apple Developer ID
+  signing/notarization and protected Windows/Linux releases remain intentionally unclaimed.
 
 ## 0.1.2 — 2026-08-02
 

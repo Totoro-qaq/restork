@@ -456,6 +456,27 @@ export interface MusicRecommendation {
   published_on?: string | null;
   source_url?: string;
   cover_available: boolean;
+  research?: MusicResearchSummary | null;
+}
+
+export interface MusicEvidenceSource {
+  title: string;
+  url: string;
+  publisher: string;
+  published_on: string | null;
+  supports: Array<"analysis" | "popularity">;
+}
+
+export interface MusicResearchSummary {
+  status: "fresh" | "cached" | "stale";
+  model: "deepseek-v4-flash";
+  researched_at: string;
+  song_analysis_en: string;
+  song_analysis_zh_cn: string;
+  popularity_reason_en: string;
+  popularity_reason_zh_cn: string;
+  popularity_supported: boolean;
+  sources: MusicEvidenceSource[];
 }
 
 export type MusicConfigurationInput =
@@ -568,6 +589,9 @@ export type ProviderStatus =
   | "provider_unavailable"
   | "model_unavailable"
   | "invalid_response"
+  | "web_search_not_executed"
+  | "structured_output_invalid"
+  | "sources_missing"
   | "policy_denied";
 
 export interface ProviderDiagnostic {
@@ -634,6 +658,15 @@ export interface SessionMessageV2 {
   context: Record<string, unknown>;
   data_class: WorkDataClass;
   created_at: string;
+}
+
+export interface SessionForkResultV2 {
+  session: SessionRecordV2;
+  source_session_id: string;
+  copied_messages: number;
+  omitted_messages: number;
+  copied_bytes: number;
+  profile_id: string;
 }
 
 export interface SessionSearchHitV2 {
@@ -1078,7 +1111,12 @@ export interface DashboardApi {
   disconnectNativeCalendar?(): Promise<DailySnapshot["calendar"]>;
   configureMusic?(input: MusicConfigurationInput): Promise<DailySnapshot["music"]>;
   refreshMusic?(localDate: string): Promise<DailySnapshot["music"]>;
-  providerDiagnostics(smoke: boolean): Promise<ProviderDiagnostic>;
+  researchMusic?(localDate: string): Promise<DailySnapshot["music"]>;
+  providerDiagnostics(
+    smoke: boolean,
+    target?: "primary" | "web_search",
+    providerProfileId?: string,
+  ): Promise<ProviderDiagnostic>;
   musicCover(): Promise<Blob | null>;
   events(runId: string, after: number): Promise<RunEvent[]>;
   streamEvents(
@@ -1092,6 +1130,13 @@ export interface DashboardApi {
   conversationPage?(runId: string, before?: string): Promise<ConversationPage>;
   sendConversation?(runId: string, content: string): Promise<ConversationTurn>;
   createSession?(title: string, profileId: string): Promise<SessionRecordV2>;
+  forkSession?(
+    sessionId: string,
+    title: string,
+    profileId: string,
+    expectedUpdatedAt: string,
+    copyLimit?: number,
+  ): Promise<SessionForkResultV2>;
   sessionMessages?(sessionId: string, after?: number): Promise<SessionMessageV2[]>;
   sendSessionMessage?(
     sessionId: string,

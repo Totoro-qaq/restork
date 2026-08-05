@@ -49,15 +49,21 @@ for (( iteration = 1; iteration <= iterations; iteration++ )); do
     line_count="$(/usr/bin/wc -l < "$diagnostics" | /usr/bin/tr -d ' ')"
   fi
   started_ms="$(/usr/bin/python3 -c 'import time; print(round(time.time() * 1000))')"
-  /usr/bin/open "$app_bundle"
+  # LaunchServices can briefly retain a terminated app registration and turn a
+  # second plain `open` into a no-op. Force a fresh process for every lifecycle
+  # iteration so the smoke test measures Restork rather than that cache window.
+  /usr/bin/open -n "$app_bundle"
   ready=0
+  desktop_seen=0
   for _attempt in {1..120}; do
     if [[ -f "$diagnostics" ]] && /usr/bin/tail -n "+$((line_count + 1))" "$diagnostics" \
       | /usr/bin/grep -q '"event":"browser_session_stored"'; then
       ready=1
       break
     fi
-    if ! desktop_running; then
+    if desktop_running; then
+      desktop_seen=1
+    elif [[ "$desktop_seen" == "1" ]]; then
       break
     fi
     sleep 0.1

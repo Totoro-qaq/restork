@@ -10,6 +10,7 @@ from restork.daily.apple_music import AppleMusicClient
 from restork.daily.calendar import LocalCalendar
 from restork.daily.models import CalendarSnapshot, DailySnapshot, MusicSnapshot
 from restork.daily.music import LocalMusicLibrary
+from restork.daily.music_research import DeepSeekMusicResearch
 from restork.daily.netease import NetEaseMusicClient
 from restork.daily.qqmusic import QQMusicClient
 from restork.daily.weather import OpenMeteoWeather, ResolvedWeatherLocation
@@ -28,11 +29,13 @@ class DailyContextService:
         qqmusic: QQMusicClient | None = None,
         netease: NetEaseMusicClient | None = None,
         apple_music: AppleMusicClient | None = None,
+        music_research: DeepSeekMusicResearch | None = None,
     ) -> None:
         self._profile = profile
         self._weather = weather
         self._calendar = calendar or LocalCalendar(profile.root)
         self._music = music or LocalMusicLibrary(profile.root)
+        self._music_research = music_research
         self._music_sources: dict[
             str, QQMusicClient | NetEaseMusicClient | AppleMusicClient
         ] = {}
@@ -53,6 +56,17 @@ class DailyContextService:
         reference_time = now or datetime.now(UTC)
         timezone = _selected_timezone(profile.locale.timezone, timezone_name)
         selected_date = reference_time.astimezone(timezone).date()
+        music = self._music.snapshot(
+            profile.daily.playlist,
+            profile.preferences.music_genres,
+            on_date=selected_date,
+        )
+        if self._music_research is not None:
+            music = self._music_research.apply_cached(
+                music,
+                on_date=selected_date,
+                now=reference_time,
+            )
         return DailySnapshot(
             weather=await self._weather.snapshot(
                 profile.daily.weather_provider,
@@ -64,11 +78,7 @@ class DailyContextService:
                 timezone.key,
                 now=reference_time,
             ),
-            music=self._music.snapshot(
-                profile.daily.playlist,
-                profile.preferences.music_genres,
-                on_date=selected_date,
-            ),
+            music=music,
         )
 
     async def configure_weather(
@@ -161,11 +171,14 @@ class DailyContextService:
         else:
             raise ValueError("Unsupported playlist source.")
         self._correct_profile("profile:daily.playlist", managed_name)
-        return self._music.snapshot(
+        snapshot = self._music.snapshot(
             managed_name,
             profile.preferences.music_genres,
             on_date=selected_date,
         )
+        if self._music_research is None:
+            return snapshot
+        return self._music_research.apply_cached(snapshot, on_date=selected_date)
 
     async def refresh_music(self, *, local_date: str = "") -> MusicSnapshot:
         """Refresh an existing remote source without replacing a valid snapshot on failure."""
@@ -188,11 +201,30 @@ class DailyContextService:
         managed_name = self._music.replace_managed_document(document)
         if managed_name != profile.daily.playlist:
             self._correct_profile("profile:daily.playlist", managed_name)
-        return self._music.snapshot(
+        snapshot = self._music.snapshot(
             managed_name,
             profile.preferences.music_genres,
             on_date=selected_date,
         )
+        if self._music_research is None:
+            return snapshot
+        return self._music_research.apply_cached(snapshot, on_date=selected_date)
+
+    async def research_music(self, *, local_date: str = "") -> MusicSnapshot:
+        """Web-research only today's selected song after an explicit paid action."""
+
+        if self._music_research is None:
+            raise RuntimeError("DeepSeek web research is not configured")
+        profile = self._profile.load()
+        selected_date = _music_date(local_date, profile.locale.timezone)
+        snapshot = self._music.snapshot(
+            profile.daily.playlist,
+            profile.preferences.music_genres,
+            on_date=selected_date,
+        )
+        if not snapshot.configured:
+            raise ValueError("Connect or import a music source before web research.")
+        return await self._music_research.research(snapshot, on_date=selected_date)
 
     async def music_cover(
         self, *, on_date: date | None = None

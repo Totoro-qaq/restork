@@ -60,7 +60,7 @@ def test_doctor_is_local_by_default_and_network_is_explicit(
     monkeypatch: MonkeyPatch,
     capsys: CaptureFixture[str],
 ) -> None:
-    smoke_values: list[bool] = []
+    diagnostic_values: list[tuple[bool, str]] = []
 
     class FakeDiagnostics:
         def __init__(self, config_path: Path) -> None:
@@ -69,8 +69,13 @@ def test_doctor_is_local_by_default_and_network_is_explicit(
         def status(self) -> ProviderDiagnosticReport:
             return _diagnostic_report("ready", connection_checked=False)
 
-        async def diagnose(self, *, smoke: bool = False) -> ProviderDiagnosticReport:
-            smoke_values.append(smoke)
+        async def diagnose(
+            self,
+            *,
+            smoke: bool = False,
+            target: str = "primary",
+        ) -> ProviderDiagnosticReport:
+            diagnostic_values.append((smoke, target))
             return _diagnostic_report(
                 "smoke_passed" if smoke else "connected",
                 connection_checked=True,
@@ -82,12 +87,18 @@ def test_doctor_is_local_by_default_and_network_is_explicit(
 
     assert main(["doctor"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "ready"
-    assert smoke_values == []
+    assert diagnostic_values == []
     assert main(["doctor", "--connect"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "connected"
     assert main(["doctor", "--smoke"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "smoke_passed"
-    assert smoke_values == [False, True]
+    assert main(["doctor", "--web-search"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "smoke_passed"
+    assert diagnostic_values == [
+        (False, "primary"),
+        (True, "primary"),
+        (True, "web_search"),
+    ]
 
 
 def test_desktop_serve_writes_bootstrap_pipe_without_printing_pairing_codes(

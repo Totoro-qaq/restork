@@ -25,7 +25,7 @@ already manages it and is never copied into Restork's data directory.
 outside the Git checkout. If `--state-db` is omitted, Core now uses the private data directory rather
 than creating a database in the current directory.
 
-## DeepSeek V4 Pro and macOS Keychain
+## DeepSeek V4 Pro/Flash and macOS Keychain
 
 The supported setup entry is an interactive terminal command:
 
@@ -40,9 +40,10 @@ When configuration is absent, Restork also creates `$RESTORK_CONFIG_DIR/config.t
 it contains only the Keychain reference and strict provider settings. Existing valid configuration is
 preserved. Cancellation does not create a new configuration file.
 
-The V1 contract accepts only model `deepseek-v4-pro`, exact origin
-`https://api.deepseek.com`, and a `keychain:<service>/<account>` reference. The default non-secret
-configuration is:
+The primary V1 Profile fixes model `deepseek-v4-pro`, exact origin `https://api.deepseek.com`, and a
+`keychain:<service>/<account>` reference. Step 25 reuses that same native credential for one explicit
+bounded `deepseek-v4-flash` Responses/web-search worker; it is not a fallback and is not stored as a
+second secret. The default non-secret configuration is:
 
 Use macOS Keychain Access to create a **Generic Password** item. For the repository example, use
 service `restork/provider`, account `deepseek`, and place the API key only in the password field.
@@ -70,13 +71,16 @@ Network checks are always explicit:
 ```bash
 uv run restork doctor --connect
 uv run restork doctor --smoke
+uv run restork doctor --web-search
 ```
 
 `--connect` performs one bounded `GET /models` through the exact-origin outbound policy. `--smoke`
-first performs that check, then sends one fixed public synthetic sentence with `max_tokens=16` and
-thinking disabled. Diagnostics return status, latency, a safe request ID when present, and token counts;
-they never return the key or completion text. Neither check reads Vault, memory, tasks, Profile, daily
-context, or the runtime database.
+first performs that check, then sends one fixed public V4 Pro sentence with `max_tokens=16` and
+thinking disabled. `--web-search` checks V4 Flash and then performs a fixed public Responses request
+with mandatory server-side web search and validated public HTTPS sources. The Flash action may incur
+a small charge and is never retried automatically. Diagnostics return status, exact model, latency, a
+safe request ID when present, and token counts; they never return the key or generated text. None of
+the checks reads Vault, memory, tasks, Profile, daily context, or the runtime database.
 
 The Dashboard displays the same local status and commands after pairing, but it has no key field and
 never receives secret material. Restart Core after changing the Keychain item because a running Core

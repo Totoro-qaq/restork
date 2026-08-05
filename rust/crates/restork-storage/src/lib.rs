@@ -34,9 +34,10 @@ pub use operation::{
     OperationCreateResult, OperationEventRecord,
 };
 pub use workspace::{
-    ConfigurationProfileRecord, MessagePage, NewSession, NewSessionMessage, PersonalSettingsRecord,
-    PromptRevisionRecord, ProviderProfileRecord, SessionCursor, SessionPage, SessionRecord,
-    SessionSearchHit, StoredSessionMessage,
+    ConfigurationProfileRecord, MessagePage, NewSession, NewSessionFork, NewSessionMessage,
+    PersonalSettingsRecord, PromptRevisionRecord, ProviderProfileRecord, SessionCursor,
+    SessionForkMessage, SessionForkRecord, SessionPage, SessionRecord, SessionSearchHit,
+    StoredSessionMessage,
 };
 
 const SCHEMA_VERSION: i64 = 10;

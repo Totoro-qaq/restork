@@ -11,6 +11,7 @@ import type {
   Mode,
   RadarAction,
   ReasoningEffortV2,
+  ProviderKindV2,
   RunEvent,
   WorkDataClass,
   WorkHandoffPreview,
@@ -176,7 +177,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   configureMusic(root, api);
   configureWeather(root, api);
   configureCalendar(root, api);
-  configureProvider(root, api);
+  configureProvider(root, api, snapshot);
   configureRustWorkspace(root, api, snapshot);
   if (snapshot.daily?.music.recommendation?.cover_available) {
     void loadMusicCover(root, api);
@@ -189,6 +190,48 @@ function configureRustWorkspace(
   snapshot: DashboardSnapshot,
 ): void {
   if (!snapshot.workspaceV2) return;
+  const profileMaximumDataClass = (profileId: string): WorkDataClass => {
+    if (profileId === "safe-mode") return "confidential";
+    if (profileId === "deepseek") return "public";
+    return snapshot.workspaceV2?.profiles?.find(
+      ({ profile }) => profile.profile_id === profileId,
+    )?.profile.maximum_data_class ?? "public";
+  };
+  const syncProfileControls = (profileId: string, updatedAt: string): void => {
+    const pane = root.querySelector<HTMLElement>(".conversation-pane");
+    if (pane) {
+      pane.dataset.activeProfile = profileId;
+      pane.dataset.activeUpdatedAt = updatedAt;
+    }
+    const forkForm = root.querySelector<HTMLFormElement>("#session-fork-form");
+    if (forkForm) forkForm.dataset.sourceUpdatedAt = updatedAt;
+    const forkSelect = forkForm?.elements.namedItem("profile_id") as HTMLSelectElement | null;
+    const currentOption = forkSelect
+      ? Array.from(forkSelect.options).find((option) => option.value === profileId)
+      : undefined;
+    const profileLabel = root.querySelector<HTMLElement>("#conversation-profile-label");
+    if (profileLabel) profileLabel.textContent = currentOption?.textContent ?? profileId;
+    if (forkSelect) {
+      for (const option of forkSelect.options) option.disabled = option.value === profileId;
+      if (!forkSelect.value || forkSelect.value === profileId) {
+        forkSelect.value = Array.from(forkSelect.options).find((option) => !option.disabled)?.value ?? "";
+      }
+    }
+    const rank: Record<WorkDataClass, number> = {
+      public: 0,
+      personal: 1,
+      confidential: 2,
+    };
+    const maximum = profileMaximumDataClass(profileId);
+    root.querySelectorAll<HTMLSelectElement>(
+      '#session-message-form [name="data_class"], #context-preview-form [name="data_class"]',
+    ).forEach((select) => {
+      for (const option of select.options) {
+        option.disabled = rank[option.value as WorkDataClass] > rank[maximum];
+      }
+      if (rank[select.value as WorkDataClass] > rank[maximum]) select.value = maximum;
+    });
+  };
   const selectSession = async (
     sessionId: string,
     title: string,
@@ -204,6 +247,7 @@ function configureRustWorkspace(
       (session) => session.session_id === sessionId,
     );
     pane.dataset.activeVersion = String(selectedRecord?.version ?? 0);
+    syncProfileControls(profileId, selectedRecord?.updated_at ?? "");
     if (heading) heading.textContent = title;
     root.querySelectorAll<HTMLElement>("[data-session-select]").forEach((item) => {
       item.classList.toggle("is-active", item.dataset.sessionSelect === sessionId);
@@ -217,29 +261,20 @@ function configureRustWorkspace(
     delete pane.dataset.contextPreviewClass;
     root.querySelectorAll<HTMLButtonElement>("[data-session-export], [data-session-archive], [data-session-delete]")
       .forEach((button) => { button.disabled = false; });
-    const dataClass = root.querySelector<HTMLSelectElement>('#session-message-form [name="data_class"]');
-    if (dataClass) {
-      const publicOnly = profileId === "deepseek";
-      for (const option of dataClass.options) {
-        option.disabled = publicOnly && option.value !== "public";
-      }
-      if (publicOnly) dataClass.value = "public";
-    }
-    const contextDataClass = root.querySelector<HTMLSelectElement>(
-      '#context-preview-form [name="data_class"]',
-    );
-    if (contextDataClass) {
-      const publicOnly = profileId === "deepseek";
-      for (const option of contextDataClass.options) {
-        option.disabled = publicOnly && option.value !== "public";
-      }
-      if (publicOnly) contextDataClass.value = "public";
-    }
     host.setAttribute("aria-busy", "true");
     host.innerHTML = `<p class="empty">${tr(localeOf(root), "Loading local messages…", "正在加载本地消息…")}</p>`;
     try {
       const messages = await api.sessionMessages(sessionId);
       if (pane.dataset.activeSession !== sessionId) return;
+      const latest = messages.at(-1);
+      if (latest && selectedRecord) {
+        selectedRecord.updated_at = latest.created_at;
+        syncProfileControls(profileId, latest.created_at);
+        const sessionButton = Array.from(
+          root.querySelectorAll<HTMLButtonElement>("[data-session-select]"),
+        ).find((button) => button.dataset.sessionSelect === sessionId);
+        if (sessionButton) sessionButton.dataset.sessionUpdatedAt = latest.created_at;
+      }
       host.innerHTML = sessionMessagesMarkup(messages, localeOf(root));
       host.scrollTop = host.scrollHeight;
     } catch (error) {
@@ -328,6 +363,55 @@ function configureRustWorkspace(
         selectView(root, "conversation");
         return selectSession(session.session_id, session.title, session.profile_id);
       }).catch((error) => announce(root, errorText(error, localeOf(root))));
+    },
+  );
+
+  root.querySelector<HTMLButtonElement>("[data-open-provider-settings]")?.addEventListener(
+    "click",
+    () => selectView(root, "settings"),
+  );
+  root.querySelector<HTMLFormElement>("#session-fork-form")?.addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+      const form = event.currentTarget as HTMLFormElement;
+      const pane = root.querySelector<HTMLElement>(".conversation-pane");
+      const status = form.querySelector<HTMLElement>("#session-fork-status");
+      const sessionId = pane?.dataset.activeSession ?? "";
+      const expectedUpdatedAt = pane?.dataset.activeUpdatedAt
+        ?? form.dataset.sourceUpdatedAt
+        ?? "";
+      const profileId = String(new FormData(form).get("profile_id") ?? "").trim();
+      const source = snapshot.workspaceV2?.sessions.find(
+        (session) => session.session_id === sessionId,
+      );
+      if (!source || !profileId || !expectedUpdatedAt || !api.forkSession) return;
+      const title = boundedForkTitle(source.title, profileId);
+      form.querySelectorAll<HTMLButtonElement | HTMLSelectElement>("button, select")
+        .forEach((control) => { control.disabled = true; });
+      if (status) {
+        status.textContent = tr(
+          localeOf(root),
+          "Checking data boundaries and creating a conversation branch…",
+          "正在检查数据边界并创建对话分支…",
+        );
+      }
+      void api.forkSession(sessionId, title, profileId, expectedUpdatedAt, 24).then((fork) => {
+        snapshot.workspaceV2?.sessions.unshift(fork.session);
+        renderWorkspace(root, api, snapshot);
+        selectView(root, "conversation");
+        return selectSession(fork.session.session_id, fork.session.title, fork.session.profile_id)
+          .then(() => announce(root, tr(
+            localeOf(root),
+            `Conversation branched with ${fork.copied_messages} messages; the original is unchanged.`,
+            `已携带 ${fork.copied_messages} 条消息创建对话分支；原对话保持不变。`,
+          )));
+      }).catch((error) => {
+        if (status) status.textContent = errorText(error, localeOf(root));
+      }).finally(() => {
+        form.querySelectorAll<HTMLButtonElement | HTMLSelectElement>("button, select")
+          .forEach((control) => { control.disabled = false; });
+      });
     },
   );
 
@@ -675,6 +759,12 @@ function configureRustWorkspace(
   providerForm?.querySelector<HTMLSelectElement>('[name="reasoning_effort"]')
     ?.addEventListener("change", () => syncReasoningControls(providerForm));
   if (providerForm) syncReasoningControls(providerForm);
+
+  root.querySelectorAll<HTMLButtonElement>("[data-provider-profile-test]").forEach((button) => {
+    button.addEventListener("click", () => {
+      void runProviderProfileDiagnostic(root, api, button);
+    });
+  });
 
   root.querySelectorAll<HTMLButtonElement>("[data-provider-edit]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1126,6 +1216,16 @@ function safeFilename(value: string): string {
   return value.normalize("NFKC").replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80) || "conversation";
 }
 
+function boundedForkTitle(sourceTitle: string, profileId: string): string {
+  const suffix = ` · ${profileId}`;
+  let title = sourceTitle.trim();
+  const encoder = new TextEncoder();
+  while (title && encoder.encode(`${title}${suffix}`).byteLength > 240) {
+    title = title.slice(0, -1);
+  }
+  return `${title || "Conversation"}${suffix}`;
+}
+
 function downloadJson(filename: string, value: unknown): void {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1159,10 +1259,134 @@ function escapeStatus(value: string): string {
   return span.innerHTML;
 }
 
-function configureProvider(root: HTMLElement, api: DashboardApi): void {
+interface OverviewProviderSelection {
+  value: string;
+  profileId: string;
+  kind: ProviderKindV2;
+  model: string;
+  displayName: string;
+  authKind: "none" | "bearer";
+  configured: boolean;
+}
+
+function overviewProviderSelection(root: HTMLElement): OverviewProviderSelection | null {
+  const selector = root.querySelector<HTMLSelectElement>("[data-provider-selector]");
+  const option = selector?.selectedOptions[0];
+  if (!selector || !option) return null;
+  return {
+    value: selector.value,
+    profileId: option.dataset.providerProfileId ?? "",
+    kind: (option.dataset.providerKind ?? "deepseek") as ProviderKindV2,
+    model: option.dataset.providerModel ?? "",
+    displayName: option.dataset.providerName ?? option.textContent ?? "Provider",
+    authKind: option.dataset.providerAuthKind === "none" ? "none" : "bearer",
+    configured: option.dataset.providerConfigured === "true",
+  };
+}
+
+function overviewProviderCommand(kind: ProviderKindV2): string {
+  return kind === "ollama"
+    ? "ollama serve"
+    : `restorkd provider configure ${kind}`;
+}
+
+function setOverviewProviderActionAvailability(root: HTMLElement): void {
+  const selected = overviewProviderSelection(root);
+  root.querySelectorAll<HTMLButtonElement>("[data-provider-diagnostic]").forEach((button) => {
+    const webSearch = button.dataset.providerDiagnostic === "web_search";
+    button.hidden = webSearch && selected?.kind !== "deepseek";
+    button.disabled = !selected?.configured;
+  });
+}
+
+function syncOverviewProvider(
+  root: HTMLElement,
+  snapshot: DashboardSnapshot,
+): void {
+  const selected = overviewProviderSelection(root);
+  if (!selected) return;
+  root.dataset.providerOverviewSelection = selected.value;
+  const locale = localeOf(root);
+  const title = root.querySelector<HTMLElement>("[data-provider-selected-name]");
+  const model = root.querySelector<HTMLElement>("[data-provider-selected-model]");
+  const command = root.querySelector<HTMLElement>("[data-provider-command]");
+  const help = root.querySelector<HTMLElement>("[data-provider-setup-help]");
+  const summary = root.querySelector<HTMLElement>("[data-provider-summary]");
+  const result = root.querySelector<HTMLElement>("#provider-diagnostic-result");
+  const manage = root.querySelector<HTMLButtonElement>("[data-open-provider-settings]");
+  if (title) title.textContent = selected.configured
+    ? selected.displayName
+    : tr(locale, `Configure ${selected.displayName}`, `配置 ${selected.displayName}`);
+  if (model) model.textContent = selected.configured
+    ? `${selected.kind} / ${selected.model}`
+    : tr(locale, "No model profile saved", "尚未保存模型 Profile");
+  if (command) command.textContent = overviewProviderCommand(selected.kind);
+  if (help) help.textContent = selected.kind === "ollama"
+    ? tr(
+      locale,
+      "No API key is needed. Start Ollama locally, then save its exact loopback model profile.",
+      "无需 API Key。请先在本机启动 Ollama，再保存精确的 loopback 模型 Profile。",
+    )
+    : tr(
+      locale,
+      "Run this in Terminal. The key stays in native credentials and never enters the browser.",
+      "请在终端运行这条命令。Key 只保存在系统凭据库中，不会进入浏览器。",
+    );
+  const matchingReport = selected.configured
+    && snapshot.provider?.provider === selected.profileId
+      ? snapshot.provider
+      : null;
+  if (summary) {
+    const status = matchingReport?.status
+      ?? (selected.configured ? "not_tested" : "setup_required");
+    summary.dataset.providerSummary = status;
+    summary.textContent = status.replaceAll("_", " ");
+  }
+  if (result) {
+    result.innerHTML = matchingReport
+      ? providerDiagnosticMarkup(matchingReport, locale)
+      : `<p>${escapeStatus(selected.configured
+        ? tr(locale, "Run Test model to verify this exact saved model.", "请点击“测试模型”验证这个已保存的精确模型。")
+        : tr(locale, "Open Settings to enter the model ID and save this provider.", "请打开设置，填写模型 ID 并保存这个供应商。"))}</p>`;
+  }
+  if (manage) manage.textContent = selected.configured
+    ? tr(locale, "MANAGE MODELS", "管理模型")
+    : tr(locale, "CONFIGURE PROVIDER", "配置供应商");
+  setOverviewProviderActionAvailability(root);
+}
+
+function configureProvider(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+): void {
+  const selector = root.querySelector<HTMLSelectElement>("[data-provider-selector]");
+  const remembered = root.dataset.providerOverviewSelection;
+  if (selector && remembered && Array.from(selector.options).some((option) => option.value === remembered)) {
+    selector.value = remembered;
+  }
+  syncOverviewProvider(root, snapshot);
+  selector?.addEventListener("change", () => syncOverviewProvider(root, snapshot));
+  root.querySelector<HTMLButtonElement>("[data-open-provider-settings]")?.addEventListener(
+    "click", () => {
+      const selected = overviewProviderSelection(root);
+      root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
+      const kind = root.querySelector<HTMLSelectElement>('#provider-profile-form [name="kind"]');
+      if (selected && kind && Array.from(kind.options).some((option) => option.value === selected.kind)) {
+        kind.value = selected.kind;
+        kind.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    },
+  );
   root.querySelectorAll<HTMLButtonElement>("[data-provider-diagnostic]").forEach((button) => {
     button.addEventListener("click", () => {
-      void runProviderDiagnostic(root, api, button.dataset.providerDiagnostic === "smoke");
+      const action = button.dataset.providerDiagnostic;
+      void runProviderDiagnostic(
+        root,
+        api,
+        action !== "connect",
+        action === "web_search" ? "web_search" : "primary",
+      );
     });
   });
 }
@@ -1171,14 +1395,16 @@ async function runProviderDiagnostic(
   root: HTMLElement,
   api: DashboardApi,
   smoke: boolean,
+  target: "primary" | "web_search",
 ): Promise<void> {
+  const selected = overviewProviderSelection(root);
   const host = root.querySelector<HTMLElement>("#provider-diagnostic-result");
   const buttons = root.querySelectorAll<HTMLButtonElement>("[data-provider-diagnostic]");
-  if (!host) return;
+  if (!host || !selected?.configured || !selected.profileId) return;
   buttons.forEach((button) => { button.disabled = true; });
-  host.innerHTML = providerWaitMarkup(smoke, localeOf(root));
+  host.innerHTML = providerWaitMarkup(smoke, localeOf(root), target, selected.model);
   try {
-    const report = await api.providerDiagnostics(smoke);
+    const report = await api.providerDiagnostics(smoke, target, selected.profileId);
     if (root.contains(host)) {
       host.innerHTML = providerDiagnosticMarkup(report, localeOf(root));
       const summary = root.querySelector<HTMLElement>("[data-provider-summary]");
@@ -1186,6 +1412,38 @@ async function runProviderDiagnostic(
         summary.dataset.providerSummary = report.status;
         summary.textContent = report.status.replaceAll("_", " ");
       }
+    }
+  } catch (error) {
+    if (root.contains(host)) {
+      const activeLocale = localeOf(root);
+      host.innerHTML = providerErrorMarkup(
+        activeLocale,
+        safeProviderFailureDetail(error, activeLocale),
+      );
+    }
+  } finally {
+    setOverviewProviderActionAvailability(root);
+  }
+}
+
+async function runProviderProfileDiagnostic(
+  root: HTMLElement,
+  api: DashboardApi,
+  trigger: HTMLButtonElement,
+): Promise<void> {
+  const profileId = trigger.dataset.providerProfileTest ?? "";
+  const model = trigger.dataset.providerModel ?? "";
+  const target = trigger.dataset.providerWebSearch === "true" ? "web_search" : "primary";
+  const card = trigger.closest<HTMLElement>("[data-provider-profile-card]");
+  const host = card?.querySelector<HTMLElement>("[data-provider-profile-result]");
+  if (!profileId || !model || !card || !host) return;
+  const buttons = card.querySelectorAll<HTMLButtonElement>("button");
+  buttons.forEach((button) => { button.disabled = true; });
+  host.innerHTML = providerWaitMarkup(true, localeOf(root), target, model);
+  try {
+    const report = await api.providerDiagnostics(true, target, profileId);
+    if (root.contains(host)) {
+      host.innerHTML = providerDiagnosticMarkup(report, localeOf(root));
     }
   } catch (error) {
     if (root.contains(host)) {
@@ -2203,6 +2461,14 @@ function configureMusic(root: HTMLElement, api: DashboardApi): void {
     "click",
     () => void disableMusic(root, api, form),
   );
+  root.querySelector<HTMLButtonElement>("[data-music-research]")?.addEventListener(
+    "click",
+    (event) => void researchMusic(
+      root,
+      api,
+      event.currentTarget as HTMLButtonElement,
+    ),
+  );
   const button = root.querySelector<HTMLButtonElement>("[data-music-toggle]");
   const disc = root.querySelector<HTMLElement>("[data-music-disc]");
   if (!button || !disc) return;
@@ -2382,6 +2648,49 @@ async function disableMusic(
     ));
   } catch (error) {
     setMusicBusy(form, false, errorText(error, localeOf(root)));
+    announce(root, errorText(error, localeOf(root)));
+  }
+}
+
+async function researchMusic(
+  root: HTMLElement,
+  api: DashboardApi,
+  button: HTMLButtonElement,
+): Promise<void> {
+  if (!api.researchMusic) return;
+  const original = button.textContent ?? "";
+  const status = root.querySelector<HTMLElement>("#music-research-consent");
+  button.disabled = true;
+  button.classList.add("is-busy");
+  button.setAttribute("aria-busy", "true");
+  button.textContent = tr(localeOf(root), "SEARCHING SOURCES…", "正在检索来源……");
+  if (status) {
+    status.classList.add("is-busy");
+    status.textContent = tr(
+      localeOf(root),
+      "V4 Flash is searching, cross-checking and preparing bilingual notes…",
+      "V4 Flash 正在检索、交叉核验并生成双语解读……",
+    );
+  }
+  try {
+    await api.researchMusic(localDate());
+    await refresh(root, api);
+    announce(root, tr(
+      localeOf(root),
+      "Online song research completed and its sources were cached locally.",
+      "歌曲联网分析已完成，来源与结果已缓存在本地。",
+    ));
+  } catch (error) {
+    if (root.contains(button)) {
+      button.disabled = false;
+      button.classList.remove("is-busy");
+      button.removeAttribute("aria-busy");
+      button.textContent = original;
+    }
+    if (status && root.contains(status)) {
+      status.classList.remove("is-busy");
+      status.textContent = errorText(error, localeOf(root));
+    }
     announce(root, errorText(error, localeOf(root)));
   }
 }
