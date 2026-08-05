@@ -181,6 +181,47 @@ async fn provider_and_configuration_profiles_are_validated_and_versioned() {
 }
 
 #[tokio::test]
+async fn diagnostics_resolve_the_selected_non_deepseek_provider_profile() {
+    let (app, authorization, _directory) = paired_app().await;
+    let (status, _) = call(
+        app.clone(),
+        Method::PUT,
+        "/v1/provider-profiles/qwen-main",
+        Some(json!({
+            "expected_revision": null,
+            "provider": {
+                "profile_id": "qwen-main",
+                "version": 1,
+                "display_name": "Qwen Main",
+                "kind": "qwen",
+                "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "model": "qwen-max",
+                "secret_ref": "keychain:missing",
+                "fallback": "disabled",
+                "reasoning": {"effort": "medium", "max_tokens": 2048}
+            }
+        })),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, report) = call(
+        app,
+        Method::POST,
+        "/v1/providers/qwen-main/diagnostics",
+        Some(json!({"smoke": true, "target": "primary"})),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let report = report.expect("diagnostic");
+    assert_eq!(report["provider"], "qwen-main");
+    assert_eq!(report["model"], "qwen-max");
+    assert_eq!(report["status"], "credential_missing");
+}
+
+#[tokio::test]
 async fn prompt_history_is_immutable_and_activation_is_explicit() {
     let (app, authorization, _directory) = paired_app().await;
     let (status, first) = call(

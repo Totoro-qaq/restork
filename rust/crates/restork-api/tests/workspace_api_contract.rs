@@ -179,6 +179,101 @@ async fn global_sessions_are_paginated_searchable_and_create_tool_free_proposals
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(message.expect("message")["sequence"], 1);
 
+    let (status, source) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/sessions/{session_id}"),
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let source_updated_at = source.expect("source session")["updated_at"]
+        .as_str()
+        .expect("updated at")
+        .to_owned();
+    let (status, fork) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/sessions/{session_id}/fork"),
+        Some(json!({
+            "title": "Research inbox · DeepSeek",
+            "profile_id": "deepseek",
+            "expected_updated_at": source_updated_at,
+            "copy_limit": 24
+        })),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let fork = fork.expect("fork response");
+    assert_eq!(fork["source_session_id"], session_id);
+    assert_eq!(fork["profile_id"], "deepseek");
+    assert_eq!(fork["copied_messages"], 1);
+    let fork_id = fork["session"]["session_id"]
+        .as_str()
+        .expect("fork session id")
+        .to_owned();
+    let (status, fork_messages) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/sessions/{fork_id}/messages?after=0&limit=20"),
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let fork_message = &fork_messages.expect("fork messages")["items"][0];
+    assert_eq!(fork_message["content"], "Investigate durable event replay");
+    assert_eq!(fork_message["context"]["tool_access"], false);
+    assert!(fork_message["context"].get("request_id").is_none());
+
+    let (status, _) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/sessions/{session_id}/messages"),
+        Some(json!({
+            "content": "Private draft",
+            "context": {},
+            "data_class": "personal"
+        })),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, source) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/sessions/{session_id}"),
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let source_updated_at = source.expect("updated source")["updated_at"]
+        .as_str()
+        .expect("updated at")
+        .to_owned();
+    let (status, denial) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/sessions/{session_id}/fork"),
+        Some(json!({
+            "title": "Unsafe cloud branch",
+            "profile_id": "deepseek",
+            "expected_updated_at": source_updated_at
+        })),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        denial.expect("fork denial")["detail"]
+            .as_str()
+            .expect("detail")
+            .contains("public-only")
+    );
+
     let (status, page) = call(
         app.clone(),
         Method::GET,
@@ -213,7 +308,7 @@ async fn global_sessions_are_paginated_searchable_and_create_tool_free_proposals
     let export = export.expect("session export");
     assert_eq!(export["schema_version"], 1);
     assert_eq!(export["secret_values_included"], false);
-    assert_eq!(export["messages"].as_array().map(Vec::len), Some(1));
+    assert_eq!(export["messages"].as_array().map(Vec::len), Some(2));
     assert!(
         export["note"]
             .as_str()

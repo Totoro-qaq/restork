@@ -27,6 +27,7 @@ from restork.conversation.service import ConversationService
 from restork.conversation.store import SQLiteConversationStore
 from restork.daily.apple_music import AppleMusicClient
 from restork.daily.cache import SQLiteDailyCache
+from restork.daily.music_research import DeepSeekMusicResearch
 from restork.daily.netease import NetEaseMusicClient
 from restork.daily.qqmusic import QQMusicClient
 from restork.daily.service import DailyContextService
@@ -41,7 +42,8 @@ from restork.memory.store import SQLiteMemoryStore
 from restork.network.gateway import DefaultOutboundGateway, OutboundPolicy
 from restork.paths import RuntimePaths
 from restork.providers.deepseek_chat_completions import DeepSeekChatCompletionsProvider
-from restork.providers.diagnostics import DeepSeekProviderDiagnostics
+from restork.providers.deepseek_responses import DeepSeekResponsesWebSearch
+from restork.providers.diagnostics import DeepSeekProviderDiagnostics, DiagnosticTarget
 from restork.providers.setup import ProviderSetupError, configure_provider
 from restork.research.evidence import (
     DeepSeekResearchSynthesizer,
@@ -181,7 +183,12 @@ def _parser() -> argparse.ArgumentParser:
     doctor.add_argument(
         "--smoke",
         action="store_true",
-        help="also run one fixed public, low-token completion",
+        help="run one fixed public V4 Pro low-token completion",
+    )
+    doctor.add_argument(
+        "--web-search",
+        action="store_true",
+        help="run one fixed public V4 Flash server-side web-search test",
     )
 
     create = commands.add_parser("create")
@@ -307,7 +314,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "provider":
         return _configure_provider()
     if arguments.command == "doctor":
-        return _doctor(connect=arguments.connect or arguments.smoke, smoke=arguments.smoke)
+        return _doctor(
+            connect=arguments.connect or arguments.smoke or arguments.web_search,
+            smoke=arguments.smoke or arguments.web_search,
+            target="web_search" if arguments.web_search else "primary",
+        )
 
     try:
         client = LocalApiClient(arguments.api_url, os.environ.get("RESTORK_CLI_TOKEN"))
@@ -349,10 +360,14 @@ def _configure_provider() -> int:
     return 0
 
 
-def _doctor(*, connect: bool, smoke: bool) -> int:
+def _doctor(*, connect: bool, smoke: bool, target: DiagnosticTarget) -> int:
     config_path = RuntimePaths.from_environ().config_dir / "config.toml"
     diagnostics = DeepSeekProviderDiagnostics(config_path)
-    report = asyncio.run(diagnostics.diagnose(smoke=smoke)) if connect else diagnostics.status()
+    report = (
+        asyncio.run(diagnostics.diagnose(smoke=smoke, target=target))
+        if connect
+        else diagnostics.status()
+    )
     _print_json(report.model_dump(mode="json"))
     expected = "smoke_passed" if smoke else "connected" if connect else "ready"
     return 0 if report.status == expected else 2
@@ -404,6 +419,29 @@ def _serve(
         else None
     )
     keychain = KeychainSecretStore()
+    config_path = runtime_paths.config_dir / "config.toml"
+    provider_active = config_path.is_file()
+    provider_config = load_config(config_path).provider if provider_active else None
+    daily_cache = SQLiteDailyCache.create(database)
+    music_research = (
+        DeepSeekMusicResearch(
+            DeepSeekResponsesWebSearch(
+                provider_config,
+                DefaultOutboundGateway(
+                    OutboundPolicy(
+                        allowed_origins=frozenset({provider_config.base_url}),
+                        maximum_data_class=DataClass.PERSONAL,
+                        maximum_response_bytes=4_000_000,
+                    ),
+                    timeout_seconds=90.0,
+                ),
+                keychain,
+            ),
+            daily_cache,
+        )
+        if provider_config is not None
+        else None
+    )
     apple_developer_reference = KeychainReference(
         value="keychain:restork/music/apple/developer-token"
     )
@@ -438,7 +476,7 @@ def _serve(
                     ),
                 )
             ),
-            SQLiteDailyCache.create(database),
+            daily_cache,
         ),
         qqmusic=QQMusicClient(
             DefaultOutboundGateway(
@@ -515,17 +553,15 @@ def _serve(
             lambda: keychain.resolve(apple_developer_reference),
             lambda: keychain.resolve(apple_user_reference),
         ),
+        music_research=music_research,
     )
     research_store = SQLiteResearchStore.create(database)
     study_store = SQLiteStudyStore.create(database)
     work_store = SQLiteWorkStore.create(database)
-    config_path = runtime_paths.config_dir / "config.toml"
-    provider_active = config_path.is_file()
     synthesizer: ResearchSynthesizer
     provider: object | None = None
     model_runtime: ModelRuntime | None = None
-    if provider_active:
-        provider_config = load_config(config_path).provider
+    if provider_config is not None:
         provider = DeepSeekChatCompletionsProvider(
             provider_config,
             DefaultOutboundGateway(

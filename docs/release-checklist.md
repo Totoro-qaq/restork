@@ -27,6 +27,9 @@ Manual checks may supplement, but never waive, a security/privacy gate.
   current-state precondition, preview hash, sibling staging, fsync, and atomic file replacement.
 - [x] `UPDATER-TRUST-001` — HTTPS/no-credential endpoint, Tauri signature, target/version/replay
   checks, and bounded verified recovery packages.
+- [x] `MACOS-ALPHA-LABEL-001` — public Alpha tags are main-reachable and annotated; DMG/title,
+  manifest trust tier, ad-hoc identity, per-app Gatekeeper guidance, and stable-channel separation
+  are fail-closed and test-covered.
 
 ## Build evidence
 
@@ -76,6 +79,17 @@ They must not expose credentials and cannot be replaced by repository fixtures.
 - [ ] Confirm macOS, Windows, and Linux clean-machine jobs pass against downloaded signed artifacts.
 - [ ] Verify the downloaded GitHub attestations, signed checksums, SBOM, and updater target entries
   before distributing that tagged build.
+
+## Public macOS Alpha procedure
+
+1. Merge a reviewed commit to `main` after CI and CodeQL pass.
+2. Create an annotated `vX.Y.Z-alpha.N` tag on that exact `main` commit and push only that tag.
+3. Confirm **Public unsigned macOS Alpha** validates the ad-hoc identity, launches the downloaded DMG
+   three times, emits the updater signature, `SHA256SUMS`, SBOM, manifest, and provenance.
+4. Check that the Release title and DMG contain `UNSIGNED` / `UNSIGNED-ALPHA`, and that the notes
+   explicitly say “not Apple Developer-ID-signed or notarized”.
+5. Verify the public attestation and checksum before sharing the Release URL. Never reuse an Alpha
+   result as evidence for the protected stable matrix.
 
 ## Release procedure
 

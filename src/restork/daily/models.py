@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import Field
 
@@ -16,6 +17,12 @@ class DailyStatus(StrEnum):
     FRESH = "fresh"
     STALE = "stale"
     ERROR = "error"
+
+
+class MusicResearchStatus(StrEnum):
+    FRESH = "fresh"
+    CACHED = "cached"
+    STALE = "stale"
 
 
 class WeatherSnapshot(ContractModel):
@@ -50,6 +57,29 @@ class CalendarSnapshot(ContractModel):
     message: str = ""
 
 
+class MusicEvidenceSource(ContractModel):
+    title: str = Field(min_length=1, max_length=300)
+    url: str = Field(min_length=1, max_length=1_000)
+    publisher: str = Field(default="", max_length=200)
+    published_on: date | None = None
+    supports: tuple[Literal["analysis", "popularity"], ...] = Field(
+        min_length=1,
+        max_length=2,
+    )
+
+
+class MusicResearchSummary(ContractModel):
+    status: MusicResearchStatus
+    model: Literal["deepseek-v4-flash"] = "deepseek-v4-flash"
+    researched_at: datetime
+    song_analysis_en: str = Field(min_length=1, max_length=2_000)
+    song_analysis_zh_cn: str = Field(min_length=1, max_length=2_000)
+    popularity_reason_en: str = Field(min_length=1, max_length=2_000)
+    popularity_reason_zh_cn: str = Field(min_length=1, max_length=2_000)
+    popularity_supported: bool
+    sources: tuple[MusicEvidenceSource, ...] = Field(min_length=1, max_length=6)
+
+
 class MusicRecommendation(ContractModel):
     item_id: str = Field(min_length=1, max_length=200)
     title: str = Field(min_length=1, max_length=300)
@@ -65,6 +95,7 @@ class MusicRecommendation(ContractModel):
     published_on: date | None = None
     source_url: str = Field(default="", max_length=1_000)
     cover_available: bool = False
+    research: MusicResearchSummary | None = None
 
 
 class MusicDiscovery(ContractModel):

@@ -10,6 +10,7 @@ import type {
   MusicConfigurationInput,
   ProviderDiagnostic,
   RunEvent,
+  SessionForkResultV2,
   SessionMessageV2,
   SessionRecordV2,
   WorkExportResult,
@@ -168,7 +169,7 @@ describe("authenticated workspace", () => {
 
     mountDashboard(root, { api: fakeApi(), snapshot });
 
-    expect(root.textContent).toContain("uv run restork provider configure");
+    expect(root.textContent).toContain("restorkd provider configure deepseek");
     expect(root.textContent).toContain("The browser never receives it");
     expect(root.querySelector('input[type="password"]')).toBeNull();
     expect(root.querySelector('input[name*="key" i]')).toBeNull();
@@ -188,7 +189,7 @@ describe("authenticated workspace", () => {
     const waiting = root.querySelector<HTMLElement>(".provider-wait");
     expect(waiting?.getAttribute("aria-busy")).toBe("true");
     expect(waiting?.textContent).toContain("No Vault, memory, task, location");
-    expect(diagnostic).toHaveBeenCalledWith(true);
+    expect(diagnostic).toHaveBeenCalledWith(true, "primary", "deepseek");
     finish?.({
       ...(snapshot.provider as ProviderDiagnostic),
       status: "smoke_passed",
@@ -210,6 +211,30 @@ describe("authenticated workspace", () => {
     expect(root.querySelector("[data-provider-summary]")?.textContent).toBe("smoke passed");
     expect(root.textContent).toContain("10 test tokens");
     expect(root.textContent).not.toContain("RESTORK_OK");
+  });
+
+  it("keeps the V4 Flash web-search diagnostic separate from V4 Pro", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const diagnostic = vi.spyOn(api, "providerDiagnostics").mockResolvedValue({
+      ...(snapshot.provider as ProviderDiagnostic),
+      model: "deepseek-v4-flash",
+      status: "smoke_passed",
+      message: "Synthetic web-search capability passed.",
+      connection_checked: true,
+      connection_ok: true,
+      model_available: true,
+      smoke_checked: true,
+      smoke_ok: true,
+    });
+    mountDashboard(root, { api, snapshot });
+
+    root.querySelector<HTMLButtonElement>('[data-provider-diagnostic="web_search"]')?.click();
+
+    await vi.waitFor(() => {
+      expect(diagnostic).toHaveBeenCalledWith(true, "web_search", "deepseek");
+      expect(root.textContent).toContain("deepseek-v4-flash");
+    });
   });
 
   it("renders a localized safe provider failure without transport details", async () => {
@@ -336,6 +361,95 @@ describe("authenticated workspace", () => {
     toggle?.click();
     expect(toggle?.getAttribute("aria-pressed")).toBe("true");
     expect(root.querySelector("[data-music-disc]")?.classList).toContain("is-playing");
+  });
+
+  it("does not leak legacy English song fallback copy into the Chinese interface", () => {
+    const root = document.createElement("main");
+    mountDashboard(root, {
+      api: fakeApi(),
+      locale: "zh-CN",
+      snapshot: {
+        ...snapshot,
+        daily: {
+          weather: { configured: false, status: "not_configured", provider: "", location_label: "", condition: "", temperature_c: null, apparent_temperature_c: null, relative_humidity_percent: null, is_day: null, observed_at: null, expires_at: null, attribution: "", message: "" },
+          calendar: { configured: false, status: "not_configured", events: [], message: "" },
+          music: {
+            configured: true,
+            status: "ready",
+            message: "",
+            recommendation: {
+              item_id: "legacy-track",
+              title: "爱是永恒",
+              artist: "张学友",
+              album: "不老的传说",
+              tags: [],
+              analysis: "",
+              song_analysis: "No reviewed song-detail evidence is cached yet. Refresh the connected source.",
+              popularity_reason: "This track has no current chart evidence.",
+              cover_available: false,
+            },
+            source: {
+              provider: "qqmusic",
+              label: "Cantonese Favorites",
+              item_count: 443,
+              synced_at: "2026-08-04T08:00:00Z",
+              public_url: "https://y.qq.com/n/ryqq_v2/playlist/1",
+              refresh_supported: true,
+              experimental: true,
+            },
+            discoveries: [],
+          },
+        },
+      },
+    });
+
+    const insights = root.querySelector(".music-insights")?.textContent ?? "";
+    expect(insights).toContain("尚未缓存经过核验的歌曲资料");
+    expect(insights).toContain("Restork 不会编造它走红的原因");
+    expect(insights).not.toContain("No reviewed song-detail evidence");
+    expect(insights).not.toContain("no current chart evidence");
+  });
+
+  it("localizes backend-authored daily empty states in the Chinese interface", () => {
+    const root = document.createElement("main");
+    mountDashboard(root, {
+      api: fakeApi(),
+      locale: "zh-CN",
+      snapshot: {
+        ...snapshot,
+        daily: {
+          weather: {
+            configured: false,
+            status: "not_configured",
+            provider: "",
+            location_label: "",
+            condition: "",
+            temperature_c: null,
+            apparent_temperature_c: null,
+            relative_humidity_percent: null,
+            is_day: null,
+            observed_at: null,
+            expires_at: null,
+            attribution: "",
+            message: "Weather is off. Enter a place or explicitly approve one-shot location.",
+          },
+          calendar: { configured: false, status: "not_configured", events: [], message: "" },
+          music: {
+            configured: false,
+            status: "not_configured",
+            recommendation: null,
+            message: "Connect a supported music source or import a private JSON/CSV playlist.",
+          },
+        },
+      },
+    });
+
+    expect(root.querySelector(".weather-card > header span")?.textContent).toBe("未启用");
+    expect(root.querySelector(".music-card > header span")?.textContent).toBe("未启用");
+    expect(root.querySelector(".weather-card")?.textContent).toContain("天气尚未启用");
+    expect(root.querySelector(".music-card")?.textContent).toContain("连接受支持的音乐来源");
+    expect(root.textContent).not.toContain("Weather is off");
+    expect(root.textContent).not.toContain("Connect a supported music source");
   });
 
   it("connects a QQ Music share link only after explicit submit", async () => {
@@ -1237,6 +1351,70 @@ describe("Rust conversation workspace", () => {
     expect(root.querySelector('input[type="password"]')).toBeNull();
   });
 
+  it("switches models by creating a bounded conversation branch", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const state = workspaceSnapshot();
+    if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.sessions.push({
+      session_id: "session-source",
+      title: "Model comparison",
+      profile_id: "safe-mode",
+      status: "active",
+      version: 1,
+      locale: "en",
+      created_at: "2026-08-05T11:00:00Z",
+      updated_at: "2026-08-05T11:05:00Z",
+      archived_at: null,
+    });
+    api.sessionMessages = vi.fn(async () => []);
+    api.forkSession = vi.fn(async (
+      _sessionId: string,
+      title: string,
+      profileId: string,
+    ): Promise<SessionForkResultV2> => ({
+      session: {
+        session_id: "session-branch",
+        title,
+        profile_id: profileId,
+        status: "active",
+        version: 1,
+        locale: "en",
+        created_at: "2026-08-05T11:06:00Z",
+        updated_at: "2026-08-05T11:06:00Z",
+        archived_at: null,
+      },
+      source_session_id: "session-source",
+      copied_messages: 2,
+      omitted_messages: 0,
+      copied_bytes: 64,
+      profile_id: profileId,
+    }));
+    mountDashboard(root, { api, snapshot: state });
+
+    const form = root.querySelector<HTMLFormElement>("#session-fork-form");
+    const profile = form?.elements.namedItem("profile_id");
+    if (!(profile instanceof HTMLSelectElement) || !form) throw new Error("fork form");
+    profile.value = "deepseek";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(api.forkSession).toHaveBeenCalledWith(
+      "session-source",
+      "Model comparison · deepseek",
+      "deepseek",
+      "2026-08-05T11:05:00Z",
+      24,
+    ));
+    await vi.waitFor(() => expect(root.querySelector("#conversation-profile-label")?.textContent)
+      .toContain("DeepSeek"));
+    expect(state.workspaceV2.sessions.map((session) => session.session_id)).toEqual([
+      "session-branch",
+      "session-source",
+    ]);
+    expect(root.textContent).toContain("original conversation stays unchanged");
+    expect(root.querySelector('input[type="password"]')).toBeNull();
+  });
+
   it("shows an honest model wait state and keeps the conversation scrollable", async () => {
     const root = document.createElement("main");
     const api = fakeApi();
@@ -1586,6 +1764,166 @@ describe("Rust conversation workspace", () => {
       kind: "qwen",
       reasoning: { effort: "medium", max_tokens: 2048 },
     }));
+  });
+
+  it("tests the exact saved provider and model instead of a hard-coded vendor", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const state = workspaceSnapshot();
+    if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.providers = [{
+      provider: {
+        profile_id: "qwen-main",
+        version: 1,
+        display_name: "Qwen Main",
+        kind: "qwen",
+        base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model: "qwen-max",
+        secret_ref: "keychain:restork/provider/qwen",
+        fallback: "disabled",
+        reasoning: { effort: "medium", max_tokens: 2048 },
+      },
+      revision: 1,
+      updated_at: "2026-08-04T00:00:00Z",
+    }];
+    const diagnostic = vi.spyOn(api, "providerDiagnostics").mockResolvedValue({
+      ...(snapshot.provider as ProviderDiagnostic),
+      provider: "qwen-main",
+      model: "qwen-max",
+      status: "smoke_passed",
+      connection_checked: true,
+      connection_ok: true,
+      model_available: true,
+      smoke_checked: true,
+      smoke_ok: true,
+    });
+    mountDashboard(root, { api, snapshot: state });
+
+    root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
+    root.querySelector<HTMLButtonElement>('[data-provider-profile-test="qwen-main"]')?.click();
+
+    await vi.waitFor(() => {
+      expect(diagnostic).toHaveBeenCalledWith(true, "primary", "qwen-main");
+      expect(root.textContent).toContain("qwen-max");
+    });
+  });
+
+  it("selects and tests a saved model from the overview while setup commands follow the provider", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const state = workspaceSnapshot();
+    if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.providers = [{
+      provider: {
+        profile_id: "qwen-main",
+        version: 1,
+        display_name: "Qwen Main",
+        kind: "qwen",
+        base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model: "qwen-max",
+        secret_ref: "keychain:restork/provider/qwen",
+        fallback: "disabled",
+        reasoning: { effort: "medium", max_tokens: 2048 },
+      },
+      revision: 1,
+      updated_at: "2026-08-04T00:00:00Z",
+    }];
+    state.workspaceV2.providerRegistry = {
+      registry_version: 1,
+      items: [{
+        registry_version: 1,
+        kind: "qwen",
+        id: "qwen",
+        display_name: "Qwen",
+        protocol: "open_ai_chat_completions",
+        default_base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        endpoint_policy: "exact_official",
+        auth_kind: "bearer",
+        model_discovery: "manual_only",
+        request_adapter: "qwen",
+        capabilities: { streaming: true, tool_calls: true, json_output: true, reasoning: true, vision: true },
+        reasoning: { can_disable: true, supported_efforts: ["medium"], supports_token_budget: true },
+        docs_url: "https://help.aliyun.com/",
+      }, {
+        registry_version: 1,
+        kind: "ollama",
+        id: "ollama",
+        display_name: "Ollama",
+        protocol: "ollama_chat",
+        default_base_url: "http://127.0.0.1:11434",
+        endpoint_policy: "loopback_only",
+        auth_kind: "none",
+        model_discovery: "ollama_tags",
+        request_adapter: "ollama",
+        capabilities: { streaming: true, tool_calls: true, json_output: true, reasoning: true, vision: true },
+        reasoning: { can_disable: true, supported_efforts: ["low", "medium", "high"], supports_token_budget: false },
+        docs_url: "https://docs.ollama.com/",
+      }],
+    };
+    const diagnostic = vi.spyOn(api, "providerDiagnostics").mockResolvedValue({
+      ...(snapshot.provider as ProviderDiagnostic),
+      provider: "qwen-main",
+      model: "qwen-max",
+      status: "smoke_passed",
+      connection_checked: true,
+      connection_ok: true,
+      model_available: true,
+      smoke_checked: true,
+      smoke_ok: true,
+    });
+    mountDashboard(root, { api, snapshot: state });
+
+    const selector = root.querySelector<HTMLSelectElement>("[data-provider-selector]");
+    if (!selector) throw new Error("overview provider selector");
+    selector.value = "qwen-main";
+    selector.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(root.querySelector("[data-provider-selected-name]")?.textContent).toBe("Qwen Main");
+    expect(root.querySelector("[data-provider-selected-model]")?.textContent).toContain("qwen-max");
+    expect(root.querySelector("[data-provider-command]")?.textContent)
+      .toBe("restorkd provider configure qwen");
+    expect(root.querySelector<HTMLButtonElement>('[data-provider-diagnostic="web_search"]')?.hidden)
+      .toBe(true);
+
+    root.querySelector<HTMLButtonElement>('[data-provider-diagnostic="smoke"]')?.click();
+    await vi.waitFor(() => expect(diagnostic)
+      .toHaveBeenCalledWith(true, "primary", "qwen-main"));
+    expect(root.querySelector("#provider-diagnostic-result")?.textContent).toContain("qwen-max");
+
+    selector.value = "setup:ollama";
+    selector.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(root.querySelector("[data-provider-command]")?.textContent).toBe("ollama serve");
+    expect(root.querySelector<HTMLButtonElement>('[data-provider-diagnostic="smoke"]')?.disabled)
+      .toBe(true);
+  });
+
+  it("shows the bound provider and exact model in the new-conversation selector", () => {
+    const root = document.createElement("main");
+    const state = workspaceSnapshot();
+    if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.providers = [{
+      provider: {
+        profile_id: "qwen-main",
+        version: 1,
+        display_name: "Qwen Main",
+        kind: "qwen",
+        base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model: "qwen-max",
+        secret_ref: "keychain:restork/provider/qwen",
+        fallback: "disabled",
+        reasoning: { effort: "medium", max_tokens: 2048 },
+      },
+      revision: 1,
+      updated_at: "2026-08-04T00:00:00Z",
+    }];
+    const profile = state.workspaceV2.profiles?.[0];
+    if (!profile) throw new Error("configuration profile fixture");
+    profile.profile.provider_profile_id = "qwen-main";
+    mountDashboard(root, { api: fakeApi(), snapshot: state });
+
+    const option = root.querySelector<HTMLOptionElement>(
+      '#session-profile option[value="research-cloud"]',
+    );
+    expect(option?.textContent).toContain("Research Cloud / Qwen Main / qwen-max / personal");
   });
 
   it("searches only the active session's frozen tool catalog and previews the real call", async () => {

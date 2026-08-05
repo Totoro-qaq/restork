@@ -91,6 +91,35 @@ def test_windows_release_config_requires_a_thumbprint_and_https_timestamp(
     assert bundle["windows"]["timestampUrl"].startswith("https://")
 
 
+def test_macos_alpha_config_is_versioned_and_explicitly_ad_hoc_signed(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "macos-alpha.json"
+    _updater_config(
+        output,
+        public_key="R" * 64,
+        endpoint="https://github.com/example/restork/releases/latest/download/latest.json",
+        platform="macos",
+        version="0.1.3-alpha.1",
+        signing_mode="ad-hoc",
+    )
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["version"] == "0.1.3-alpha.1"
+    assert payload["bundle"] == {
+        "createUpdaterArtifacts": True,
+        "macOS": {"signingIdentity": "-"},
+        "targets": ["app", "dmg"],
+    }
+    with pytest.raises(ValueError, match="only for macOS"):
+        _updater_config(
+            output,
+            public_key="R" * 64,
+            endpoint="https://example.com/latest.json",
+            platform="linux",
+            signing_mode="ad-hoc",
+        )
+
+
 def test_update_manifest_can_bind_all_desktop_targets_to_one_commit(
     tmp_path: Path,
 ) -> None:
@@ -114,6 +143,7 @@ def test_update_manifest_can_bind_all_desktop_targets_to_one_commit(
         version="0.1.2",
         commit="a" * 40,
         channel="alpha",
+        trust="ad-hoc",
     )
 
     latest = json.loads((tmp_path / "latest.json").read_text(encoding="utf-8"))
@@ -122,11 +152,11 @@ def test_update_manifest_can_bind_all_desktop_targets_to_one_commit(
         "windows-x86_64",
         "linux-x86_64",
     }
-    release = json.loads(
-        (tmp_path / "release-manifest.json").read_text(encoding="utf-8")
-    )
+    release = json.loads((tmp_path / "release-manifest.json").read_text(encoding="utf-8"))
     assert release["commit"] == "a" * 40
     assert release["channel"] == "alpha"
+    assert release["trust"] == "ad-hoc"
+    assert "no Apple Developer ID" in latest["notes"]
     assert len(release["artifacts"]) >= 10
 
 
@@ -175,11 +205,47 @@ def test_protected_release_is_three_platform_fail_closed_and_action_pinned() -> 
         assert required in source
 
 
+def test_public_macos_alpha_is_ad_hoc_labeled_clean_machine_checked_and_pinned() -> None:
+    root = Path(__file__).parents[2]
+    source = (root / ".github" / "workflows" / "unsigned-alpha.yml").read_text(encoding="utf-8")
+    workflow = yaml.safe_load(source)
+    jobs = workflow["jobs"]
+    assert {
+        "validate-alpha-ref",
+        "build-macos-alpha",
+        "clean-machine-macos",
+        "publish-alpha",
+    }.issubset(jobs)
+    assert jobs["build-macos-alpha"]["environment"] == "release-macos"
+    assert jobs["publish-alpha"]["environment"] == "release-publish"
+    for action in re.findall(r"uses:\s*([^\s#]+)", source):
+        assert re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", action), action
+    for required in (
+        "--signing-mode ad-hoc",
+        'grep -q "^Signature=adhoc$"',
+        "UNSIGNED-ALPHA.dmg",
+        "scripts/generate_sbom.py",
+        "actions/attest-build-provenance@",
+        "smoke-desktop-app.sh 3",
+        "--latest",
+        "docs/unsigned-alpha-release.md",
+    ):
+        assert required in source
+    assert "APPLE_CERTIFICATE" not in source
+    assert "APPLE_PASSWORD" not in source
+
+
+def test_macos_lifecycle_smoke_waits_for_launchservices_and_forces_fresh_processes() -> None:
+    root = Path(__file__).parents[2]
+    source = (root / "scripts" / "smoke-desktop-app.sh").read_text(encoding="utf-8")
+    assert '/usr/bin/open -n "$app_bundle"' in source
+    assert 'desktop_seen=0' in source
+    assert 'elif [[ "$desktop_seen" == "1" ]]' in source
+
+
 def test_pages_workflow_is_pinned_and_deploys_only_public_static_assets() -> None:
     root = Path(__file__).parents[2]
-    source = (root / ".github" / "workflows" / "pages.yml").read_text(
-        encoding="utf-8"
-    )
+    source = (root / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
     for action in re.findall(r"uses:\s*([^\s#]+)", source):
         assert re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", action), action
     assert "path: build/pages" in source
@@ -215,12 +281,8 @@ def test_site_social_previews_are_language_matched_and_share_safe() -> None:
 
 def test_desktop_core_build_loads_the_rust_workspace_linker_policy() -> None:
     root = Path(__file__).parents[2]
-    build_script = (root / "scripts" / "build-desktop-runtime.mjs").read_text(
-        encoding="utf-8"
-    )
-    cargo_config = (root / ".cargo" / "config.toml").read_text(
-        encoding="utf-8"
-    )
+    build_script = (root / "scripts" / "build-desktop-runtime.mjs").read_text(encoding="utf-8")
+    cargo_config = (root / ".cargo" / "config.toml").read_text(encoding="utf-8")
 
     # Cargo discovers .cargo/config.toml from the working directory, not the
     # --manifest-path argument. Keep the policy at the repository root for

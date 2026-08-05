@@ -33,6 +33,10 @@ from restork.providers.base import (
     ProviderResponseError,
 )
 from restork.providers.deepseek_chat_completions import DeepSeekChatCompletionsProvider
+from restork.providers.deepseek_responses import (
+    WEB_SEARCH_MODEL,
+    DeepSeekResponsesWebSearch,
+)
 from restork.secrets.store import KeychainSecretStore
 
 ProviderStatus = Literal[
@@ -56,13 +60,16 @@ _SETUP_COMMAND: Literal["uv run restork provider configure"] = (
     "uv run restork provider configure"
 )
 _SMOKE_MARKER = "RESTORK_OK"
+_WEB_SMOKE_MARKER = "RESTORK_WEB_OK"
 _REQUEST_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+DiagnosticTarget = Literal["primary", "web_search"]
 
 
 class ProviderDiagnosticRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     smoke: bool = False
+    target: DiagnosticTarget = "primary"
 
 
 class ProviderDiagnosticReport(BaseModel):
@@ -70,7 +77,7 @@ class ProviderDiagnosticReport(BaseModel):
 
     schema_version: Literal[1] = 1
     provider: Literal["deepseek"] = "deepseek"
-    model: Literal["deepseek-v4-pro"] = "deepseek-v4-pro"
+    model: Literal["deepseek-v4-pro", "deepseek-v4-flash"] = "deepseek-v4-pro"
     status: ProviderStatus
     message: str = Field(min_length=1, max_length=500)
     setup_command: Literal["uv run restork provider configure"] = _SETUP_COMMAND
@@ -95,7 +102,12 @@ class ProviderDiagnostics(Protocol):
 
     def status(self) -> ProviderDiagnosticReport: ...
 
-    async def diagnose(self, *, smoke: bool = False) -> ProviderDiagnosticReport: ...
+    async def diagnose(
+        self,
+        *,
+        smoke: bool = False,
+        target: DiagnosticTarget = "primary",
+    ) -> ProviderDiagnosticReport: ...
 
 
 class ProviderSecretStore(Protocol):
@@ -161,8 +173,14 @@ class DeepSeekProviderDiagnostics:
             }
         )
 
-    async def diagnose(self, *, smoke: bool = False) -> ProviderDiagnosticReport:
-        local = self.status()
+    async def diagnose(
+        self,
+        *,
+        smoke: bool = False,
+        target: DiagnosticTarget = "primary",
+    ) -> ProviderDiagnosticReport:
+        target_model = self.status().model if target == "primary" else WEB_SEARCH_MODEL
+        local = self.status().model_copy(update={"model": target_model})
         if local.status != "ready":
             return local
         config, reloaded = self._configuration()
@@ -202,7 +220,7 @@ class DeepSeekProviderDiagnostics:
         if response.status_code != 200:
             return _http_failure(local, response.status_code, started, request_id=request_id)
         try:
-            model_available = _model_available(response.payload, config.model)
+            model_available = _model_available(response.payload, target_model)
         except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
             return _failed(
                 local,
@@ -228,8 +246,7 @@ class DeepSeekProviderDiagnostics:
                 update={
                     "status": "connected",
                     "message": (
-                        "DeepSeek authentication succeeded and the configured model "
-                        "is available."
+                        f"DeepSeek authentication succeeded and {target_model} is available."
                     ),
                     "connection_checked": True,
                     "connection_ok": True,
@@ -238,11 +255,16 @@ class DeepSeekProviderDiagnostics:
                     "request_id": request_id,
                 }
             )
-        provider = DeepSeekChatCompletionsProvider(
-            config,
-            gateway,
-            _ResolvedSecret(secret),
-        )
+        if target == "web_search":
+            return await self._diagnose_web_search(
+                local,
+                config,
+                gateway,
+                secret,
+                started,
+                request_id=request_id,
+            )
+        provider = DeepSeekChatCompletionsProvider(config, gateway, _ResolvedSecret(secret))
         try:
             completion = await provider.complete(
                 ChatCompletionRequest(
@@ -315,6 +337,93 @@ class DeepSeekProviderDiagnostics:
             }
         )
 
+    async def _diagnose_web_search(
+        self,
+        local: ProviderDiagnosticReport,
+        config: ProviderConfig,
+        gateway: OutboundGateway,
+        secret: str,
+        started: float,
+        *,
+        request_id: str | None,
+    ) -> ProviderDiagnosticReport:
+        provider = DeepSeekResponsesWebSearch(config, gateway, _ResolvedSecret(secret))
+        try:
+            completion = await provider.complete(
+                instructions=(
+                    "Use web search to locate the official DeepSeek Responses API documentation. "
+                    "Return only the requested JSON object, including the official public HTTPS "
+                    "documentation source."
+                ),
+                input_text=(
+                    "This is a public synthetic capability test. Return RESTORK_WEB_OK only after "
+                    "a server-side web search finds the official DeepSeek API documentation, and "
+                    "include at least one source object with title and URL."
+                ),
+                schema_name="restork_web_search_smoke",
+                response_schema={
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "result": {"type": "string", "enum": [_WEB_SMOKE_MARKER]},
+                        "sources": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 3,
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "title": {"type": "string"},
+                                    "url": {"type": "string"},
+                                },
+                                "required": ["title", "url"],
+                            },
+                        },
+                    },
+                    "required": ["result", "sources"],
+                },
+                classification=DataClass.PUBLIC,
+                source_refs=("synthetic:provider-web-search-doctor",),
+                # V4 maps low/medium effort to high and counts hidden reasoning
+                # against this budget. Leave enough room for the JSON envelope.
+                maximum_output_tokens=4_096,
+                reasoning_effort="high",
+                require_sources=False,
+            )
+        except ProviderResponseError as error:
+            return _smoke_provider_failure(local, error, started, request_id=request_id)
+        except (TimeoutError, URLError):
+            return _smoke_failed(
+                local,
+                "timeout",
+                "DeepSeek V4 Flash web-search test timed out",
+                started,
+                request_id=request_id,
+            )
+        except OSError:
+            return _smoke_failed(
+                local,
+                "invalid_response",
+                "DeepSeek V4 Flash returned an invalid web-search test response",
+                started,
+                request_id=request_id,
+            )
+        return local.model_copy(
+            update={
+                "status": "smoke_passed",
+                "message": "The public V4 Flash server-side web-search test passed.",
+                "connection_checked": True,
+                "connection_ok": True,
+                "model_available": True,
+                "smoke_checked": True,
+                "smoke_ok": True,
+                "latency_ms": _elapsed_ms(started),
+                "request_id": request_id,
+                **_usage(completion.usage),
+            }
+        )
+
     def _configuration(self) -> tuple[ProviderConfig | None, ProviderDiagnosticReport]:
         restart_required = self._provider_active is False and self._config_path.is_file()
         if not self._config_path.is_file():
@@ -354,9 +463,9 @@ def _default_gateway(config: ProviderConfig) -> OutboundGateway:
         OutboundPolicy(
             allowed_origins=frozenset({config.base_url}),
             maximum_data_class=DataClass.PUBLIC,
-            maximum_response_bytes=256_000,
+            maximum_response_bytes=512_000,
         ),
-        timeout_seconds=15.0,
+        timeout_seconds=60.0,
     )
 
 

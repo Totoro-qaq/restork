@@ -2,34 +2,41 @@
   <strong>English</strong> · <a href="./desktop.zh-CN.md">简体中文</a>
 </p>
 
-# Cross-platform desktop alpha
+# Desktop distribution
 
 Restork now packages the native Rust `restorkd` Core, the bilingual Dashboard, and a Tauri 2 Rust
 supervisor. The base app does not need Python, Node.js, Rust, `uv`, or a package manager on the target
 machine. Optional Python capability packs remain outside startup and are launched only by an
 explicitly selected capability.
 
-The source supports macOS, Windows, and Linux. Ordinary pull-request CI produces an **unsigned alpha
-candidate**, not an official installer. Only the protected annotated-tag workflow may publish a
-release, and only after real platform signatures and clean-machine verification succeed.
+The source supports macOS, Windows, and Linux. Restork now has two deliberately separate release
+channels: a public Apple Silicon macOS Alpha for early testing, and a protected stable channel that
+still requires real platform identities. Pull-request artifacts remain short-lived candidates.
 
-| Platform | Candidate produced by CI | Public-release gate |
+| Platform | Public availability | Trust boundary |
 |---|---|---|
-| macOS 13+ | `.app` / DMG | Developer ID signing, notarization, stapling, updater signature, clean-machine checks |
-| Windows 10/11 | NSIS `.exe` / MSI | Authenticode signing, SmartScreen and WebView2 clean-machine checks, updater signature |
-| Supported desktop Linux | AppImage / Debian package | updater signature, distro matrix, desktop integration and uninstall-preservation checks |
+| Apple Silicon macOS 13+ | GitHub Release DMG Alpha | visibly ad-hoc signed and not notarized; Tauri updater signature, checksum, SBOM, provenance, clean-machine checks |
+| Windows 10/11 | contributor candidate only | public release still requires Authenticode, timestamping, updater signature, and clean-machine checks |
+| Supported desktop Linux | contributor candidate only | public release still requires GPG/package signatures, updater signature, distro checks, and clean-machine checks |
 
 ## One-click use
 
-When a signed asset is present on the [GitHub Releases page](https://github.com/Totoro-qaq/restork/releases),
-choose the file for your operating system:
+Open the [GitHub Releases page](https://github.com/Totoro-qaq/restork/releases) and choose the file
+ending in `macOS-arm64-UNSIGNED-ALPHA.dmg`:
 
-- macOS: open the DMG, drag Restork to Applications, then open Restork.
-- Windows: run the signed `Restork_*_x64-setup.exe` (or use the MSI for managed deployment).
-- Linux: install the `.deb`, or mark the AppImage executable and open it.
+1. Optionally download `SHA256SUMS` and verify the DMG with
+   `grep 'macOS-arm64-UNSIGNED-ALPHA.dmg$' SHA256SUMS | shasum -a 256 -c -`.
+2. Open the DMG and drag Restork to Applications.
+3. On first launch, Control-click Restork and choose **Open**, or use **System Settings → Privacy &
+   Security → Open Anyway**. Never disable Gatekeeper globally.
 
-If the release page does not contain a signed asset for your platform, use the contributor build
-below. Do not bypass operating-system warnings for an unsigned file received from someone else.
+The current public Alpha is not Apple Developer-ID-signed and is not notarized. Its ad-hoc bundle
+signature checks internal consistency; the independent Tauri signature authenticates updates. Neither
+creates Apple trust. Install it only when you intentionally downloaded it from this repository. See
+the bilingual [Alpha trust and install notice](unsigned-alpha-release.md).
+
+Windows, Linux, Intel Mac, and users who do not want the Alpha warning should use the contributor
+build below or wait for the protected signed channel.
 
 ## Build an internal candidate
 
@@ -110,6 +117,11 @@ executes one as an automatic downgrade and never places user data inside the app
 
 ## Release contract
 
+The public `v*-alpha.*` workflow is intentionally macOS-only. Before publishing a visibly labeled
+Alpha it verifies that the annotated tag belongs to `main`, runs the privacy/release gates, builds
+an ad-hoc-signed Apple Silicon app, signs the updater archive, emits checksums/SBOM/provenance, then
+mounts the downloaded DMG and launches it three times while checking complete Core cleanup.
+
 The protected tag workflow now defines the complete three-platform gate:
 
 - macOS Developer ID signing, notarization, stapling, Gatekeeper assessment, updater signing, and a
@@ -121,7 +133,7 @@ The protected tag workflow now defines the complete three-platform gate:
 - target-scoped updater metadata, CycloneDX SBOM, SHA-256 ledger, signed checksums, and GitHub build
   provenance before one immutable Release is created.
 
-These definitions are source-complete but **not credential-verified on this checkout**. The
-repository has no public signing keys or certificate secrets, so the jobs intentionally fail before
-building if a protected credential is missing. Do not claim a signed release until that tag workflow
-has passed and the downloaded artifact/attestation has been checked.
+The public Alpha does not weaken these stable gates. Developer ID/notarization, Authenticode, and
+the full Linux signature matrix remain owner-controlled proof. Do not describe an Alpha as signed or
+notarized by Apple, and do not claim a protected stable release until the complete tag workflow and
+downloaded attestations pass.

@@ -1,4 +1,6 @@
-use restork_storage::{Database, NewSession, NewSessionMessage, SessionCursor};
+use restork_storage::{
+    Database, NewSession, NewSessionFork, NewSessionMessage, SessionCursor, SessionForkMessage,
+};
 use serde_json::json;
 
 struct TestDirectory(tempfile::TempDir);
@@ -152,5 +154,89 @@ fn cursor_serialization_shape_is_stable() {
     assert_eq!(
         serde_json::to_value(cursor).expect("serialize cursor"),
         json!({"updated_at": "2026-08-02T10:00:00Z", "session_id": "session-c"})
+    );
+}
+
+#[test]
+fn session_forks_copy_only_selected_content_with_sanitized_provenance() {
+    let directory = TestDirectory::new();
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
+    database
+        .create_session(NewSession {
+            session_id: "session-source",
+            title: "Source conversation",
+            profile_id: "safe-mode",
+            locale: Some("en"),
+            occurred_at: "2026-08-05T08:00:00Z",
+        })
+        .expect("source session");
+    database
+        .append_session_message(NewSessionMessage {
+            message_id: "message-source",
+            session_id: "session-source",
+            role: "user",
+            content: "Public context for a different model",
+            context: &json!({"request_id": "must-not-be-copied", "tool_access": true}),
+            data_class: "public",
+            occurred_at: "2026-08-05T08:01:00Z",
+        })
+        .expect("source message");
+
+    let fork = database
+        .fork_session(NewSessionFork {
+            source_session_id: "session-source",
+            expected_source_updated_at: "2026-08-05T08:01:00Z",
+            expected_source_last_sequence: 1,
+            session: NewSession {
+                session_id: "session-branch",
+                title: "Branch conversation",
+                profile_id: "profile-target",
+                locale: Some("en"),
+                occurred_at: "2026-08-05T08:02:00Z",
+            },
+            messages: &[SessionForkMessage {
+                message_id: "message-branch".to_owned(),
+                source_message_id: "message-source".to_owned(),
+            }],
+        })
+        .expect("fork session");
+    assert_eq!(fork.session.profile_id, "profile-target");
+    assert_eq!(fork.messages.len(), 1);
+    assert_eq!(
+        fork.messages[0].content,
+        "Public context for a different model"
+    );
+    assert_eq!(
+        fork.messages[0].context,
+        json!({
+            "forked_from": {
+                "session_id": "session-source",
+                "message_id": "message-source",
+                "sequence": 1
+            },
+            "tool_access": false
+        })
+    );
+    assert!(fork.messages[0].context.get("request_id").is_none());
+
+    let stale = database.fork_session(NewSessionFork {
+        source_session_id: "session-source",
+        expected_source_updated_at: "2026-08-05T08:00:00Z",
+        expected_source_last_sequence: 0,
+        session: NewSession {
+            session_id: "session-stale",
+            title: "Stale branch",
+            profile_id: "safe-mode",
+            locale: Some("en"),
+            occurred_at: "2026-08-05T08:03:00Z",
+        },
+        messages: &[],
+    });
+    assert!(stale.is_err());
+    assert!(
+        database
+            .session("session-stale")
+            .expect("stale lookup")
+            .is_none()
     );
 }

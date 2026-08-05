@@ -88,6 +88,56 @@ describe("LocalApiClient calendar configuration", () => {
   });
 });
 
+describe("LocalApiClient conversation model branches", () => {
+  it("sends an explicit bounded fork request without provider credentials", async () => {
+    const responses = [
+      jsonResponse({ access_token: "paired-token" }),
+      jsonResponse({
+        session: {
+          session_id: "session-branch",
+          title: "Research · deepseek",
+          profile_id: "deepseek",
+          status: "active",
+          version: 1,
+          locale: "en",
+          created_at: "2026-08-05T12:00:00Z",
+          updated_at: "2026-08-05T12:00:00Z",
+          archived_at: null,
+        },
+        source_session_id: "session-source",
+        copied_messages: 2,
+        omitted_messages: 0,
+        copied_bytes: 42,
+        profile_id: "deepseek",
+      }),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+
+    await client.pair("pairing-code");
+    await client.forkSession(
+      "session-source",
+      "Research · deepseek",
+      "deepseek",
+      "2026-08-05T11:59:00Z",
+    );
+
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/sessions/session-source/fork");
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
+      title: "Research · deepseek",
+      profile_id: "deepseek",
+      expected_updated_at: "2026-08-05T11:59:00Z",
+      copy_limit: 24,
+    });
+    expect(String(fetchMock.mock.calls[1][1]?.body)).not.toMatch(/api.?key|credential|secret/i);
+  });
+});
+
 describe("LocalApiClient private playlist configuration", () => {
   it("imports playlist content only through the paired local Core", async () => {
     const responses = [
@@ -154,7 +204,7 @@ describe("LocalApiClient daily timezone", () => {
 });
 
 describe("LocalApiClient provider diagnostics", () => {
-  it("posts only the smoke choice through the paired local Core", async () => {
+  it("posts explicit per-model diagnostic targets through the paired local Core", async () => {
     const report = {
       schema_version: 1,
       provider: "deepseek",
@@ -164,6 +214,7 @@ describe("LocalApiClient provider diagnostics", () => {
     const responses = [
       jsonResponse({ access_token: "paired-token" }),
       jsonResponse(report),
+      jsonResponse({ ...report, model: "deepseek-v4-flash" }),
     ];
     const fetchMock = vi.fn<typeof fetch>(async () => {
       const response = responses.shift();
@@ -175,12 +226,20 @@ describe("LocalApiClient provider diagnostics", () => {
 
     await client.pair("pairing-code");
     await client.providerDiagnostics(true);
+    await client.providerDiagnostics(true, "web_search", "flash-research");
 
     expect(fetchMock.mock.calls[1][0]).toBe("/v1/providers/deepseek/diagnostics");
     const init = fetchMock.mock.calls[1][1];
     expect(JSON.parse(String(init?.body))).toEqual({ smoke: true });
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer paired-token");
     expect(String(init?.body)).not.toMatch(/api.?key|secret/i);
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({
+      smoke: true,
+      target: "web_search",
+    });
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      "/v1/providers/flash-research/diagnostics",
+    );
   });
 
   it("rotates a resumed near-expiry session before running the check", async () => {

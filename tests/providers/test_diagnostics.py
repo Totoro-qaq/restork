@@ -157,6 +157,70 @@ def test_opt_in_smoke_uses_only_a_fixed_public_prompt_and_returns_metadata(
     assert "RESTORK_OK" not in serialized
 
 
+def test_web_search_smoke_reserves_hidden_reasoning_budget_for_the_json_envelope(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    _write_config(config_path)
+    gateway = SequenceGateway(
+        [
+            OutboundResponse(200, {}, b'{"data":[{"id":"deepseek-v4-flash"}]}'),
+            OutboundResponse(
+                200,
+                {},
+                json.dumps(
+                    {
+                        "id": "response-web-1",
+                        "status": "completed",
+                        "model": "deepseek-v4-flash",
+                        "output": [
+                            {"type": "web_search_call", "status": "completed", "action": {}},
+                            {
+                                "type": "message",
+                                "content": [
+                                    {
+                                        "type": "output_text",
+                                        "text": json.dumps(
+                                            {
+                                                "result": "RESTORK_WEB_OK",
+                                                "sources": [
+                                                    {
+                                                        "title": "Official docs",
+                                                        "url": "https://api-docs.deepseek.com/",
+                                                    }
+                                                ],
+                                            }
+                                        ),
+                                        "annotations": [],
+                                    }
+                                ],
+                            },
+                        ],
+                        "usage": {
+                            "input_tokens": 10,
+                            "output_tokens": 20,
+                            "total_tokens": 30,
+                        },
+                    }
+                ).encode(),
+            ),
+        ]
+    )
+    diagnostics = DeepSeekProviderDiagnostics(
+        config_path,
+        keychain=FakeKeychain(),
+        gateway_factory=lambda _: gateway,
+    )
+
+    report = asyncio.run(diagnostics.diagnose(smoke=True, target="web_search"))
+
+    assert report.status == "smoke_passed"
+    request = json.loads(gateway.requests[1].payload)
+    assert request["model"] == "deepseek-v4-flash"
+    assert request["max_output_tokens"] == 4_096
+    assert request["reasoning"] == {"effort": "high"}
+
+
 def test_provider_diagnostic_normalizes_auth_and_model_failures(tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
     _write_config(config_path)

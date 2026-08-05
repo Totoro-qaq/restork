@@ -16,7 +16,7 @@ others.
 |---|---|---|
 | Primary experience | Terminal and gateway-driven conversation | Bilingual desktop workspace plus a governed conversation surface |
 | Runtime center | Extensible Python agent runtime | Rust Core owns policy, lifecycle, storage, network, and effects; Python is optional capability-worker territory |
-| Model choice | Broad provider plugins, setup wizard, in-session switching | Versioned Provider Registry and Profile; exact endpoint/model/reasoning policy frozen into each run |
+| Model choice | Broad provider plugins, setup wizard, in-session switching | Versioned Provider Registry and visible in-conversation picker; switching creates a separately governed bounded branch while the original remains frozen |
 | Reasoning control | Global/per-model effort settings and a runtime `/reasoning` command | Provider-capability-filtered settings; unsupported levels fail closed; private chain-of-thought is not displayed or retained |
 | Extensions | Drop-in provider, memory, context, media, and platform plugins | Quarantined Skills/MCP/Plugins with immutable versions, authority diff, explicit activation, rollback, and frozen per-session catalogs |
 | Knowledge | General agent memory and context engines | Ordinary local Markdown/Obsidian files remain the durable knowledge source |
@@ -33,6 +33,8 @@ others.
   wire fields, as long as the selected provider/model actually declares support.
 - **Different models for different jobs.** Restork expresses this through model-specific Provider
   Profiles and bounded child manifests instead of a hidden global fallback.
+- **A quick in-conversation model picker.** The current provider/model stays visible, while another
+  configured Profile is one deliberate action away instead of being buried in global settings.
 - **Inspectable extension management.** Skills, MCP servers, plugins, and providers deserve one
   discoverable management surface and clear diagnostics.
 
@@ -43,6 +45,9 @@ others.
 - Generic OpenAI-compatible endpoints default to `Auto` reasoning. Restork does not guess a vendor
   field from a model name.
 - Provider fallback is off. A new vendor is a new data destination and needs confirmation.
+- Switching a conversation never rewrites its provider or audit chain. Core checks every copied
+  message's data class, copies only a 24-message/120-KB recent suffix, strips request/provider/tool
+  metadata, disables tools, and creates a new branch.
 - Conversation text, tool descriptions, retrieved notes, and model output are data—not authority.
 - The UI shows durable phases and cancellation state, not private chain-of-thought.
 

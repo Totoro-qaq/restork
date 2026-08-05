@@ -19,7 +19,17 @@ async fn main() {
     }
     if matches!(arguments.as_slice(), [provider, configure] if provider == "provider" && configure == "configure")
     {
-        std::process::exit(configure_provider().await);
+        std::process::exit(configure_provider("deepseek").await);
+    }
+    if let [provider, configure, provider_kind] = arguments.as_slice()
+        && provider == "provider"
+        && configure == "configure"
+    {
+        let Some(provider_kind) = provider_kind.to_str() else {
+            eprintln!("restorkd: provider kind must be UTF-8");
+            std::process::exit(2);
+        };
+        std::process::exit(configure_provider(provider_kind).await);
     }
     if matches!(arguments.as_slice(), [music, apple, configure] if music == "music" && apple == "apple" && configure == "configure")
     {
@@ -43,13 +53,17 @@ async fn main() {
         std::process::exit(apple_music_status().await);
     }
     if matches!(arguments.as_slice(), [doctor] if doctor == "doctor") {
-        std::process::exit(run_doctor(false, false).await);
+        std::process::exit(run_doctor(false, false, false).await);
     }
     if matches!(arguments.as_slice(), [doctor, flag] if doctor == "doctor" && flag == "--connect") {
-        std::process::exit(run_doctor(true, false).await);
+        std::process::exit(run_doctor(true, false, false).await);
     }
     if matches!(arguments.as_slice(), [doctor, flag] if doctor == "doctor" && flag == "--smoke") {
-        std::process::exit(run_doctor(true, true).await);
+        std::process::exit(run_doctor(true, true, false).await);
+    }
+    if matches!(arguments.as_slice(), [doctor, flag] if doctor == "doctor" && flag == "--web-search")
+    {
+        std::process::exit(run_doctor(true, true, true).await);
     }
 
     let config = match ServerConfig::parse(arguments) {
@@ -98,17 +112,29 @@ async fn main() {
     }
 }
 
-async fn configure_provider() -> i32 {
+async fn configure_provider(provider_kind: &str) -> i32 {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     if !io::stdin().is_terminal() {
         eprintln!("restorkd: provider setup requires an interactive terminal");
         return 2;
     }
-    let reference = native_deepseek_reference();
-    match NativeSecretStore.configure_interactive(reference).await {
+    let Some((display_name, reference)) = native_provider_reference(provider_kind) else {
+        eprintln!(
+            "restorkd: unsupported credential provider; choose deepseek, glm, kimi, qwen, openrouter, or open_ai_compatible"
+        );
+        return 2;
+    };
+    match NativeSecretStore.configure_interactive(&reference).await {
         Ok(()) => {
-            println!("DeepSeek API key saved in native credential storage.");
-            println!("Run `restorkd doctor --connect` to check the configured model.");
+            println!("{display_name} API key saved in native credential storage.");
+            println!("Use native secret reference: {reference}");
+            if provider_kind == "deepseek" {
+                println!("Run `restorkd doctor --connect` to check the built-in DeepSeek route.");
+            } else {
+                println!(
+                    "Save the matching Provider Profile in Settings, then press `Test model` on its card."
+                );
+            }
             0
         }
         Err(_) => {
@@ -116,6 +142,27 @@ async fn configure_provider() -> i32 {
             2
         }
     }
+}
+
+fn native_provider_reference(provider_kind: &str) -> Option<(&'static str, String)> {
+    let display_name = match provider_kind {
+        "deepseek" => "DeepSeek",
+        "glm" => "GLM",
+        "kimi" => "Kimi",
+        "qwen" => "Qwen",
+        "openrouter" => "OpenRouter",
+        "open_ai_compatible" => "OpenAI-compatible",
+        _ => return None,
+    };
+    #[cfg(target_os = "macos")]
+    let reference = format!("keychain:restork/provider/{provider_kind}");
+    #[cfg(target_os = "linux")]
+    let reference = format!("secret-service:restork/provider/{provider_kind}");
+    #[cfg(windows)]
+    let reference = format!("credential-manager:restork/provider/{provider_kind}");
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    let reference = format!("keychain:restork/provider/{provider_kind}");
+    Some((display_name, reference))
 }
 
 async fn configure_native_secret(reference: &str, label: &str) -> i32 {
@@ -156,7 +203,7 @@ async fn apple_music_status() -> i32 {
     if developer_token { 0 } else { 2 }
 }
 
-async fn run_doctor(connect: bool, smoke: bool) -> i32 {
+async fn run_doctor(connect: bool, smoke: bool, web_search: bool) -> i32 {
     let profile = match deepseek_profile() {
         Ok(profile) => profile,
         Err(()) => {
@@ -185,7 +232,11 @@ async fn run_doctor(connect: bool, smoke: bool) -> i32 {
         println!("{output}");
         return if credential_present { 0 } else { 2 };
     }
-    let diagnostic = client.diagnose(&profile, smoke).await;
+    let diagnostic = if web_search {
+        client.diagnose_web_search(&profile).await
+    } else {
+        client.diagnose(&profile, smoke).await
+    };
     let expected = if smoke { "smoke_passed" } else { "connected" };
     let success = diagnostic.status == expected;
     match serde_json::to_string(&diagnostic) {

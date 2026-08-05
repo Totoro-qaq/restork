@@ -102,6 +102,20 @@ NetEase and Apple Music currently expose structured song metadata but no indepen
 current chart source. Their **Why it is hot** section therefore states the evidence gap. Provider
 text is untrusted data, escaped in the Dashboard, and never interpreted as a prompt or instruction.
 
+For any selected daily track, **Research online** is a separate explicit action. It uses the same
+native DeepSeek credential as the primary model, but routes this bounded job to
+`deepseek-v4-flash` through the Responses API with mandatory server-side web search. Only the
+selected track's public title, artist, album, release/language/genre metadata, and public source URL
+are sent. The full playlist, listening history, preferences, notes, Vault, and other daily context
+are excluded. Search pages are treated as prompt-injection input, lyrics are neither requested nor
+reproduced, and returned sources must pass a public credential-free HTTPS gate.
+
+Restork shows bilingual analysis with expandable source links. A “why it is hot” claim requires at
+least two independent current source hosts; otherwise the evidence gap remains visible. A valid
+result is cached locally for 36 hours. Failed or cancelled research preserves the last valid cache,
+and a paid search is never replayed automatically. The Dashboard warns about the small provider
+charge before the user starts it.
+
 JSON accepts either an array or an object with an `items` array. CSV uses the same field names:
 
 ```json

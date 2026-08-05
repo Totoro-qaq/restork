@@ -45,6 +45,26 @@ pub struct NewSession<'a> {
     pub occurred_at: &'a str,
 }
 
+#[derive(Clone, Debug)]
+pub struct SessionForkMessage {
+    pub message_id: String,
+    pub source_message_id: String,
+}
+
+pub struct NewSessionFork<'a> {
+    pub source_session_id: &'a str,
+    pub expected_source_updated_at: &'a str,
+    pub expected_source_last_sequence: i64,
+    pub session: NewSession<'a>,
+    pub messages: &'a [SessionForkMessage],
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct SessionForkRecord {
+    pub session: SessionRecord,
+    pub messages: Vec<StoredSessionMessage>,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SessionRecord {
     pub session_id: String,
@@ -546,6 +566,145 @@ impl Database {
             created_at: session.occurred_at.to_owned(),
             updated_at: session.occurred_at.to_owned(),
             archived_at: None,
+        })
+    }
+
+    pub fn fork_session(
+        &self,
+        fork: NewSessionFork<'_>,
+    ) -> Result<SessionForkRecord, StorageError> {
+        validate_identifier(fork.source_session_id)?;
+        validate_timestamp(fork.expected_source_updated_at)?;
+        if fork.expected_source_last_sequence < 0 || fork.messages.len() > 24 {
+            return Err(StorageError::Invalid("session fork bounds are invalid"));
+        }
+        validate_identifier(fork.session.session_id)?;
+        validate_text(fork.session.title, 240)?;
+        validate_identifier(fork.session.profile_id)?;
+        if let Some(locale) = fork.session.locale {
+            validate_text(locale, 32)?;
+        }
+        validate_timestamp(fork.session.occurred_at)?;
+        let mut message_ids = std::collections::BTreeSet::new();
+        let mut source_message_ids = std::collections::BTreeSet::new();
+        for message in fork.messages {
+            validate_identifier(&message.message_id)?;
+            validate_identifier(&message.source_message_id)?;
+            if !message_ids.insert(message.message_id.as_str())
+                || !source_message_ids.insert(message.source_message_id.as_str())
+            {
+                return Err(StorageError::Invalid(
+                    "session fork messages are duplicated",
+                ));
+            }
+        }
+
+        let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let source: Option<(String, String, i64)> = transaction
+            .query_row(
+                "SELECT status, updated_at, (SELECT COALESCE(MAX(sequence), 0) FROM session_messages WHERE session_id = ?1) FROM sessions WHERE session_id = ?1",
+                [fork.source_session_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((status, updated_at, last_sequence)) = source else {
+            return Err(StorageError::Invalid("source session does not exist"));
+        };
+        if status != "active" {
+            return Err(StorageError::Conflict("source session is archived"));
+        }
+        if updated_at != fork.expected_source_updated_at
+            || last_sequence != fork.expected_source_last_sequence
+        {
+            return Err(StorageError::Conflict(
+                "source session changed since it was read",
+            ));
+        }
+
+        transaction.execute(
+            "INSERT INTO sessions \
+             (session_id, title, profile_id, status, version, locale, created_at, updated_at, archived_at) \
+             VALUES (?1, ?2, ?3, 'active', 1, ?4, ?5, ?5, NULL)",
+            params![
+                fork.session.session_id,
+                fork.session.title,
+                fork.session.profile_id,
+                fork.session.locale,
+                fork.session.occurred_at
+            ],
+        )?;
+
+        let mut copied = Vec::with_capacity(fork.messages.len());
+        let mut copied_bytes = 0_usize;
+        for (index, seed) in fork.messages.iter().enumerate() {
+            let source_message: Option<(i64, String, String, String)> = transaction
+                .query_row(
+                    "SELECT sequence, role, content, data_class FROM session_messages WHERE session_id = ?1 AND message_id = ?2",
+                    params![fork.source_session_id, seed.source_message_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .optional()?;
+            let Some((source_sequence, role, content, data_class)) = source_message else {
+                return Err(StorageError::Conflict(
+                    "source session changed since it was read",
+                ));
+            };
+            copied_bytes = copied_bytes.saturating_add(content.len());
+            if copied_bytes > 120_000 {
+                return Err(StorageError::Invalid("session fork context is too large"));
+            }
+            let sequence = i64::try_from(index + 1)
+                .map_err(|_| StorageError::Invalid("session fork sequence is invalid"))?;
+            let context = serde_json::json!({
+                "forked_from": {
+                    "session_id": fork.source_session_id,
+                    "message_id": seed.source_message_id,
+                    "sequence": source_sequence,
+                },
+                "tool_access": false,
+            });
+            let context_json = serde_json::to_string(&context)?;
+            transaction.execute(
+                "INSERT INTO session_messages \
+                 (message_id, session_id, sequence, role, content, context_json, data_class, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    seed.message_id,
+                    fork.session.session_id,
+                    sequence,
+                    role,
+                    content,
+                    context_json,
+                    data_class,
+                    fork.session.occurred_at,
+                ],
+            )?;
+            copied.push(StoredSessionMessage {
+                message_id: seed.message_id.clone(),
+                session_id: fork.session.session_id.to_owned(),
+                sequence,
+                role,
+                content,
+                context,
+                data_class,
+                created_at: fork.session.occurred_at.to_owned(),
+            });
+        }
+        transaction.commit()?;
+        Ok(SessionForkRecord {
+            session: SessionRecord {
+                session_id: fork.session.session_id.to_owned(),
+                title: fork.session.title.to_owned(),
+                profile_id: fork.session.profile_id.to_owned(),
+                status: "active".to_owned(),
+                version: 1,
+                locale: fork.session.locale.map(str::to_owned),
+                created_at: fork.session.occurred_at.to_owned(),
+                updated_at: fork.session.occurred_at.to_owned(),
+                archived_at: None,
+            },
+            messages: copied,
         })
     }
 

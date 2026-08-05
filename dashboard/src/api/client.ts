@@ -41,6 +41,7 @@ import type {
   ConfigurationProfileRecordV2,
   PromptRevisionRecordV2,
   RunProposalV2,
+  SessionForkResultV2,
   SessionMessageV2,
   SessionRecordV2,
   SessionExportV2,
@@ -208,6 +209,25 @@ export class LocalApiClient implements DashboardApi {
       profile_id: profileId,
       locale: document.documentElement.lang || "en",
     });
+  }
+
+  async forkSession(
+    sessionId: string,
+    title: string,
+    profileId: string,
+    expectedUpdatedAt: string,
+    copyLimit = 24,
+  ): Promise<SessionForkResultV2> {
+    return this.#request<SessionForkResultV2>(
+      "POST",
+      `/v1/sessions/${encodeURIComponent(sessionId)}/fork`,
+      {
+        title,
+        profile_id: profileId,
+        expected_updated_at: expectedUpdatedAt,
+        copy_limit: copyLimit,
+      },
+    );
   }
 
   async sessionMessages(sessionId: string, after = 0): Promise<SessionMessageV2[]> {
@@ -905,11 +925,27 @@ export class LocalApiClient implements DashboardApi {
     );
   }
 
-  async providerDiagnostics(smoke: boolean): Promise<ProviderDiagnostic> {
+  async researchMusic(
+    localDate: string,
+  ): Promise<NonNullable<DashboardSnapshot["daily"]>["music"]> {
+    return this.#request<NonNullable<DashboardSnapshot["daily"]>["music"]>(
+      "POST",
+      "/v1/daily/music/research",
+      { local_date: localDate },
+      true,
+      `dashboard-music-research-${crypto.randomUUID()}`,
+    );
+  }
+
+  async providerDiagnostics(
+    smoke: boolean,
+    target: "primary" | "web_search" = "primary",
+    providerProfileId = "deepseek",
+  ): Promise<ProviderDiagnostic> {
     return this.#request<ProviderDiagnostic>(
       "POST",
-      "/v1/providers/deepseek/diagnostics",
-      { smoke },
+      `/v1/providers/${encodeURIComponent(providerProfileId)}/diagnostics`,
+      target === "primary" ? { smoke } : { smoke, target },
       true,
       undefined,
       true,

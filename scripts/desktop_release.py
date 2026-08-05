@@ -25,6 +25,8 @@ def _parser() -> argparse.ArgumentParser:
     config.add_argument(
         "--platform", choices=("generic", "macos", "windows", "linux"), default="generic"
     )
+    config.add_argument("--version")
+    config.add_argument("--signing-mode", choices=("protected", "ad-hoc"), default="protected")
     manifest = commands.add_parser("manifest")
     manifest.add_argument("--directory", type=Path, required=True)
     manifest.add_argument("--repository", required=True)
@@ -32,11 +34,18 @@ def _parser() -> argparse.ArgumentParser:
     manifest.add_argument("--version", required=True)
     manifest.add_argument("--commit", default=os.environ.get("GITHUB_SHA", "unknown"))
     manifest.add_argument("--channel", choices=("alpha", "stable"), default="alpha")
+    manifest.add_argument("--trust", choices=("protected", "ad-hoc"), default="protected")
     return parser
 
 
 def _updater_config(
-    output: Path, *, public_key: str, endpoint: str, platform: str = "generic"
+    output: Path,
+    *,
+    public_key: str,
+    endpoint: str,
+    platform: str = "generic",
+    version: str | None = None,
+    signing_mode: str = "protected",
 ) -> None:
     key = public_key.strip()
     if not 32 <= len(key) <= 4096 or "PRIVATE KEY" in key.upper() or "\x00" in key:
@@ -51,9 +60,15 @@ def _updater_config(
         or parsed.fragment
     ):
         raise ValueError("RESTORK_UPDATER_ENDPOINT must be a credential-free HTTPS URL")
+    if version is not None and not _VERSION.fullmatch(version):
+        raise ValueError("application version is invalid")
+    if signing_mode == "ad-hoc" and platform != "macos":
+        raise ValueError("ad-hoc release signing is supported only for macOS")
     bundle: dict[str, object] = {"createUpdaterArtifacts": True}
     if platform == "macos":
         bundle["targets"] = ["app", "dmg"]
+        if signing_mode == "ad-hoc":
+            bundle["macOS"] = {"signingIdentity": "-"}
     elif platform == "linux":
         bundle["targets"] = ["appimage", "deb"]
     elif platform == "windows":
@@ -74,10 +89,12 @@ def _updater_config(
                 },
             }
         )
-    payload = {
+    payload: dict[str, object] = {
         "bundle": bundle,
         "plugins": {"updater": {"endpoints": [endpoint], "pubkey": key}},
     }
+    if version is not None:
+        payload["version"] = version
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -126,6 +143,7 @@ def _update_manifest(
     version: str,
     commit: str = "unknown",
     channel: str = "alpha",
+    trust: str = "protected",
 ) -> None:
     if not _REPOSITORY.fullmatch(repository):
         raise ValueError("repository must use OWNER/NAME")
@@ -133,6 +151,10 @@ def _update_manifest(
         raise ValueError("release tag or application version is invalid")
     if channel not in {"alpha", "stable"}:
         raise ValueError("release channel is invalid")
+    if trust not in {"protected", "ad-hoc"}:
+        raise ValueError("release trust tier is invalid")
+    if trust == "ad-hoc" and channel != "alpha":
+        raise ValueError("ad-hoc artifacts are restricted to the alpha channel")
     if commit != "unknown" and not re.fullmatch(r"[A-Fa-f0-9]{40}", commit):
         raise ValueError("release commit must be a full Git commit SHA")
     signed = {
@@ -150,9 +172,15 @@ def _update_manifest(
     }
     if not platforms:
         raise ValueError("desktop release has no signed updater artifacts")
+    notes = (
+        f"Restork {tag} is an ad-hoc-signed macOS Alpha. "
+        "It has a Tauri updater signature but no Apple Developer ID or notarization."
+        if trust == "ad-hoc"
+        else f"Restork {tag}. See the GitHub release for verified release notes."
+    )
     payload = {
         "version": version,
-        "notes": f"Restork {tag}. See the GitHub release for verified release notes.",
+        "notes": notes,
         "pub_date": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "platforms": platforms,
     }
@@ -180,6 +208,7 @@ def _update_manifest(
         "version": version,
         "commit": commit,
         "channel": channel,
+        "trust": trust,
         "workflow_run": os.environ.get("GITHUB_RUN_ID", "local"),
         "updater_targets": sorted(platforms),
         "artifacts": artifact_records,
@@ -203,6 +232,8 @@ def main() -> int:
                 public_key=os.environ.get("RESTORK_UPDATER_PUBLIC_KEY", ""),
                 endpoint=os.environ.get("RESTORK_UPDATER_ENDPOINT", ""),
                 platform=arguments.platform,
+                version=arguments.version,
+                signing_mode=arguments.signing_mode,
             )
         else:
             _update_manifest(
@@ -212,6 +243,7 @@ def main() -> int:
                 version=arguments.version,
                 commit=arguments.commit,
                 channel=arguments.channel,
+                trust=arguments.trust,
             )
     except (OSError, UnicodeError, ValueError) as error:
         raise SystemExit(f"desktop release: {error}") from error

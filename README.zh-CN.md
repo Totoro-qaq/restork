@@ -126,11 +126,14 @@ cargo run --manifest-path rust/Cargo.toml -p restorkd -- \
 
 ### 桌面安装包
 
-源码可以生成 macOS、Windows 与 Linux 候选包。受保护的发布工作流会分别签名三平台、完成
-macOS 公证与 stapling、验证更新签名、生成 SBOM/provenance，并在干净 runner 上重新下载、安装
-和启动后才发布；仓库所有者未配置真实签名身份时会失败关闭。当
-[Releases 页面](https://github.com/Totoro-qaq/restork/releases)出现已签名安装包后，目标电脑无需
-Python、Node.js、Rust、`uv` 或包管理器。精确状态与一条命令构建方式见
+[Releases 页面](https://github.com/Totoro-qaq/restork/releases)现在支持公开的 Apple Silicon
+macOS Alpha。下载文件名明确带有 `UNSIGNED-ALPHA` 的 DMG，目标 Mac 不需要 Python、Node.js、
+Rust、`uv` 或包管理器。这个早期版本使用 ad-hoc 签名，另有独立更新签名、校验和、SBOM、
+provenance 与干净机器生命周期测试，但它**没有 Apple Developer ID 签名，也没有经过公证**。
+首次启动请使用单个应用的**打开 / 仍要打开**，不要全局关闭 Gatekeeper。
+
+受保护正式通道仍保持独立：macOS Developer ID/公证、Windows Authenticode、Linux 包签名与
+完整干净机器矩阵都通过后，才能称为正式版本。精确信任边界、安装步骤与贡献者构建方式见
 [桌面端指南](docs/desktop.zh-CN.md)。
 
 ### 只连接你真正需要的东西
@@ -157,6 +160,11 @@ cargo run --manifest-path rust/Cargo.toml -p restorkd -- music apple status
 这里需要的不是 Apple ID 密码，token 也不会进入 Dashboard 或 SQLite。刷新始终由你手动触发；
 断开连接只会删除 Restork 管理的快照。完整边界见[每日上下文隐私说明](docs/daily-context.md)。
 
+如果推荐歌曲还需要更多背景，点击**联网分析**即可。Restork 只会把这一首歌的公开元数据交给
+DeepSeek V4 Flash，强制执行服务端联网搜索，校验公网 HTTPS 来源，再返回中英文解读；完整歌单和
+收听历史不会发送。除非至少两个相互独立、且足够时新的来源支持，否则“为什么火”仍会明确显示为
+证据缺口。这个付费动作只能手动触发，结果在本地缓存 36 小时，并且不会自动重试。
+
 想换一个本地端口，不用改配置文件：
 
 ```bash
@@ -167,19 +175,26 @@ RESTORK_PORT=7444 ./scripts/quickstart.sh
 
 打开**设置 → 模型供应商**，选择精确模型和它支持的思考强度。Restork 内置 DeepSeek、GLM、
 Kimi、Qwen、Ollama、OpenRouter 和 OpenAI-compatible 定义。Profile 与具体模型绑定，因此有界
-子任务可以用更快的模型、综合任务可以用更强模型，同时不会发生隐藏回退。能力表与端点规则见
-[模型供应商指南](docs/providers.zh-CN.md)。
+子任务可以用更快的模型、综合任务可以用更强模型，同时不会发生隐藏回退。保存后直接在对应
+Provider Profile 卡片点击**测试模型**；选择的不是 DeepSeek 时，测试也绝不会绕到内置 DeepSeek
+链路。能力表与端点规则见[模型供应商指南](docs/providers.zh-CN.md)。
 
-云端 Key 使用原生凭据流程。当前 CLI 命令配置内置 DeepSeek 凭据；更多安装包内的原生引导会
-作为发布门禁补齐，而不是在 Dashboard 放一个明文 Key 输入框：
+在对话中点击**换一个模型继续**会创建带有界近期上下文的新分支；它不会改写原 Profile，也不会
+把私有消息带进数据边界更窄的云端模型。
+
+云端 Key 使用按供应商区分的原生凭据流程，不在 Dashboard 放明文 Key 输入框；省略类型时仍默认
+配置内置 DeepSeek：
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure qwen
 ```
 
 系统原生提示会把 Key 写入 macOS Keychain、Windows Credential Manager 或 Linux Secret
 Service。Key 不会进入浏览器、TOML、命令行参数、环境变量、shell history、Vault、SQLite、
 日志或本仓库；Dashboard 只保存原生密钥引用。
+可配置的类型包括 `deepseek`、`glm`、`kimi`、`qwen`、`openrouter` 与
+`open_ai_compatible`；本地 Ollama 无需 Key。
 
 重启 Restork 后，可以自己决定检查到哪一步：
 
@@ -187,10 +202,13 @@ Service。Key 不会进入浏览器、TOML、命令行参数、环境变量、sh
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --connect
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --smoke
+cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --web-search
 ```
 
-短句测试不会发送 Vault、记忆、任务、位置、日历或歌单内容，也不会打印模型响应正文。私有目录、
-备份、恢复和凭据规则见 [`Operations`](docs/operations.md)。
+`--connect` 检查共享 Key 与模型目录，`--smoke` 测试 V4 Pro 综合，`--web-search` 测试 V4
+Flash 与服务端联网搜索。短句测试不会发送 Vault、记忆、任务、位置、日历或歌单内容，也不会打印
+模型响应正文。精确分工见[模型供应商指南](docs/providers.zh-CN.md)，私有目录、备份、恢复和凭据
+规则见 [`Operations`](docs/operations.md)。
 
 ### 让个人数据留在仓库之外
 
@@ -218,9 +236,9 @@ uv run restork \
 | **产物与恢复** | 确定性无宏 PPTX/PDF、精确产物哈希、包含真实内容的检查点、绑定预览的文件系统恢复、调度、评估与深度一有界子任务 |
 | **跨平台桌面源码** | Tauri 打包 `restorkd` 与 Dashboard，使用 Unix 进程组或 Windows Job Object 管理生命周期，验证签名更新并保留有限恢复副本，同时生成无需目标机运行时的三平台候选包 |
 
-Steps 18–22 已在源码中实现，并有确定性本地门禁覆盖。但源码完成不等于已经发布签名安装包：
-Developer ID、Authenticode、Linux GPG、更新密钥、公证和干净 runner 结果都属于仓库所有者的
-受保护凭据与工作流证据；缺少任何一项都不会发布。精确契约与仍依赖凭据的证明见
+Steps 18–22 已在源码中实现，并有确定性本地门禁覆盖。公开 macOS Alpha 明确不在 Apple
+Developer ID 信任范围内；受保护正式版仍要求真实 Developer ID、Authenticode、Linux GPG、
+公证与干净 runner 证据。精确契约与仍依赖凭据的证明见
 [Steps 18–22 规格](specs/restork-steps18-22.md)和[交付计划](plans/restork-steps18-22.md)。
 
 ## 使用指南
@@ -282,7 +300,8 @@ loopback 延迟，全程不发送 Prompt。在剩余执行路由达到 Rust 兼�
 启动会继续保留。
 
 提交改动前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。已实现的产品契约位于
-[`V1 规格`](specs/restork-v1.md)与[Steps 18–22 规格](specs/restork-steps18-22.md)。发布历史记录在
+[`V1 规格`](specs/restork-v1.md)与[Steps 18–22 规格](specs/restork-steps18-22.md)；对话模型分支与公开
+macOS Alpha 的边界冻结在 [Step 26 规格](specs/restork-step26-model-branch-and-public-alpha.md)。发布历史记录在
 [`CHANGELOG.md`](CHANGELOG.md)。
 
 </details>

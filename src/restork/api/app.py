@@ -42,6 +42,7 @@ from restork.contracts.types import ApprovalDecision, EffectPhase, Mode, RunPhas
 from restork.conversation.models import ConversationInput
 from restork.conversation.service import ConversationService
 from restork.daily.apple_music import AppleMusicError
+from restork.daily.music_research import MusicResearchError
 from restork.daily.netease import NetEaseMusicError
 from restork.daily.qqmusic import QQMusicError
 from restork.daily.service import DailyContextService
@@ -419,7 +420,10 @@ def create_app(
         _: Annotated[AccessToken, Depends(write_runs)],
         __: None = Depends(require_json),
     ) -> dict[str, object]:
-        report = await configured_provider_diagnostics().diagnose(smoke=body.smoke)
+        report = await configured_provider_diagnostics().diagnose(
+            smoke=body.smoke,
+            target=body.target,
+        )
         return report.model_dump(mode="json")
 
     def configured_memory() -> MemoryService:
@@ -1326,6 +1330,25 @@ def create_app(
         try:
             snapshot = await configured_daily().refresh_music(local_date=body.local_date)
         except (AppleMusicError, NetEaseMusicError, QQMusicError) as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        except (OSError, TypeError, UnicodeError, ValueError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return snapshot.model_dump(mode="json")
+
+    @app.post("/v1/daily/music/research")
+    async def research_daily_music(
+        body: MusicRefreshPayload,
+        _: Annotated[AccessToken, Depends(write_memory)],
+        idempotency_key: str = Header(default=""),
+        __: None = Depends(require_json),
+    ) -> dict[str, object]:
+        if not idempotency_key:
+            raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+        try:
+            snapshot = await configured_daily().research_music(local_date=body.local_date)
+        except MusicResearchError as error:
             raise HTTPException(status_code=502, detail=str(error)) from error
         except RuntimeError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error

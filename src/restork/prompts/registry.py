@@ -51,6 +51,26 @@ _PROMPTS = {
         models=("deepseek-v4-pro",),
         change_note="Initial evidence-bound research synthesis prompt.",
     ),
+    ("daily.music.web-research.system", "1.0.0"): PromptDefinition(
+        prompt_id="daily.music.web-research.system",
+        version="1.0.0",
+        content=(
+            "Research only the explicitly named song by using the required web-search tool, then "
+            "return only the requested JSON object. "
+            + _UNTRUSTED_BOUNDARY
+            + " Produce concise English and Simplified Chinese song notes from attributable "
+            "release, artist, label, interview, review, or chart evidence. Do not reproduce song "
+            "lyrics or infer meaning from unsourced lyrics. A popularity explanation is supported "
+            "only when at least two independent, current sources provide dated chart, trend, "
+            "release, media, or audience evidence. Otherwise set popularity_supported to false "
+            "and state the evidence gap without guessing. Return no more than six HTTPS sources; "
+            "each source must identify whether it supports analysis, popularity, or both. Never "
+            "claim that the user's complete playlist, listening history, or private profile was "
+            "searched or uploaded."
+        ),
+        models=("deepseek-v4-flash",),
+        change_note="Initial source-bound daily-song web research prompt.",
+    ),
     ("conversation.research.system", "1.0.0"): PromptDefinition(
         prompt_id="conversation.research.system",
         version="1.0.0",
@@ -95,6 +115,7 @@ _PROMPTS = {
 _LATEST = {
     "agent.loop.system": "1.0.0",
     "research.synthesis.system": "1.0.0",
+    "daily.music.web-research.system": "1.0.0",
     "conversation.research.system": "1.0.0",
     "conversation.study.system": "1.0.0",
     "conversation.work.system": "1.0.0",
