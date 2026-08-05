@@ -361,6 +361,7 @@ end if
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_native_mail_output(output: &str) -> MailSnapshot {
     let value = output.trim();
     if value == "NOT_RUNNING" {
