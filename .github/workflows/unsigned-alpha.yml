@@ -81,7 +81,7 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           uv run python scripts/desktop_release.py config --platform macos --version "$version" --signing-mode ad-hoc --output build/desktop-alpha-config.json
-          npm --prefix desktop exec tauri build -- --config ../build/desktop-alpha-config.json
+          npm --prefix desktop exec tauri build -- --config build/desktop-alpha-config.json
       - name: Verify the signature is ad hoc and never claim Developer ID trust
         shell: bash
         run: |

@@ -222,6 +222,7 @@ def test_public_macos_alpha_is_ad_hoc_labeled_clean_machine_checked_and_pinned()
         assert re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", action), action
     for required in (
         "--signing-mode ad-hoc",
+        "--config build/desktop-alpha-config.json",
         'grep -q "^Signature=adhoc$"',
         "UNSIGNED-ALPHA.dmg",
         "scripts/generate_sbom.py",
@@ -233,6 +234,7 @@ def test_public_macos_alpha_is_ad_hoc_labeled_clean_machine_checked_and_pinned()
         assert required in source
     assert "APPLE_CERTIFICATE" not in source
     assert "APPLE_PASSWORD" not in source
+    assert "--config ../build/desktop-alpha-config.json" not in source
 
 
 def test_macos_lifecycle_smoke_waits_for_launchservices_and_forces_fresh_processes() -> None:
