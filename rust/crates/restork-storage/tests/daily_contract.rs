@@ -1,4 +1,5 @@
 use restork_storage::{CalendarIntervalRecord, Database};
+use rusqlite::Connection;
 use serde_json::json;
 
 struct TestDirectory(tempfile::TempDir);
@@ -80,6 +81,23 @@ fn optional_daily_sources_are_explicit_bounded_and_clearable() {
     assert!(music_source.enabled);
     assert_eq!(music_source.config["provider"], "qqmusic");
 
+    let mail = database
+        .put_daily_source(
+            "mail",
+            true,
+            &json!({
+                "explicit": true,
+                "detail_scope": "unread_count",
+                "content_access": false
+            }),
+            &json!({"refresh_interval_seconds": 15, "read_only": true}),
+            "2026-08-02T12:02:00Z",
+        )
+        .expect("mail source");
+    assert!(mail.enabled);
+    assert_eq!(mail.consent["detail_scope"], "unread_count");
+    assert!(mail.config.get("unread_count").is_none());
+
     database
         .put_daily_cache(
             "weather-current",
@@ -103,5 +121,52 @@ fn optional_daily_sources_are_explicit_bounded_and_clearable() {
             .daily_cache("weather-current")
             .expect("cache")
             .is_none()
+    );
+}
+
+#[test]
+fn mail_source_migration_preserves_existing_daily_configuration() {
+    let directory = TestDirectory::new();
+    let connection =
+        Connection::open(directory.0.path().join("migration.db")).expect("migration database");
+    connection
+        .execute_batch(
+            "CREATE TABLE daily_source_settings (\
+                source TEXT PRIMARY KEY CHECK (source IN ('calendar', 'weather', 'music')),\
+                enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),\
+                consent_json TEXT NOT NULL CHECK (json_valid(consent_json)),\
+                config_json TEXT NOT NULL CHECK (json_valid(config_json)),\
+                updated_at TEXT NOT NULL\
+            );\
+            INSERT INTO daily_source_settings VALUES (\
+                'weather', 1, '{\"explicit\":true}', '{\"label\":\"Synthetic City\"}',\
+                '2026-08-02T12:00:00Z'\
+            );",
+        )
+        .expect("legacy daily source");
+    connection
+        .execute_batch(include_str!("../migrations/0011_mail_awareness.sql"))
+        .expect("mail migration");
+    let label: String = connection
+        .query_row(
+            "SELECT json_extract(config_json, '$.label') FROM daily_source_settings WHERE source = 'weather'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("preserved weather source");
+    assert_eq!(label, "Synthetic City");
+    connection
+        .execute(
+            "INSERT INTO daily_source_settings VALUES ('mail', 1, '{}', '{}', ?1)",
+            ["2026-08-02T12:01:00Z"],
+        )
+        .expect("mail source accepted");
+    assert!(
+        connection
+            .execute(
+                "INSERT INTO daily_source_settings VALUES ('private-inbox', 1, '{}', '{}', ?1)",
+                ["2026-08-02T12:02:00Z"],
+            )
+            .is_err()
     );
 }

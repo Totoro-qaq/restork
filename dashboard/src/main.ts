@@ -8,6 +8,7 @@ import type {
   DashboardApi,
   DashboardListKind,
   DashboardSnapshot,
+  MailSnapshot,
   Mode,
   RadarAction,
   ReasoningEffortV2,
@@ -59,6 +60,7 @@ interface MountOptions {
 
 const coverUrls = new WeakMap<HTMLElement, string>();
 const eventStreams = new WeakMap<HTMLElement, AbortController>();
+const mailStreams = new WeakMap<HTMLElement, AbortController>();
 const conversationStreams = new WeakMap<HTMLElement, {
   controller: AbortController;
   operationId: string;
@@ -130,6 +132,7 @@ async function pairAndLoad(root: HTMLElement, api: DashboardApi, data: FormData)
 function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: DashboardSnapshot): void {
   const locale = localeOf(root);
   stopEventStream(root);
+  stopMailStream(root);
   releaseCover(root);
   root.innerHTML = workspaceMarkup(snapshot, locale);
   startClock(root);
@@ -139,17 +142,29 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
     selectView(root, view);
   });
   root.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => {
-    button.addEventListener("click", () => selectView(root, button.dataset.view ?? "overview"));
+    button.addEventListener("click", () => {
+      closeRunForm(root, false);
+      selectView(root, button.dataset.view ?? "overview");
+    });
   });
   root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
-    button.addEventListener("click", () => openRunForm(root, button.dataset.mode as Mode));
+    button.addEventListener("click", () => openRunForm(root, button.dataset.mode as Mode, button));
+  });
+  root.querySelector<HTMLButtonElement>("[data-run-panel-close]")?.addEventListener("click", () => {
+    closeRunForm(root, true);
+  });
+  root.querySelector<HTMLElement>("#action-panel")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    closeRunForm(root, true);
   });
   root.querySelector<HTMLFormElement>("#run-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     void createRun(root, api, event.currentTarget as HTMLFormElement);
   });
   root.querySelector<HTMLButtonElement>("#refresh")?.addEventListener("click", () => {
-    void refresh(root, api);
+    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "overview";
+    void refresh(root, api, view);
   });
   root.querySelectorAll<HTMLButtonElement>("[data-approval-id]").forEach((button) => {
     button.addEventListener("click", () => void decide(root, api, button));
@@ -177,6 +192,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   configureMusic(root, api);
   configureWeather(root, api);
   configureCalendar(root, api);
+  configureMail(root, api, snapshot);
   configureProvider(root, api, snapshot);
   configureRustWorkspace(root, api, snapshot);
   if (snapshot.daily?.music.recommendation?.cover_available) {
@@ -1602,6 +1618,168 @@ function configureCalendar(root: HTMLElement, api: DashboardApi): void {
   );
 }
 
+function configureMail(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+): void {
+  bindSettingsDialog(root, "#mail-settings-dialog", "[data-mail-open]");
+  root.querySelector<HTMLButtonElement>("[data-native-mail-connect]")?.addEventListener(
+    "click",
+    (event) => void connectNativeMail(
+      root,
+      api,
+      event.currentTarget as HTMLButtonElement,
+    ),
+  );
+  root.querySelector<HTMLButtonElement>("[data-native-mail-disconnect]")?.addEventListener(
+    "click",
+    (event) => void disconnectNativeMail(
+      root,
+      api,
+      event.currentTarget as HTMLButtonElement,
+    ),
+  );
+  const mail = snapshot.daily?.mail;
+  if (mail?.configured && api.streamMail) startMailStream(root, api, mail);
+}
+
+async function connectNativeMail(
+  root: HTMLElement,
+  api: DashboardApi,
+  button: HTMLButtonElement,
+): Promise<void> {
+  if (!api.connectNativeMail) return;
+  const view = activeView(root);
+  button.disabled = true;
+  const status = root.querySelector<HTMLElement>("[data-mail-dialog-status]");
+  if (status) {
+    status.textContent = tr(
+      localeOf(root),
+      "Waiting for macOS permission…",
+      "正在等待 macOS 权限确认…",
+    );
+  }
+  try {
+    const mail = await api.connectNativeMail();
+    if (!mail.configured) {
+      updateMailUi(root, mail);
+      button.disabled = false;
+      announce(root, localizedMailStatus(mail, localeOf(root)));
+      return;
+    }
+    await refresh(root, api, view);
+    announce(root, tr(
+      localeOf(root),
+      "Mail unread count connected. No message content is available to Restork.",
+      "邮件未读数量已连接；Restork 无法访问邮件内容。",
+    ));
+  } catch (error) {
+    button.disabled = false;
+    announce(root, errorText(error, localeOf(root)));
+  }
+}
+
+async function disconnectNativeMail(
+  root: HTMLElement,
+  api: DashboardApi,
+  button: HTMLButtonElement,
+): Promise<void> {
+  if (!api.disconnectNativeMail) return;
+  const view = activeView(root);
+  button.disabled = true;
+  try {
+    stopMailStream(root);
+    await api.disconnectNativeMail();
+    await refresh(root, api, view);
+    announce(root, tr(
+      localeOf(root),
+      "Mail awareness disconnected. No email account data was retained.",
+      "邮件提醒已断开；未保留任何邮件账户数据。",
+    ));
+  } catch (error) {
+    button.disabled = false;
+    announce(root, errorText(error, localeOf(root)));
+  }
+}
+
+function startMailStream(
+  root: HTMLElement,
+  api: DashboardApi,
+  initial: MailSnapshot,
+): void {
+  if (!api.streamMail) return;
+  stopMailStream(root);
+  updateMailUi(root, initial);
+  const controller = new AbortController();
+  mailStreams.set(root, controller);
+  void api.streamMail(
+    (mail) => {
+      if (!controller.signal.aborted) updateMailUi(root, mail);
+    },
+    controller.signal,
+  ).catch((error: unknown) => {
+    if (controller.signal.aborted) return;
+    const status = root.querySelector<HTMLElement>("[data-mail-dialog-status]");
+    if (status) {
+      status.textContent = tr(
+        localeOf(root),
+        "Live update stopped. Use Refresh to reconnect.",
+        "实时更新已停止，请点刷新重新连接。",
+      );
+    }
+    announce(root, errorText(error, localeOf(root)));
+  });
+}
+
+function stopMailStream(root: HTMLElement): void {
+  mailStreams.get(root)?.abort();
+  mailStreams.delete(root);
+}
+
+function updateMailUi(root: HTMLElement, mail: MailSnapshot): void {
+  const locale = localeOf(root);
+  const label = mail.configured && mail.unread_count !== null
+    ? tr(locale, `${mail.unread_count} unread`, `${mail.unread_count} 封未读`)
+    : mail.configured
+      ? tr(locale, "Mail paused", "邮件暂停")
+      : tr(locale, "Mail off", "邮件未启用");
+  const indicator = root.querySelector<HTMLButtonElement>("[data-mail-open]");
+  if (indicator) {
+    [...indicator.classList]
+      .filter((name) => name.startsWith("status-"))
+      .forEach((name) => indicator.classList.remove(name));
+    indicator.classList.add(`status-${mail.status}`);
+    indicator.setAttribute("aria-label", tr(locale, `Mail: ${label}`, `邮件：${label}`));
+  }
+  const count = root.querySelector<HTMLElement>("[data-mail-count]");
+  if (count) count.textContent = label;
+  const dialogStatus = root.querySelector<HTMLElement>("[data-mail-dialog-status]");
+  if (dialogStatus) dialogStatus.textContent = localizedMailStatus(mail, locale);
+}
+
+function localizedMailStatus(mail: MailSnapshot, locale: Locale): string {
+  if (!mail.configured) {
+    if (mail.status === "stale") {
+      return tr(locale, "Open macOS Mail, then try Connect again.", "请先打开 macOS 邮件，再重新连接。");
+    }
+    if (mail.status === "denied") {
+      return tr(locale, "Mail permission was denied in System Settings.", "系统设置中的邮件权限已被拒绝。");
+    }
+    return tr(locale, "Off — no access requested", "未启用 · 尚未请求权限");
+  }
+  if (mail.status === "fresh" && mail.unread_count !== null) {
+    return tr(locale, `${mail.unread_count} unread · live`, `${mail.unread_count} 封未读 · 实时`);
+  }
+  if (mail.status === "stale") return tr(locale, "Waiting for macOS Mail", "正在等待 macOS 邮件");
+  if (mail.status === "denied") return tr(locale, "Permission denied", "权限已被拒绝");
+  return tr(locale, "Temporarily unavailable", "暂时不可用");
+}
+
+function activeView(root: HTMLElement): string {
+  return root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "overview";
+}
+
 async function connectNativeCalendar(
   root: HTMLElement,
   api: DashboardApi,
@@ -1745,21 +1923,49 @@ function geolocationError(error: unknown, locale: Locale): string {
 }
 
 function selectView(root: HTMLElement, view: string): void {
-  if (view !== "runs") stopEventStream(root);
-  root.querySelectorAll<HTMLElement>("[data-view-panel]").forEach((panel) => {
-    panel.hidden = panel.dataset.viewPanel !== view;
+  const panels = [...root.querySelectorAll<HTMLElement>("[data-view-panel]")];
+  const resolvedView = panels.some((panel) => panel.dataset.viewPanel === view) ? view : "overview";
+  if (resolvedView !== "runs") stopEventStream(root);
+  panels.forEach((panel) => {
+    panel.hidden = panel.dataset.viewPanel !== resolvedView;
     panel.classList.toggle("is-visible", !panel.hidden);
   });
   root.querySelectorAll<HTMLElement>("[data-view]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.view === view);
+    const active = button.dataset.view === resolvedView;
+    button.classList.toggle("is-active", active);
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
   });
 }
 
-function openRunForm(root: HTMLElement, mode: Mode): void {
+function openRunForm(root: HTMLElement, mode: Mode, trigger?: HTMLButtonElement): void {
   const panel = root.querySelector<HTMLElement>("#action-panel");
   const field = root.querySelector<HTMLInputElement>("#run-mode");
-  if (panel) panel.hidden = false;
-  if (field) field.value = mode;
+  if (!panel || !field) return;
+  if (!panel.hidden && field.value === mode) {
+    closeRunForm(root, true);
+    return;
+  }
+  const previousMode = field.value;
+  panel.hidden = false;
+  panel.dataset.activeMode = mode;
+  field.value = mode;
+  root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
+    const active = button.dataset.mode === mode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-expanded", String(active));
+    button.setAttribute("aria-pressed", String(active));
+  });
+  if (trigger) panel.dataset.returnFocusMode = trigger.dataset.mode ?? mode;
+  const locale = localeOf(root);
+  const title = root.querySelector<HTMLElement>("#action-panel-title");
+  if (title) {
+    title.textContent = tr(locale, `Start a ${capitalizedMode(mode)} run`, `新建 ${capitalizedMode(mode)} 运行`);
+  }
+  if (previousMode !== mode) {
+    const status = root.querySelector<HTMLElement>("#action-status");
+    if (status) status.textContent = "";
+  }
   const target = root.querySelector<HTMLInputElement>("#study-target-note");
   const targetLabel = root.querySelector<HTMLElement>("#study-target-label");
   if (target) target.hidden = mode !== "study";
@@ -1770,15 +1976,31 @@ function openRunForm(root: HTMLElement, mode: Mode): void {
   const workTargets = root.querySelector<HTMLTextAreaElement>("#work-targets");
   if (workRoot) workRoot.required = mode === "work";
   if (workTargets) workTargets.required = mode === "work";
-  if (mode !== "study") {
-    const studyHost = root.querySelector<HTMLElement>("#study-workspace");
-    if (studyHost) studyHost.replaceChildren();
-  }
-  if (mode !== "work") {
-    const workHost = root.querySelector<HTMLElement>("#work-workspace");
-    if (workHost) workHost.replaceChildren();
-  }
+  const studyHost = root.querySelector<HTMLElement>("#study-workspace");
+  if (studyHost) studyHost.hidden = mode !== "study";
+  const workHost = root.querySelector<HTMLElement>("#work-workspace");
+  if (workHost) workHost.hidden = mode !== "work";
   root.querySelector<HTMLInputElement>("#run-goal")?.focus();
+}
+
+function closeRunForm(root: HTMLElement, restoreFocus: boolean): void {
+  const panel = root.querySelector<HTMLElement>("#action-panel");
+  if (!panel || panel.hidden) return;
+  const returnFocusMode = panel.dataset.returnFocusMode ?? panel.dataset.activeMode;
+  panel.hidden = true;
+  delete panel.dataset.activeMode;
+  root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
+    button.classList.remove("is-active");
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-pressed", "false");
+  });
+  if (restoreFocus && returnFocusMode) {
+    root.querySelector<HTMLButtonElement>(`[data-mode="${returnFocusMode}"]`)?.focus();
+  }
+}
+
+function capitalizedMode(mode: Mode): string {
+  return `${mode.charAt(0).toUpperCase()}${mode.slice(1)}`;
 }
 
 async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormElement): Promise<void> {

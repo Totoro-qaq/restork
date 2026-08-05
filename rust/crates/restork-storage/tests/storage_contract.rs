@@ -21,7 +21,7 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
     let directory = TestDirectory::new("schema");
     let database = Database::open(directory.database()).expect("open database");
 
-    assert_eq!(database.schema_version().expect("schema version"), 10);
+    assert_eq!(database.schema_version().expect("schema version"), 11);
     let history = database.migration_history().expect("migration history");
     assert_eq!(
         history
@@ -39,6 +39,7 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
             (8, "interactive_core"),
             (9, "extension_runtime"),
             (10, "artifact_recovery"),
+            (11, "mail_awareness"),
         ]
     );
     assert_ne!(history[0].checksum, history[1].checksum);
@@ -167,7 +168,7 @@ fn migration_creates_a_consistent_backup_and_is_idempotent_on_reopen() {
 
     let reopened = Database::open(&path).expect("reopen migrated database");
     assert!(reopened.migration_backup().is_none());
-    assert_eq!(reopened.migration_history().expect("history").len(), 10);
+    assert_eq!(reopened.migration_history().expect("history").len(), 11);
 }
 
 #[test]

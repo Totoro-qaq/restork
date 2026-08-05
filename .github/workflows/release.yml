@@ -157,6 +157,7 @@ jobs:
           app="desktop/src-tauri/target/release/bundle/macos/Restork.app"
           dmg="$(find desktop/src-tauri/target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
           codesign --verify --deep --strict --verbose=2 "$app"
+          codesign --display --entitlements :- "$app" 2>&1 | grep -q com.apple.security.automation.apple-events
           spctl --assess --type execute --verbose=2 "$app"
           xcrun stapler validate "$app"
           xcrun stapler validate "$dmg"
@@ -397,6 +398,7 @@ jobs:
           hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg"
           app="$mount/Restork.app"
           codesign --verify --deep --strict --verbose=2 "$app"
+          codesign --display --entitlements :- "$app" 2>&1 | grep -q com.apple.security.automation.apple-events
           spctl --assess --type execute --verbose=2 "$app"
           xcrun stapler validate "$app"
           ./scripts/smoke-desktop-app.sh 3 "$app"

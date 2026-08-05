@@ -152,6 +152,257 @@ pub struct NativeCalendarCapability {
     pub message: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct NativeMailCapability {
+    pub platform: String,
+    pub adapter: String,
+    pub available: bool,
+    pub status: String,
+    pub detail_scopes: Vec<String>,
+    pub refresh_interval_seconds: u64,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MailSnapshot {
+    pub configured: bool,
+    pub status: String,
+    pub provider: String,
+    pub unread_count: Option<u64>,
+    pub observed_at: Option<String>,
+    pub message: String,
+}
+
+impl MailSnapshot {
+    #[must_use]
+    pub fn disabled() -> Self {
+        Self {
+            configured: false,
+            status: "not_configured".to_owned(),
+            provider: String::new(),
+            unread_count: None,
+            observed_at: None,
+            message: "Mail awareness is off. Restork has not requested access.".to_owned(),
+        }
+    }
+
+    #[must_use]
+    fn adapter_status(configured: bool, status: &str, message: &str) -> Self {
+        Self {
+            configured,
+            status: status.to_owned(),
+            provider: "macos-mail".to_owned(),
+            unread_count: None,
+            observed_at: None,
+            message: message.to_owned(),
+        }
+    }
+}
+
+/// Inspect the local mail adapter without reading Mail or triggering a prompt.
+#[must_use]
+pub fn native_mail_capability() -> NativeMailCapability {
+    #[cfg(target_os = "macos")]
+    {
+        return NativeMailCapability {
+            platform: "macos".to_owned(),
+            adapter: "mail-app-apple-events".to_owned(),
+            available: true,
+            status: "available".to_owned(),
+            detail_scopes: vec!["unread_count".to_owned()],
+            refresh_interval_seconds: 15,
+            message: "Press Connect to let macOS ask for access to Mail. Restork reads only the aggregate unread count.".to_owned(),
+        };
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return NativeMailCapability {
+            platform: "windows".to_owned(),
+            adapter: "none".to_owned(),
+            available: false,
+            status: "adapter_unavailable".to_owned(),
+            detail_scopes: vec!["unread_count".to_owned()],
+            refresh_interval_seconds: 15,
+            message: "A Windows mail adapter is not available in this build; no account data is requested.".to_owned(),
+        };
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        return NativeMailCapability {
+            platform: "linux".to_owned(),
+            adapter: "none".to_owned(),
+            available: false,
+            status: "unsupported".to_owned(),
+            detail_scopes: vec!["unread_count".to_owned()],
+            refresh_interval_seconds: 15,
+            message: "Linux has no standard desktop mail portal; no account data is requested."
+                .to_owned(),
+        };
+    }
+
+    #[allow(unreachable_code)]
+    NativeMailCapability {
+        platform: std::env::consts::OS.to_owned(),
+        adapter: "none".to_owned(),
+        available: false,
+        status: "unsupported".to_owned(),
+        detail_scopes: Vec::new(),
+        refresh_interval_seconds: 15,
+        message: "Native mail awareness is unsupported on this platform.".to_owned(),
+    }
+}
+
+/// Read only the aggregate unread count from the already-running macOS Mail app.
+/// The fixed AppleScript neither accepts user input nor requests message fields.
+#[must_use]
+pub fn read_native_mail_unread_count() -> MailSnapshot {
+    native_mail_unread_count(Duration::from_secs(8))
+}
+
+/// Perform the first explicit connection with enough time for the user to
+/// answer the macOS Apple Events permission prompt.
+#[must_use]
+pub fn connect_native_mail_unread_count() -> MailSnapshot {
+    native_mail_unread_count(Duration::from_secs(45))
+}
+
+fn native_mail_unread_count(timeout: Duration) -> MailSnapshot {
+    #[cfg(target_os = "macos")]
+    {
+        use std::{
+            process::{Command, Stdio},
+            thread,
+            time::Instant,
+        };
+
+        const SCRIPT: &str = r#"
+if application "Mail" is running then
+  tell application "Mail"
+    return "COUNT:" & (unread count of inbox)
+  end tell
+else
+  return "NOT_RUNNING"
+end if
+"#;
+        let mut child = match Command::new("/usr/bin/osascript")
+            .args(["-e", SCRIPT])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(_) => {
+                return MailSnapshot::adapter_status(
+                    false,
+                    "error",
+                    "The local Mail adapter could not start.",
+                );
+            }
+        };
+        let started = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) if started.elapsed() < timeout => {
+                    thread::sleep(Duration::from_millis(40));
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return MailSnapshot::adapter_status(
+                        false,
+                        "error",
+                        "The macOS Mail permission request timed out. Try Connect again.",
+                    );
+                }
+                Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return MailSnapshot::adapter_status(
+                        false,
+                        "error",
+                        "The local Mail adapter stopped unexpectedly.",
+                    );
+                }
+            }
+        }
+        let output = match child.wait_with_output() {
+            Ok(output) => output,
+            Err(_) => {
+                return MailSnapshot::adapter_status(
+                    false,
+                    "error",
+                    "The local Mail adapter returned no result.",
+                );
+            }
+        };
+        if !output.status.success() {
+            let denied = String::from_utf8_lossy(&output.stderr).contains("-1743");
+            return MailSnapshot::adapter_status(
+                false,
+                if denied { "denied" } else { "error" },
+                if denied {
+                    "Mail access is denied in System Settings. Restork still has no access to message content."
+                } else {
+                    "The macOS Mail unread count is temporarily unavailable."
+                },
+            );
+        }
+        parse_native_mail_output(&String::from_utf8_lossy(&output.stdout))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = timeout;
+        MailSnapshot::adapter_status(false, "unsupported", &native_mail_capability().message)
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn parse_native_mail_output(output: &str) -> MailSnapshot {
+    let value = output.trim();
+    if value == "NOT_RUNNING" {
+        return MailSnapshot::adapter_status(
+            false,
+            "stale",
+            "Open macOS Mail, then press Connect. Restork will not launch Mail for you.",
+        );
+    }
+    let Some(raw_count) = value.strip_prefix("COUNT:") else {
+        return MailSnapshot::adapter_status(
+            false,
+            "error",
+            "The macOS Mail adapter returned an invalid unread count.",
+        );
+    };
+    let Ok(unread_count) = raw_count.trim().parse::<u64>() else {
+        return MailSnapshot::adapter_status(
+            false,
+            "error",
+            "The macOS Mail adapter returned an invalid unread count.",
+        );
+    };
+    if unread_count > 1_000_000 {
+        return MailSnapshot::adapter_status(
+            false,
+            "error",
+            "The macOS Mail adapter returned an out-of-range unread count.",
+        );
+    }
+    MailSnapshot {
+        configured: true,
+        status: "fresh".to_owned(),
+        provider: "macos-mail".to_owned(),
+        unread_count: Some(unread_count),
+        observed_at: Some(Utc::now().to_rfc3339()),
+        message: "Live unread total from macOS Mail; no sender, subject, or message body was read."
+            .to_owned(),
+    }
+}
+
 /// Inspect native calendar capability without triggering an operating-system prompt.
 #[must_use]
 pub fn native_calendar_capability() -> NativeCalendarCapability {
@@ -1130,7 +1381,7 @@ fn condition_name(code: Option<i64>, language: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{music_snapshot, parse_ics, parse_playlist};
+    use super::{music_snapshot, parse_ics, parse_native_mail_output, parse_playlist};
 
     #[test]
     fn local_ics_is_bounded_and_redacts_event_details() {
@@ -1165,5 +1416,22 @@ mod tests {
             "Synthetic Song"
         );
         assert_eq!(csv[0].tags, ["study", "calm"]);
+    }
+
+    #[test]
+    fn native_mail_parser_accepts_only_a_bounded_aggregate_count() {
+        let snapshot = parse_native_mail_output("COUNT:42\n");
+        assert!(snapshot.configured);
+        assert_eq!(snapshot.status, "fresh");
+        assert_eq!(snapshot.unread_count, Some(42));
+
+        let stopped = parse_native_mail_output("NOT_RUNNING");
+        assert!(!stopped.configured);
+        assert_eq!(stopped.status, "stale");
+
+        let invalid = parse_native_mail_output("SUBJECT:private");
+        assert!(!invalid.configured);
+        assert_eq!(invalid.status, "error");
+        assert_eq!(invalid.unread_count, None);
     }
 }

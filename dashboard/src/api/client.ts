@@ -52,6 +52,7 @@ import type {
   RenderDownloadV2,
   RenderPreviewV2,
   ManualReportInputV2,
+  MailSnapshot,
   DeckFromReportInputV2,
   ScheduleSpecV2,
   ScheduleRunV2,
@@ -901,6 +902,91 @@ export class LocalApiClient implements DashboardApi {
     );
   }
 
+  async connectNativeMail(): Promise<MailSnapshot> {
+    return this.#request<MailSnapshot>(
+      "POST",
+      "/v1/daily/mail/native/connect",
+      {},
+      true,
+      `dashboard-native-mail-${crypto.randomUUID()}`,
+    );
+  }
+
+  async disconnectNativeMail(): Promise<MailSnapshot> {
+    return this.#request<MailSnapshot>(
+      "DELETE",
+      "/v1/daily/mail/native",
+      undefined,
+      true,
+      `dashboard-native-mail-disconnect-${crypto.randomUUID()}`,
+    );
+  }
+
+  async streamMail(
+    onSnapshot: (snapshot: MailSnapshot) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    let retryDelay = 750;
+    while (!signal.aborted) {
+      let response: Response;
+      try {
+        response = await this.#fetch(
+          "/v1/daily/mail/events",
+          {
+            method: "GET",
+            headers: { Accept: "text/event-stream" },
+            signal,
+          },
+          true,
+          true,
+        );
+      } catch {
+        if (signal.aborted) return;
+        await abortableDelay(retryDelay, signal);
+        retryDelay = Math.min(15_000, retryDelay * 2);
+        continue;
+      }
+      if (!response.ok) {
+        if ([408, 425, 429, 500, 502, 503, 504].includes(response.status)) {
+          await abortableDelay(retryDelay, signal);
+          retryDelay = Math.min(15_000, retryDelay * 2);
+          continue;
+        }
+        throw await apiError(response);
+      }
+      if (!response.body) throw new Error("Core returned an unreadable mail stream");
+      const reader = response.body.getReader();
+      const utf8 = new TextDecoder();
+      const stream = new EventStreamDecoder();
+      let delivered = false;
+      const accept = (events: RunEvent[]): void => {
+        for (const event of events) {
+          if (event.type !== "mail.snapshot") continue;
+          const snapshot = mailSnapshot(event.data);
+          if (!snapshot) throw new Error("Core returned an invalid mail snapshot");
+          delivered = true;
+          onSnapshot(snapshot);
+        }
+      };
+      try {
+        while (!signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          accept(stream.push(utf8.decode(value, { stream: true })));
+        }
+        accept(stream.push(utf8.decode()));
+        accept(stream.finish());
+      } catch {
+        if (signal.aborted) return;
+      }
+      if (delivered) retryDelay = 750;
+      if (!signal.aborted) {
+        await abortableDelay(retryDelay, signal);
+        retryDelay = Math.min(15_000, retryDelay * 2);
+      }
+    }
+  }
+
   async configureMusic(
     input: MusicConfigurationInput,
   ): Promise<NonNullable<DashboardSnapshot["daily"]>["music"]> {
@@ -1152,6 +1238,37 @@ function normalizeSession(accessToken: string, expiresAt: string): LocalSession 
     throw new Error("Core returned an invalid local session");
   }
   return { accessToken, expiresAt: new Date(expiry).toISOString() };
+}
+
+function mailSnapshot(value: Record<string, unknown>): MailSnapshot | null {
+  const unread = value.unread_count;
+  const statuses = new Set<MailSnapshot["status"]>([
+    "not_configured",
+    "ready",
+    "fresh",
+    "stale",
+    "denied",
+    "restricted",
+    "unsupported",
+    "error",
+  ]);
+  if (
+    typeof value.configured !== "boolean"
+    || typeof value.status !== "string"
+    || !statuses.has(value.status as MailSnapshot["status"])
+    || typeof value.provider !== "string"
+    || (unread !== null && (!Number.isSafeInteger(unread) || Number(unread) < 0))
+    || (value.observed_at !== null && typeof value.observed_at !== "string")
+    || typeof value.message !== "string"
+  ) return null;
+  return {
+    configured: value.configured,
+    status: value.status as MailSnapshot["status"],
+    provider: value.provider,
+    unread_count: unread === null ? null : Number(unread),
+    observed_at: value.observed_at as string | null,
+    message: value.message,
+  };
 }
 
 function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {

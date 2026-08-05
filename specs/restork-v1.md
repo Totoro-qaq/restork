@@ -134,7 +134,8 @@ V1 will not provide:
 - A native wrapper inside the base V1 scope; the same Dashboard is now reused by the additive Step 11
   macOS shell rather than being rewritten.
 - A native mobile application; the local Dashboard still provides a responsive browser layout.
-- Email integration, calendar writes, or OAuth-based account synchronization.
+- Full email integration, calendar writes, or OAuth-based account synchronization. Step 27 adds an
+  optional aggregate unread-count indicator on macOS without message or account access.
 
 ## 7. Product model
 

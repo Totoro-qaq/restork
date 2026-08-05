@@ -441,6 +441,25 @@ export interface CalendarEvent {
   redacted: boolean;
 }
 
+export interface MailSnapshot {
+  configured: boolean;
+  status: DailyStatus;
+  provider: string;
+  unread_count: number | null;
+  observed_at: string | null;
+  message: string;
+}
+
+export interface NativeMailCapability {
+  platform: string;
+  adapter: string;
+  available: boolean;
+  status: string;
+  detail_scopes: Array<"unread_count">;
+  refresh_interval_seconds: number;
+  message: string;
+}
+
 export interface MusicRecommendation {
   item_id: string;
   title: string;
@@ -564,6 +583,8 @@ export interface DailySnapshot {
     detail_scopes: Array<"busy_only" | "titles">;
     message: string;
   };
+  mail?: MailSnapshot;
+  native_mail?: NativeMailCapability;
   music: {
     configured: boolean;
     status: DailyStatus;
@@ -1109,6 +1130,12 @@ export interface DashboardApi {
     detailScope: "busy_only" | "titles",
   ): Promise<DailySnapshot["calendar"]>;
   disconnectNativeCalendar?(): Promise<DailySnapshot["calendar"]>;
+  connectNativeMail?(): Promise<MailSnapshot>;
+  disconnectNativeMail?(): Promise<MailSnapshot>;
+  streamMail?(
+    onSnapshot: (snapshot: MailSnapshot) => void,
+    signal: AbortSignal,
+  ): Promise<void>;
   configureMusic?(input: MusicConfigurationInput): Promise<DailySnapshot["music"]>;
   refreshMusic?(localDate: string): Promise<DailySnapshot["music"]>;
   researchMusic?(localDate: string): Promise<DailySnapshot["music"]>;

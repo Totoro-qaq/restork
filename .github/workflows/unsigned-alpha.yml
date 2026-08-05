@@ -91,6 +91,7 @@ jobs:
           codesign --display --verbose=4 "$app" 2>&1 | tee "$RUNNER_TEMP/restork-codesign.txt"
           grep -q "^Signature=adhoc$" "$RUNNER_TEMP/restork-codesign.txt"
           ! grep -q "^Authority=Developer ID Application:" "$RUNNER_TEMP/restork-codesign.txt"
+          codesign --display --entitlements :- "$app" 2>&1 | grep -q com.apple.security.automation.apple-events
       - name: Stage visibly labeled Alpha assets, SBOM, and updater metadata
         shell: bash
         run: |
@@ -136,6 +137,7 @@ jobs:
           app="$mount/Restork.app"
           codesign --verify --deep --strict --verbose=2 "$app"
           codesign --display --verbose=4 "$app" 2>&1 | grep -q "^Signature=adhoc$"
+          codesign --display --entitlements :- "$app" 2>&1 | grep -q com.apple.security.automation.apple-events
           ./scripts/smoke-desktop-app.sh 3 "$app"
           hdiutil detach "$mount"
           trap - EXIT

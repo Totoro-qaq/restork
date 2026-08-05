@@ -43,12 +43,14 @@ use restork_core::auth::{
     SETTINGS_WRITE, SUBTASKS_MANAGE, TOKENS_MANAGE, TOOLS_DISCOVER, TOOLS_INVOKE,
 };
 use restork_daily::{
-    CalendarEvent, CalendarSnapshot, DailyClient, DailyError, MusicDiscovery, MusicEvidenceSource,
-    MusicResearchSummary, MusicSnapshot, MusicSourceDocument, MusicSourceSummary,
-    NativeCalendarCapability, PlaylistItem, WeatherLocation, WeatherSnapshot,
-    apple_developer_token_reference, apple_music_user_token_reference, connect_native_calendar,
-    music_snapshot_with_context, music_source_registry, native_calendar_capability, parse_ics,
-    parse_playlist, selected_music_cover_url,
+    CalendarEvent, CalendarSnapshot, DailyClient, DailyError, MailSnapshot, MusicDiscovery,
+    MusicEvidenceSource, MusicResearchSummary, MusicSnapshot, MusicSourceDocument,
+    MusicSourceSummary, NativeCalendarCapability, NativeMailCapability, PlaylistItem,
+    WeatherLocation, WeatherSnapshot, apple_developer_token_reference,
+    apple_music_user_token_reference, connect_native_calendar, connect_native_mail_unread_count,
+    music_snapshot_with_context, music_source_registry, native_calendar_capability,
+    native_mail_capability, parse_ics, parse_playlist, read_native_mail_unread_count,
+    selected_music_cover_url,
 };
 use restork_deliverables::{
     deck::{
@@ -256,6 +258,8 @@ struct DailySnapshot {
     weather: WeatherSnapshot,
     calendar: CalendarSnapshot,
     native_calendar: NativeCalendarCapability,
+    mail: MailSnapshot,
+    native_mail: NativeMailCapability,
     music: MusicSnapshot,
 }
 
@@ -720,6 +724,15 @@ fn build_router(state: ApiState) -> Router {
             axum::routing::post(connect_daily_native_calendar),
         )
         .route(
+            "/v1/daily/mail/native",
+            get(get_native_mail_capability).delete(disconnect_native_mail),
+        )
+        .route(
+            "/v1/daily/mail/native/connect",
+            axum::routing::post(connect_daily_native_mail),
+        )
+        .route("/v1/daily/mail/events", get(daily_mail_events))
+        .route(
             "/v1/daily/music",
             axum::routing::post(configure_daily_music),
         )
@@ -1157,10 +1170,13 @@ async fn read_daily_snapshot(State(state): State<ApiState>, request: Request) ->
         Ok(value) => value,
         Err(response) => return response,
     };
+    let mail = daily_mail_snapshot(storage).await;
     Json(DailySnapshot {
         weather,
         calendar,
         native_calendar: native_calendar_capability(),
+        mail,
+        native_mail: native_mail_capability(),
         music,
     })
     .into_response()
@@ -1671,6 +1687,167 @@ async fn disconnect_native_calendar(State(state): State<ApiState>, request: Requ
         return storage_error_response(error);
     }
     Json(CalendarSnapshot::system_only()).into_response()
+}
+
+async fn get_native_mail_capability(State(state): State<ApiState>, headers: HeaderMap) -> Response {
+    if let Err(response) = authorize(&state.authority, &headers, DAILY_READ) {
+        return *response;
+    }
+    Json(native_mail_capability()).into_response()
+}
+
+async fn connect_daily_native_mail(State(state): State<ApiState>, request: Request) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), DAILY_CONFIGURE) {
+        return *response;
+    }
+    if let Err(response) = require_idempotency_key(request.headers()) {
+        return response;
+    }
+    let Some(storage) = state.storage.as_ref() else {
+        return storage_unavailable();
+    };
+    let capability = native_mail_capability();
+    if !capability.available {
+        let mut snapshot = MailSnapshot::disabled();
+        snapshot.status = "unsupported".to_owned();
+        snapshot.message = capability.message;
+        return Json(snapshot).into_response();
+    }
+    let snapshot = match tokio::task::spawn_blocking(connect_native_mail_unread_count).await {
+        Ok(snapshot) => snapshot,
+        Err(_) => {
+            let mut snapshot = MailSnapshot::disabled();
+            snapshot.status = "error".to_owned();
+            snapshot.message = "The local Mail adapter stopped unexpectedly.".to_owned();
+            snapshot
+        }
+    };
+    let updated_at = match now_rfc3339() {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    if let Err(error) = storage.put_daily_source(
+        "mail",
+        snapshot.configured,
+        &serde_json::json!({
+            "explicit": true,
+            "adapter": capability.adapter,
+            "detail_scope": "unread_count",
+            "content_access": false,
+            "status": snapshot.status,
+        }),
+        &serde_json::json!({
+            "refresh_interval_seconds": capability.refresh_interval_seconds,
+            "read_only": true,
+        }),
+        &updated_at,
+    ) {
+        return storage_error_response(error);
+    }
+    Json(snapshot).into_response()
+}
+
+async fn disconnect_native_mail(State(state): State<ApiState>, request: Request) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), DAILY_CONFIGURE) {
+        return *response;
+    }
+    if let Err(response) = require_idempotency_key(request.headers()) {
+        return response;
+    }
+    let Some(storage) = state.storage else {
+        return storage_unavailable();
+    };
+    let updated_at = match now_rfc3339() {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    if let Err(error) = storage.put_daily_source(
+        "mail",
+        false,
+        &serde_json::json!({"explicit": true, "action": "disconnected"}),
+        &serde_json::json!({}),
+        &updated_at,
+    ) {
+        return storage_error_response(error);
+    }
+    Json(MailSnapshot::disabled()).into_response()
+}
+
+async fn daily_mail_snapshot(storage: &Database) -> MailSnapshot {
+    let enabled = match storage.daily_source("mail") {
+        Ok(Some(source)) => source.enabled,
+        Ok(None) => false,
+        Err(_) => {
+            let mut snapshot = MailSnapshot::disabled();
+            snapshot.status = "error".to_owned();
+            snapshot.message = "Mail settings are temporarily unavailable.".to_owned();
+            return snapshot;
+        }
+    };
+    if !enabled {
+        return MailSnapshot::disabled();
+    }
+    let mut snapshot = match tokio::task::spawn_blocking(read_native_mail_unread_count).await {
+        Ok(snapshot) => snapshot,
+        Err(_) => {
+            let mut snapshot = MailSnapshot::disabled();
+            snapshot.status = "error".to_owned();
+            snapshot.message = "The local Mail adapter stopped unexpectedly.".to_owned();
+            snapshot
+        }
+    };
+    // The user's saved consent remains enabled while Mail is closed or a
+    // permission is changed; status explains why the count is temporarily absent.
+    snapshot.configured = true;
+    snapshot
+}
+
+async fn daily_mail_events(State(state): State<ApiState>, request: Request) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), DAILY_READ) {
+        return *response;
+    }
+    let Some(storage) = state.storage else {
+        return storage_unavailable();
+    };
+    struct MailFollowState {
+        storage: Arc<Database>,
+        sequence: i64,
+        previous: Option<String>,
+        first: bool,
+    }
+    let updates = stream::unfold(
+        MailFollowState {
+            storage,
+            sequence: 0,
+            previous: None,
+            first: true,
+        },
+        |mut state| async move {
+            if state.first {
+                state.first = false;
+            } else {
+                tokio::time::sleep(Duration::from_secs(15)).await;
+            }
+            let snapshot = daily_mail_snapshot(&state.storage).await;
+            let fingerprint = format!(
+                "{}:{}:{:?}",
+                snapshot.configured, snapshot.status, snapshot.unread_count
+            );
+            if state.previous.as_deref() == Some(&fingerprint) {
+                return Some((
+                    Ok::<Bytes, Infallible>(Bytes::from_static(b": restork-mail-heartbeat\n\n")),
+                    state,
+                ));
+            }
+            state.previous = Some(fingerprint);
+            state.sequence += 1;
+            let payload = serde_json::to_value(&snapshot).unwrap_or_else(|_| serde_json::json!({}));
+            let frame = sse_frame(state.sequence, "mail.snapshot", &payload);
+            Some((Ok(Bytes::from(frame)), state))
+        },
+    )
+    .boxed();
+    sse_response(Body::from_stream(updates))
 }
 
 async fn list_music_sources(State(state): State<ApiState>, headers: HeaderMap) -> Response {

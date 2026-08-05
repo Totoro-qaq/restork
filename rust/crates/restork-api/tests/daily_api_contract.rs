@@ -110,7 +110,10 @@ async fn daily_context_is_zero_configuration_and_all_optional_sources_require_ex
     assert_eq!(snapshot["weather"]["configured"], false);
     assert_eq!(snapshot["calendar"]["configured"], false);
     assert_eq!(snapshot["music"]["configured"], false);
+    assert_eq!(snapshot["mail"]["configured"], false);
+    assert_eq!(snapshot["mail"]["unread_count"], Value::Null);
     assert!(snapshot["native_calendar"]["adapter"].as_str().is_some());
+    assert_eq!(snapshot["native_mail"]["detail_scopes"][0], "unread_count");
 
     let (status, sources) = call(
         app.clone(),
@@ -144,6 +147,42 @@ async fn daily_context_is_zero_configuration_and_all_optional_sources_require_ex
     let capability = capability.expect("native calendar capability");
     assert!(capability["status"].as_str().is_some());
     assert_eq!(capability["detail_scopes"][0], "busy_only");
+
+    let (status, mail_capability) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/daily/mail/native",
+        None,
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let mail_capability = mail_capability.expect("native mail capability");
+    assert_eq!(mail_capability["detail_scopes"][0], "unread_count");
+    assert_eq!(mail_capability["refresh_interval_seconds"], 15);
+
+    let (status, _) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/daily/mail/events",
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (status, _) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/daily/mail/native/connect",
+        Some(json!({})),
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 
     let (status, _) = call(
         app.clone(),
