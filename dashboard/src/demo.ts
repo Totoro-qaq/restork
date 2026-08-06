@@ -6,12 +6,9 @@ import type {
   Mode,
   RadarAction,
   RadarActionResult,
-  PracticeAttemptResult,
   ProviderDiagnostic,
   ResearchArtifact,
   RunSummary,
-  StudyArtifact,
-  StudyDiagnostic,
   TaskApplyResult,
   TaskMutationPreview,
   WorkExportResult,
@@ -78,73 +75,7 @@ const researchArtifact: ResearchArtifact = {
   },
 };
 
-const studyDiagnostic: StudyDiagnostic = {
-  diagnostic_id: "study-diagnostic-" + "1".repeat(24),
-  run_id: "run-study-synthetic",
-  objective: "Practice Bayesian model comparison with a synthetic dataset",
-  questions: [
-    {
-      question_id: "diagnostic-" + "2".repeat(24),
-      prompt: "Rate your current readiness from 0 to 4.",
-      response_kind: "rating",
-    },
-    {
-      question_id: "diagnostic-" + "3".repeat(24),
-      prompt: "Explain what successful model comparison means without notes.",
-      response_kind: "free_text",
-    },
-  ],
-  source_snapshot_hash: null,
-  created_at: NOW,
-};
 
-const studyArtifact: StudyArtifact = {
-  artifact_id: "study-" + "4".repeat(24),
-  run_id: studyDiagnostic.run_id,
-  readiness_signal: "developing",
-  objective: {
-    objective_id: "objective-" + "5".repeat(24),
-    outcome: studyDiagnostic.objective,
-    success_criteria: ["Explain the central concept without notes."],
-  },
-  prerequisites: [],
-  related_notes: [],
-  learning_path: [
-    {
-      step_id: "learning-step-" + "6".repeat(24),
-      order: 1,
-      title: "Construct the target model",
-      outcome: "Explain the comparison and its assumptions.",
-      note_refs: [],
-    },
-    {
-      step_id: "learning-step-" + "7".repeat(24),
-      order: 2,
-      title: "Active recall and transfer",
-      outcome: "Apply the concept to a new synthetic example.",
-      note_refs: [],
-    },
-  ],
-  exercises: [
-    {
-      exercise_id: "exercise-" + "8".repeat(24),
-      concept: "Bayesian model comparison",
-      kind: "active_recall",
-      prompt: "Explain Bayesian model comparison without opening a note.",
-      hints: ["Name its purpose and one boundary."],
-      answer_revealed: false,
-    },
-  ],
-  metrics: {
-    diagnostic_completed: true,
-    explicit_prerequisite_ratio: 0,
-    practice_count: 1,
-    related_note_count: 0,
-  },
-  sensitivity: "public",
-  created_at: NOW,
-  validation_status: "valid",
-};
 
 const workPlan: WorkPlanArtifact = {
   artifact_id: "work-plan-" + "a".repeat(24),
@@ -289,27 +220,6 @@ const snapshot: DashboardSnapshot = {
         usage: { steps: 6, retries: 0, tokens: 43820, cost_usd: 0, child_tasks: 0 },
         wall_time_exceeded: false,
       },
-    },
-    {
-      summary: {
-        run_id: "run-study-synthetic",
-        task_id: "task-study-synthetic",
-        mode: "study",
-        state: "completed",
-        state_version: 8,
-        stop_reason: "completed",
-        created_at: "2026-08-01T11:00:00Z",
-        updated_at: "2026-08-01T11:24:00Z",
-      },
-      task: {
-        task_id: "task-study-synthetic",
-        mode: "study",
-        goal: "Practice Bayesian model comparison with a synthetic dataset",
-        workspace_scope: "demo-vault",
-        completion_criteria: ["Complete one recall exercise"],
-        budgets: { max_steps: 10, max_wall_time_seconds: 2400, max_tokens: 80000 },
-      },
-      budget: null,
     },
   ],
   approvals: [approval],
@@ -501,27 +411,6 @@ class DemoApi implements DashboardApi {
   async loadDashboard(): Promise<DashboardSnapshot> { return snapshot; }
   async createRun(mode: Mode, goal: string): Promise<RunSummary> {
     return { ...snapshot.runs[0].summary, run_id: `demo-${mode}`, mode, task_id: goal };
-  }
-  async prepareStudy(): Promise<StudyDiagnostic> { return studyDiagnostic; }
-  async submitStudyDiagnostic(): Promise<StudyArtifact> { return studyArtifact; }
-  async submitStudyPractice(): Promise<PracticeAttemptResult> {
-    return {
-      attempt_id: "attempt-" + "9".repeat(24),
-      run_id: studyArtifact.run_id,
-      exercise_id: studyArtifact.exercises[0].exercise_id,
-      correct: false,
-      feedback: "Review the concept and use the exercise hint before retrying.",
-      error_count: 1,
-      attempt_count: 1,
-      next_review: {
-        action: "retry_with_hint",
-        due_at: NOW,
-        interval_days: 0,
-        reason: "The synthetic attempt missed a private rubric term.",
-      },
-      record_preview: null,
-      created_at: NOW,
-    };
   }
   async planWork(): Promise<WorkPlanArtifact> {
     return workPlan;

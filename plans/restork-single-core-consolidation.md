@@ -87,11 +87,16 @@ Runtime-independent; the Dashboard is embedded by both Cores.
 
 ### 1A. One backend
 
-- [ ] Enumerate every `/v1/...` literal in `dashboard/src` and classify: served by Rust / Python-only
-      / unserved.
-- [ ] For each Python-only route, decide implement-now, defer-to-Stage-5-with-UI-removed, or delete.
-- [ ] Remove UI surfaces for deferred domains rather than leaving them silently empty.
-- [ ] Test: every Dashboard route literal is served by `restork-api`.
+- [x] Enumerate every `/v1/...` literal in `dashboard/src` and classify. Result: 73 literals, 54
+      served by `restork-api`, 19 not, across six domains.
+- [x] Decide an owner for each unserved domain (see the spec's 1A table).
+- [x] Delete Study from the Dashboard: client methods, types, UI mode, and demo data. Leave
+      `src/restork/study/` to be removed with the rest of Python in Stage 6 — Study is rebuilt, not
+      ported, so it has no reference value, and deleting it now would only break 12 Python tests in
+      a tree that is already scheduled for removal.
+- [ ] Give every deferred domain the typed `not_configured` state instead of an empty list.
+- [x] Test: every Dashboard route literal is either served by `restork-api` or renders
+      `not_configured`.
 
 ### 1B. Typed degradation
 
@@ -267,15 +272,38 @@ Runtime-independent; the Dashboard is embedded by both Cores.
 
 ---
 
-## Stage 5 — Feature port (scheduled)
+## Stage 5 — Feature port and rebuild (scheduled)
+
+### Port as-is
 
 - [ ] Memory (`src/restork/memory/`, four layers, hash-CAS correction, export, purge).
 - [ ] Tasks and the Markdown write journal.
-- [ ] Research evidence layer: fetch, chunk, hash, dedupe, claim/evidence binding, note preview.
+- [ ] Research evidence layer: fetch, chunk, hash, dedupe, claim/evidence binding.
 - [ ] Research note apply — the preview at `research/workflow.py:163-173` is currently unsaveable.
-- [ ] Product decision: Study and Work — port, redesign, or drop.
-- [ ] Radar: implement ingestion (`dashboard/radar.py:42` `upsert()` has no production caller) or
-      delete the feature.
+
+### Work — mechanism only
+
+- [ ] Port `work/workspace.py`, `work/handoff.py`, `work/verification.py` (671 lines).
+- [ ] Drop `work/planning.py`; the agent loop produces the plan.
+- [ ] Make Stage 4's write tool build on this path validation rather than reimplement it.
+
+### Study — rebuild, not port
+
+- [ ] Ground prerequisites, path, and practice in the Obsidian vault via the Stage 4 vault tool.
+- [ ] Grade with the model instead of `len(answer) >= 12 and two substrings`.
+- [ ] Restore the Study mode button only when the rebuild lands.
+
+### Radar — real ingestion
+
+- [ ] Ingest GitHub stars and Hacker News through the outbound policy gateway.
+- [ ] Make each source opt-in, consistent with the connections-are-opt-in promise.
+- [ ] Cache with a bounded TTL instead of fetching per page view.
+
+### Dashboard as a daily surface
+
+- [ ] Extend fuzzy search beyond sessions to vault notes, tasks, and Radar items.
+- [ ] Add a flash-class conversational profile reusing the provider-profile registry, under the same
+      context, memory, and approval boundaries as the governed conversation.
 
 ---
 

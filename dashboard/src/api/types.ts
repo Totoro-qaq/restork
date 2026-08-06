@@ -1,4 +1,5 @@
-export type Mode = "research" | "study" | "work";
+// `study` returns when the vault-grounded rebuild lands (Stage 5).
+export type Mode = "research" | "work";
 
 export interface PageInfo {
   limit: number;
@@ -137,61 +138,6 @@ export interface ResearchArtifact {
     related_note_count: number;
     conflict_count: number;
   };
-}
-
-export interface StudyDiagnostic {
-  diagnostic_id: string;
-  run_id: string;
-  objective: string;
-  questions: Array<{
-    question_id: string;
-    prompt: string;
-    response_kind: "rating" | "free_text";
-  }>;
-  source_snapshot_hash: string | null;
-  created_at: string;
-}
-
-export interface StudyArtifact {
-  artifact_id: string;
-  run_id: string;
-  readiness_signal: "foundation" | "developing" | "ready";
-  objective: {
-    objective_id: string;
-    outcome: string;
-    success_criteria: string[];
-  };
-  prerequisites: Array<{
-    relative_path: string;
-    title: string;
-    rationale: string;
-    explicit_source: "prerequisite_section";
-  }>;
-  related_notes: Array<{ relative_path: string; title: string }>;
-  learning_path: Array<{
-    step_id: string;
-    order: number;
-    title: string;
-    outcome: string;
-    note_refs: string[];
-  }>;
-  exercises: Array<{
-    exercise_id: string;
-    concept: string;
-    kind: "active_recall" | "application";
-    prompt: string;
-    hints: string[];
-    answer_revealed: false;
-  }>;
-  metrics: {
-    diagnostic_completed: true;
-    explicit_prerequisite_ratio: number;
-    practice_count: number;
-    related_note_count: number;
-  };
-  sensitivity: string;
-  created_at: string;
-  validation_status: "valid";
 }
 
 export interface PracticeAttemptResult {
@@ -1094,21 +1040,6 @@ export interface DashboardApi {
   pair(code: string): Promise<void>;
   loadDashboard(): Promise<DashboardSnapshot>;
   createRun(mode: Mode, goal: string, dataClass?: WorkDataClass): Promise<RunSummary>;
-  prepareStudy(
-    runId: string,
-    objective: string,
-    targetNote: string | null,
-  ): Promise<StudyDiagnostic>;
-  submitStudyDiagnostic(
-    runId: string,
-    answers: Record<string, string>,
-  ): Promise<StudyArtifact>;
-  submitStudyPractice(
-    runId: string,
-    exerciseId: string,
-    answer: string,
-    confidence: number,
-  ): Promise<PracticeAttemptResult>;
   planWork(runId: string, input: WorkStartInput): Promise<WorkPlanArtifact>;
   previewWorkHandoff(runId: string): Promise<WorkHandoffPreview>;
   exportWorkHandoff(runId: string, approvalId: string): Promise<WorkExportResult>;
