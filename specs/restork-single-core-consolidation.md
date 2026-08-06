@@ -175,12 +175,31 @@ dialog).
 
 ### 1A. One backend
 
-The Dashboard MUST target exactly one Core. Every route it calls MUST exist in `restork-api`. Routes
-that exist only in Python (`/v1/capabilities`, `/v1/runs`, `/v1/approvals`, `/v1/tasks`, `/v1/radar`,
-`/v1/memory`, `/v1/research/*`, `/v1/study/*`, `/v1/work/*`) MUST be either implemented in Rust,
-deferred to Stage 5 with the UI surface removed, or deleted with its feature.
+The Dashboard MUST target exactly one Core. Every route it calls MUST exist in `restork-api`.
 
-No Dashboard code path may reference a route that no configured Core serves.
+Measured: of the 73 route literals in `dashboard/src/api/client.ts`, **54 are served by
+`restork-api` and 19 are not**. The 19 resolve into six domains, each with a decided owner:
+
+| Domain | Routes | Decision | Lands in |
+|---|---|---|---|
+| Runs | `/v1/runs`, `/v1/runs/{id}/conversation`, `/v1/runs/{id}/event-page` | Implement in Rust | Stage 3 |
+| Approvals | `/v1/approvals`, `/v1/approvals/{id}` | Implement in Rust | Stage 4 |
+| Tasks | 4 routes | Port | Stage 5 |
+| Memory | `/v1/memory` | Port | Stage 5 |
+| Radar | `/v1/radar`, `/v1/radar/{id}/action` | **Keep and implement real ingestion** | Stage 5 |
+| Study | 3 routes | **Delete now, rebuild on the agent loop** | Stage 5 |
+| Work | 4 routes | **Port the 671 lines that carry mechanism; drop the planner** | Stage 5 |
+
+The run lifecycle belongs to Stage 3 rather than Stage 5 because an agent loop cannot exist without
+it, and approvals belong to Stage 4 because tools are what require gating.
+
+**A deferred domain keeps its navigation entry and renders the typed `not_configured` state from
+1B.** Deleting the Runs, Memory, and Tasks pages until their Core lands would hollow out the product
+for the whole migration, and 1B already guarantees the user is told the truth. Only a domain that is
+being removed outright loses its UI.
+
+No Dashboard code path may reference a route that no configured Core serves, and no domain may
+render backend absence as emptiness.
 
 ### 1B. Degradation MUST be typed
 
@@ -471,25 +490,80 @@ defaulted field becomes permanently un-approvable. Verified: `{'query': 'x'}` an
 
 ---
 
-## Stage 5 — Feature port
+## Stage 5 — Feature port and rebuild
 
 Port only what carries irreducible logic. Line counts overstate the work: Study's grading is a
 substring match (`src/restork/study/store.py:194-197`), Work's planning is three fixed steps
 (`src/restork/work/planning.py:77-102`), and Research's synthesis without a provider is a string
 template (`src/restork/research/evidence.py:115-151`).
 
-- **Memory** — port. `src/restork/memory/` is complete and coherent: four layers, hash-CAS
-  correction, delete, export, source purge, all idempotent.
-- **Tasks / Markdown write journal** — port. This is the "your Markdown stays yours" promise.
-- **Research evidence layer** — port the source fetch, chunking, hashing, dedupe, claim/evidence
-  binding, and note preview. Replace deterministic synthesis with the Stage 3 loop.
+Product direction, decided 2026-08-06: **Research, Study, and Work remain the three modes.** The
+Obsidian vault is the substrate for Study rather than a hardcoded question bank. The Dashboard is a
+personal daily surface: GitHub stars, Hacker News, mail, and fuzzy search over local knowledge.
+
+### Port as-is
+
+- **Memory** — `src/restork/memory/` is complete and coherent: four layers, hash-CAS correction,
+  delete, export, source purge, all idempotent.
+- **Tasks / Markdown write journal** — this is the "your Markdown stays yours" promise.
+- **Research evidence layer** — source fetch, chunking, hashing, dedupe, and claim/evidence binding.
+  Replace the deterministic synthesizer with the Stage 3 loop.
 - **Research note apply** — implement. The workflow builds a preview (`research/workflow.py:163-173`)
-  and no route, command, or button can save it, while README promises a note "you can review before
+  that no route, command, or button can save, while README promises a note "you can review before
   saving".
-- **Study, Work** — product decision required before porting. Both are currently deterministic
-  scaffolding around a model that is never called.
-- **Radar** — implement ingestion or delete. `src/restork/dashboard/radar.py:42` `upsert()` has zero
-  production callers, so the feed is permanently empty and its action route always 404s.
+
+### Work — port the mechanism, drop the planner
+
+Port `work/workspace.py`, `work/handoff.py`, and `work/verification.py` (671 lines): read-only
+snapshot, path-traversal validation, private-path redaction, context sanitisation, frozen-context
+verification, and hash comparison.
+
+This is the safety substrate for any tool that touches the filesystem, so **Stage 4's write tool MUST
+build on it rather than reimplement path validation.** `work/planning.py`'s three fixed steps are
+dropped; the agent loop produces the plan.
+
+### Study — delete now, rebuild on the loop
+
+`src/restork/study/` is removed in Stage 1. Nothing in it is worth translating: it never calls a
+model, its diagnostic is two hardcoded questions, its path is four hardcoded templates, and its
+grading is `len(answer) >= 12 and all(term in answer for term in terms[:2])`.
+
+The rebuild is a Stage 3 consumer, not a port. It MUST ground prerequisites, learning path, and
+practice in the user's Obsidian vault through the Stage 4 vault-search tool, and grade with the
+model rather than by substring. Until it lands, the Study mode button is removed rather than left
+producing a template.
+
+The deleted implementation had one property worth keeping, currently proven by
+`dashboard/tests/workspace.test.ts` "runs diagnostic-first Study without rendering or retaining an
+answer". The rebuild MUST preserve it: a diagnostic is presented before any answer is revealed, the
+user's answers are never rendered back or persisted to browser storage, and the practice field is
+cleared after submission. That test is removed with the feature and MUST be reinstated with it.
+
+### Radar — implement real ingestion
+
+Radar is kept and made real. `src/restork/dashboard/radar.py:42` `upsert()` has zero production
+callers today, so the lane is permanently empty and `POST /v1/radar/{id}/action` always 404s.
+
+Ingestion MUST cover GitHub stars and Hacker News at minimum, MUST run through the existing outbound
+policy gateway, MUST be opt-in per source consistent with the "connections are opt-in" promise, and
+MUST cache with a bounded TTL rather than fetching per page view. Until ingestion lands, the lane
+reports `not_configured` under 1B, never an empty list.
+
+### Dashboard as a daily surface
+
+Fuzzy search MUST span local knowledge — vault notes, tasks, sessions, and Radar items — not only
+conversation sessions as `/v1/sessions/search` does today. Mail stays at the unread-count boundary
+defined by `specs/restork-step27-dashboard-navigation-and-mail.md`.
+
+### Conversation — a second, cheaper model profile
+
+A low-latency conversational mode is in scope. It MUST reuse the existing provider-profile registry
+rather than introduce a second configuration path, and it SHOULD default to a flash-class model
+because the existing `deepseek-v4-flash` gate (`restork-provider/src/lib.rs:474-499`) already proves
+the registry can carry a second model.
+
+It remains subject to every boundary the governed conversation already has: bounded context, no
+silent memory writes, and no tool authority without an approval.
 
 ---
 

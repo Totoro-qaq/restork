@@ -14,11 +14,8 @@ import type {
   ProviderKindV2,
   RadarItem,
   ResearchArtifact,
-  PracticeAttemptResult,
   RunEvent,
   RunListEntry,
-  StudyArtifact,
-  StudyDiagnostic,
   WorkExportResult,
   WorkHandoffPreview,
   WorkPlanArtifact,
@@ -48,7 +45,7 @@ export function pairingMarkup(locale: Locale = "en"): string {
       ${localeSwitch(locale)}
       <p class="eyebrow">Restork · LOCAL-FIRST AGENT · LOOPBACK ONLY</p>
       <h1 id="pairing-title">RES<span>TORK</span></h1>
-      <p class="pairing-copy">${tr(locale, "One governed Core for <b>Research</b>, <b>Study</b>, and <b>Work</b>.", "一个受控 Core，连接 <b>Research</b>、<b>Study</b> 与 <b>Work</b>。")}</p>
+      <p class="pairing-copy">${tr(locale, "One governed Core for <b>Research</b> and <b>Work</b>.", "一个受控 Core，连接 <b>Research</b> 与 <b>Work</b>。")}</p>
       <form id="pair-form" class="pair-form">
         <label for="pair-code">${tr(locale, "Enter the one-time Web pairing code shown in the terminal", "输入终端显示的一次性 Web 配对码")}</label>
         <div><input id="pair-code" name="code" required autocomplete="off" spellcheck="false"><button type="submit">PAIR</button></div>
@@ -86,7 +83,6 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
         <p class="sidebar-label">${tr(locale, "New run", "新建运行")}</p>
         <div class="mode-grid">
           ${modeButton("research", "R", tr(locale, "Source checks and evidence cards", "来源核查和证据卡片"))}
-          ${modeButton("study", "S", tr(locale, "Learning paths and active recall", "学习路径和主动回忆"))}
           ${modeButton("work", "W", tr(locale, "Read-only plans and handoffs", "只读规划和交接包"))}
         </div>
         <p class="session">127.0.0.1 · LOCAL<br><b>CORE PAIRED</b></p>
@@ -117,8 +113,6 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
             <input type="hidden" name="mode" id="run-mode" value="research">
             <label for="run-goal">${tr(locale, "Goal", "目标")}</label>
             <div><input id="run-goal" name="goal" required maxlength="1000"><button type="submit">${tr(locale, "START", "开始")}</button></div>
-            <label id="study-target-label" for="study-target-note" hidden>${tr(locale, "Optional Obsidian note", "可选 Obsidian 笔记")}</label>
-            <input id="study-target-note" name="target_note" maxlength="1024" hidden placeholder="Study/Topic.md">
             <fieldset id="work-fields" class="work-fields" hidden>
               <legend>${tr(locale, "PLANNING ONLY · RESTORK WILL NOT RUN CODE", "仅规划 · RESTORK 不会运行代码")}</legend>
               <label for="work-root">${tr(locale, "Workspace root · absolute local path", "本地仓库绝对路径")}</label>
@@ -140,7 +134,6 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
           </form>
           <p id="action-status" class="status" role="status"></p>
           <div id="agent-wait-host"></div>
-          <div id="study-workspace" class="study-workspace" aria-live="polite"></div>
           <div id="work-workspace" class="work-workspace" aria-live="polite"></div>
         </section>
         <section class="view is-visible" data-view-panel="overview">
@@ -309,7 +302,7 @@ function conversationWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
         <div id="conversation-wait" aria-live="polite"></div>
         <details class="context-preview" ${active && active.profile_id !== "safe-mode" ? "" : "hidden"}><summary>${tr(locale, "Add local files with an exact context preview", "添加本地文件并预览确切上下文")}</summary><form id="context-preview-form"><label>${tr(locale, "Text files (explicit selection only)", "文本文件（仅明确选择）")}<input name="files" type="file" multiple accept=".md,.txt,.json,.csv,.ts,.tsx,.js,.jsx,.py,.rs,.go,.toml,.yaml,.yml"></label><label>${tr(locale, "Data class", "数据分类")}<select name="data_class"><option value="public">public</option><option value="personal">personal</option><option value="confidential">confidential</option></select></label><button type="submit">${tr(locale, "PREVIEW CONTEXT", "预览上下文")}</button></form><div id="context-preview-result" role="status"><p class="fine">${tr(locale, "Restork reads only files you choose here. The preview expires in 15 minutes and can be used once.", "Restork 只读取你在这里选择的文件；预览 15 分钟后过期且只能使用一次。")}</p></div></details>
         <form id="session-message-form" class="conversation-composer" ${active ? "" : "hidden"}><label for="session-message" class="sr-only">${tr(locale, "Message", "消息")}</label><textarea id="session-message" name="content" rows="3" maxlength="1000000" required placeholder="${tr(locale, "Describe what you need. Enter sends; Shift+Enter adds a line.", "说说你需要什么。Enter 发送，Shift+Enter 换行。")}"></textarea><div><select name="data_class" aria-label="${tr(locale, "Data class", "数据分类")}"><option value="public">public</option><option value="personal">personal</option><option value="confidential">confidential</option></select><button type="submit">${tr(locale, "SEND", "发送")}</button></div></form>
-        <form id="proposal-form" class="proposal-composer" ${active ? "" : "hidden"}><label>${tr(locale, "Turn the conversation into a reviewable run proposal", "将对话整理成可审查的运行提案")}</label><div><select name="mode"><option value="research">Research</option><option value="study">Study</option><option value="work">Work</option></select><input name="goal" maxlength="4000" required placeholder="${tr(locale, "Proposed goal", "提案目标")}"><button type="submit">${tr(locale, "PREVIEW", "预览")}</button></div></form>
+        <form id="proposal-form" class="proposal-composer" ${active ? "" : "hidden"}><label>${tr(locale, "Turn the conversation into a reviewable run proposal", "将对话整理成可审查的运行提案")}</label><div><select name="mode"><option value="research">Research</option><option value="work">Work</option></select><input name="goal" maxlength="4000" required placeholder="${tr(locale, "Proposed goal", "提案目标")}"><button type="submit">${tr(locale, "PREVIEW", "预览")}</button></div></form>
         <div id="proposal-preview"></div>
         <details class="tool-discovery"><summary>${tr(locale, "Discover already-granted tools", "查找已授权工具")}</summary><form id="tool-search-form"><input name="query" maxlength="512" required placeholder="${tr(locale, "Search this session's frozen catalog", "搜索本会话冻结的工具目录")}"><button type="submit">${tr(locale, "SEARCH", "搜索")}</button></form><div id="tool-search-results"><p class="fine">${tr(locale, "Search cannot reveal or grant tools outside this conversation Profile.", "搜索不会显示或授予此对话 Profile 之外的工具。")}</p></div></details>
       </section>
@@ -631,45 +624,6 @@ export function researchPreviewMarkup(
   </article>`;
 }
 
-export function studyDiagnosticMarkup(
-  diagnostic: StudyDiagnostic,
-  locale: Locale = "en",
-): string {
-  return `<article class="study-result" aria-labelledby="study-diagnostic-title">
-    <header><div><p class="eyebrow">${tr(locale, "DIAGNOSTIC FIRST · ANSWERS STAY LOCAL", "先诊断 · 回答留在本地")}</p><h3 id="study-diagnostic-title">${escapeHtml(diagnostic.objective)}</h3></div><span>${tr(locale, "PLANNING", "规划中")}</span></header>
-    <form data-study-diagnostic data-run-id="${escapeHtml(diagnostic.run_id)}">
-      ${diagnostic.questions.map((question, index) => `<label>${index + 1}. ${escapeHtml(question.prompt)}${question.response_kind === "rating" ? `<input data-diagnostic-question name="${escapeHtml(question.question_id)}" type="number" min="0" max="4" required inputmode="numeric">` : `<textarea data-diagnostic-question name="${escapeHtml(question.question_id)}" required maxlength="4000" rows="3"></textarea>`}</label>`).join("")}
-      <button type="submit">${tr(locale, "BUILD PATH", "生成路径")}</button>
-    </form>
-    <p class="fine">${tr(locale, "The Core creates no learning path until every diagnostic question is answered.", "所有诊断问题回答完成后，Core 才会生成学习路径。")}</p>
-  </article>`;
-}
-
-export function studyArtifactMarkup(
-  artifact: StudyArtifact,
-  locale: Locale = "en",
-): string {
-  return `<article class="study-result" aria-labelledby="study-artifact-title">
-    <header><div><p class="eyebrow">${tr(locale, "VALIDATED STUDY PATH", "已验证的学习路径")}</p><h3 id="study-artifact-title">${escapeHtml(artifact.objective.outcome)}</h3></div><span>${escapeHtml(artifact.readiness_signal.toUpperCase())}</span></header>
-    <section><h4>${tr(locale, "Learning path", "学习路径")}</h4><ol class="study-path">${artifact.learning_path.map((step) => `<li><b>${step.order}</b><span>${escapeHtml(step.title)}<small>${escapeHtml(step.outcome)}</small></span></li>`).join("")}</ol></section>
-    ${artifact.prerequisites.length ? `<section><h4>${tr(locale, "Explicit prerequisites", "明确的前置知识")}</h4><ul>${artifact.prerequisites.map((item) => `<li>${escapeHtml(item.title)}<small>${escapeHtml(item.relative_path)}</small></li>`).join("")}</ul></section>` : ""}
-    <section><h4>${tr(locale, "Active practice · answers are never revealed", "主动练习 · 不展示答案")}</h4><div class="study-exercises">${artifact.exercises.map((exercise) => `<form data-study-practice data-run-id="${escapeHtml(artifact.run_id)}" data-exercise-id="${escapeHtml(exercise.exercise_id)}"><b>${escapeHtml(exercise.kind.replace("_", " "))}</b><p>${escapeHtml(exercise.prompt)}</p><small>${exercise.hints.map(escapeHtml).join(" · ")}</small><label>${tr(locale, "Your response", "你的回答")}<textarea name="answer" required maxlength="8000" rows="3" autocomplete="off"></textarea></label><label>${tr(locale, "Confidence", "信心程度")}<select name="confidence" required><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option></select></label><button type="submit">${tr(locale, "CHECK LOCALLY", "本地检查")}</button><div class="study-attempt" role="status"></div></form>`).join("")}</div></section>
-    <p class="fine">${tr(locale, "No answer key is present in this artifact. Progress notes remain preview-only.", "此产物不包含答案。进度笔记仍然仅供预览。")}</p>
-  </article>`;
-}
-
-export function studyAttemptMarkup(
-  result: PracticeAttemptResult,
-  locale: Locale = "en",
-): string {
-  return `<section class="study-feedback ${result.correct ? "is-correct" : "is-retry"}">
-    <b>${result.correct ? tr(locale, "CORRECT · SPACED REVIEW", "正确 · 间隔复习") : tr(locale, "RETRY WITH HINT", "结合提示重试")}</b>
-    <p>${escapeHtml(result.feedback)}</p>
-    <small>${escapeHtml(result.next_review.reason)} · ${formatDate(result.next_review.due_at, locale)}</small>
-    ${result.record_preview ? `<details><summary>${tr(locale, "Progress note preview · write disabled", "进度笔记预览 · 尚未写入")}</summary><pre>${escapeHtml(result.record_preview.markdown)}</pre></details>` : `<small>${tr(locale, "Complete another attempt before a progress preview is meaningful.", "再完成一次尝试后，进度预览才有意义。")}</small>`}
-  </section>`;
-}
-
 export function workPlanMarkup(plan: WorkPlanArtifact, locale: Locale = "en"): string {
   return `<article class="work-result" aria-labelledby="work-plan-title">
     <header><div><p class="eyebrow">${tr(locale, "READ-ONLY WORK PLAN · VALIDATED", "只读工作计划 · 已验证")}</p><h3 id="work-plan-title">${escapeHtml(plan.goal)}</h3></div><span>${tr(locale, "NO EXECUTOR", "无执行器")}</span></header>
@@ -891,7 +845,7 @@ function overview(snapshot: DashboardSnapshot, locale: Locale): string {
   const approval = snapshot.approvals.find((item) => item.decision === "pending");
   const tasks = snapshot.taskBoard.tasks.filter((task) => !task.completed).slice(0, 3);
   return `<div class="board">
-    ${run ? runCard(run, locale) : emptyCard(tr(locale, "Runs", "运行"), tr(locale, "No runs yet. Choose Research, Study, or Work to begin.", "还没有运行。选择 Research、Study 或 Work 开始。"))}
+    ${run ? runCard(run, locale) : emptyCard(tr(locale, "Runs", "运行"), tr(locale, "No runs yet. Choose Research or Work to begin.", "还没有运行。选择 Research 或 Work 开始。"))}
     ${approval ? approvalCard(approval, locale) : emptyCard(tr(locale, "Approvals", "审批"), tr(locale, "No actions are waiting for approval.", "没有待审批动作。"))}
     <article class="paper-card"><header><h2>${tr(locale, "Markdown tasks", "Markdown 任务")}</h2><span class="ribbon work">CORE AUTHORITY</span></header>
       ${tasks.length ? tasks.map((task) => `<p class="task-row"><b>${escapeHtml(task.fields.priority ?? "P–")}</b>${escapeHtml(cleanTaskText(task.text))}<small>${escapeHtml(task.relative_path)} · L${task.line_number}</small></p>`).join("") : `<p class="empty">${snapshot.taskBoard.configured ? tr(locale, "No incomplete tasks.", "没有未完成任务。") : tr(locale, "Configure a Vault to show Markdown tasks.", "配置 Vault 后显示 Markdown 任务。")}</p>`}
