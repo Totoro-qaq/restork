@@ -38,14 +38,11 @@ class RuntimeMetrics:
 
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--python-core", type=Path)
-    parser.add_argument("--rust-core", type=Path)
+    parser.add_argument("--core", type=Path, required=True, help="path to the restorkd binary")
     parser.add_argument("--iterations", type=int, default=10)
     parser.add_argument("--requests", type=int, default=100)
     parser.add_argument("--startup-timeout", type=float, default=10.0)
     arguments = parser.parse_args()
-    if arguments.python_core is None and arguments.rust_core is None:
-        parser.error("select --python-core, --rust-core, or both")
     if arguments.iterations < 1 or arguments.requests < 1:
         parser.error("iterations and requests must be positive")
     return arguments
@@ -147,9 +144,9 @@ def _measure(
                 }
             )
             command = [str(executable)]
-            if kind == "python_v1":
-                command.extend(["--state-db", str(data_dir / "restork.db")])
-            command.extend(["serve", "--port", str(port)])
+            command.extend(
+                ["serve", "--port", str(port), "--state-db", str(data_dir / "restork.db")]
+            )
             process = subprocess.Popen(  # noqa: S603
                 command,
                 env=environment,
@@ -204,21 +201,15 @@ def main() -> int:
         },
         "runtimes": {},
     }
-    selected = {
-        "python_v1": arguments.python_core,
-        "rust_compatibility_shell": arguments.rust_core,
-    }
-    for kind, executable in selected.items():
-        if executable is not None:
-            results["runtimes"][kind] = asdict(
-                _measure(
-                    executable,
-                    kind,
-                    arguments.iterations,
-                    arguments.requests,
-                    arguments.startup_timeout,
-                )
-            )
+    results["runtimes"]["rust_core"] = asdict(
+        _measure(
+            arguments.core,
+            "rust_core",
+            arguments.iterations,
+            arguments.requests,
+            arguments.startup_timeout,
+        )
+    )
     print(json.dumps(results, indent=2, sort_keys=True))
     return 0
 

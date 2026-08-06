@@ -21,6 +21,18 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
     let directory = TestDirectory::new("schema");
     let database = Database::open(directory.database()).expect("open database");
 
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mode = fs::metadata(database.path())
+            .expect("database metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
     assert_eq!(database.schema_version().expect("schema version"), 11);
     let history = database.migration_history().expect("migration history");
     assert_eq!(

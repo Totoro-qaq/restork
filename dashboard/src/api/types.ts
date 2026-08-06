@@ -1,5 +1,4 @@
-// `study` returns when the vault-grounded rebuild lands (Stage 5).
-export type Mode = "research" | "work";
+export type Mode = "research" | "study" | "work";
 
 export interface PageInfo {
   limit: number;
@@ -132,12 +131,67 @@ export interface ResearchArtifact {
   };
   metrics: {
     supported_claim_rate: number;
-    primary_source_ratio: number;
-    citation_correctness: number;
+    primary_source_ratio: number | null;
+    citation_correctness: number | null;
     duplicate_sources: number;
     related_note_count: number;
     conflict_count: number;
   };
+}
+
+export interface StudyDiagnostic {
+  diagnostic_id: string;
+  run_id: string;
+  objective: string;
+  questions: Array<{
+    question_id: string;
+    prompt: string;
+    response_kind: "rating" | "free_text";
+  }>;
+  source_snapshot_hash: string | null;
+  created_at: string;
+}
+
+export interface StudyArtifact {
+  artifact_id: string;
+  run_id: string;
+  readiness_signal: "foundation" | "developing" | "ready";
+  objective: {
+    objective_id: string;
+    outcome: string;
+    success_criteria: string[];
+  };
+  prerequisites: Array<{
+    relative_path: string;
+    title: string;
+    rationale: string;
+    explicit_source: "prerequisite_section";
+  }>;
+  related_notes: Array<{ relative_path: string; title: string }>;
+  learning_path: Array<{
+    step_id: string;
+    order: number;
+    title: string;
+    outcome: string;
+    note_refs: string[];
+  }>;
+  exercises: Array<{
+    exercise_id: string;
+    concept: string;
+    kind: "active_recall" | "application";
+    prompt: string;
+    hints: string[];
+    answer_revealed: false;
+  }>;
+  metrics: {
+    diagnostic_completed: true;
+    explicit_prerequisite_ratio: number;
+    practice_count: number;
+    related_note_count: number;
+  };
+  sensitivity: string;
+  created_at: string;
+  validation: { status: "validated"; mechanism: string };
 }
 
 export interface PracticeAttemptResult {
@@ -213,7 +267,7 @@ export interface WorkPlanArtifact {
   warnings: string[];
   sensitivity: WorkDataClass;
   created_at: string;
-  validation_status: "valid";
+  validation: { status: "validated"; mechanism: string };
 }
 
 export interface WorkHandoffPreview {
@@ -241,7 +295,7 @@ export interface WorkHandoffPreview {
     }>;
     executor_boundary: "external_user_started_no_restork_executor";
     created_at: string;
-    validation_status: "valid";
+    validation: { status: "validated"; mechanism: string };
   };
   package_hash: string;
   byte_count: number;
@@ -637,9 +691,13 @@ export interface SessionForkResultV2 {
 }
 
 export interface SessionSearchHitV2 {
-  session_id: string;
-  message_id: string;
-  sequence: number;
+  kind?: "session" | "vault" | "task" | "memory" | "radar";
+  reference?: string;
+  title?: string;
+  score?: number;
+  session_id?: string;
+  message_id?: string;
+  sequence?: number;
   excerpt: string;
 }
 
@@ -789,9 +847,7 @@ export interface ScheduleSpecV2 {
     | { kind: "daily"; hour: number; minute: number }
     | { kind: "weekly"; weekday_monday_zero: number; hour: number; minute: number };
   missed_run_policy: "skip" | "create_draft";
-  job:
-    | { kind: "deterministic"; job: "health.check" | "daily.refresh" }
-    | { kind: "model_draft"; profile_id: string; requested_effect: null };
+  job: { kind: "deterministic"; job: "health.check" | "daily.refresh" };
 }
 
 export interface ScheduleRunV2 {
@@ -956,6 +1012,7 @@ export type DomainKey =
   | "deliverables"
   | "schedules"
   | "providerProfiles"
+  | "profiles"
   | "settings"
   | "prompts";
 
@@ -1082,7 +1139,27 @@ export interface ContextPreviewRecordV2 {
 export interface DashboardApi {
   pair(code: string): Promise<void>;
   loadDashboard(): Promise<DashboardSnapshot>;
-  createRun(mode: Mode, goal: string, dataClass?: WorkDataClass): Promise<RunSummary>;
+  createRun(
+    mode: Mode,
+    goal: string,
+    dataClass?: WorkDataClass,
+    providerProfileId?: string,
+  ): Promise<RunSummary>;
+  prepareStudy(
+    runId: string,
+    objective: string,
+    targetNote: string | null,
+  ): Promise<StudyDiagnostic>;
+  submitStudyDiagnostic(
+    runId: string,
+    answers: Record<string, string>,
+  ): Promise<StudyArtifact>;
+  submitStudyPractice(
+    runId: string,
+    exerciseId: string,
+    answer: string,
+    confidence: number,
+  ): Promise<PracticeAttemptResult>;
   planWork(runId: string, input: WorkStartInput): Promise<WorkPlanArtifact>;
   previewWorkHandoff(runId: string): Promise<WorkHandoffPreview>;
   exportWorkHandoff(runId: string, approvalId: string): Promise<WorkExportResult>;

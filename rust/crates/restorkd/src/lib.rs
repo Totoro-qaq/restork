@@ -1,11 +1,13 @@
 //! Process lifecycle and loopback listener ownership for `restorkd`.
 
+pub mod cli;
 pub mod desktop;
 
 use std::{
+    env,
     error::Error,
     ffi::OsStr,
-    fmt,
+    fmt, fs,
     future::Future,
     io,
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -16,17 +18,21 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use restork_automation::{ScheduleJob, ScheduleSpec};
-use restork_core::auth::{AuthError, DEFAULT_PAIRING_TTL, DEFAULT_TOKEN_TTL, PairingAuthority};
+use restork_core::auth::Audience;
+use restork_core::auth::{
+    AuthError, CLI_SCOPES, DEFAULT_PAIRING_TTL, DEFAULT_TOKEN_TTL, PairingAuthority,
+};
 use restork_storage::{Database, StorageError};
 use serde::Serialize;
 use tokio::net::TcpListener;
 
-pub const HELP: &str = "Restork local runtime\n\nUsage:\n  restorkd serve [--port <0-65535>] [--state-db <path>]\n  restorkd provider configure [deepseek|glm|kimi|qwen|openrouter|open_ai_compatible]\n  restorkd doctor [--connect | --smoke | --web-search]\n  restorkd music apple configure\n  restorkd music apple configure-user-token\n  restorkd music apple status\n\nThe listener is always bound to 127.0.0.1. Port 0 asks the OS to select a free port. Provider and Apple Music setup delegate secret prompts to native credential storage.\n";
+pub const HELP: &str = "Restork local runtime\n\nUsage:\n  restorkd [--json] serve [--port <0-65535>] [--state-db <path>] [--vault-dir <path>]\n  restorkd provider configure [deepseek|glm|kimi|qwen|openrouter|open_ai_compatible]\n  restorkd doctor [--connect | --smoke | --web-search]\n  restorkd music apple configure\n  restorkd music apple configure-user-token\n  restorkd music apple status\n\nGlobal options:\n  --json        Emit the serve readiness record as JSON.\n  -h, --help    Show this help without executing a command.\n\nServe options:\n  --port <n>        Bind the chosen loopback port; 0 asks the OS for a free port.\n  --state-db <path> Open durable state at this path.\n  --vault-dir <dir> Grant read/write policy access only to this existing directory.\n\nThe listener is always bound to 127.0.0.1. Provider and Apple Music setup delegate secret prompts to native credential storage.\n";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ServerConfig {
     pub port: u16,
     pub state_db: Option<PathBuf>,
+    pub vault_dir: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -74,6 +80,7 @@ impl ServerConfig {
         let mut port = 0;
         let mut port_seen = false;
         let mut state_db = None;
+        let mut vault_dir = None;
         while let Some(argument) = args.next() {
             let argument = to_text(argument.as_ref())?;
             match argument {
@@ -99,10 +106,27 @@ impl ServerConfig {
                     }
                     state_db = Some(path);
                 }
+                "--vault-dir" => {
+                    if vault_dir.is_some() {
+                        return Err(ConfigError::DuplicateArgument("--vault-dir"));
+                    }
+                    let value = args
+                        .next()
+                        .ok_or(ConfigError::MissingValue("--vault-dir"))?;
+                    let path = PathBuf::from(value.as_ref());
+                    if path.as_os_str().is_empty() {
+                        return Err(ConfigError::MissingValue("--vault-dir"));
+                    }
+                    vault_dir = Some(path);
+                }
                 unknown => return Err(ConfigError::UnknownArgument(unknown.to_owned())),
             }
         }
-        Ok(Self { port, state_db })
+        Ok(Self {
+            port,
+            state_db,
+            vault_dir,
+        })
     }
 }
 
@@ -119,13 +143,16 @@ pub struct ReadyRecord {
     pub address: String,
     pub base_url: String,
     pub pairing_code: String,
+    pub cli_pairing_code: String,
 }
 
 pub struct BoundServer {
     listener: TcpListener,
     address: SocketAddr,
     authority: PairingAuthority,
-    storage: Option<Arc<Database>>,
+    cli_pairing_code: String,
+    storage: Arc<Database>,
+    vault_dir: Option<PathBuf>,
 }
 
 impl BoundServer {
@@ -144,6 +171,7 @@ impl BoundServer {
             address: self.address.to_string(),
             base_url: format!("http://{}", self.address),
             pairing_code: self.authority.initial_pairing_code(),
+            cli_pairing_code: self.cli_pairing_code.clone(),
         }
     }
 
@@ -151,26 +179,24 @@ impl BoundServer {
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        let scheduler = self.storage.clone().map(|storage| {
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(15));
-                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                loop {
-                    interval.tick().await;
-                    let _ = run_due_schedules_once(&storage, Utc::now());
-                }
-            })
+        let scheduler_storage = Arc::clone(&self.storage);
+        let scheduler = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(15));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                let _ = run_due_schedules_once(&scheduler_storage, Utc::now());
+            }
         });
-        let router = self.storage.map_or_else(
-            || restork_api::router(self.authority.clone()),
-            |storage| restork_api::router_with_storage(self.authority.clone(), storage),
+        let router = restork_api::router_with_runtime(
+            self.authority.clone(),
+            self.storage,
+            self.vault_dir.clone(),
         );
         let result = axum::serve(self.listener, router)
             .with_graceful_shutdown(shutdown)
             .await;
-        if let Some(scheduler) = scheduler {
-            scheduler.abort();
-        }
+        scheduler.abort();
         result
     }
 }
@@ -214,16 +240,7 @@ pub fn run_due_schedules_once(
                     "external_effect": false,
                 })
             }
-            ScheduleJob::ModelDraft {
-                profile_id,
-                requested_effect: None,
-            } => serde_json::json!({
-                "state": "draft_created",
-                "profile_id": profile_id,
-                "mode": "model_draft",
-                "external_effect": false,
-            }),
-            ScheduleJob::Deterministic { .. } | ScheduleJob::ModelDraft { .. } => {
+            ScheduleJob::Deterministic { .. } => {
                 serde_json::json!({
                     "state": "rejected",
                     "reason": "job is outside the safe scheduler contract",
@@ -303,15 +320,85 @@ pub async fn bind(config: ServerConfig) -> Result<BoundServer, StartupError> {
     // token is renewed by the client. One 300-second value for both made the CLI
     // unusable five minutes after pairing, because it has no renewal path.
     let authority = PairingAuthority::with_ttls(DEFAULT_PAIRING_TTL, DEFAULT_TOKEN_TTL)?;
-    let storage = config
-        .state_db
-        .map(Database::open)
-        .transpose()?
-        .map(Arc::new);
+    let cli_pairing_code = authority.new_pairing_code(Audience::Cli, CLI_SCOPES)?;
+    let vault_dir = config
+        .vault_dir
+        .map(|path| path.canonicalize())
+        .transpose()?;
+    if vault_dir.as_ref().is_some_and(|path| !path.is_dir()) {
+        return Err(StartupError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--vault-dir must name an existing directory",
+        )));
+    }
+    let state_db = match config.state_db {
+        Some(path) => path,
+        None => default_state_database()?,
+    };
+    let storage = Arc::new(Database::open(state_db)?);
     Ok(BoundServer {
         listener,
         address,
         authority,
+        cli_pairing_code,
         storage,
+        vault_dir,
     })
+}
+
+fn default_state_database() -> io::Result<PathBuf> {
+    let data_directory = if let Some(configured) =
+        env::var_os("RESTORK_DATA_DIR").filter(|value| !value.is_empty())
+    {
+        PathBuf::from(configured)
+    } else {
+        platform_data_directory()?
+    };
+    fs::create_dir_all(&data_directory)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::set_permissions(&data_directory, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(data_directory.join("restork.db"))
+}
+
+#[cfg(target_os = "macos")]
+fn platform_data_directory() -> io::Result<PathBuf> {
+    environment_directory("HOME")
+        .map(|path| path.join("Library/Application Support/io.github.totoro-qaq.restork"))
+}
+
+#[cfg(windows)]
+fn platform_data_directory() -> io::Result<PathBuf> {
+    environment_directory("LOCALAPPDATA").map(|path| path.join("io.github.totoro-qaq.restork"))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn platform_data_directory() -> io::Result<PathBuf> {
+    if let Some(path) = env::var_os("XDG_DATA_HOME").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(path).join("restork"));
+    }
+    environment_directory("HOME").map(|path| path.join(".local/share/restork"))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn platform_data_directory() -> io::Result<PathBuf> {
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "set RESTORK_DATA_DIR before starting Restork on this platform",
+    ))
+}
+
+fn environment_directory(name: &'static str) -> io::Result<PathBuf> {
+    env::var_os(name)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("{name} is unavailable; set RESTORK_DATA_DIR explicitly"),
+            )
+        })
 }

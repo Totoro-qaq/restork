@@ -8,7 +8,7 @@ import hashlib
 import json
 import os
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -181,7 +181,7 @@ def _update_manifest(
     payload = {
         "version": version,
         "notes": notes,
-        "pub_date": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "pub_date": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "platforms": platforms,
     }
     latest = directory / "latest.json"

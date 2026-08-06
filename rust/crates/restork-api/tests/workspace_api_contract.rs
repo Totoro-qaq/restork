@@ -41,12 +41,26 @@ async fn call(
     body: Option<Value>,
     authorization: Option<&str>,
 ) -> (StatusCode, Option<Value>) {
+    call_with_idempotency(app, method, path, body, authorization, None).await
+}
+
+async fn call_with_idempotency(
+    app: Router,
+    method: Method,
+    path: &str,
+    body: Option<Value>,
+    authorization: Option<&str>,
+    idempotency_key: Option<&str>,
+) -> (StatusCode, Option<Value>) {
     let mut request = Request::builder().method(method).uri(path);
     if body.is_some() {
         request = request.header("content-type", "application/json");
     }
     if let Some(authorization) = authorization {
         request = request.header("authorization", authorization);
+    }
+    if let Some(idempotency_key) = idempotency_key {
+        request = request.header("idempotency-key", idempotency_key);
     }
     let response = app
         .oneshot(
@@ -163,6 +177,26 @@ async fn global_sessions_are_paginated_searchable_and_create_tool_free_proposals
         .as_str()
         .expect("session id")
         .to_owned();
+
+    let (status, denial) = call_with_idempotency(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/sessions/{session_id}/turns"),
+        Some(json!({
+            "content": "Start a model-backed turn",
+            "context": {},
+            "data_class": "public",
+            "context_preview_hash": null
+        })),
+        Some(&authorization),
+        Some("safe-mode-turn-boundary"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        denial.expect("safe-mode turn denial")["detail"],
+        "local-only sessions save messages without starting a model operation"
+    );
 
     let (status, message) = call(
         app.clone(),
@@ -353,7 +387,7 @@ async fn global_sessions_are_paginated_searchable_and_create_tool_free_proposals
         .expect("cloud session id")
         .to_owned();
     let (status, denial) = call(
-        app,
+        app.clone(),
         Method::POST,
         &format!("/v1/sessions/{cloud_session_id}/messages"),
         Some(json!({
@@ -367,6 +401,28 @@ async fn global_sessions_are_paginated_searchable_and_create_tool_free_proposals
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(
         denial.expect("policy denial")["detail"]
+            .as_str()
+            .expect("message")
+            .contains("public-only")
+    );
+
+    let (status, denial) = call_with_idempotency(
+        app,
+        Method::POST,
+        &format!("/v1/sessions/{cloud_session_id}/turns"),
+        Some(json!({
+            "content": "This must remain local",
+            "context": {},
+            "data_class": "personal",
+            "context_preview_hash": null
+        })),
+        Some(&authorization),
+        Some("personal-cloud-turn-boundary"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        denial.expect("turn policy denial")["detail"]
             .as_str()
             .expect("message")
             .contains("public-only")

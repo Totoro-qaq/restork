@@ -15,7 +15,7 @@ others.
 | Area | Hermes Agent | Restork |
 |---|---|---|
 | Primary experience | Terminal and gateway-driven conversation | Bilingual desktop workspace plus a governed conversation surface |
-| Runtime center | Extensible Python agent runtime | Rust Core owns policy, lifecycle, storage, network, and effects; Python is optional capability-worker territory |
+| Runtime center | Extensible Python agent runtime | One Rust Core owns policy, lifecycle, storage, network, tools, and effects; no Python runtime ships today |
 | Model choice | Broad provider plugins, setup wizard, in-session switching | Versioned Provider Registry and visible in-conversation picker; switching creates a separately governed bounded branch while the original remains frozen |
 | Reasoning control | Global/per-model effort settings and a runtime `/reasoning` command | Provider-capability-filtered settings; unsupported levels fail closed; private chain-of-thought is not displayed or retained |
 | Extensions | Drop-in provider, memory, context, media, and platform plugins | Quarantined Skills/MCP/Plugins with immutable versions, authority diff, explicit activation, rollback, and frozen per-session catalogs |

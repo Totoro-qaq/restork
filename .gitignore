@@ -27,10 +27,6 @@ rust/target/
 *.pem
 *.key
 secrets/
-!src/restork/secrets/
-!src/restork/secrets/*.py
-!tests/secrets/
-!tests/secrets/*.py
 
 # Private runtime state and user data
 .restork/
@@ -47,8 +43,6 @@ logs/
 indexes/
 cache/
 artifacts/
-!src/restork/artifacts/
-!src/restork/artifacts/*.py
 profiles/
 
 # Editor / OS

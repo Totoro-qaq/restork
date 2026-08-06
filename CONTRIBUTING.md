@@ -1,31 +1,34 @@
 # Contributing
 
-Thanks for helping build Restork. Before opening a pull request, read the V1
-specification, [Steps 18–22 contract](specs/restork-steps18-22.md), and
+Thanks for helping build Restork. Before opening a pull request, read the
+[single-Core specification](specs/restork-single-core-consolidation.md), its
+[delivery plan](plans/restork-single-core-consolidation.md), and the
 [Code of Conduct](CODE_OF_CONDUCT.md). Keep the public/private repository boundary intact.
 
 ## Local checks
 
 ```bash
-uv sync
-uv run pytest
-uv run ruff check .
-uv run mypy src
-uv run bandit -q -r src
 cargo fmt --manifest-path rust/Cargo.toml --all -- --check
-cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets --all-features -- -D warnings
-cargo test --manifest-path rust/Cargo.toml --locked --all-features
+cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets -- -D warnings
+cargo test --manifest-path rust/Cargo.toml --locked
+cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
 npm --prefix dashboard ci
 npm --prefix dashboard run lint
 npm --prefix dashboard test
 npm --prefix dashboard run build
-uv run pytest tests/desktop tests/release
-uv run python scripts/audit_readme.py README.md README.zh-CN.md
+npm --prefix desktop ci
+npm --prefix desktop run fmt:check
+npm --prefix desktop run clippy
+npm --prefix desktop test
+node scripts/build-desktop-runtime.mjs
+node scripts/smoke-desktop-runtime.mjs
+python3 scripts/audit_readme.py README.md README.zh-CN.md
 ./scripts/scan-public-artifacts.sh
 ```
 
 Do not add a real Vault, credentials, private logs, or generated runtime state
-to a pull request. Use the synthetic fixtures in `tests/fixtures/` only.
+to a pull request. Tests must create bounded synthetic fixtures in temporary
+directories and remove them after use.
 
 ## Pull requests
 

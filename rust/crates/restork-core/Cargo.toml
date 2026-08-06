@@ -6,9 +6,20 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+futures-util.workspace = true
 getrandom.workspace = true
+restork-provider = { path = "../restork-provider", version = "=0.1.0" }
+restork-storage = { path = "../restork-storage", version = "=0.1.0" }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2.workspace = true
 subtle.workspace = true
+time = { workspace = true, features = ["formatting", "parsing"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 
 [lib]
 name = "restork_core"
 path = "src/lib.rs"
+
+[dev-dependencies]
+tempfile = "=3.27.0"

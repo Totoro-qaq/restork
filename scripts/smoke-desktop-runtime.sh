@@ -38,6 +38,7 @@ RESTORK_CONFIG_DIR="$config_dir" \
 RESTORK_DATA_DIR="$data_dir" \
 RESTORK_CACHE_DIR="$cache_dir" \
   "$core_binary" \
+    --json \
     serve \
     --port "$port" \
     --state-db "$data_dir/restork.db" \

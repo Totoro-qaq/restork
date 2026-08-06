@@ -15,19 +15,12 @@ preferences.
 
 ## Configure a profile
 
-Copy `examples/profile.example.toml` to `profile.toml` inside a directory outside the repository,
-or start Core with an explicit private profile directory:
+Open **Settings → Profiles** after pairing. A Profile freezes a provider/model, Prompt revision,
+allowed Skills/tools, memory namespace, and maximum data class. Profile records are versioned in the
+private local database; Prompt revisions are immutable and activation is explicit.
 
-```bash
-uv run restork --profile-dir /path/to/private-profile serve
-```
-
-The default profile directory follows the platform-specific Restork configuration root. Restork
-creates profile files with user-only permissions when it writes them. `instructions.md` in the same
-directory may contain user-authored working preferences.
-
-Never place provider keys, passwords, tokens, or private source documents in a profile. Provider
-credentials remain OS-keychain references and secret/credential data classes are rejected by the
+Never place provider keys, passwords, tokens, or private source documents in a Profile. Provider
+credentials remain native-store references and secret/credential data classes are rejected by the
 memory contracts.
 
 ## Retention

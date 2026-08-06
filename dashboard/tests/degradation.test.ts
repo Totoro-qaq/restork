@@ -4,9 +4,6 @@ import { LocalApiClient } from "../src/api/client";
 import { mountDashboard } from "../src/main";
 import type { DashboardApi, DashboardSnapshot, DomainStatuses } from "../src/api/types";
 
-// The client issues same-origin relative paths; this only resolves them in the stub.
-const ORIGIN = "http://127.0.0.1:7337";
-
 function baseSnapshot(domains: DomainStatuses): DashboardSnapshot {
   return {
     runs: [],
@@ -94,26 +91,18 @@ describe("a broken backend is not an empty workspace", () => {
 });
 
 describe("LocalApiClient classifies each domain", () => {
-  function respondWith(byPath: (path: string) => { status: number; body?: unknown }) {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      // The client issues relative paths; resolve against the loopback origin.
-      const path = new URL(String(input), ORIGIN).pathname;
-      const { status, body } = byPath(path);
-      return new Response(
-        status === 204 ? null : JSON.stringify(body ?? { detail: `HTTP ${status}` }),
-        { status, headers: { "Content-Type": "application/json" } },
-      );
-    }));
-  }
-
-  it("maps 404 and 503 to not_configured, 403 to forbidden, 500 to unavailable", async () => {
-    respondWith((path) => {
-      if (path === "/v1/runs") return { status: 404 };
-      if (path === "/v1/tasks") return { status: 503, body: { detail: "vault is not configured" } };
-      if (path === "/v1/memory") return { status: 403 };
-      if (path === "/v1/approvals") return { status: 500 };
-      return { status: 200, body: { items: [] } };
+  it("preserves the Core's per-domain bootstrap classifications", async () => {
+    const bootstrap = baseSnapshot({
+      runs: { state: "not_configured", status: 501 },
+      tasks: { state: "not_configured", status: 503, detail: "vault is not configured" },
+      memory: { state: "forbidden", status: 403 },
+      approvals: { state: "unavailable", status: 500 },
     });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(bootstrap), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
 
     const client = new LocalApiClient();
     client.restoreSession({
@@ -127,20 +116,6 @@ describe("LocalApiClient classifies each domain", () => {
     expect(snapshot.domains?.tasks?.detail).toBe("vault is not configured");
     expect(snapshot.domains?.memory?.state).toBe("forbidden");
     expect(snapshot.domains?.approvals?.state).toBe("unavailable");
-  });
-
-  it("never lets a domain failure reject the whole bootstrap", async () => {
-    respondWith(() => ({ status: 500 }));
-
-    const client = new LocalApiClient();
-    client.restoreSession({
-      accessToken: "synthetic-token",
-      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-    });
-    const snapshot = await client.loadDashboard();
-
-    // Every domain failed, yet the bootstrap resolved and reported each one.
-    expect(snapshot.runs).toEqual([]);
-    expect(snapshot.domains?.runs?.state).toBe("unavailable");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });

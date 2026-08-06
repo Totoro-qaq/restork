@@ -17,13 +17,12 @@ fn due_jobs_are_idempotent_advanced_and_never_gain_an_external_effect() {
     let storage = Database::open(directory.0.path().join("restork.db")).expect("database");
     let now = Utc::now();
     let schedule = ScheduleSpec::new(
-        "schedule-draft",
+        "schedule-health",
         "UTC",
         Recurrence::Daily { hour: 9, minute: 0 },
         MissedRunPolicy::CreateDraft,
-        ScheduleJob::ModelDraft {
-            profile_id: "research-cloud".into(),
-            requested_effect: None,
+        ScheduleJob::Deterministic {
+            job: "health.check".into(),
         },
     )
     .expect("schedule");
@@ -45,13 +44,13 @@ fn due_jobs_are_idempotent_advanced_and_never_gain_an_external_effect() {
     );
     let period_key = format!("scheduled:{}", (now - Duration::minutes(1)).timestamp());
     let run = storage
-        .schedule_run("schedule-draft", &period_key)
+        .schedule_run("schedule-health", &period_key)
         .expect("lookup")
         .expect("run");
-    assert_eq!(run.result["state"], "draft_created");
+    assert_eq!(run.result["state"], "completed");
     assert_eq!(run.result["external_effect"], false);
     let updated = storage
-        .schedule("schedule-draft")
+        .schedule("schedule-health")
         .expect("lookup")
         .expect("schedule");
     assert_eq!(updated.state, "active");

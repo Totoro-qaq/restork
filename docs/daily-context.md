@@ -1,30 +1,16 @@
 # Daily context
 
-Restork's daily context is optional. With an empty profile it displays setup states and performs no
+Restork's daily context is optional. With no configured sources it displays setup states and performs no
 outbound request. Location, calendar, playlist, preferences, and cover files stay outside the Git
 repository and browser storage.
 The only optional Web Storage value anywhere in the Dashboard is the non-sensitive `restork.locale`
 language preference; daily-context fields are never persisted there.
 
-## Private profile
+## Private daily settings
 
-Copy `examples/profile.example.toml` into a private profile directory and start Core with
-`--profile-dir /path/to/private-profile`.
-
-Weather currently supports `open-meteo`. The private location format is either
-`latitude,longitude` or `display label|latitude,longitude`:
-
-```toml
-[locale]
-language = "zh-CN"
-timezone = "Asia/Shanghai"
-
-[daily]
-weather_provider = "open-meteo"
-weather_location = "Home|00.0000,00.0000"
-calendar_ics = "/path/to/private/calendar.ics"
-playlist = "/path/to/private/playlist.json"
-```
+Weather, calendar, playlist, locale, and time-zone settings are configured after pairing and stored
+in Core's private local database. They are not read from the repository or browser storage. Leaving
+any source blank keeps that capability disabled.
 
 The same two weather fields can be managed from the paired Dashboard without asking a user to know
 coordinates. Open the Weather settings, enter a city or place name, and choose **Save & enable**.
@@ -100,8 +86,7 @@ as false and never falls back to scraping. On macOS the values live in Keychain;
 Credential Manager and Linux uses Secret Service. The developer token is not an Apple ID password.
 
 Local JSON/CSV imports remain the zero-network fallback. The managed copy is validated, bounded to
-2 MB and 2,000 items, and stays inside the private profile. The desktop Rust Core uses local SQLite;
-the Python compatibility runtime uses a profile file with `0600` permissions.
+2 MB and 2,000 items, and stays in Core's private local SQLite state.
 
 QQ Music and NetEase are experimental because their public web playlist responses are not presented
 as stable general-purpose developer contracts. They are isolated adapters and can fail or be

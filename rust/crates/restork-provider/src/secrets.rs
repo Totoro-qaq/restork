@@ -24,6 +24,14 @@ impl ResolvedSecret {
     pub fn expose(&self) -> &str {
         self.0.as_str()
     }
+
+    /// Transfer ownership into another zeroizing native-runtime boundary.
+    ///
+    /// This is used for short-lived MCP process environments; the value still
+    /// cannot be cloned, serialized, logged, or persisted by the caller.
+    pub fn into_zeroizing(self) -> Zeroizing<String> {
+        self.0
+    }
 }
 
 pub struct NativeSecretStore;

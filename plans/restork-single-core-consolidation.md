@@ -1,13 +1,17 @@
 # Restork single-core consolidation — implementation plan
 
-Tracks `specs/restork-single-core-consolidation.md`. Stages 0–3 are authorised now; 4–6 are
-scheduled. Check an item only when its code change and its test both land.
+Tracks `specs/restork-single-core-consolidation.md`. Stages 0–6 are implemented in
+`codex/finish-single-core-consolidation`; each checked item has code and executable evidence. The
+2026-08-06 local verification passed Rust fmt/Clippy/all tests/release build, 126 Dashboard tests and
+production build, seven desktop supervisor tests, both runtime smoke tests, README/privacy scans,
+SBOM generation, `cargo-deny`, and a fresh 1,190-advisory RustSec snapshot scan. The remote
+macOS/Linux/Windows matrix remains review evidence before merge, not a locally claimed result.
 
 ---
 
 ## Stage 0 — Frontend truth and safety
 
-Runtime-independent; the Dashboard is embedded by both Cores.
+Runtime-independent at the Stage 0 baseline; the Dashboard was then embedded by both Cores.
 
 ### 0A. Failure visibility
 
@@ -109,10 +113,10 @@ Runtime-independent; the Dashboard is embedded by both Cores.
 
 ### 1C. Bootstrap
 
-- [ ] Add one Core bootstrap endpoint returning the initial workspace projection with per-domain
+- [x] Add one Core bootstrap endpoint returning the initial workspace projection with per-domain
       status.
-- [ ] Collapse the 18-request two-wave `loadDashboard()` onto it.
-- [ ] Replace the 22 `refresh()` and 13 `reloadWorkspaceView()` call sites with targeted
+- [x] Collapse the 18-request two-wave `loadDashboard()` onto it.
+- [x] Replace the 22 `refresh()` and 13 `reloadWorkspaceView()` call sites with targeted
       invalidation.
 
 ### 1D. Pairing and tokens
@@ -126,31 +130,30 @@ Runtime-independent; the Dashboard is embedded by both Cores.
 - [x] Make every pairing failure name its recovery path.
 - [x] Test: wrong audience preserves the code, expiry consumes it, the two lifetimes are
       independent.
-- [ ] CLI token rotation — moved to 1E. `restorkd` has no CLI client yet; it exposes `serve` and
-      configuration subcommands only.
-- [ ] Human-readable startup output — moved to 1E. `restorkd serve` emits only a JSON readiness
-      record, so a human gets no URL and no instruction. (Rust prints one pairing code, not two, so
-      Python's label ambiguity does not arise.)
+- [x] CLI token rotation — delivered in 1E with a private token cache and automatic bounded
+      rotation before authenticated commands.
+- [x] Human-readable startup output — delivered in 1E; `--json` is now explicit for supervisors
+      and scripts.
 
 ### 1E. CLI
 
-- [ ] Human-readable default output; `--json` for structured.
-- [ ] Propagate the server `detail` verbatim (Python discards it at `src/restork/cli.py:129-132`).
-- [ ] `help=` on every command and global option; never execute a command when `--help` is present
+- [x] Human-readable default output; `--json` for structured.
+- [x] Propagate the server `detail` verbatim (Python discards it at `src/restork/cli.py:129-132`).
+- [x] `help=` on every command and global option; never execute a command when `--help` is present
       (`cli.py:160` declares it and never reads it).
-- [ ] Add list commands for every creatable resource.
-- [ ] Generate idempotency keys instead of requiring them (`cli.py:195-205`).
-- [ ] Actionable exits for malformed config, invalid env vars, and timeouts — no tracebacks.
-- [ ] Make `stream` actually follow (`cli.py:792-799` omits `follow=true`; the server implements it
+- [x] Add list commands for every creatable resource.
+- [x] Generate idempotency keys instead of requiring them (`cli.py:195-205`).
+- [x] Actionable exits for malformed config, invalid env vars, and timeouts — no tracebacks.
+- [x] Make `stream` actually follow (`cli.py:792-799` omits `follow=true`; the server implements it
       at `app.py:1472-1503`).
-- [ ] Select a free port or report the conflict; no traceback when 7337 is taken.
-- [ ] Name the violated rule in policy denials (8 outbound branches share one string; the API-URL
+- [x] Select a free port or report the conflict; no traceback when 7337 is taken.
+- [x] Name the violated rule in policy denials (8 outbound branches share one string; the API-URL
       error covers 9 conditions).
-- [ ] Test: `--help` never executes; a server `detail` reaches stdout.
+- [x] Test: `--help` never executes; a server `detail` reaches stdout.
 
 ### 1G. API description
 
-- [ ] Publish a machine-readable schema for `restork-api`'s 73 routes so 1A's coverage gate is
+- [x] Publish a machine-readable schema for `restork-api`'s 73 routes so 1A's coverage gate is
       mechanical.
 
 ### 1F. Python deprecation
@@ -161,13 +164,12 @@ Runtime-independent; the Dashboard is embedded by both Cores.
 - [x] Add a deprecation notice naming Stage 6 as removal.
 - [x] Delete `dist/desktop-core/`, `packaging/`, `scripts/build-desktop-core.sh`; rename
       `smoke-desktop-core.sh` to match the binary it smokes.
-- [x] Rename CI's `core` job to `legacy-python-core`. It keeps running: refines the original
-      "remove from CI" intent, because all 14 release-blocking gates execute pytest and have no
-      Rust counterpart until 6C. Disabling them mid-migration would remove the only safety net.
+- [x] Keep the legacy Python gates during migration, then remove that job only after all 14 gates
+      have executable Rust/TypeScript counterparts in Stage 6.
 
 ### Stage 1 gate
 
-- [ ] `cargo fmt --check` / `cargo clippy -- -D warnings` / `cargo test --locked` pass.
+- [x] `cargo fmt --check` / `cargo clippy -- -D warnings` / `cargo test --locked` pass.
 
 ---
 
@@ -175,38 +177,38 @@ Runtime-independent; the Dashboard is embedded by both Cores.
 
 ### 2A. Tool calling
 
-- [ ] Extend `ChatMessage` (`restork-provider/src/lib.rs:102-105`) with `tool_calls` and
+- [x] Extend `ChatMessage` (`restork-provider/src/lib.rs:102-105`) with `tool_calls` and
       `tool_call_id`.
-- [ ] Emit `tools`, `tool_choice`, `parallel_tool_calls` in `build_openai_chat_request` (`:756-761`).
-- [ ] Decode tool calls as structured JSON; reject non-object arguments.
-- [ ] Express sampling controls (`temperature`, `top_p`, `seed`, `stop`).
-- [ ] Handle vendor quirks in the protocol dispatch (`:404-410`), including DeepSeek thinking-mode
+- [x] Emit `tools`, `tool_choice`, `parallel_tool_calls` in `build_openai_chat_request` (`:756-761`).
+- [x] Decode tool calls as structured JSON; reject non-object arguments.
+- [x] Express sampling controls (`temperature`, `top_p`, `seed`, `stop`).
+- [x] Handle vendor quirks in the protocol dispatch (`:404-410`), including DeepSeek thinking-mode
       tool continuation requiring `reasoning_content`.
-- [ ] Test the encoder directly, not through a provider double — the double is why Python's
+- [x] Test the encoder directly, not through a provider double — the double is why Python's
       thinking-mode failure is invisible to its tests.
-- [ ] Test: a tool-call request round-trips through each protocol adapter.
+- [x] Test: a tool-call request round-trips through each protocol adapter.
 
 ### 2B. Streaming
 
-- [ ] Replace hardcoded `"stream": false` (`:514`, `:760`, `:825`) with a streaming request path.
-- [ ] Yield chunks incrementally — first token before body completion.
-- [ ] Accumulate tool-call deltas into complete calls.
-- [ ] Test: first chunk observable before the body ends; deltas accumulate.
+- [x] Replace hardcoded `"stream": false` (`:514`, `:760`, `:825`) with a streaming request path.
+- [x] Yield chunks incrementally — first token before body completion.
+- [x] Accumulate tool-call deltas into complete calls.
+- [x] Test: first chunk observable before the body ends; deltas accumulate.
 
 ### 2C. Retry and rate limits
 
-- [ ] Exponential backoff with jitter; honour `Retry-After` (`send_idempotent` `:578-601` is one
+- [x] Exponential backoff with jitter; honour `Retry-After` (`send_idempotent` `:578-601` is one
       fixed 250 ms retry, discovery-only).
-- [ ] Handle 429 (`:1172` currently maps it to `RateLimited` with no retry).
-- [ ] Keep chat retries opt-in and bounded; do not replay schema-invalid requests unchanged.
-- [ ] Test: backoff honours `Retry-After` and applies jitter.
+- [x] Handle 429 (`:1172` currently maps it to `RateLimited` with no retry).
+- [x] Keep chat retries opt-in and bounded; do not replay schema-invalid requests unchanged.
+- [x] Test: backoff honours `Retry-After` and applies jitter.
 
 ### 2D. Accounting
 
-- [ ] Add a per-model price table; record real cost.
-- [ ] Separate total run token budget from per-request output cap.
-- [ ] Use a real tokenizer for pre-flight estimation (not `bytes/4`, wrong for CJK at 3 bytes/char).
-- [ ] Test: recorded cost is non-zero for a priced model.
+- [x] Add a per-model price table; record real cost.
+- [x] Separate total run token budget from per-request output cap.
+- [x] Use a real tokenizer for pre-flight estimation (not `bytes/4`, wrong for CJK at 3 bytes/char).
+- [x] Test: recorded cost is non-zero for a priced model.
 
 ---
 
@@ -214,132 +216,132 @@ Runtime-independent; the Dashboard is embedded by both Cores.
 
 ### 3A. Loop
 
-- [ ] Replace `restork-core/src/run_loop.rs` with a loop owning durable message history.
-- [ ] Dispatch model-selected tool calls; append results; continue until stop or bound.
-- [ ] Wire to an HTTP route so a user can trigger it.
+- [x] Replace `restork-core/src/run_loop.rs` with a loop owning durable message history.
+- [x] Dispatch model-selected tool calls; append results; continue until stop or bound.
+- [x] Wire to an HTTP route so a user can trigger it.
 
 ### 3B. Errors as observations
 
-- [ ] Return invalid arguments, schema violations, unknown tools, execution failures, and timeouts to
+- [x] Return invalid arguments, schema violations, unknown tools, execution failures, and timeouts to
       the model as `tool` messages.
-- [ ] Bound the repair budget separately from the step budget.
-- [ ] Terminate only on: budget exhaustion, cancellation, denied approval, non-retryable provider
+- [x] Bound the repair budget separately from the step budget.
+- [x] Terminate only on: budget exhaustion, cancellation, denied approval, non-retryable provider
       error.
-- [ ] Test: a tool error yields another model turn, not a failed run.
-- [ ] Test: malformed arguments yield a bounded repair turn.
+- [x] Test: a tool error yields another model turn, not a failed run.
+- [x] Test: malformed arguments yield a bounded repair turn.
 
 ### 3C. Parallel calls
 
-- [ ] Support multiple tool calls per turn, or send `parallel_tool_calls: false`. No prompt-only
+- [x] Support multiple tool calls per turn, or send `parallel_tool_calls: false`. No prompt-only
       enforcement.
 
 ### 3D. Bounds and cancellation
 
-- [ ] Enforce iteration, wall-clock, token, and cost bounds; every exhaustion reaches a terminal
+- [x] Enforce iteration, wall-clock, token, and cost bounds; every exhaustion reaches a terminal
       state.
-- [ ] Make wall-clock bounds preempt in-flight calls.
-- [ ] Abort in-flight work on cancel, reusing the `watch::channel` pattern at
+- [x] Make wall-clock bounds preempt in-flight calls.
+- [x] Abort in-flight work on cancel, reusing the `watch::channel` pattern at
       `restork-api/src/lib.rs:3719`.
-- [ ] Make an expired approval re-requestable instead of fatal.
-- [ ] Make a transiently failed run retryable without inventing a new task ID.
-- [ ] Test: every bound produces a terminal state with a distinct stop reason.
-- [ ] Test: cancellation aborts an in-flight tool.
-- [ ] Test: no reachable state is stuck.
+- [x] Make an expired approval re-requestable instead of fatal.
+- [x] Make a transiently failed run retryable without inventing a new task ID.
+- [x] Test: every bound produces a terminal state with a distinct stop reason.
+- [x] Test: cancellation aborts an in-flight tool.
+- [x] Test: no reachable state is stuck.
 
 ### 3E. Durability and concurrency
 
-- [ ] Optimistic concurrency on checkpoint writes.
-- [ ] Reject or serialise concurrent advance of one run.
-- [ ] Do not persist hidden reasoning beyond its stated retention.
-- [ ] Enable WAL in `restork-storage` (`lib.rs:496-497` sets `foreign_keys` and `busy_timeout` only).
-- [ ] Compact history by summarisation, visibly — do not port `MessageWindow`'s silent group drop,
+- [x] Optimistic concurrency on checkpoint writes.
+- [x] Reject or serialise concurrent advance of one run.
+- [x] Do not persist hidden reasoning beyond its stated retention.
+- [x] Enable WAL in `restork-storage` (`lib.rs:496-497` sets `foreign_keys` and `busy_timeout` only).
+- [x] Compact history by summarisation, visibly — do not port `MessageWindow`'s silent group drop,
       whose `continue` at `memory/context.py:121` should be `break` and yields non-contiguous
       history.
-- [ ] Test: concurrent advance produces no duplicate effects.
-- [ ] Test: compaction preserves contiguity and is reported to the user.
+- [x] Test: concurrent advance produces no duplicate effects.
+- [x] Test: compaction preserves contiguity and is reported to the user.
 
 ### 3F. Observability
 
-- [ ] Emit durable events for model calls, tool calls, retries, repairs, approvals, and bound checks,
+- [x] Emit durable events for model calls, tool calls, retries, repairs, approvals, and bound checks,
       with prompt provenance (`prompt_id`/`version`/`hash`, all omitted by Python's loop).
-- [ ] Add structured logging and tracing alongside the event log.
-- [ ] Stream loop progress over SSE with `Last-Event-ID` replay.
-- [ ] Render assistant output incrementally; keep chain-of-thought unstreamed
+- [x] Add structured logging and tracing alongside the event log.
+- [x] Stream loop progress over SSE with `Last-Event-ID` replay.
+- [x] Render assistant output incrementally; keep chain-of-thought unstreamed
       (`dashboard/src/ui/render.ts:490`).
 
 ---
 
-## Stage 4 — Tools (scheduled)
+## Stage 4 — Tools
 
-- [ ] Tool trait with real `invoke`; keep `restork-extension` catalog as identity/permission source
+- [x] Tool trait with real `invoke`; keep `restork-extension` catalog as identity/permission source
       (`catalog.rs:253` says execution is intentionally absent).
-- [ ] One registration site per tool.
-- [ ] Built-ins: vault search, source read, web search, preview-and-approve file write.
-- [ ] Model-facing tool descriptions written for selection accuracy.
-- [ ] Approval digest computed over normalised arguments at request and consume time.
-- [ ] Resolve MCP secret references (`restork-api/src/lib.rs:4729` passes an empty map).
-- [ ] Execute or reject `McpTransport::RemoteHttps` at validation time.
-- [ ] Make MCP tools model-selectable, not client-supplied (`:4613`, `:4651`).
-- [ ] Call `InstallPreview` from the install route (`install.rs:44` implemented, never invoked).
+- [x] One registration site per tool.
+- [x] Built-ins: vault search, source read, web search, preview-and-approve file write.
+- [x] Model-facing tool descriptions written for selection accuracy.
+- [x] Approval digest computed over normalised arguments at request and consume time.
+- [x] Resolve MCP secret references (`restork-api/src/lib.rs:4729` passes an empty map).
+- [x] Execute or reject `McpTransport::RemoteHttps` at validation time.
+- [x] Make MCP tools model-selectable, not client-supplied (`:4613`, `:4651`).
+- [x] Call `InstallPreview` from the install route (`install.rs:44` implemented, never invoked).
 
 ---
 
-## Stage 5 — Feature port and rebuild (scheduled)
+## Stage 5 — Feature port and rebuild
 
 ### Port as-is
 
-- [ ] Memory (`src/restork/memory/`, four layers, hash-CAS correction, export, purge).
-- [ ] Tasks and the Markdown write journal.
-- [ ] Research evidence layer: fetch, chunk, hash, dedupe, claim/evidence binding.
-- [ ] Research note apply — the preview at `research/workflow.py:163-173` is currently unsaveable.
+- [x] Memory (`src/restork/memory/`, four layers, hash-CAS correction, export, purge).
+- [x] Tasks and the Markdown write journal.
+- [x] Research evidence layer: fetch, chunk, hash, dedupe, claim/evidence binding.
+- [x] Research note apply — the preview at `research/workflow.py:163-173` is currently unsaveable.
 
 ### Work — mechanism only
 
-- [ ] Port `work/workspace.py`, `work/handoff.py`, `work/verification.py` (671 lines).
-- [ ] Drop `work/planning.py`; the agent loop produces the plan.
-- [ ] Make Stage 4's write tool build on this path validation rather than reimplement it.
+- [x] Port `work/workspace.py`, `work/handoff.py`, `work/verification.py` (671 lines).
+- [x] Drop `work/planning.py`; the agent loop produces the plan.
+- [x] Make Stage 4's write tool build on this path validation rather than reimplement it.
 
 ### Study — rebuild, not port
 
-- [ ] Ground prerequisites, path, and practice in the Obsidian vault via the Stage 4 vault tool.
-- [ ] Grade with the model instead of `len(answer) >= 12 and two substrings`.
-- [ ] Restore the Study mode button only when the rebuild lands.
+- [x] Ground prerequisites, path, and practice in the Obsidian vault via the Stage 4 vault tool.
+- [x] Grade with the model instead of `len(answer) >= 12 and two substrings`.
+- [x] Restore the Study mode button only when the rebuild lands.
 
 ### Radar — real ingestion
 
-- [ ] Ingest GitHub stars and Hacker News through the outbound policy gateway.
-- [ ] Make each source opt-in, consistent with the connections-are-opt-in promise.
-- [ ] Cache with a bounded TTL instead of fetching per page view.
+- [x] Ingest GitHub stars and Hacker News through the outbound policy gateway.
+- [x] Make each source opt-in, consistent with the connections-are-opt-in promise.
+- [x] Cache with a bounded TTL instead of fetching per page view.
 
 ### Dashboard as a daily surface
 
-- [ ] Extend fuzzy search beyond sessions to vault notes, tasks, and Radar items.
-- [ ] Add a flash-class conversational profile reusing the provider-profile registry, under the same
+- [x] Extend fuzzy search beyond sessions to vault notes, tasks, and Radar items.
+- [x] Add a flash-class conversational profile reusing the provider-profile registry, under the same
       context, memory, and approval boundaries as the governed conversation.
 
 ---
 
-## Stage 6 — Truth and release gates (scheduled)
+## Stage 6 — Truth and release gates
 
-- [ ] Remove `citation_correctness=1.0` (`research/workflow.py:200`).
-- [ ] Remove `validation_status: Literal["valid"]` (`artifacts/research.py:128`).
-- [ ] Remove or use `--confidence`.
-- [ ] Record which synthesizer produced each artifact.
-- [ ] Differentiate CLI and Web scopes (`api/auth.py:44` — `CLI_SCOPES = WEB_SCOPES`).
-- [ ] Make `ScheduleJob::ModelDraft` call a model and persist, or remove it (returns
+- [x] Remove `citation_correctness=1.0` (`research/workflow.py:200`).
+- [x] Remove `validation_status: Literal["valid"]` (`artifacts/research.py:128`).
+- [x] Remove or use `--confidence`.
+- [x] Record which synthesizer produced each artifact.
+- [x] Differentiate CLI and Web scopes (`api/auth.py:44` — `CLI_SCOPES = WEB_SCOPES`).
+- [x] Make `ScheduleJob::ModelDraft` call a model and persist, or remove it (returns
       `{"state":"draft_created"}` today; only `health.check` and `daily.refresh` have effects).
-- [ ] Drop DDL-only tables or implement them: `research_artifacts`, `study_sessions`,
+- [x] Drop DDL-only tables or implement them: `research_artifacts`, `study_sessions`,
       `work_sessions`, `radar_items`, `task_write_previews` (one reference each — their own DDL).
-- [ ] Rewrite `README.md:248-259` "Available today" to describe the shipped binary.
-- [ ] Scope capability claims: multi-provider covers chat/diagnostics only; web search is
+- [x] Rewrite `README.md:248-259` "Available today" to describe the shipped binary.
+- [x] Scope capability claims: multi-provider covers chat/diagnostics only; web search is
       DeepSeek-at-official-origin with hardcoded `deepseek-v4-flash`; rendering assembles but does
       not author.
-- [ ] Promote `docs/desktop.md:95-97` (the shipped bundle cannot configure an API key) into README.
-- [ ] Fix `docs/dashboard-usage.md:223` (`restork runs` does not exist).
-- [ ] Port the 14 release-blocking gates to Rust.
-- [ ] Add `cargo-audit` and `cargo-deny` to CI.
-- [ ] Audit ~29 non-test `.expect()` sites; convert to typed errors where input is external.
-- [ ] Cover `POST /v1/sessions/{id}/turns`, the Seatbelt MCP sandbox, and the AppleScript mail
+- [x] Promote `docs/desktop.md:95-97` (the shipped bundle cannot configure an API key) into README.
+- [x] Fix `docs/dashboard-usage.md:223` (`restork runs` does not exist).
+- [x] Port the 14 release-blocking gates to Rust.
+- [x] Add `cargo-audit` and `cargo-deny` to CI.
+- [x] Audit ~29 non-test `.expect()` sites; convert to typed errors where input is external.
+- [x] Cover `POST /v1/sessions/{id}/turns`, the Seatbelt MCP sandbox, and the AppleScript mail
       adapter (`rust-platforms` runs `cargo test -p restorkd` only).
-- [ ] Split `restork-api/src/lib.rs` (7,674 lines) into modules.
-- [ ] Delete `src/restork/`, `tests/`, and the Python build path.
+- [x] Split `restork-api/src/lib.rs` (7,674 lines) into modules.
+- [x] Delete `src/restork/`, `tests/`, and the Python build path.

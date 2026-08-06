@@ -152,6 +152,39 @@ async fn paired_app() -> (Router, String, TestDirectory) {
     (app, format!("Bearer {token}"), directory)
 }
 
+async fn install_reviewed_extension(
+    app: Router,
+    authorization: &str,
+    package_kind: &str,
+    manifest: Value,
+) -> (StatusCode, Option<Value>) {
+    let (status, preview) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/extensions",
+        Some(json!({"package_kind": package_kind, "manifest": manifest.clone()})),
+        Some(authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let preview = preview.expect("install preview");
+    assert_eq!(preview["state"], "review_required");
+    assert_eq!(preview["installation_started"], false);
+    let preview_digest = preview["preview_digest"].as_str().expect("preview digest");
+    call(
+        app,
+        Method::POST,
+        "/v1/extensions",
+        Some(json!({
+            "package_kind": package_kind,
+            "manifest": manifest,
+            "approved_preview_digest": preview_digest,
+        })),
+        Some(authorization),
+    )
+    .await
+}
+
 fn skill_manifest() -> Value {
     json!({
         "schema_version": 1,
@@ -173,7 +206,7 @@ fn skill_manifest() -> Value {
     })
 }
 
-fn mcp_manifest() -> Value {
+fn remote_mcp_manifest() -> Value {
     json!({
         "schema_version": 1,
         "id": "paper-mcp",
@@ -209,17 +242,71 @@ fn mcp_manifest() -> Value {
     })
 }
 
+fn stdio_mcp_manifest() -> Value {
+    let executable = std::env::current_exe()
+        .expect("test executable")
+        .to_string_lossy()
+        .into_owned();
+    json!({
+        "schema_version": 1,
+        "id": "paper-mcp",
+        "version": "1.0.0",
+        "provenance": {
+            "source": {"kind": "catalog", "catalog_id": "restork-reviewed", "version": "1.0.0"},
+            "license": "MIT",
+            "content_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "signature": null
+        },
+        "compatibility": {"minimum_core_version": "0.1.0", "maximum_core_version": null},
+        "enabled_profiles": ["research-cloud"],
+        "requested_permissions": ["process:spawn"],
+        "secret_references": [],
+        "transport": {
+            "kind": "stdio",
+            "executable": executable,
+            "argv": ["--help"],
+            "environment": {"inherit": false, "variables": {}}
+        },
+        "sandbox": {
+            "max_runtime_ms": 2000,
+            "max_output_bytes": 65536,
+            "allow_network": false,
+            "allowed_paths": []
+        },
+        "tools": [{
+            "id": "papers.search",
+            "name": "Search papers",
+            "description": "Search the explicitly granted paper catalog.",
+            "input_schema": "schemas/papers-search.json",
+            "required_permissions": ["process:spawn"]
+        }]
+    })
+}
+
 #[tokio::test]
-async fn extension_install_is_validated_quarantined_and_hash_bound_before_enable() {
+async fn remote_mcp_is_rejected_during_install_validation() {
     let (app, authorization, _directory) = paired_app().await;
-    let (status, installed) = call(
-        app.clone(),
+    let (status, body) = call(
+        app,
         Method::POST,
         "/v1/extensions",
-        Some(json!({"package_kind": "skill", "manifest": skill_manifest()})),
+        Some(json!({"package_kind": "mcp", "manifest": remote_mcp_manifest()})),
         Some(&authorization),
     )
     .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        body.expect("validation error")["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("validation"))
+    );
+}
+
+#[tokio::test]
+async fn extension_install_is_validated_quarantined_and_hash_bound_before_enable() {
+    let (app, authorization, _directory) = paired_app().await;
+    let (status, installed) =
+        install_reviewed_extension(app.clone(), &authorization, "skill", skill_manifest()).await;
     assert_eq!(status, StatusCode::CREATED);
     let installed = installed.expect("extension");
     assert_eq!(installed["state"], "quarantined");
@@ -251,14 +338,8 @@ async fn extension_install_is_validated_quarantined_and_hash_bound_before_enable
 async fn extension_update_history_and_rollback_are_review_bound() {
     let (app, authorization, _directory) = paired_app().await;
     let first_manifest = skill_manifest();
-    let (status, first) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/extensions",
-        Some(json!({"package_kind": "skill", "manifest": first_manifest})),
-        Some(&authorization),
-    )
-    .await;
+    let (status, first) =
+        install_reviewed_extension(app.clone(), &authorization, "skill", first_manifest).await;
     assert_eq!(status, StatusCode::CREATED);
     let first_hash = first.expect("first")["manifest_hash"]
         .as_str()
@@ -267,14 +348,8 @@ async fn extension_update_history_and_rollback_are_review_bound() {
     let mut second_manifest = skill_manifest();
     second_manifest["version"] = json!("2.0.0");
     second_manifest["provenance"]["content_hash"] = json!("d".repeat(64));
-    let (status, second) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/extensions",
-        Some(json!({"package_kind": "skill", "manifest": second_manifest})),
-        Some(&authorization),
-    )
-    .await;
+    let (status, second) =
+        install_reviewed_extension(app.clone(), &authorization, "skill", second_manifest).await;
     assert_eq!(status, StatusCode::CREATED);
     let second_hash = second.expect("second")["manifest_hash"]
         .as_str()
@@ -316,14 +391,8 @@ async fn extension_update_history_and_rollback_are_review_bound() {
 #[tokio::test]
 async fn tool_discovery_preview_digest_and_execution_audit_are_frozen_to_the_session() {
     let (app, authorization, _directory) = paired_app().await;
-    let (status, installed) = call(
-        app.clone(),
-        Method::POST,
-        "/v1/extensions",
-        Some(json!({"package_kind": "mcp", "manifest": mcp_manifest()})),
-        Some(&authorization),
-    )
-    .await;
+    let (status, installed) =
+        install_reviewed_extension(app.clone(), &authorization, "mcp", stdio_mcp_manifest()).await;
     assert_eq!(status, StatusCode::CREATED);
     let hash = installed.expect("extension")["manifest_hash"]
         .as_str()
@@ -421,7 +490,7 @@ async fn tool_discovery_preview_digest_and_execution_audit_are_frozen_to_the_ses
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{execution:?}");
     let execution = execution.expect("execution");
     assert_eq!(execution["state"], "failed");
-    assert_eq!(execution["error_code"], "unsupported_transport");
+    assert_eq!(execution["error_code"], "protocol_error");
     let execution_id = execution["execution_id"].as_str().expect("execution id");
     let (status, stored) = call(
         app,
@@ -436,7 +505,7 @@ async fn tool_discovery_preview_digest_and_execution_audit_are_frozen_to_the_ses
 }
 
 #[tokio::test]
-async fn schedules_are_dst_aware_optimistic_and_model_jobs_remain_drafts() {
+async fn schedules_are_dst_aware_optimistic_and_reject_model_jobs() {
     let (app, authorization, _directory) = paired_app().await;
     let safe = json!({
         "schedule_id": "schedule-health",

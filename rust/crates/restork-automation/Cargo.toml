@@ -11,6 +11,9 @@ chrono-tz.workspace = true
 serde = { workspace = true, features = ["derive"] }
 sha2.workspace = true
 
+[dev-dependencies]
+serde_json.workspace = true
+
 [lib]
 name = "restork_automation"
 path = "src/lib.rs"

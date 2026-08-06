@@ -253,7 +253,7 @@ impl Database {
              ORDER BY installed_at DESC, manifest_hash DESC LIMIT ?2",
         )?;
         let rows = statement.query_map(
-            params![package_id, i64::try_from(limit).expect("bounded limit")],
+            params![package_id, limit as i64],
             extension_revision_from_row,
         )?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -349,24 +349,20 @@ impl Database {
         )?;
         let (updated_at, id) = cursor_parts(cursor);
         let rows = statement.query_map(
-            params![
-                updated_at,
-                id,
-                i64::try_from(limit + 1).expect("bounded limit")
-            ],
+            params![updated_at, id, (limit + 1) as i64],
             extension_from_row,
         )?;
         let mut items = rows.collect::<Result<Vec<_>, _>>()?;
         let has_more = items.len() > limit;
         items.truncate(limit);
-        let next = has_more.then(|| {
-            let last = items.last().expect("non-empty bounded page");
-            CatalogCursor {
+        let next = has_more
+            .then(|| items.last())
+            .flatten()
+            .map(|last| CatalogCursor {
                 updated_at: last.updated_at.clone(),
                 id: last.package_id.clone(),
                 version: 1,
-            }
-        });
+            });
         Ok(ExtensionPage { items, next })
     }
 
@@ -434,25 +430,20 @@ impl Database {
         let (updated_at, id) = cursor_parts(cursor);
         let version = cursor.map_or(i64::MAX, |cursor| cursor.version);
         let rows = statement.query_map(
-            params![
-                updated_at,
-                id,
-                version,
-                i64::try_from(limit + 1).expect("bounded limit")
-            ],
+            params![updated_at, id, version, (limit + 1) as i64],
             deliverable_from_row,
         )?;
         let mut items = rows.collect::<Result<Vec<_>, _>>()?;
         let has_more = items.len() > limit;
         items.truncate(limit);
-        let next = has_more.then(|| {
-            let last = items.last().expect("non-empty bounded page");
-            CatalogCursor {
+        let next = has_more
+            .then(|| items.last())
+            .flatten()
+            .map(|last| CatalogCursor {
                 updated_at: last.updated_at.clone(),
                 id: last.deliverable_id.clone(),
                 version: last.revision,
-            }
-        });
+            });
         Ok(DeliverablePage { items, next })
     }
 
@@ -636,24 +627,20 @@ impl Database {
         )?;
         let (updated_at, id) = cursor_parts(cursor);
         let rows = statement.query_map(
-            params![
-                updated_at,
-                id,
-                i64::try_from(limit + 1).expect("bounded limit")
-            ],
+            params![updated_at, id, (limit + 1) as i64],
             schedule_from_row,
         )?;
         let mut items = rows.collect::<Result<Vec<_>, _>>()?;
         let has_more = items.len() > limit;
         items.truncate(limit);
-        let next = has_more.then(|| {
-            let last = items.last().expect("non-empty bounded page");
-            CatalogCursor {
+        let next = has_more
+            .then(|| items.last())
+            .flatten()
+            .map(|last| CatalogCursor {
                 updated_at: last.updated_at.clone(),
                 id: last.schedule_id.clone(),
                 version: last.revision,
-            }
-        });
+            });
         Ok(SchedulePage { items, next })
     }
 
@@ -686,10 +673,7 @@ impl Database {
              FROM schedules WHERE state = 'active' AND next_run_at IS NOT NULL \
              AND next_run_at <= ?1 ORDER BY next_run_at ASC, schedule_id ASC LIMIT ?2",
         )?;
-        let rows = statement.query_map(
-            params![through, i64::try_from(limit).expect("bounded limit")],
-            schedule_from_row,
-        )?;
+        let rows = statement.query_map(params![through, limit as i64], schedule_from_row)?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 

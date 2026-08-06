@@ -11,16 +11,16 @@ chrono.workspace = true
 chrono-tz.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
-restork-automation = { path = "../restork-automation" }
-restork-core = { path = "../restork-core" }
-restork-daily = { path = "../restork-daily" }
-restork-deliverables = { path = "../restork-deliverables" }
-restork-extension = { path = "../restork-extension" }
-restork-personal = { path = "../restork-personal" }
-restork-provider = { path = "../restork-provider" }
-restork-render = { path = "../restork-render" }
-restork-storage = { path = "../restork-storage" }
-restork-worker = { path = "../restork-worker" }
+restork-automation = { path = "../restork-automation", version = "=0.1.0" }
+restork-core = { path = "../restork-core", version = "=0.1.0" }
+restork-daily = { path = "../restork-daily", version = "=0.1.0" }
+restork-deliverables = { path = "../restork-deliverables", version = "=0.1.0" }
+restork-extension = { path = "../restork-extension", version = "=0.1.0" }
+restork-personal = { path = "../restork-personal", version = "=0.1.0" }
+restork-provider = { path = "../restork-provider", version = "=0.1.0" }
+restork-render = { path = "../restork-render", version = "=0.1.0" }
+restork-storage = { path = "../restork-storage", version = "=0.1.0" }
+restork-worker = { path = "../restork-worker", version = "=0.1.0" }
 rust-embed.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
@@ -28,12 +28,14 @@ sha2.workspace = true
 time = { workspace = true, features = ["formatting", "parsing"] }
 tokio = { workspace = true, features = ["rt", "sync", "time"] }
 url.workspace = true
+zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 http-body-util.workspace = true
+tempfile = "=3.27.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }
 

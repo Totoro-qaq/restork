@@ -27,6 +27,7 @@ await Promise.all([
 ]);
 
 const child = spawn(coreBinary, [
+  "--json",
   "serve",
   "--port",
   "0",

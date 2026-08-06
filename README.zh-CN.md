@@ -18,7 +18,6 @@
   <a href="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml/badge.svg" alt="发布来源证明状态"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0ea5e9.svg" alt="MIT 许可证"></a>
   <img src="https://img.shields.io/badge/Rust-1.97-dea584.svg" alt="Rust 1.97 运行时基础">
-  <img src="https://img.shields.io/badge/Python-3.12-8b5cf6.svg" alt="Python 3.12">
   <img src="https://img.shields.io/badge/UI-TypeScript-06b6d4.svg" alt="TypeScript Dashboard">
   <img src="https://img.shields.io/badge/data-local--first-f59e0b.svg" alt="本地优先数据">
 </p>
@@ -77,15 +76,15 @@
 Restork Core ─ 运行策略 ─ 预览 ─ 审批 ─ 事件记录
         │
         ├── 本地 Dashboard / CLI
-        └── 出站网关 ──► DeepSeek V4 Pro / 已批准的公开服务
+        └── 出站网关 ──► 已选择的模型 / 已批准的公开服务
 ```
 
 Markdown 是笔记和用户任务的持久载体；SQLite 保存运行、审批和事件等操作状态。索引与链接投影
 都是可以删除后重新生成的缓存。Dashboard 与 CLI 既拿不到模型密钥，也不能绕过 Core 策略。
 
 Restork 的基础工作流不需要 LangGraph、图数据库、KAG、Valkey、Memory MCP 或 Obsidian
-插件。新运行时使用一个有界 Rust Core 循环；只有科学计算或文档生态确实需要时，才会按需启动
-短生命周期的可选 Python 能力 Worker。
+插件。一个有界 Rust Core 统一负责策略、存储、工具、恢复和内嵌 Dashboard。本仓库中的少量
+Python 脚本只用于开发辅助，不是产品运行时或可安装包。
 
 ## 五分钟开始使用
 
@@ -104,25 +103,25 @@ cd restork
 ./scripts/quickstart.sh
 ```
 
-Restork 会在 `http://127.0.0.1:7337` 启动，并在终端打印一次性 Web 配对码。打开这个本地地址，
-输入配对码就能开始。首次启动不需要 API Key，不会擅自选择 Vault，也不会自动开启天气或其他
+Restork 会让系统自动选择一个空闲 loopback 端口，并打印准确的本地 URL，以及彼此独立的一次性
+Web/CLI 配对码。打开 URL，输入 Web 配对码就能开始。首次启动不需要 API Key，不会擅自选择 Vault，也不会自动开启天气或其他
 连接；离线 Research synthesizer 可以让你在不发送模型请求的情况下先体验产品。
 
 ### 直接运行 Core
 
 ```bash
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- \
-  serve --port 7337 --state-db ./build/restork-alpha.db
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- \
+  serve --port 0 --state-db ./build/restork-alpha.db
 ```
 
-打开 readiness 记录中的 `base_url`，输入其中的一次性配对码。
+打开 Core 打印的 Dashboard URL，输入一次性 Web 配对码。只有程序需要读取 readiness 记录时，
+才在 `serve` 前增加 `--json`。
 
-### 关于 Python 包
+### 一个 Core，一套规则
 
-`src/restork/` 是一个已弃用的第二 Core。它不在任何分发产物中，桌面应用不会启动它，仅作为
-迁移期的移植参考保留，直到
-[单核收敛规格](specs/restork-single-core-consolidation.md)完成。它仍持有的能力域——运行、
-审批、任务、记忆、Radar 与 Work——在 Dashboard 中会明确标注「当前 Core 未提供」，而不是显示为空。
+产品只有一个权威运行时：`restorkd`。Dashboard、CLI、桌面生命周期、API、Agent 循环、记忆、
+任务、Research、Study、Work 与 Radar 全部经过同一套 Rust 策略和事件边界。旧 Python Core
+及其构建路径已经移除。
 
 ### 桌面安装包
 
@@ -154,8 +153,8 @@ QQ 音乐与网易云是无需凭据的实验性只读适配；QQ 音乐可以�
 API，需要先把 developer token 放进系统凭据库：
 
 ```bash
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- music apple configure
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- music apple status
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- music apple configure
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- music apple status
 ```
 
 这里需要的不是 Apple ID 密码，token 也不会进入 Dashboard 或 SQLite。刷新始终由你手动触发；
@@ -192,8 +191,8 @@ Provider Profile 卡片点击**测试模型**；选择的不是 DeepSeek 时，�
 配置内置 DeepSeek：
 
 ```bash
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure qwen
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- provider configure
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- provider configure qwen
 ```
 
 系统原生提示会把 Key 写入 macOS Keychain、Windows Credential Manager 或 Linux Secret
@@ -205,10 +204,10 @@ Service。Key 不会进入浏览器、TOML、命令行参数、环境变量、sh
 重启 Restork 后，可以自己决定检查到哪一步：
 
 ```bash
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --connect
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --smoke
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --web-search
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor --connect
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor --smoke
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor --web-search
 ```
 
 `--connect` 检查共享 Key 与模型目录，`--smoke` 测试 V4 Pro 综合，`--web-search` 测试 V4
@@ -219,15 +218,14 @@ Flash 与服务端联网搜索。短句测试不会发送 Vault、记忆、任�
 ### 让个人数据留在仓库之外
 
 ```bash
-uv run restork \
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- \
+  serve --port 0 \
   --state-db /path/to/private/restork.db \
-  --profile-dir /path/to/private-profile \
-  --vault-dir /path/to/vault \
-  serve --port 7337
+  --vault-dir /path/to/vault
 ```
 
-如需每日上下文，把[示例 Profile](examples/profile.example.toml)复制到你的私有 Profile 目录，只开启
-想使用的字段。天气、日历和歌单留空就保持关闭；格式和隐私行为见[每日上下文](docs/daily-context.md)。
+每日上下文在配对后的设置中配置，只开启你真正需要的字段。天气、日历和歌单留空就保持关闭；
+格式和隐私行为见[每日上下文](docs/daily-context.md)。
 
 ## 现在可以使用的能力
 
@@ -238,29 +236,24 @@ uv run restork \
 | **Dashboard 与本地 API** | 中英文界面、仅监听 loopback 的 `/v1` API、独立 Web/CLI 配对、可轮转的短期会话 |
 | **对话** | 运行范围内的会话，支持分支、搜索、导出、归档、可取消操作与 SSE 重放 |
 | **模型** | DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter 与通用 OpenAI 兼容端点；供应商范围内思考强度；原生凭据存储；版本化 Prompt 与配置 Profile |
+| **Agent 运行时** | 持久化模型/工具循环，分别约束步骤、修复、Token、费用与总耗时；支持取消、审批暂停、事件重放和可见的上下文压缩 |
+| **Research、Study、Work** | 证据驱动 Research 与可审批笔记；基于 Vault 的学习路径和置信度复习；有界工作计划、脱敏交接与证据化结果校验 |
+| **本地知识** | 可检查的四层记忆、需要单次审批的 Markdown 任务预览、跨会话/Vault/任务/记忆/Radar 的统一搜索，以及可选 GitHub/Hacker News Radar 摄取 |
 | **扩展** | 清单校验、权限格、不可变修订与回滚，以及沙箱化的 stdio MCP 执行 |
 | **每日上下文** | 可选天气、无需权限的系统日期与月历、一个本地 ICS 日历、macOS 未读邮件计数，以及来自 QQ 音乐、网易云、Apple Music 或私有歌单文件的每日单曲 |
 | **产物与恢复** | 确定性无宏 PPTX/PDF、精确产物哈希、包含真实内容的检查点、绑定预览的文件恢复 |
-| **自动化** | 感知夏令时的重复调度与幂等周期键 |
+| **自动化** | 感知夏令时的确定性健康检查/每日刷新，以及幂等周期键 |
 | **桌面** | Tauri 打包 `restorkd` 与 Dashboard，使用 Unix 进程组或 Windows Job Object 管理生命周期 |
 
-### 正在移植
+### 刻意保留的边界
 
-以下能力实现在已弃用的 Python 包中，上述 Core **无法**访问。Dashboard 会将它们标注为
-「当前 Core 未提供」，而不是显示为空列表。
-
-| 区域 | 状态 |
+| 区域 | 当前边界 |
 |---|---|
-| 运行、审批、预算、副作用恢复 | 随 agent 运行时一起在 Rust 落地 |
-| Markdown 任务与日志化写入 | 计划移植 |
-| 四层记忆 | 计划移植 |
-| Research 证据与引用笔记 | 计划移植 |
-| Work 校验与脱敏交接 | 计划移植；三步固定规划器不再保留 |
-| Radar | 保留，但需要真实摄取——它从未有过数据 |
-| Study | 已删除；将基于 agent loop 并以你的 Vault 为基础重建 |
-
-两个 Core 目前都还没有工具调用的 agent loop。排期、契约与验收门见
-[单核收敛规格](specs/restork-single-core-consolidation.md)。
+| 联网搜索 | 公开 HTTPS Research 统一经过出站网关；是否可用取决于所选供应商能力。 |
+| MCP | 已审批的 stdio MCP 在平台沙箱中执行；Remote HTTPS MCP 在传输策略完成前会直接拒绝。 |
+| 交付物创作 | Restork 从显式内容组装经校验的 Markdown、确定性无宏 PPTX 与 PDF，不会暗中编造来源论断。 |
+| Work 执行 | Work 生成有界计划与交接包，再校验返回的 manifest；不会接管外部编码进程。 |
+| 原生邮件 | 未读总数适配仅支持 macOS；Windows/Linux 会如实显示不可用。 |
 
 公开 macOS Alpha 明确不在 Apple Developer ID 信任范围内；受保护正式版仍要求真实
 Developer ID、Authenticode、Linux GPG、公证与干净 runner 证据。
@@ -281,17 +274,13 @@ Developer ID、Authenticode、Linux GPG、公证与干净 runner 证据。
 <summary><strong>开发与贡献</strong></summary>
 
 ```bash
-# Core
-uv run pytest
-uv run ruff check .
-uv run mypy src
-uv run bandit -q -r src
-
-# Rust-first 运行时基础
+# Rust Core 与发布门禁
 cargo fmt --manifest-path rust/Cargo.toml --all -- --check
 cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets -- -D warnings
 cargo test --manifest-path rust/Cargo.toml --locked
 cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
+cargo audit --file rust/Cargo.lock
+cargo deny --manifest-path rust/Cargo.toml check advisories bans sources
 
 # Dashboard
 npm --prefix dashboard ci
@@ -313,14 +302,12 @@ node scripts/smoke-desktop-runtime.mjs
 ./scripts/smoke-desktop-faults.sh
 
 # 公开资产与发布包
-uv run python scripts/audit_readme.py README.md README.zh-CN.md
+python3 scripts/audit_readme.py README.md README.zh-CN.md
 ./scripts/scan-public-artifacts.sh
-uv run python scripts/build_release.py --output dist/release
 ```
 
 不调用 Provider 的[运行时基准](benchmarks/README.md)会记录 readiness、空闲内存、二进制大小与
-loopback 延迟，全程不发送 Prompt。在剩余执行路由达到 Rust 兼容与恢复对等之前，V1 源码快速
-启动会继续保留。
+loopback 延迟，全程不发送 Prompt。
 
 提交改动前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。已实现的产品契约位于
 [`V1 规格`](specs/restork-v1.md)与[Steps 18–22 规格](specs/restork-steps18-22.md)；对话模型分支与公开

@@ -48,13 +48,12 @@ See `docs/memory.md` for the four-layer contract and `docs/daily-context.md` for
 
 `scripts/scan-public-artifacts.sh` scans tracked files and the complete Git history for credential
 patterns, non-placeholder personal home paths, private runtime/configuration files, archives, and
-undocumented screenshots. `scripts/build_release.py` builds twice with a fixed `SOURCE_DATE_EPOCH`,
-requires identical hashes, inspects archive members, and includes only the wheel, source archive,
-checksums, and an aggregate manifest. README raster assets are documented public synthetic captures.
+undocumented screenshots. README raster assets are documented public synthetic captures. Desktop
+release workflows build only from a clean checkout, stage target-scoped packages, produce checksums
+and a CycloneDX SBOM, and request GitHub build-provenance attestations.
 
-The release workflow runs the mandatory security/privacy IDs, builds in a clean checkout, creates
-checksums, and requests a GitHub build-provenance attestation. Aggregate evaluation accepts counts and
-latencies only; raw prompts, notes, paths, or source content are rejected by its schema.
+The release workflow runs the mandatory Rust/TypeScript security and privacy IDs. Public artefacts
+must not contain raw prompts, notes, personal paths, secret values, or private source content.
 
 ## Limits
 

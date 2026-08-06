@@ -52,39 +52,13 @@ fn daily_schedule_is_dst_safe_and_period_keys_are_stable() {
 }
 
 #[test]
-fn model_schedules_can_only_create_drafts() {
-    assert!(
-        ScheduleSpec::new(
-            "schedule-model",
-            "Asia/Shanghai",
-            Recurrence::Weekly {
-                weekday_monday_zero: 0,
-                hour: 9,
-                minute: 0,
-            },
-            MissedRunPolicy::CreateDraft,
-            ScheduleJob::ModelDraft {
-                profile_id: "research-cloud".to_owned(),
-                requested_effect: None,
-            },
-        )
-        .is_ok()
-    );
-    assert!(
-        ScheduleSpec::new(
-            "schedule-unsafe",
-            "Asia/Shanghai",
-            Recurrence::OneShot {
-                at: instant("2026-08-03T01:00:00Z"),
-            },
-            MissedRunPolicy::CreateDraft,
-            ScheduleJob::ModelDraft {
-                profile_id: "research-cloud".to_owned(),
-                requested_effect: Some("vault.write".to_owned()),
-            },
-        )
-        .is_err()
-    );
+fn schedule_jobs_are_deterministic_only() {
+    let unsupported = serde_json::json!({
+        "kind": "model_draft",
+        "profile_id": "research-cloud",
+        "requested_effect": null,
+    });
+    assert!(serde_json::from_value::<ScheduleJob>(unsupported).is_err());
 }
 
 #[test]

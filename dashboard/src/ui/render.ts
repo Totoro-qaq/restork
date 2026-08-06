@@ -18,6 +18,9 @@ import type {
   ResearchArtifact,
   RunEvent,
   RunListEntry,
+  StudyArtifact,
+  StudyDiagnostic,
+  PracticeAttemptResult,
   WorkExportResult,
   WorkHandoffPreview,
   WorkPlanArtifact,
@@ -47,7 +50,7 @@ export function pairingMarkup(locale: Locale = "en"): string {
       ${localeSwitch(locale)}
       <p class="eyebrow">Restork · LOCAL-FIRST AGENT · LOOPBACK ONLY</p>
       <h1 id="pairing-title">RES<span>TORK</span></h1>
-      <p class="pairing-copy">${tr(locale, "One governed Core for <b>Research</b> and <b>Work</b>.", "一个受控 Core，连接 <b>Research</b> 与 <b>Work</b>。")}</p>
+      <p class="pairing-copy">${tr(locale, "One governed Core for <b>Research</b>, <b>Study</b>, and <b>Work</b>.", "一个受控 Core，连接 <b>Research</b>、<b>Study</b> 与 <b>Work</b>。")}</p>
       <form id="pair-form" class="pair-form">
         <label for="pair-code">${tr(locale, "Enter the one-time Web pairing code shown in the terminal", "输入终端显示的一次性 Web 配对码")}</label>
         <div><input id="pair-code" name="code" required autocomplete="off" spellcheck="false"><button type="submit">PAIR</button></div>
@@ -63,6 +66,15 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
   const memories = snapshot.memory?.records.filter((record) => record.summary) ?? [];
   const v2 = snapshot.workspaceV2;
   const greeting = personalGreeting(snapshot, locale);
+  const runProviders = [
+    { id: "deepseek", label: "DeepSeek V4 Pro / deepseek-v4-pro" },
+    ...(v2?.providers ?? [])
+      .filter((record) => record.provider.profile_id !== "deepseek")
+      .map((record) => ({
+        id: record.provider.profile_id,
+        label: `${record.provider.display_name} / ${record.provider.model}`,
+      })),
+  ];
   return `
     <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <a class="skip-link" href="#workspace-main">${tr(locale, "Skip to main content", "跳到主要内容")}</a>
@@ -85,6 +97,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
         <p class="sidebar-label">${tr(locale, "New run", "新建运行")}</p>
         <div class="mode-grid">
           ${modeButton("research", "R", tr(locale, "Source checks and evidence cards", "来源核查和证据卡片"))}
+          ${modeButton("study", "S", tr(locale, "Learning paths and active recall", "学习路径和主动回忆"))}
           ${modeButton("work", "W", tr(locale, "Read-only plans and handoffs", "只读规划和交接包"))}
         </div>
         <p class="session">127.0.0.1 · LOCAL<br><b>CORE PAIRED</b></p>
@@ -115,6 +128,11 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
             <input type="hidden" name="mode" id="run-mode" value="research">
             <label for="run-goal">${tr(locale, "Goal", "目标")}</label>
             <div><input id="run-goal" name="goal" required maxlength="1000"><button type="submit">${tr(locale, "START", "开始")}</button></div>
+            <label for="run-provider">${tr(locale, "Model profile", "模型 Profile")}</label>
+            <select id="run-provider" name="provider_profile_id" required>${runProviders.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.label)}</option>`).join("")}</select>
+            <small>${tr(locale, "The exact provider and model are frozen into this run's audit record.", "所选供应商与模型会固定写入本次运行的审计记录。")}</small>
+            <label id="study-target-label" for="study-target-note" hidden>${tr(locale, "Optional Obsidian note", "可选 Obsidian 笔记")}</label>
+            <input id="study-target-note" name="target_note" maxlength="1024" hidden placeholder="Study/Topic.md">
             <fieldset id="work-fields" class="work-fields" hidden>
               <legend>${tr(locale, "PLANNING ONLY · RESTORK WILL NOT RUN CODE", "仅规划 · RESTORK 不会运行代码")}</legend>
               <label for="work-root">${tr(locale, "Workspace root · absolute local path", "本地仓库绝对路径")}</label>
@@ -136,6 +154,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
           </form>
           <p id="action-status" class="status" role="status"></p>
           <div id="agent-wait-host"></div>
+          <div id="study-workspace" class="study-workspace" aria-live="polite"></div>
           <div id="work-workspace" class="work-workspace" aria-live="polite"></div>
         </section>
         <section class="view is-visible" data-view-panel="overview">
@@ -237,6 +256,7 @@ function conversationWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
   const customProfiles = profiles.filter(({ profile }) =>
     profile.profile_id !== "safe-mode"
       && profile.profile_id !== "deepseek"
+      && profile.profile_id !== "deepseek-flash"
       && providers.has(profile.provider_profile_id)
   );
   const profileLabel = (profile: (typeof profiles)[number]["profile"]): string => {
@@ -250,6 +270,10 @@ function conversationWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
   const builtInDeepSeekLabel = builtInDeepSeek
     ? `${builtInDeepSeek.display_name} / ${builtInDeepSeek.model}`
     : "DeepSeek V4 Pro";
+  const builtInFlash = providers.get("deepseek-flash");
+  const builtInFlashLabel = builtInFlash
+    ? `${builtInFlash.display_name} / ${builtInFlash.model}`
+    : "DeepSeek V4 Flash";
   const availableProfiles = [
     {
       profileId: "safe-mode",
@@ -258,6 +282,10 @@ function conversationWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
     {
       profileId: "deepseek",
       label: `${builtInDeepSeekLabel} / ${tr(locale, "cloud / public only", "云端 / 仅 public")}`,
+    },
+    {
+      profileId: "deepseek-flash",
+      label: `${builtInFlashLabel} / ${tr(locale, "low latency / public only", "低延迟 / 仅 public")}`,
     },
     ...customProfiles.map(({ profile }) => ({
       profileId: profile.profile_id,
@@ -282,8 +310,8 @@ function conversationWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
     <header><div><p class="eyebrow">WORKSPACE · TOOL-FREE INTAKE</p><h2>${tr(locale, "Conversation", "对话工作区")}</h2></div><span class="ribbon study">LOCAL</span></header>
     <div class="conversation-layout">
       <aside class="session-rail">
-        <form id="session-create-form"><label for="session-title">${tr(locale, "New conversation", "新建对话")}</label><div><input id="session-title" name="title" maxlength="240" required placeholder="${tr(locale, "What are we working on?", "这次想做什么？")}"><button type="submit">+</button></div><label for="session-profile" class="sr-only">${tr(locale, "Conversation profile", "对话 Profile")}</label><select id="session-profile" name="profile_id" aria-describedby="session-profile-help"><option value="safe-mode">${tr(locale, "Safe Mode / local only", "安全模式 / 仅本地")}</option><option value="deepseek">${escapeHtml(builtInDeepSeekLabel)} / ${tr(locale, "cloud / public only", "云端 / 仅 public")}</option>${customProfiles.map(({ profile }) => `<option value="${escapeHtml(profile.profile_id)}">${escapeHtml(profileLabel(profile))}</option>`).join("")}</select><small id="session-profile-help">${tr(locale, "The selected profile freezes this exact provider and model for the conversation; cloud use is never selected silently.", "所选 Profile 会把精确的供应商与模型固定到本次对话；系统绝不会静默切换到云端。")}</small></form>
-        <form id="session-search-form" class="compact-search"><label class="sr-only" for="session-search">${tr(locale, "Search conversations", "搜索对话")}</label><input id="session-search" name="query" maxlength="256" placeholder="${tr(locale, "Search message history", "搜索消息历史")}"><button type="submit">⌕</button></form><div id="session-search-results" aria-live="polite"></div>
+        <form id="session-create-form"><label for="session-title">${tr(locale, "New conversation", "新建对话")}</label><div><input id="session-title" name="title" maxlength="240" required placeholder="${tr(locale, "What are we working on?", "这次想做什么？")}"><button type="submit">+</button></div><label for="session-profile" class="sr-only">${tr(locale, "Conversation profile", "对话 Profile")}</label><select id="session-profile" name="profile_id" aria-describedby="session-profile-help"><option value="safe-mode">${tr(locale, "Safe Mode / local only", "安全模式 / 仅本地")}</option><option value="deepseek-flash">${escapeHtml(builtInFlashLabel)} / ${tr(locale, "low latency / public only", "低延迟 / 仅 public")}</option><option value="deepseek">${escapeHtml(builtInDeepSeekLabel)} / ${tr(locale, "deeper reasoning / public only", "深度推理 / 仅 public")}</option>${customProfiles.map(({ profile }) => `<option value="${escapeHtml(profile.profile_id)}">${escapeHtml(profileLabel(profile))}</option>`).join("")}</select><small id="session-profile-help">${tr(locale, "The selected profile freezes this exact provider and model for the conversation; cloud use is never selected silently.", "所选 Profile 会把精确的供应商与模型固定到本次对话；系统绝不会静默切换到云端。")}</small></form>
+        <form id="session-search-form" class="compact-search"><label class="sr-only" for="session-search">${tr(locale, "Search local knowledge", "搜索本地知识")}</label><input id="session-search" name="query" maxlength="256" placeholder="${tr(locale, "Search conversations, Vault, tasks and Radar", "搜索对话、Vault、任务和 Radar")}"><button type="submit">⌕</button></form><div id="session-search-results" aria-live="polite"></div>
         <div class="session-list" data-roving-group>${sessions.map((session) => `<button type="button" data-session-select="${escapeHtml(session.session_id)}" data-session-title="${escapeHtml(session.title)}" data-session-profile="${escapeHtml(session.profile_id)}" data-session-version="${session.version}" data-session-updated-at="${escapeHtml(session.updated_at)}" class="session-item ${session.session_id === active?.session_id ? "is-active" : ""}"><strong>${escapeHtml(session.title)}</strong><small>${escapeHtml(session.profile_id)} · ${formatDate(session.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "Create a conversation to begin locally.", "新建一个对话，从本地开始。")}</p>`}</div>
       </aside>
       <section class="conversation-pane" data-active-session="${escapeHtml(active?.session_id ?? "")}" data-active-profile="${escapeHtml(active?.profile_id ?? "safe-mode")}" data-active-updated-at="${escapeHtml(active?.updated_at ?? "")}">
@@ -334,10 +362,9 @@ function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
 
 function automationWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
   const records = snapshot.workspaceV2?.schedules ?? [];
-  const profiles = snapshot.workspaceV2?.profiles ?? [];
   return `<article class="paper-card full-card catalog-workspace"><header><div><p class="eyebrow">AUTOMATION & RECOVERY</p><h2>${tr(locale, "Bounded schedules and recovery", "有界调度与恢复")}</h2></div><span class="ribbon work">${tr(locale, "NO SILENT EFFECTS", "无静默副作用")}</span></header>
     <div class="catalog-grid automation-grid">${records.map((record) => `<article><strong>${escapeHtml(record.schedule_id ?? "schedule")}</strong><span>${escapeHtml(record.state)} · v${record.revision ?? 1}</span><small>${record.next_run_at ? `${tr(locale, "Next", "下次")} ${formatDate(record.next_run_at, locale)}` : tr(locale, "Paused", "已暂停")}</small><details><summary>${tr(locale, "Frozen job", "冻结任务")}</summary><pre>${prettyJson(record.schedule)}</pre></details><div class="record-actions"><button type="button" data-schedule-action="run" data-schedule-id="${escapeHtml(record.schedule_id ?? "")}" data-schedule-revision="${record.revision ?? 1}">${tr(locale, "RUN NOW", "立即运行")}</button><button type="button" data-schedule-action="${record.state === "active" ? "pause" : "resume"}" data-schedule-id="${escapeHtml(record.schedule_id ?? "")}" data-schedule-revision="${record.revision ?? 1}">${record.state === "active" ? tr(locale, "PAUSE", "暂停") : tr(locale, "RESUME", "恢复")}</button><button type="button" class="danger-text" data-schedule-action="delete" data-schedule-id="${escapeHtml(record.schedule_id ?? "")}" data-schedule-revision="${record.revision ?? 1}">${tr(locale, "REMOVE", "移除")}</button></div></article>`).join("") || `<p class="empty">${tr(locale, "No schedules. Restork will not start background model work by itself.", "尚无调度；Restork 不会自行启动后台模型任务。")}</p>`}</div>
-    <div class="catalog-compose-grid"><form id="schedule-create-form"><h3>${tr(locale, "New bounded schedule", "新建有界调度")}</h3><label>ID<input name="schedule_id" required maxlength="128" pattern="[A-Za-z0-9:._-]+"></label><label>${tr(locale, "Time", "时间")}<input name="time" type="time" required value="09:00"></label><label>${tr(locale, "Recurrence", "重复")}<select name="recurrence"><option value="daily">${tr(locale, "Daily", "每天")}</option><option value="weekly">${tr(locale, "Weekly", "每周")}</option></select></label><label>${tr(locale, "Weekday", "星期")}<select name="weekday"><option value="0">${tr(locale, "Monday", "周一")}</option><option value="1">${tr(locale, "Tuesday", "周二")}</option><option value="2">${tr(locale, "Wednesday", "周三")}</option><option value="3">${tr(locale, "Thursday", "周四")}</option><option value="4">${tr(locale, "Friday", "周五")}</option><option value="5">${tr(locale, "Saturday", "周六")}</option><option value="6">${tr(locale, "Sunday", "周日")}</option></select></label><label>${tr(locale, "Job", "任务")}<select name="job"><option value="health.check">${tr(locale, "Local health check · no model", "本地健康检查 · 无模型")}</option><option value="daily.refresh">${tr(locale, "Refresh daily cache · no model", "刷新每日缓存 · 无模型")}</option>${profiles.map(({ profile }) => `<option value="model:${escapeHtml(profile.profile_id)}">${tr(locale, "Create model draft", "创建模型草稿")} · ${escapeHtml(profile.name)}</option>`).join("")}</select></label><button type="submit">${tr(locale, "CREATE SCHEDULE", "创建调度")}</button><p id="schedule-create-status" role="status"></p></form>
+    <div class="catalog-compose-grid"><form id="schedule-create-form"><h3>${tr(locale, "New bounded schedule", "新建有界调度")}</h3><label>ID<input name="schedule_id" required maxlength="128" pattern="[A-Za-z0-9:._-]+"></label><label>${tr(locale, "Time", "时间")}<input name="time" type="time" required value="09:00"></label><label>${tr(locale, "Recurrence", "重复")}<select name="recurrence"><option value="daily">${tr(locale, "Daily", "每天")}</option><option value="weekly">${tr(locale, "Weekly", "每周")}</option></select></label><label>${tr(locale, "Weekday", "星期")}<select name="weekday"><option value="0">${tr(locale, "Monday", "周一")}</option><option value="1">${tr(locale, "Tuesday", "周二")}</option><option value="2">${tr(locale, "Wednesday", "周三")}</option><option value="3">${tr(locale, "Thursday", "周四")}</option><option value="4">${tr(locale, "Friday", "周五")}</option><option value="5">${tr(locale, "Saturday", "周六")}</option><option value="6">${tr(locale, "Sunday", "周日")}</option></select></label><label>${tr(locale, "Job", "任务")}<select name="job"><option value="health.check">${tr(locale, "Local health check · no model", "本地健康检查 · 无模型")}</option><option value="daily.refresh">${tr(locale, "Refresh daily cache · no model", "刷新每日缓存 · 无模型")}</option></select></label><button type="submit">${tr(locale, "CREATE SCHEDULE", "创建调度")}</button><p id="schedule-create-status" role="status"></p></form>
     <section class="automation-contracts"><h3>${tr(locale, "Recovery & evaluation contracts", "恢复与评估契约")}</h3><ul><li>${tr(locale, "Checkpoints require explicit relative paths, byte limits, and a pre-rollback checkpoint.", "检查点要求明确的相对路径、字节上限和回滚前检查点。")}</li><li>${tr(locale, "Evaluation manifests freeze model, prompt, Skill, tool, policy, and fixture versions.", "评估清单会冻结模型、Prompt、Skill、工具、Policy 与 fixture 版本。")}</li><li>${tr(locale, "Delegated subtasks receive subset-only sources, tools, and budgets; recursion, approvals, effects, and durable memory are disabled.", "委派子任务只能获得来源、工具和预算的子集；递归、审批、副作用和持久记忆均被禁用。")}</li></ul></section></div></article>`;
 }
 
@@ -568,6 +595,11 @@ export function runEventsMarkup(
   const summary = run.summary;
   const turns = conversation?.turns ?? [];
   const prompt = [...turns].reverse().find((turn) => turn.prompt_version);
+  const assistantOutput = events
+    .filter((event) => event.type === "assistant.delta")
+    .map((event) => typeof event.data.content === "string" ? event.data.content : "")
+    .join("");
+  const phaseEvents = events.filter((event) => event.type !== "assistant.delta");
   return `
     <article class="paper-card detail-card">
       <header><h2>${escapeHtml(run.task?.goal ?? summary.task_id)}</h2><span class="ribbon ${escapeHtml(summary.mode)}">${escapeHtml(summary.mode)}</span></header>
@@ -578,7 +610,8 @@ export function runEventsMarkup(
         <div><dt>TOKENS</dt><dd>${String(run.budget?.usage.tokens ?? 0)}</dd></div>
       </dl>
       ${paginationControl("events", page, locale, tr(locale, "LOAD EARLIER EVENTS", "加载更早事件"))}
-      <ol class="event-list">${events.length ? events.map(eventRow).join("") : `<li>${tr(locale, "No new events.", "暂无新事件。")}</li>`}</ol>
+      <section class="assistant-stream" ${assistantOutput ? "" : "hidden"} aria-live="polite"><small>ASSISTANT · STREAM</small><pre data-assistant-stream>${escapeHtml(assistantOutput)}</pre></section>
+      <ol class="event-list">${phaseEvents.length ? phaseEvents.map(eventRow).join("") : `<li>${tr(locale, "No new events.", "暂无新事件。")}</li>`}</ol>
       <section class="conversation-panel" aria-labelledby="conversation-title">
         <header>
           <div><p class="eyebrow">RUN-SCOPED · NO TOOLS</p><h3 id="conversation-title">${tr(locale, "Conversation", "多轮对话")}</h3></div>
@@ -615,8 +648,8 @@ export function researchPreviewMarkup(
     <header><div><p class="eyebrow">${tr(locale, "VALIDATED RESEARCH ARTIFACT", "已验证的研究产物")}</p><h3 id="research-result-title">${escapeHtml(artifact.question)}</h3></div><span>${escapeHtml(artifact.note_preview.action.toUpperCase())}</span></header>
     <dl class="research-metrics">
       <div><dt>${tr(locale, "SUPPORTED", "有证据")}</dt><dd>${percent(metrics.supported_claim_rate)}</dd></div>
-      <div><dt>${tr(locale, "PRIMARY", "一手来源")}</dt><dd>${percent(metrics.primary_source_ratio)}</dd></div>
-      <div><dt>${tr(locale, "CITATIONS", "引用")}</dt><dd>${percent(metrics.citation_correctness)}</dd></div>
+      <div><dt>${tr(locale, "PRIMARY", "一手来源")}</dt><dd>${measuredPercent(metrics.primary_source_ratio, locale)}</dd></div>
+      <div><dt>${tr(locale, "CITATIONS", "引用")}</dt><dd>${measuredPercent(metrics.citation_correctness, locale)}</dd></div>
       <div><dt>${tr(locale, "RELATED", "相关笔记")}</dt><dd>${metrics.related_note_count}</dd></div>
     </dl>
     <section><h4>${tr(locale, "Claims", "论断")}</h4><ol>${artifact.claims.map((claim) => `<li><b>${escapeHtml(claim.kind)}</b>${escapeHtml(claim.statement)}<small>${claim.evidence_refs.map(escapeHtml).join(" · ") || escapeHtml(claim.inference_basis ?? tr(locale, "explicit inference", "显式推断"))}</small></li>`).join("")}</ol></section>
@@ -637,6 +670,44 @@ export function workPlanMarkup(plan: WorkPlanArtifact, locale: Locale = "en"): s
     <button type="button" data-work-preview data-run-id="${escapeHtml(plan.run_id)}">${tr(locale, "REVIEW EXACT HANDOFF", "审阅精确交接包")}</button>
     <p class="fine">${tr(locale, "Plan only. No source file, shell, Git state, deployment, or message was changed.", "仅生成计划。源文件、Shell、Git 状态、部署和消息均未改变。")}</p>
   </article>`;
+}
+
+export function studyDiagnosticMarkup(
+  diagnostic: StudyDiagnostic,
+  locale: Locale = "en",
+): string {
+  return `<article class="study-result" aria-labelledby="study-diagnostic-title">
+    <header><div><p class="eyebrow">${tr(locale, "DIAGNOSTIC FIRST · ANSWERS ARE NOT STORED", "先诊断 · 不保存原始回答")}</p><h3 id="study-diagnostic-title">${escapeHtml(diagnostic.objective)}</h3></div><span>${tr(locale, "READY", "可作答")}</span></header>
+    <form data-study-diagnostic data-run-id="${escapeHtml(diagnostic.run_id)}">
+      ${diagnostic.questions.map((question, index) => `<label>${index + 1}. ${escapeHtml(question.prompt)}${question.response_kind === "rating" ? `<input data-diagnostic-question name="${escapeHtml(question.question_id)}" type="number" min="0" max="4" required inputmode="numeric">` : `<textarea data-diagnostic-question name="${escapeHtml(question.question_id)}" required maxlength="4000" rows="3" autocomplete="off"></textarea>`}</label>`).join("")}
+      <button type="submit">${tr(locale, "BUILD GROUNDED PATH", "生成有依据的路径")}</button>
+    </form>
+    <p class="fine">${tr(locale, "Your fields are cleared after submission. Core stores only a SHA-256 digest of the answer set.", "提交后输入框会被清空；Core 只保存整组回答的 SHA-256 摘要。")}</p>
+  </article>`;
+}
+
+export function studyArtifactMarkup(
+  artifact: StudyArtifact,
+  locale: Locale = "en",
+): string {
+  return `<article class="study-result" aria-labelledby="study-artifact-title">
+    <header><div><p class="eyebrow">${tr(locale, "MODEL-GRADED · VAULT-GROUNDED", "模型评估 · Vault 依据")}</p><h3 id="study-artifact-title">${escapeHtml(artifact.objective.outcome)}</h3></div><span>${escapeHtml(artifact.readiness_signal.toUpperCase())}</span></header>
+    <section><h4>${tr(locale, "Learning path", "学习路径")}</h4><ol class="study-path">${artifact.learning_path.map((step) => `<li><b>${step.order}</b><span>${escapeHtml(step.title)}<small>${escapeHtml(step.outcome)}</small></span></li>`).join("")}</ol></section>
+    ${artifact.prerequisites.length ? `<section><h4>${tr(locale, "Grounded prerequisites", "有依据的前置知识")}</h4><ul>${artifact.prerequisites.map((item) => `<li>${escapeHtml(item.title)}<small>${escapeHtml(item.relative_path)}</small></li>`).join("")}</ul></section>` : ""}
+    <section><h4>${tr(locale, "Active practice · no answer key", "主动练习 · 不展示答案")}</h4><div class="study-exercises">${artifact.exercises.map((exercise) => `<form data-study-practice data-run-id="${escapeHtml(artifact.run_id)}" data-exercise-id="${escapeHtml(exercise.exercise_id)}"><b>${escapeHtml(exercise.kind.replace("_", " "))}</b><p>${escapeHtml(exercise.prompt)}</p><small>${exercise.hints.map(escapeHtml).join(" · ")}</small><label>${tr(locale, "Your response", "你的回答")}<textarea name="answer" required maxlength="8000" rows="3" autocomplete="off"></textarea></label><label>${tr(locale, "Confidence", "信心程度")}<select name="confidence" required><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option></select></label><button type="submit">${tr(locale, "GRADE WITH MODEL", "交给模型评估")}</button><div class="study-attempt" role="status"></div></form>`).join("")}</div></section>
+    <p class="fine">${tr(locale, "Raw answers are neither rendered back nor persisted. Review scheduling uses the verdict and your confidence.", "原始回答不会回显或持久化；复习时间只依据评估结果和你的信心程度。")}</p>
+  </article>`;
+}
+
+export function studyAttemptMarkup(
+  result: PracticeAttemptResult,
+  locale: Locale = "en",
+): string {
+  return `<section class="study-feedback ${result.correct ? "is-correct" : "is-retry"}">
+    <b>${result.correct ? tr(locale, "CORRECT · SPACED REVIEW", "正确 · 间隔复习") : tr(locale, "RETRY WITH HINT", "结合提示重试")}</b>
+    <p>${escapeHtml(result.feedback)}</p>
+    <small>${escapeHtml(result.next_review.reason)} · ${formatDate(result.next_review.due_at, locale)}</small>
+  </section>`;
 }
 
 export function workHandoffMarkup(preview: WorkHandoffPreview, locale: Locale = "en"): string {
@@ -1371,6 +1442,10 @@ function localeSwitch(locale: Locale): string {
 
 function percent(value: number): string {
   return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+}
+
+function measuredPercent(value: number | null, locale: Locale): string {
+  return value == null ? tr(locale, "NOT MEASURED", "未测量") : percent(value);
 }
 
 function escapeHtml(value: string): string {

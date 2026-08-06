@@ -101,6 +101,7 @@ fn start_attempt(
     let port = reserve_port()?;
     let mut command = Command::new(executable);
     command
+        .arg("--json")
         .arg("serve")
         .arg("--port")
         .arg(port.to_string())

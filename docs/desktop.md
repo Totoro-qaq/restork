@@ -5,9 +5,9 @@
 # Desktop distribution
 
 Restork now packages the native Rust `restorkd` Core, the bilingual Dashboard, and a Tauri 2 Rust
-supervisor. The base app does not need Python, Node.js, Rust, `uv`, or a package manager on the target
-machine. Optional Python capability packs remain outside startup and are launched only by an
-explicitly selected capability.
+supervisor. The app does not need Python, Node.js, Rust, `uv`, or a package manager on the target
+machine. The current release contains no Python runtime or capability worker; a future optional
+worker would require its own protocol, sandbox, dependency lock, and release review.
 
 The source supports macOS, Windows, and Linux. Restork now has two deliberately separate release
 channels: a public Apple Silicon macOS Alpha for early testing, and a protected stable channel that

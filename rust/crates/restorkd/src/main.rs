@@ -9,13 +9,26 @@ use restorkd::{HELP, ServerConfig, bind, desktop::DesktopRuntime};
 
 #[tokio::main]
 async fn main() {
-    let arguments = std::env::args_os().skip(1).collect::<Vec<_>>();
-    if matches!(
-        arguments.as_slice(),
-        [argument] if argument == "--help" || argument == "-h"
-    ) {
+    let mut arguments = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if arguments
+        .iter()
+        .any(|argument| argument == "--help" || argument == "-h")
+    {
         print!("{HELP}");
         return;
+    }
+    let json_positions = arguments
+        .iter()
+        .enumerate()
+        .filter_map(|(index, argument)| (argument == "--json").then_some(index))
+        .collect::<Vec<_>>();
+    if json_positions.len() > 1 {
+        eprintln!("restorkd: --json may only be provided once");
+        std::process::exit(2);
+    }
+    let json_output = !json_positions.is_empty();
+    if let Some(index) = json_positions.first().copied() {
+        arguments.remove(index);
     }
     if matches!(arguments.as_slice(), [provider, configure] if provider == "provider" && configure == "configure")
     {
@@ -94,7 +107,7 @@ async fn main() {
             eprintln!("restorkd: unable to publish desktop bootstrap: {error}");
             std::process::exit(1);
         }
-    } else {
+    } else if json_output {
         let mut stdout = io::stdout().lock();
         if let Err(error) = serde_json::to_writer(&mut stdout, &ready) {
             eprintln!("restorkd: unable to publish readiness: {error}");
@@ -104,6 +117,12 @@ async fn main() {
             eprintln!("restorkd: unable to flush readiness: {error}");
             std::process::exit(1);
         }
+    } else {
+        println!("Restork Core is ready.");
+        println!("Dashboard: {}", ready.base_url);
+        println!("Web pairing code: {}", ready.pairing_code);
+        println!("CLI pairing code: {}", ready.cli_pairing_code);
+        println!("The codes expire soon. Press Ctrl+C to stop the Core.");
     }
 
     if let Err(error) = server.serve_until(shutdown_signal(desktop)).await {
@@ -287,7 +306,19 @@ const fn native_deepseek_reference() -> &'static str {
 async fn shutdown_signal(desktop: Option<DesktopRuntime>) {
     use tokio::signal::unix::{SignalKind, signal};
 
-    let mut terminate = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+    let Ok(mut terminate) = signal(SignalKind::terminate()) else {
+        if let Some(desktop) = desktop {
+            tokio::select! {
+                result = tokio::signal::ctrl_c() => {
+                    let _ = result;
+                }
+                () = desktop.wait_for_parent() => {}
+            }
+        } else {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+        return;
+    };
     if let Some(desktop) = desktop {
         tokio::select! {
             result = tokio::signal::ctrl_c() => {

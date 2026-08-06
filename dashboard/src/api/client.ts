@@ -12,6 +12,9 @@ import type {
   RunEvent,
   RunEventPage,
   RunSummary,
+  StudyArtifact,
+  StudyDiagnostic,
+  PracticeAttemptResult,
   TaskApplyResult,
   TaskMutationPreview,
   WorkDataClass,
@@ -31,13 +34,8 @@ import type {
   WeatherConfigurationInput,
   WeatherConfigurationResult,
   CatalogRecordV2,
-  DailyContextV2,
-  DomainState,
-  DomainStatus,
-  DomainStatuses,
   PersonalSettingsRecord,
   ProviderProfileRecordV2,
-  ProviderRegistryV2,
   ConfigurationProfileRecordV2,
   PromptRevisionRecordV2,
   RunProposalV2,
@@ -98,185 +96,10 @@ export class LocalApiClient implements DashboardApi {
   }
 
   async loadDashboard(): Promise<DashboardSnapshot> {
-    const emptyPage = { limit: 12, has_more: false, next_cursor: null };
-    type Pag = NonNullable<DashboardSnapshot["pagination"]>;
-
-    const [runs, approvals, taskBoard, radar, memory, daily, provider, musicSources] =
-      await Promise.all([
-        probe(
-          this.#request<{ runs: DashboardSnapshot["runs"]; page: Pag["runs"] }>(
-            "GET",
-            "/v1/runs?limit=12",
-          ),
-          { runs: [], page: emptyPage } as { runs: DashboardSnapshot["runs"]; page: Pag["runs"] },
-        ),
-        probe(
-          this.#request<{ approvals: DashboardSnapshot["approvals"]; page: Pag["approvals"] }>(
-            "GET",
-            "/v1/approvals?pending_only=false&limit=12",
-          ),
-          { approvals: [], page: emptyPage } as {
-            approvals: DashboardSnapshot["approvals"];
-            page: Pag["approvals"];
-          },
-        ),
-        probe(
-          this.#request<DashboardSnapshot["taskBoard"] & { page: Pag["tasks"] }>(
-            "GET",
-            "/v1/tasks?limit=12",
-          ),
-          { configured: false, tasks: [], page: emptyPage },
-        ),
-        probe(
-          this.#request<DashboardSnapshot["radar"] & { page: Pag["radar"] }>(
-            "GET",
-            "/v1/radar?limit=12",
-          ),
-          { configured: false, items: [], page: emptyPage },
-        ),
-        probe(
-          this.#request<NonNullable<DashboardSnapshot["memory"]> & { page: Pag["memory"] }>(
-            "GET",
-            "/v1/memory?limit=12",
-          ),
-          null as (NonNullable<DashboardSnapshot["memory"]> & { page: Pag["memory"] }) | null,
-        ),
-        probe(
-          this.#request<NonNullable<DashboardSnapshot["daily"]>>(
-            "GET",
-            `/v1/daily?timezone=${encodeURIComponent(systemTimeZone())}`,
-          ),
-          null as DashboardSnapshot["daily"],
-        ),
-        probe(
-          this.#request<ProviderDiagnostic>("GET", "/v1/providers/deepseek"),
-          null as ProviderDiagnostic | null,
-        ),
-        probe(
-          this.#request<NonNullable<DashboardSnapshot["musicSources"]>>(
-            "GET",
-            "/v1/daily/music/sources",
-          ),
-          [] as NonNullable<DashboardSnapshot["musicSources"]>,
-        ),
-      ]);
-
-    const [
-      dailyContext,
-      personal,
-      sessions,
-      extensions,
-      deliverables,
-      schedules,
-      providers,
-      providerRegistry,
-      profiles,
-      prompts,
-    ] = await Promise.all([
-      probe(this.#request<DailyContextV2>("GET", "/v1/daily/context"), null as DailyContextV2 | null),
-      probe(
-        this.#request<PersonalSettingsRecord>("GET", "/v1/settings/personal"),
-        null as PersonalSettingsRecord | null,
-      ),
-      probe(
-        this.#request<{ items: SessionRecordV2[] }>("GET", "/v1/sessions?limit=20")
-          .then((page) => page.items),
-        [] as SessionRecordV2[],
-      ),
-      probe(
-        this.#request<{ items: CatalogRecordV2[] }>("GET", "/v1/extensions?limit=20")
-          .then((page) => page.items),
-        [] as CatalogRecordV2[],
-      ),
-      probe(
-        this.#request<{ items: CatalogRecordV2[] }>("GET", "/v1/deliverables?limit=20")
-          .then((page) => page.items),
-        [] as CatalogRecordV2[],
-      ),
-      probe(
-        this.#request<{ items: CatalogRecordV2[] }>("GET", "/v1/schedules?limit=20")
-          .then((page) => page.items),
-        [] as CatalogRecordV2[],
-      ),
-      probe(
-        this.#request<{ items: ProviderProfileRecordV2[] }>("GET", "/v1/provider-profiles")
-          .then((page) => page.items),
-        [] as ProviderProfileRecordV2[],
-      ),
-      probe(
-        this.#request<ProviderRegistryV2>("GET", "/v1/providers"),
-        null as ProviderRegistryV2 | null,
-      ),
-      probe(
-        this.#request<{ items: ConfigurationProfileRecordV2[] }>(
-          "GET",
-          "/v1/configuration-profiles",
-        ).then((page) => page.items),
-        [] as ConfigurationProfileRecordV2[],
-      ),
-      probe(
-        this.#request<{ items: PromptRevisionRecordV2[] }>("GET", "/v1/prompts/personal")
-          .then((page) => page.items),
-        [] as PromptRevisionRecordV2[],
-      ),
-    ]);
-
-    const domains: DomainStatuses = {
-      runs: runs.status,
-      approvals: approvals.status,
-      tasks: taskBoard.status,
-      radar: radar.status,
-      memory: memory.status,
-      daily: daily.status,
-      provider: provider.status,
-      sessions: sessions.status,
-      extensions: extensions.status,
-      deliverables: deliverables.status,
-      schedules: schedules.status,
-      providerProfiles: providers.status,
-      settings: personal.status,
-      prompts: prompts.status,
-    };
-
-    // The Rust workspace is present when any of its domains answered, not when
-    // some list happens to be non-empty: an empty-but-ready domain is still real.
-    const v2Reachable = [
-      dailyContext, personal, sessions, extensions, deliverables,
-      schedules, providers, providerRegistry, profiles, prompts,
-    ].some((entry) => entry.status.state === "ready");
-
-    return {
-      runs: runs.data.runs,
-      approvals: approvals.data.approvals,
-      taskBoard: taskBoard.data,
-      radar: radar.data,
-      memory: memory.data,
-      daily: daily.data,
-      provider: provider.data,
-      musicSources: musicSources.data,
-      pagination: {
-        runs: runs.data.page,
-        approvals: approvals.data.page,
-        tasks: taskBoard.data.page,
-        radar: radar.data.page,
-        memory: memory.data?.page,
-      },
-      workspaceV2: v2Reachable
-        ? {
-          dailyContext: dailyContext.data,
-          personal: personal.data,
-          sessions: sessions.data,
-          extensions: extensions.data,
-          deliverables: deliverables.data,
-          schedules: schedules.data,
-          providers: providers.data,
-          providerRegistry: providerRegistry.data ?? undefined,
-          profiles: profiles.data,
-          prompts: prompts.data,
-        }
-        : undefined,
-      domains,
-    };
+    return this.#request<DashboardSnapshot>(
+      "GET",
+      `/v1/bootstrap?timezone=${encodeURIComponent(systemTimeZone())}`,
+    );
   }
 
   async createSession(title: string, profileId: string): Promise<SessionRecordV2> {
@@ -513,7 +336,7 @@ export class LocalApiClient implements DashboardApi {
   async searchSessions(query: string): Promise<SessionSearchHitV2[]> {
     const result = await this.#request<{ items: SessionSearchHitV2[] }>(
       "GET",
-      `/v1/sessions/search?q=${encodeURIComponent(query)}&limit=50`,
+      `/v1/search?q=${encodeURIComponent(query)}&limit=50`,
     );
     return result.items;
   }
@@ -744,48 +567,65 @@ export class LocalApiClient implements DashboardApi {
     mode: Mode,
     goal: string,
     dataClass: WorkDataClass = "public",
+    providerProfileId = "deepseek",
   ): Promise<RunSummary> {
+    void dataClass;
     const identity = crypto.randomUUID();
-    const tools = mode === "research"
-      ? ["vault_search", "source_read"]
-      : ["vault_search", "handoff_export"];
-    return this.#request<RunSummary>(
+    const response = await this.#request<{ run: RunSummary }>(
       "POST",
       "/v1/runs",
       {
-        schema_version: 1,
-        task_id: `dashboard-${identity}`,
-        parent_task_id: null,
         mode,
         goal,
-        workspace_scope: "dashboard",
-        constraints: [],
-        completion_criteria: ["produce a reviewable verified artifact"],
-        data_policy: {
-          schema_version: 1,
-          maximum_outbound_class: dataClass,
-          allow_private_previews: dataClass !== "public",
-        },
-        tool_policy: {
-          schema_version: 1,
-          allowed_tools: tools,
-          require_approval_for_writes: true,
-          require_approval_for_external_actions: true,
-        },
-        budgets: {
-          schema_version: 1,
-          max_steps: 12,
-          max_wall_time_seconds: 3600,
-          max_tokens: 120000,
-          max_cost_usd: null,
-          max_retries: 2,
-          max_child_tasks: 1,
-          reasoning_effort: "high",
-        },
-        created_at: new Date().toISOString(),
+        provider_profile_id: providerProfileId,
+        auto_start: mode === "research",
+        allowed_tools: [],
       },
       true,
       `dashboard-create-${identity}`,
+    );
+    return response.run;
+  }
+
+  async prepareStudy(
+    runId: string,
+    objective: string,
+    targetNote: string | null,
+  ): Promise<StudyDiagnostic> {
+    return this.#request<StudyDiagnostic>(
+      "POST",
+      `/v1/study/runs/${encodeURIComponent(runId)}/diagnostic`,
+      { objective, target_note: targetNote },
+      true,
+      `dashboard-study-diagnostic-${crypto.randomUUID()}`,
+    );
+  }
+
+  async submitStudyDiagnostic(
+    runId: string,
+    answers: Record<string, string>,
+  ): Promise<StudyArtifact> {
+    return this.#request<StudyArtifact>(
+      "POST",
+      `/v1/study/runs/${encodeURIComponent(runId)}/path`,
+      { answers },
+      true,
+      `dashboard-study-path-${crypto.randomUUID()}`,
+    );
+  }
+
+  async submitStudyPractice(
+    runId: string,
+    exerciseId: string,
+    answer: string,
+    confidence: number,
+  ): Promise<PracticeAttemptResult> {
+    return this.#request<PracticeAttemptResult>(
+      "POST",
+      `/v1/study/runs/${encodeURIComponent(runId)}/exercises/${encodeURIComponent(exerciseId)}/attempt`,
+      { answer, confidence },
+      true,
+      `dashboard-study-attempt-${crypto.randomUUID()}`,
     );
   }
 
@@ -794,6 +634,8 @@ export class LocalApiClient implements DashboardApi {
       "POST",
       `/v1/work/runs/${encodeURIComponent(runId)}/plan`,
       input,
+      true,
+      `dashboard-work-plan-${crypto.randomUUID()}`,
     );
   }
 
@@ -1345,48 +1187,6 @@ export function systemTimeZone(): string {
     return timezone && timezone.length <= 128 ? timezone : "UTC";
   } catch {
     return "UTC";
-  }
-}
-
-/**
- * Carries the HTTP status alongside the message so a caller can tell "this Core
- * does not serve that route" from "that request failed". Without the status,
- * every failure collapses into one indistinguishable string.
- */
-/**
- * Run one domain request and classify its outcome instead of swallowing it.
- *
- * Status mapping, and why:
- * - 404/405/501 — this Core does not serve the route at all. During the
- *   single-Core migration that is the common case, and it is `not_configured`
- *   rather than a fault.
- * - 503 — Core serves the route but the feature is switched off. Python returns
- *   this for an unconfigured task vault, for example.
- * - 401/403 — the session lacks the scope.
- * - anything else, including a transport failure — genuinely broken.
- */
-async function probe<T>(
-  request: Promise<T>,
-  fallback: T,
-): Promise<{ data: T; status: DomainStatus }> {
-  try {
-    return { data: await request, status: { state: "ready" } };
-  } catch (error) {
-    if (error instanceof ApiError) {
-      const state: DomainState = [404, 405, 501, 503].includes(error.status)
-        ? "not_configured"
-        : [401, 403].includes(error.status)
-          ? "forbidden"
-          : "unavailable";
-      return { data: fallback, status: { state, detail: error.message, status: error.status } };
-    }
-    return {
-      data: fallback,
-      status: {
-        state: "unavailable",
-        detail: error instanceof Error ? error.message : undefined,
-      },
-    };
   }
 }
 

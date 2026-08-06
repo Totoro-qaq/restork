@@ -45,13 +45,7 @@ The Overview **Model access** card is the built-in DeepSeek quick path. It shows
 configuration/Keychain status and the exact secure setup command:
 
 ```bash
-uv run restork provider configure
-```
-
-For the Rust-first workspace use the native Rust command instead:
-
-```bash
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- provider configure
 ```
 
 Run the command in Terminal. macOS Keychain prompts for the API key directly; the Dashboard has no
@@ -202,27 +196,30 @@ preference is the only persistent UI value. Refreshing still requires Core state
 Provider setup and doctor do not require a running Core or a pairing token:
 
 ```bash
-uv run restork provider configure
-uv run restork doctor
-uv run restork doctor --connect
-uv run restork doctor --smoke
-uv run restork doctor --web-search
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- provider configure
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor --connect
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor --smoke
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor --web-search
 ```
 
 Only the last three commands access DeepSeek. `--smoke` tests V4 Pro; `--web-search` tests V4 Flash
 and its server-side search capability. Both imply the model-list connection check and use the same
 native credential.
 
-Exchange the separate CLI pairing code, then keep the returned token only for the current shell:
+Build the native CLI, exchange the separate CLI pairing code, then let its private mode-`0600`
+token cache rotate automatically:
 
 ```bash
-uv run restork pair --code '<CLI pairing code>'
-export RESTORK_CLI_TOKEN='<returned token>'
-uv run restork health
-uv run restork capabilities
-uv run restork runs
+cargo build --manifest-path rust/Cargo.toml --bin restork
+./rust/target/debug/restork --url http://127.0.0.1:<port> pair '<CLI pairing code>'
+./rust/target/debug/restork --url http://127.0.0.1:<port> health
+./rust/target/debug/restork --url http://127.0.0.1:<port> schema
+./rust/target/debug/restork --url http://127.0.0.1:<port> runs list
 ```
 
-Use `uv run restork --help` for Research, Study, Work, approval, event, task, and recovery commands.
+Use `./rust/target/debug/restork --help` for runs, approvals, memory, tasks, Radar, providers,
+Profiles, sessions, extensions, schedules, and deliverables. Mutations create bounded idempotency
+keys automatically; `--json` switches from human-readable output to compact JSON.
 The CLI accepts only `http://127.0.0.1:<port>`, `http://localhost:<port>`, or explicit loopback IPv6 as
 its Core origin.

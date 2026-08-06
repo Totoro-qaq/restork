@@ -6,11 +6,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import tomllib
+import re
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -30,13 +30,38 @@ def _component(ecosystem: str, name: str, version: str) -> dict[str, str]:
     }
 
 
+_LOCK_VALUE = re.compile(r'^\s*(name|version)\s*=\s*"([^"\\]*)"\s*$')
+
+
+def _locked_package_components(path: Path, ecosystem: str) -> list[dict[str, str]]:
+    """Read only the bounded name/version subset shared by Cargo and uv locks.
+
+    Release helpers run with the Python bundled by each CI host, including
+    macOS Python 3.9 where ``tomllib`` is unavailable. Lockfile package names
+    and versions are plain quoted strings, so a deliberately narrow parser is
+    both sufficient and safer than accepting arbitrary TOML here.
+    """
+
+    components: list[dict[str, str]] = []
+    package: Optional[dict[str, str]] = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip() == "[[package]]":
+            if package is not None and {"name", "version"} <= package.keys():
+                components.append(_component(ecosystem, package["name"], package["version"]))
+            package = {}
+            continue
+        if package is None:
+            continue
+        match = _LOCK_VALUE.fullmatch(line)
+        if match is not None:
+            package[match.group(1)] = match.group(2)
+    if package is not None and {"name", "version"} <= package.keys():
+        components.append(_component(ecosystem, package["name"], package["version"]))
+    return components
+
+
 def _cargo_components(path: Path) -> list[dict[str, str]]:
-    document = tomllib.loads(path.read_text(encoding="utf-8"))
-    return [
-        _component("cargo", package["name"], package["version"])
-        for package in document.get("package", [])
-        if isinstance(package.get("name"), str) and isinstance(package.get("version"), str)
-    ]
+    return _locked_package_components(path, "cargo")
 
 
 def _npm_components(path: Path) -> list[dict[str, str]]:
@@ -55,20 +80,15 @@ def _npm_components(path: Path) -> list[dict[str, str]]:
 
 
 def _python_components(path: Path) -> list[dict[str, str]]:
-    document = tomllib.loads(path.read_text(encoding="utf-8"))
-    return [
-        _component("pypi", package["name"], package["version"])
-        for package in document.get("package", [])
-        if isinstance(package.get("name"), str) and isinstance(package.get("version"), str)
-    ]
+    return _locked_package_components(path, "pypi")
 
 
 def _timestamp() -> str:
     source_epoch = os.environ.get("SOURCE_DATE_EPOCH")
     if source_epoch is not None:
-        instant = datetime.fromtimestamp(int(source_epoch), UTC)
+        instant = datetime.fromtimestamp(int(source_epoch), timezone.utc)
     else:
-        instant = datetime.now(UTC)
+        instant = datetime.now(timezone.utc)
     return instant.isoformat().replace("+00:00", "Z")
 
 

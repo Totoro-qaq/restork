@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   build: {
     emptyOutDir: true,
-    outDir: "../src/restork/web",
+    outDir: "../rust/crates/restork-api/web",
   },
   test: {
     environment: "jsdom",
