@@ -544,7 +544,21 @@ describe("authenticated workspace", () => {
       snapshot: {
         ...snapshot,
         daily: {
-          weather: { configured: false, status: "not_configured", provider: "", location_label: "", condition: "", temperature_c: null, apparent_temperature_c: null, relative_humidity_percent: null, is_day: null, observed_at: null, expires_at: null, attribution: "", message: "" },
+          weather: {
+            configured: false,
+            status: "not_configured",
+            provider: "",
+            location_label: "",
+            condition: "",
+            temperature_c: null,
+            apparent_temperature_c: null,
+            relative_humidity_percent: null,
+            is_day: null,
+            observed_at: null,
+            expires_at: null,
+            attribution: "",
+            message: "",
+          },
           calendar: { configured: false, status: "not_configured", events: [], message: "" },
           music: {
             configured: true,
@@ -727,7 +741,21 @@ describe("authenticated workspace", () => {
           },
         ],
         daily: {
-          weather: { configured: false, status: "not_configured", provider: "", location_label: "", condition: "", temperature_c: null, apparent_temperature_c: null, relative_humidity_percent: null, is_day: null, observed_at: null, expires_at: null, attribution: "", message: "" },
+          weather: {
+            configured: false,
+            status: "not_configured",
+            provider: "",
+            location_label: "",
+            condition: "",
+            temperature_c: null,
+            apparent_temperature_c: null,
+            relative_humidity_percent: null,
+            is_day: null,
+            observed_at: null,
+            expires_at: null,
+            attribution: "",
+            message: "",
+          },
           calendar: { configured: false, status: "not_configured", events: [], message: "" },
           music: { configured: false, status: "not_configured", recommendation: null, message: "" },
         },
@@ -759,7 +787,21 @@ describe("authenticated workspace", () => {
       snapshot: {
         ...snapshot,
         daily: {
-          weather: { configured: false, status: "not_configured", provider: "", location_label: "", condition: "", temperature_c: null, apparent_temperature_c: null, relative_humidity_percent: null, is_day: null, observed_at: null, expires_at: null, attribution: "", message: "" },
+          weather: {
+            configured: false,
+            status: "not_configured",
+            provider: "",
+            location_label: "",
+            condition: "",
+            temperature_c: null,
+            apparent_temperature_c: null,
+            relative_humidity_percent: null,
+            is_day: null,
+            observed_at: null,
+            expires_at: null,
+            attribution: "",
+            message: "",
+          },
           calendar: { configured: false, status: "not_configured", events: [], message: "" },
           music: { configured: false, status: "not_configured", recommendation: null, message: "" },
         },
@@ -1827,7 +1869,7 @@ describe("Rust conversation workspace", () => {
       updated_at: "2026-08-03T00:01:00Z",
     }));
     api.executeSessionToolCall = vi.fn();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    document.body.append(root);
     mountDashboard(root, { api, snapshot: state });
 
     root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
@@ -1836,9 +1878,16 @@ describe("Rust conversation workspace", () => {
     const rollback = root.querySelector<HTMLButtonElement>(".extension-history button");
     expect(rollback?.textContent).toContain("REVIEW ROLLBACK");
     rollback?.click();
+
+    // Confirmation is an in-app dialog now, not a blocking native prompt.
+    await vi.waitFor(() => expect(root.querySelector("dialog.confirm-dialog")).not.toBeNull());
+    expect(api.rollbackExtension).not.toHaveBeenCalled();
+    root.querySelector<HTMLButtonElement>(".confirm-primary")?.click();
+
     await vi.waitFor(() => expect(api.rollbackExtension)
       .toHaveBeenCalledWith("skill.synthetic", currentHash, previousHash));
     expect(api.executeSessionToolCall).not.toHaveBeenCalled();
+    root.remove();
   });
 
   it("offers only provider-supported reasoning levels and saves the frozen policy", async () => {

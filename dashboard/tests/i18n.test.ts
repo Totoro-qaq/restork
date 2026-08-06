@@ -84,3 +84,52 @@ describe("Dashboard locales", () => {
       .toContain("Core 返回：invalid or expired access token");
   });
 });
+
+describe("count-aware phrasing", () => {
+  it("inflects English by count instead of emitting claim(s)", async () => {
+    const { plural } = await import("../src/i18n");
+    const forms = { one: "{n} claim remains", other: "{n} claims remain", zh: "{n} 项声明" };
+
+    expect(plural("en", 1, forms)).toBe("1 claim remains");
+    expect(plural("en", 0, forms)).toBe("0 claims remain");
+    expect(plural("en", 2, forms)).toBe("2 claims remain");
+  });
+
+  it("collapses to a single form for Chinese, which has no plural inflection", async () => {
+    const { plural } = await import("../src/i18n");
+    const forms = { one: "{n} event", other: "{n} events", zh: "{n} 个事件" };
+
+    expect(plural("zh-CN", 1, forms)).toBe("1 个事件");
+    expect(plural("zh-CN", 5, forms)).toBe("5 个事件");
+  });
+
+  it("leaves no parenthesised plural fallbacks in the markup", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const markup = readFileSync(resolve(import.meta.dirname, "../src/ui/render.ts"), "utf8");
+
+    expect(markup).not.toContain("claim(s)");
+    expect(markup).not.toMatch(/\$\{[\w.]+ === 1 \? "" : "s"\}/);
+  });
+});
+
+describe("clock locale", () => {
+  it("formats the clock with the active locale, not a hardcoded one", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const clock = readFileSync(resolve(import.meta.dirname, "../src/ui/clock.ts"), "utf8");
+
+    expect(clock).not.toContain('Intl.DateTimeFormat("zh-CN"');
+    expect(clock).toContain("localeOf(root)");
+  });
+
+  it("renders an English date for an English workspace", () => {
+    const root = document.createElement("main");
+    document.body.append(root);
+    mountDashboard(root, { snapshot: emptySnapshot, locale: "en" });
+
+    const text = root.querySelector("#clock-text")?.textContent ?? "";
+    if (text) expect(text).not.toMatch(/[\u4e00-\u9fff]/);
+    root.remove();
+  });
+});

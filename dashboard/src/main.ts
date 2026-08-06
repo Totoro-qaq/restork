@@ -20,8 +20,14 @@ import type {
 } from "./api/types";
 import {
   agentWaitMarkup,
+  approvalsView,
   conversationOperationWaitMarkup,
   errorText,
+  eventRow,
+  memoryView,
+  radarView,
+  runsView,
+  tasksView,
   pairingMarkup,
   providerDiagnosticMarkup,
   providerErrorMarkup,
@@ -65,6 +71,59 @@ const conversationStreams = new WeakMap<HTMLElement, {
   controller: AbortController;
   operationId: string;
 }>();
+// `renderWorkspace` replaces `root.innerHTML`, so any selection held in the DOM
+// is destroyed on every refresh, locale switch, settings save, and pagination.
+// The user's choice therefore lives outside the DOM and is restored after render.
+const selectedSessions = new WeakMap<HTMLElement, string>();
+const dismissHandlers = new WeakMap<HTMLElement, (event: KeyboardEvent) => void>();
+
+/**
+ * Escape closes the topmost dismissible surface regardless of where focus sits.
+ * Binding it to `#action-panel` alone meant Escape did nothing unless the user
+ * had already tabbed into the panel.
+ *
+ * A native `<dialog>` handles its own Escape, so an open modal is left alone.
+ */
+function bindDismissStack(root: HTMLElement): void {
+  const previous = dismissHandlers.get(root);
+  if (previous) document.removeEventListener("keydown", previous);
+
+  const handler = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    if (!root.isConnected) {
+      document.removeEventListener("keydown", handler);
+      return;
+    }
+    if (root.querySelector("dialog[open]")) return;
+
+    const panel = root.querySelector<HTMLElement>("#action-panel");
+    if (panel && !panel.hidden) {
+      event.preventDefault();
+      closeRunForm(root, true);
+      return;
+    }
+    const region = root.querySelector<HTMLElement>("#global-status-region");
+    if (region?.dataset.visible === "true") {
+      event.preventDefault();
+      clearAnnouncement(root);
+    }
+  };
+
+  document.addEventListener("keydown", handler);
+  dismissHandlers.set(root, handler);
+}
+
+const THEMES = new Set(["system", "light", "dark"]);
+
+/**
+ * Apply the stored theme to the document root. `styles.css` resolves its colour
+ * tokens from `[data-theme]`, with `system` deferring to `prefers-color-scheme`.
+ * Without this the Theme control round-trips to Core and changes nothing.
+ */
+export function applyTheme(theme: string | undefined): void {
+  const selected = theme && THEMES.has(theme) ? theme : "system";
+  document.documentElement.dataset.theme = selected;
+}
 
 function syncReasoningControls(form: HTMLFormElement): void {
   const kind = form.elements.namedItem("kind") as HTMLSelectElement | null;
@@ -135,7 +194,12 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   stopMailStream(root);
   releaseCover(root);
   root.innerHTML = workspaceMarkup(snapshot, locale);
+  applyTheme(snapshot.workspaceV2?.personal?.settings.theme);
   startClock(root);
+  root.querySelector<HTMLButtonElement>("#global-status-dismiss")?.addEventListener("click", () => {
+    clearAnnouncement(root);
+  });
+  bindDismissStack(root);
   bindLocaleSwitch(root, () => {
     const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "overview";
     renderWorkspace(root, api, snapshot);
@@ -146,6 +210,11 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
       closeRunForm(root, false);
       selectView(root, button.dataset.view ?? "overview");
     });
+  });
+  const nav = root.querySelector<HTMLElement>(".sidebar nav");
+  if (nav) bindRovingFocus(nav, "[data-view]");
+  root.querySelectorAll<HTMLElement>("[data-roving-group]").forEach((group) => {
+    bindRovingFocus(group, "button");
   });
   root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
     button.addEventListener("click", () => openRunForm(root, button.dataset.mode as Mode, button));
@@ -166,28 +235,10 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
     const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "overview";
     void refresh(root, api, view);
   });
-  root.querySelectorAll<HTMLButtonElement>("[data-approval-id]").forEach((button) => {
-    button.addEventListener("click", () => void decide(root, api, button));
-  });
-  root.querySelectorAll<HTMLButtonElement>("[data-task-apply]").forEach((button) => {
-    button.addEventListener("click", () => void applyApprovedTask(root, api, button));
-  });
-  root.querySelectorAll<HTMLInputElement>("[data-task-id]").forEach((input) => {
-    input.addEventListener("change", () => void previewTask(root, api, input));
-  });
+  bindListInteractions(root, api, snapshot, root);
   root.querySelector<HTMLFormElement>("#quick-task-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     void captureTask(root, api, event.currentTarget as HTMLFormElement);
-  });
-  root.querySelectorAll<HTMLButtonElement>("[data-radar-id]").forEach((button) => {
-    button.addEventListener("click", () => void actOnRadar(root, api, button));
-  });
-  root.querySelectorAll<HTMLButtonElement>("[data-run-id]").forEach((button) => {
-    button.addEventListener("click", () => void showRun(root, api, snapshot, button));
-  });
-  root.querySelectorAll<HTMLButtonElement>("[data-page-kind]").forEach((button) => {
-    if (button.dataset.pageKind === "events") return;
-    button.addEventListener("click", () => void loadMore(root, api, snapshot, button));
   });
   configureMusic(root, api);
   configureWeather(root, api);
@@ -195,7 +246,9 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   configureMail(root, api, snapshot);
   configureProvider(root, api, snapshot);
   configureRustWorkspace(root, api, snapshot);
-  if (snapshot.daily?.music.recommendation?.cover_available) {
+  // Last, so it overrides any enabled state the feature wiring just set.
+  applyCapabilityGuards(root, api, locale);
+  if (snapshot.daily?.music?.recommendation?.cover_available) {
     void loadMusicCover(root, api);
   }
 }
@@ -257,6 +310,7 @@ function configureRustWorkspace(
     const host = root.querySelector<HTMLElement>("#conversation-messages");
     const heading = root.querySelector<HTMLElement>("#conversation-title");
     if (!pane || !host || !api.sessionMessages) return;
+    selectedSessions.set(root, sessionId);
     pane.dataset.activeSession = sessionId;
     pane.dataset.activeProfile = profileId;
     const selectedRecord = snapshot.workspaceV2?.sessions.find(
@@ -319,7 +373,10 @@ function configureRustWorkspace(
       if (!query || !host || !api.searchSessions) return;
       host.innerHTML = `<p class="fine">${tr(localeOf(root), "Searching local FTS index…", "正在搜索本地 FTS 索引…")}</p>`;
       void api.searchSessions(query).then((hits) => {
-        host.innerHTML = hits.map((hit) => `<button type="button" data-session-hit="${escapeStatus(hit.session_id)}"><span>${escapeStatus(hit.excerpt)}</span><small>#${hit.sequence}</small></button>`).join("") || `<p class="fine">${tr(localeOf(root), "No match.", "没有匹配项。")}</p>`;
+        const rows = hits.map((hit) => `<button type="button" data-session-hit="${escapeStatus(hit.session_id)}">`
+          + `<span>${escapeStatus(hit.excerpt)}</span><small>#${hit.sequence}</small></button>`).join("");
+        host.innerHTML = rows
+          || `<p class="fine">${tr(localeOf(root), "No match.", "没有匹配项。")}</p>`;
         host.querySelectorAll<HTMLButtonElement>("[data-session-hit]").forEach((button) => {
           button.addEventListener("click", () => {
             const session = snapshot.workspaceV2?.sessions.find(
@@ -338,8 +395,8 @@ function configureRustWorkspace(
     if (!sessionId || !api.exportSession) return;
     void api.exportSession(sessionId).then((payload) => {
       downloadJson(`restork-${safeFilename(payload.session.title)}.json`, payload);
-      announce(root, tr(localeOf(root), "Conversation export downloaded locally.", "对话导出已下载到本地。"));
-    }).catch((error) => announce(root, errorText(error, localeOf(root))));
+      announceStatus(root, tr(localeOf(root), "Conversation export downloaded locally.", "对话导出已下载到本地。"));
+    }).catch((error) => announceError(root, errorText(error, localeOf(root))));
   });
 
   root.querySelector<HTMLButtonElement>("[data-session-archive]")?.addEventListener("click", () => {
@@ -349,18 +406,19 @@ function configureRustWorkspace(
     if (!sessionId || !version || !api.archiveSession) return;
     void api.archiveSession(sessionId, version)
       .then(() => reloadWorkspaceView(root, api, "conversation"))
-      .catch((error) => announce(root, errorText(error, localeOf(root))));
+      .catch((error) => announceError(root, errorText(error, localeOf(root))));
   });
 
-  root.querySelector<HTMLButtonElement>("[data-session-delete]")?.addEventListener("click", () => {
+  root.querySelector<HTMLButtonElement>("[data-session-delete]")?.addEventListener("click", async () => {
     const pane = root.querySelector<HTMLElement>(".conversation-pane");
     const sessionId = pane?.dataset.activeSession ?? "";
     const version = Number(pane?.dataset.activeVersion ?? "0");
     if (!sessionId || !version || !api.deleteSession) return;
-    if (!window.confirm(tr(localeOf(root), "Delete this local conversation permanently?", "永久删除这个本地对话？"))) return;
+    const confirmed = await confirmAction(root, tr(localeOf(root), "Delete this local conversation permanently?", "永久删除这个本地对话？"));
+    if (!confirmed) return;
     void api.deleteSession(sessionId, version)
       .then(() => reloadWorkspaceView(root, api, "conversation"))
-      .catch((error) => announce(root, errorText(error, localeOf(root))));
+      .catch((error) => announceError(root, errorText(error, localeOf(root))));
   });
   root.querySelector<HTMLFormElement>("#session-create-form")?.addEventListener(
     "submit",
@@ -378,7 +436,7 @@ function configureRustWorkspace(
         renderWorkspace(root, api, snapshot);
         selectView(root, "conversation");
         return selectSession(session.session_id, session.title, session.profile_id);
-      }).catch((error) => announce(root, errorText(error, localeOf(root))));
+      }).catch((error) => announceError(root, errorText(error, localeOf(root))));
     },
   );
 
@@ -417,7 +475,7 @@ function configureRustWorkspace(
         renderWorkspace(root, api, snapshot);
         selectView(root, "conversation");
         return selectSession(fork.session.session_id, fork.session.title, fork.session.profile_id)
-          .then(() => announce(root, tr(
+          .then(() => announceStatus(root, tr(
             localeOf(root),
             `Conversation branched with ${fork.copied_messages} messages; the original is unchanged.`,
             `已携带 ${fork.copied_messages} 条消息创建对话分支；原对话保持不变。`,
@@ -538,7 +596,7 @@ function configureRustWorkspace(
     )?.profile_id ?? pane?.dataset.activeProfile ?? "safe-mode";
     if (!sessionId || !content || (!api.sendSessionMessage && !api.createConversationTurn)) return;
     if (contextPreviewHash && contextPreviewClass !== dataClass) {
-      announce(root, tr(
+      announceError(root, tr(
         localeOf(root),
         "The message data class must match the attached context preview.",
         "消息的数据分类必须与附加的上下文预览一致。",
@@ -601,7 +659,7 @@ function configureRustWorkspace(
               false,
             );
             void api.cancelConversationOperation?.(operationId).catch((error) => {
-              announce(root, errorText(error, localeOf(root)));
+              announceError(root, errorText(error, localeOf(root)));
             });
           });
         };
@@ -625,7 +683,7 @@ function configureRustWorkspace(
           controller.signal,
         );
       }).then(() => reloadMessages()).catch((error) => {
-        announce(root, errorText(error, localeOf(root)));
+        announceError(root, errorText(error, localeOf(root)));
         return reloadMessages();
       }).finally(() => {
         conversationStreams.get(root)?.controller.abort();
@@ -648,7 +706,7 @@ function configureRustWorkspace(
       form.reset();
       return reloadMessages();
     }).catch((error) => {
-      announce(root, errorText(error, localeOf(root)));
+      announceError(root, errorText(error, localeOf(root)));
       return reloadMessages();
     }).finally(restoreComposer);
   });
@@ -709,9 +767,13 @@ function configureRustWorkspace(
         theme: String(data.get("theme") ?? "system"),
       };
       if (status) status.textContent = tr(localeOf(root), "Saving locally…", "正在保存到本地…");
+      // Apply before the round trip so the control is not a placebo if the save
+      // is slow; the reconciliation below corrects it if Core stored something else.
+      applyTheme(settings.theme);
       void api.savePersonalSettings(version || null, settings).then((record) => {
         if (snapshot.workspaceV2) snapshot.workspaceV2.personal = record;
         form.dataset.version = String(record.version);
+        applyTheme(record.settings?.theme);
         if (status) status.textContent = tr(localeOf(root), "Saved on this device.", "已保存在本设备。");
       }).catch((error) => {
         if (status) status.textContent = errorText(error, localeOf(root));
@@ -735,7 +797,11 @@ function configureRustWorkspace(
       }
       host.textContent = tr(localeOf(root), "Reading the private recovery ledger…", "正在读取私有恢复记录…");
       void bridge.recovery().then((artifacts) => {
-        host.innerHTML = artifacts.map((artifact) => `<article><strong>Restork ${escapeStatus(artifact.version)}</strong><span>${escapeStatus(artifact.target)}</span><small>SHA-256 ${escapeStatus(artifact.sha256.slice(0, 16))}…</small><code>${escapeStatus(artifact.filename)}</code></article>`).join("")
+        host.innerHTML = artifacts.map((artifact) => `<article>`
+          + `<strong>Restork ${escapeStatus(artifact.version)}</strong>`
+          + `<span>${escapeStatus(artifact.target)}</span>`
+          + `<small>SHA-256 ${escapeStatus(artifact.sha256.slice(0, 16))}…</small>`
+          + `<code>${escapeStatus(artifact.filename)}</code></article>`).join("")
           || `<p class="empty">${tr(localeOf(root), "No previous verified updater package is retained yet.", "暂时还没有保留过已验证更新包。")}</p>`;
       }).catch((error) => {
         host.textContent = errorText(error, localeOf(root));
@@ -810,7 +876,7 @@ function configureRustWorkspace(
         if (id) id.readOnly = true;
         form.scrollIntoView({ behavior: "smooth", block: "center" });
       } catch {
-        announce(root, tr(localeOf(root), "Provider record could not be opened.", "无法打开此供应商记录。"));
+        announceError(root, tr(localeOf(root), "Provider record could not be opened.", "无法打开此供应商记录。"));
       }
     });
   });
@@ -897,7 +963,7 @@ function configureRustWorkspace(
         .then(() => reloadWorkspaceView(root, api, "settings"))
         .catch((error) => {
           button.disabled = false;
-          announce(root, errorText(error, localeOf(root)));
+          announceError(root, errorText(error, localeOf(root)));
         });
     });
   });
@@ -935,8 +1001,16 @@ function configureRustWorkspace(
   configureDeliverables(root, api);
   configureAutomation(root, api);
 
-  const first = snapshot.workspaceV2.sessions.find((session) => session.status === "active");
-  if (first) void selectSession(first.session_id, first.title, first.profile_id);
+  // Restore the user's own selection. Falling back to the first active session is
+  // only correct when the user has not chosen one, or their choice is gone.
+  const sessions = snapshot.workspaceV2.sessions;
+  const remembered = selectedSessions.get(root);
+  const restored = remembered
+    ? sessions.find((session) => session.session_id === remembered)
+    : undefined;
+  const target = restored ?? sessions.find((session) => session.status === "active");
+  if (target) void selectSession(target.session_id, target.title, target.profile_id);
+  else selectedSessions.delete(root);
 }
 
 function bindToolPreview(
@@ -953,26 +1027,36 @@ function bindToolPreview(
       void api.previewSessionToolCall(sessionId, toolId, {}).then((preview) => {
         host.innerHTML = toolCallPreviewMarkup(preview, localeOf(root));
         const execute = host.querySelector<HTMLButtonElement>("[data-tool-execute]");
-        execute?.addEventListener("click", () => {
+        execute?.addEventListener("click", async () => {
           if (!api.executeSessionToolCall) return;
-          if (!window.confirm(tr(
+          const confirmed = await confirmAction(root, tr(
             localeOf(root),
             `Run ${preview.resolved_call.real_tool_id} with the exact reviewed input?`,
             `使用刚才审查的精确输入运行 ${preview.resolved_call.real_tool_id}？`,
-          ))) return;
+          ));
+          if (!confirmed) return;
           execute.disabled = true;
           execute.textContent = tr(localeOf(root), "RUNNING IN SANDBOX…", "正在沙箱中运行…");
           void api.executeSessionToolCall(sessionId, preview).then((execution) => {
-            host.innerHTML = `<article class="proposal-card"><header><strong>${tr(localeOf(root), "MCP execution", "MCP 执行")}</strong><span>${escapeMarkup(execution.state)}</span></header><p>${tr(localeOf(root), "Tool output is untrusted data and grants no new authority.", "工具输出是不受信任的数据，不会获得任何新权限。")}</p><pre>${escapeMarkup(JSON.stringify(execution, null, 2))}</pre></article>`;
+            const untrusted = tr(
+              localeOf(root),
+              "Tool output is untrusted data and grants no new authority.",
+              "工具输出是不受信任的数据，不会获得任何新权限。",
+            );
+            host.innerHTML = `<article class="proposal-card"><header>`
+              + `<strong>${tr(localeOf(root), "MCP execution", "MCP 执行")}</strong>`
+              + `<span>${escapeMarkup(execution.state)}</span></header>`
+              + `<p>${untrusted}</p>`
+              + `<pre>${escapeMarkup(JSON.stringify(execution, null, 2))}</pre></article>`;
           }).catch((error) => {
             execute.disabled = false;
             execute.textContent = tr(localeOf(root), "APPROVE & RUN", "批准并运行");
-            announce(root, errorText(error, localeOf(root)));
+            announceError(root, errorText(error, localeOf(root)));
           });
         });
       }).catch((error) => {
         button.disabled = false;
-        announce(root, errorText(error, localeOf(root)));
+        announceError(root, errorText(error, localeOf(root)));
       });
     });
   });
@@ -992,7 +1076,12 @@ function configureExtensionCenter(root: HTMLElement, api: DashboardApi): void {
     button.addEventListener("click", () => {
       const kind = button.dataset.extensionFilter ?? "all";
       root.querySelectorAll<HTMLButtonElement>("[data-extension-filter]")
-        .forEach((item) => item.classList.toggle("is-active", item === button));
+        .forEach((item) => {
+          const selected = item === button;
+          item.classList.toggle("is-active", selected);
+          item.setAttribute("aria-pressed", String(selected));
+          item.tabIndex = selected ? 0 : -1;
+        });
       root.querySelectorAll<HTMLElement>("[data-extension-card-kind]").forEach((card) => {
         card.hidden = kind !== "all" && card.dataset.extensionCardKind !== kind;
       });
@@ -1021,16 +1110,23 @@ function configureExtensionCenter(root: HTMLElement, api: DashboardApi): void {
       .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
   });
   root.querySelectorAll<HTMLButtonElement>("[data-extension-state]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const action = button.dataset.extensionState as "enable" | "disable";
       const packageId = button.dataset.extensionId ?? "";
       const hash = button.dataset.extensionHash ?? "";
       if (!packageId || !hash || !api.setExtensionState) return;
-      if (action === "enable" && !window.confirm(tr(localeOf(root), `Enable ${packageId} at this exact reviewed hash?`, `按当前已审查哈希启用 ${packageId}？`))) return;
+      if (action === "enable") {
+        const confirmed = await confirmAction(
+          root,
+          tr(localeOf(root), `Enable ${packageId} at this exact reviewed hash?`, `按当前已审查哈希启用 ${packageId}？`),
+          hash,
+        );
+        if (!confirmed) return;
+      }
       button.disabled = true;
       void api.setExtensionState(packageId, action, hash)
         .then(() => reloadWorkspaceView(root, api, "extensions"))
-        .catch((error) => { button.disabled = false; announce(root, errorText(error, localeOf(root))); });
+        .catch((error) => { button.disabled = false; announceError(root, errorText(error, localeOf(root))); });
     });
   });
   root.querySelectorAll<HTMLButtonElement>("[data-extension-history]").forEach((button) => {
@@ -1055,14 +1151,19 @@ function configureExtensionCenter(root: HTMLElement, api: DashboardApi): void {
             const rollback = document.createElement("button");
             rollback.type = "button";
             rollback.textContent = tr(localeOf(root), "REVIEW ROLLBACK", "审查回滚");
-            rollback.addEventListener("click", () => {
-              if (!window.confirm(tr(localeOf(root), `Create a reviewed rollback to ${record.manifest_hash?.slice(0, 16)}…? It will not execute a tool.`, `创建回滚到 ${record.manifest_hash?.slice(0, 16)}… 的审查记录？它不会执行工具。`))) return;
+            rollback.addEventListener("click", async () => {
+              const confirmed = await confirmAction(
+                root,
+                tr(localeOf(root), "Create a reviewed rollback? It will not execute a tool.", "创建审查回滚记录？它不会执行工具。"),
+                record.manifest_hash ?? "",
+              );
+              if (!confirmed) return;
               rollback.disabled = true;
               void api.rollbackExtension?.(packageId, currentHash, record.manifest_hash ?? "")
                 .then(() => reloadWorkspaceView(root, api, "extensions"))
                 .catch((error) => {
                   rollback.disabled = false;
-                  announce(root, errorText(error, localeOf(root)));
+                  announceError(root, errorText(error, localeOf(root)));
                 });
             });
             row.append(rollback);
@@ -1103,11 +1204,15 @@ function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
       button.disabled = true;
       button.textContent = tr(localeOf(root), "RENDERING PREVIEW…", "正在渲染预览…");
       void api.previewDeliverableRender(deliverableId, revision, format).then(async (preview) => {
-        const approved = window.confirm(tr(
-          localeOf(root),
-          `Download deterministic ${format.toUpperCase()} (${preview.manifest.byte_count} bytes)?\nSHA-256: ${preview.manifest.artifact_hash}`,
-          `下载可复现的 ${format.toUpperCase()}（${preview.manifest.byte_count} 字节）？\nSHA-256：${preview.manifest.artifact_hash}`,
-        ));
+        const approved = await confirmAction(
+          root,
+          tr(
+            localeOf(root),
+            `Download deterministic ${format.toUpperCase()} (${preview.manifest.byte_count} bytes)?`,
+            `下载可复现的 ${format.toUpperCase()}（${preview.manifest.byte_count} 字节）？`,
+          ),
+          `SHA-256 ${preview.manifest.artifact_hash}`,
+        );
         if (!approved) return;
         const download = await api.exportDeliverableRender?.(preview);
         if (!download) return;
@@ -1117,12 +1222,12 @@ function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
         anchor.download = download.filename;
         anchor.click();
         URL.revokeObjectURL(url);
-        announce(root, tr(
+        announceStatus(root, tr(
           localeOf(root),
           `${download.filename} is ready. SHA-256 ${download.artifactHash}`,
           `${download.filename} 已生成。SHA-256 ${download.artifactHash}`,
         ));
-      }).catch((error) => announce(root, errorText(error, localeOf(root))))
+      }).catch((error) => announceError(root, errorText(error, localeOf(root))))
         .finally(() => {
           button.disabled = false;
           button.textContent = format === "pptx"
@@ -1204,16 +1309,19 @@ function configureAutomation(root: HTMLElement, api: DashboardApi): void {
       .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
   });
   root.querySelectorAll<HTMLButtonElement>("[data-schedule-action]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const action = button.dataset.scheduleAction ?? "";
       const scheduleId = button.dataset.scheduleId ?? "";
       const revision = Number(button.dataset.scheduleRevision ?? "0");
       if (!scheduleId || !revision) return;
-      if (action === "delete" && !window.confirm(tr(
-        localeOf(root),
-        "Remove this schedule and its local run history?",
-        "移除此调度及其本地运行历史？",
-      ))) return;
+      if (action === "delete") {
+        const confirmed = await confirmAction(root, tr(
+          localeOf(root),
+          "Remove this schedule and its local run history?",
+          "移除此调度及其本地运行历史？",
+        ));
+        if (!confirmed) return;
+      }
       button.disabled = true;
       const operation = action === "run" && api.runScheduleNow
         ? api.runScheduleNow(scheduleId).then(() => undefined)
@@ -1223,7 +1331,7 @@ function configureAutomation(root: HTMLElement, api: DashboardApi): void {
             ? api.changeScheduleState(scheduleId, action, revision).then(() => undefined)
             : Promise.resolve();
       void operation.then(() => reloadWorkspaceView(root, api, "automation"))
-        .catch((error) => { button.disabled = false; announce(root, errorText(error, localeOf(root))); });
+        .catch((error) => { button.disabled = false; announceError(root, errorText(error, localeOf(root))); });
     });
   });
 }
@@ -1534,14 +1642,14 @@ async function saveWeather(
     });
     form.reset();
     await refresh(root, api);
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       `Weather enabled for ${result.location_label}.`,
       `已为 ${result.location_label} 启用天气。`,
     ));
   } catch (error) {
     buttons.forEach((button) => { button.disabled = false; });
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -1552,7 +1660,7 @@ async function locateWeather(
 ): Promise<void> {
   const buttons = form.querySelectorAll<HTMLButtonElement>("button");
   buttons.forEach((button) => { button.disabled = true; });
-  announce(root, tr(
+  announceStatus(root, tr(
     localeOf(root),
     "Waiting for browser location permission…",
     "正在等待浏览器定位授权…",
@@ -1568,14 +1676,14 @@ async function locateWeather(
     });
     form.reset();
     await refresh(root, api);
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       "Weather enabled from the location you approved.",
       "已使用你授权的位置启用天气。",
     ));
   } catch (error) {
     buttons.forEach((button) => { button.disabled = false; });
-    announce(root, geolocationError(error, localeOf(root)));
+    announceError(root, geolocationError(error, localeOf(root)));
   }
 }
 
@@ -1590,14 +1698,14 @@ async function disableWeather(
     await api.configureWeather({ enabled: false });
     form.reset();
     await refresh(root, api);
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       "Weather disabled and its saved location cleared.",
       "天气已停用，保存的位置也已清除。",
     ));
   } catch (error) {
     buttons.forEach((button) => { button.disabled = false; });
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -1665,18 +1773,18 @@ async function connectNativeMail(
     if (!mail.configured) {
       updateMailUi(root, mail);
       button.disabled = false;
-      announce(root, localizedMailStatus(mail, localeOf(root)));
+      announceStatus(root, localizedMailStatus(mail, localeOf(root)));
       return;
     }
     await refresh(root, api, view);
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       "Mail unread count connected. No message content is available to Restork.",
       "邮件未读数量已连接；Restork 无法访问邮件内容。",
     ));
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -1692,14 +1800,14 @@ async function disconnectNativeMail(
     stopMailStream(root);
     await api.disconnectNativeMail();
     await refresh(root, api, view);
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       "Mail awareness disconnected. No email account data was retained.",
       "邮件提醒已断开；未保留任何邮件账户数据。",
     ));
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -1728,7 +1836,7 @@ function startMailStream(
         "实时更新已停止，请点刷新重新连接。",
       );
     }
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   });
 }
 
@@ -1795,7 +1903,7 @@ async function connectNativeCalendar(
   try {
     const calendar = await api.connectNativeCalendar(scope);
     await refresh(root, api);
-    announce(root, calendar.configured
+    announceStatus(root, calendar.configured
       ? tr(
           localeOf(root),
           "System Calendar connected in read-only mode.",
@@ -1804,7 +1912,7 @@ async function connectNativeCalendar(
       : calendar.message);
   } catch (error) {
     buttons.forEach((button) => { button.disabled = false; });
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -1853,14 +1961,14 @@ async function saveCalendar(
     });
     form.reset();
     await refresh(root, api);
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       "Calendar imported in read-only mode using system time.",
       "日历已按系统时间以只读方式导入。",
     ));
   } catch (error) {
     buttons.forEach((button) => { button.disabled = false; });
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -1879,14 +1987,14 @@ async function disableCalendar(
     }
     form.reset();
     await refresh(root, api);
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       "Calendar disabled and its private import removed.",
       "日历已停用，私有导入副本已移除。",
     ));
   } catch (error) {
     buttons.forEach((button) => { button.disabled = false; });
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2107,7 +2215,7 @@ async function previewWorkHandoff(
     }
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2142,7 +2250,7 @@ async function approveAndExportWork(
     }
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2156,14 +2264,14 @@ async function rejectWork(
     await api.decideApproval(button.dataset.approvalId ?? "", "reject");
     const host = root.querySelector<HTMLElement>("#work-workspace");
     if (host) host.replaceChildren();
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       "Work handoff rejected. No package was exported.",
       "Work 交接已拒绝。没有导出任何交接包。",
     ));
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2201,7 +2309,7 @@ async function verifyWorkResult(
     if (host) host.innerHTML = workVerificationMarkup(report, localeOf(root));
   } catch (error) {
     if (submit) submit.disabled = false;
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2233,7 +2341,7 @@ async function submitStudyDiagnostic(
     }
   } catch (error) {
     if (submit) submit.disabled = false;
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2267,7 +2375,7 @@ async function submitStudyPractice(
     const feedback = form.querySelector<HTMLElement>(".study-attempt");
     if (feedback) feedback.innerHTML = studyAttemptMarkup(result, localeOf(root));
   } catch (error) {
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   } finally {
     if (submit) submit.disabled = false;
   }
@@ -2292,7 +2400,7 @@ async function decide(root: HTMLElement, api: DashboardApi, button: HTMLButtonEl
     }
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2316,7 +2424,7 @@ async function actOnRadar(root: HTMLElement, api: DashboardApi, button: HTMLButt
   } catch (error) {
     if (target) target.innerHTML = agentWaitMarkup("error", localeOf(root));
     button.disabled = false;
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2328,7 +2436,7 @@ async function previewTask(
   input.disabled = true;
   try {
     await api.previewTask(input.dataset.taskId ?? "", input.checked);
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       "Markdown diff ready for approval.",
       "已生成 Markdown diff，等待审批。",
@@ -2337,7 +2445,7 @@ async function previewTask(
   } catch (error) {
     input.checked = !input.checked;
     input.disabled = false;
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2357,7 +2465,7 @@ async function captureTask(
     await refresh(root, api, "approvals");
   } catch (error) {
     if (submit) submit.disabled = false;
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2372,7 +2480,7 @@ async function applyApprovedTask(
     await refresh(root, api, "tasks");
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2506,12 +2614,45 @@ async function showRun(
     if (!["completed", "failed", "cancelled"].includes(run.summary.state)) {
       startEventStream(root, api, run.summary.run_id, after, (event) => {
         received.push(event);
-        render();
+        // Append one row. Re-rendering the whole run per event made live
+        // streaming quadratic and destroyed focus, selection, and scroll.
+        if (!appendRunEvent(detail, event)) render();
       });
     }
   } catch (error) {
     detail.textContent = errorText(error, localeOf(root));
   }
+}
+
+/**
+ * Live events are appended, never re-serialised. Returns false when the list is
+ * not mounted so the caller can fall back to a full render.
+ *
+ * The DOM is bounded: older rows are dropped once the cap is reached, because
+ * a long-running agent loop can emit far more events than a page can hold.
+ * Full history stays reachable through `LOAD EARLIER EVENTS`.
+ */
+const LIVE_EVENT_DOM_CAP = 400;
+
+function appendRunEvent(detail: HTMLElement, event: RunEvent): boolean {
+  if (!detail.isConnected) return false;
+  const list = detail.querySelector<HTMLOListElement>(".event-list");
+  if (!list) return false;
+  // Server-supplied. Validate rather than escape: `CSS.escape` is absent under jsdom.
+  const id = String(event.id);
+  if (!/^[\w-]+$/.test(id)) return false;
+  if (list.querySelector(`[data-event-id="${id}"]`)) return true;
+
+  // The empty-state row carries no identity; it is replaced by the first event.
+  list.querySelector("li:not([data-event-id])")?.remove();
+
+  const scroller = list.closest<HTMLElement>("[data-conversation-scroll]") ?? list;
+  const nearBottom =
+    scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 56;
+  list.insertAdjacentHTML("beforeend", eventRow(event));
+  while (list.children.length > LIVE_EVENT_DOM_CAP) list.firstElementChild?.remove();
+  if (nearBottom) scroller.scrollTop = scroller.scrollHeight;
+  return true;
 }
 
 async function loadEarlierConversation(
@@ -2574,6 +2715,224 @@ async function loadEarlierEvents(
   }
 }
 
+/**
+ * In-app destructive confirmation.
+ *
+ * `window.confirm` blocks the event loop, cannot be styled or themed, ignores the
+ * active locale's typography, and is untestable without stubbing a global. A
+ * native `<dialog>` gives the focus trap, Escape handling, and inert background
+ * for free — the same pattern the settings modals already use.
+ */
+function confirmAction(root: HTMLElement, message: string, detail = ""): Promise<boolean> {
+  const locale = localeOf(root);
+  const dialog = document.createElement("dialog");
+  dialog.className = "confirm-dialog";
+  dialog.innerHTML = `
+    <p class="confirm-message"></p>
+    ${detail ? '<p class="confirm-detail"></p>' : ""}
+    <div class="confirm-actions">
+      <button type="button" data-confirm="cancel">${tr(locale, "Cancel", "取消")}</button>
+      <button type="button" data-confirm="confirm" class="confirm-primary">${tr(locale, "Confirm", "确认")}</button>
+    </div>`;
+  // `form method="dialog"` is not implemented consistently outside browsers, so
+  // the buttons close the dialog explicitly.
+  dialog.querySelectorAll<HTMLButtonElement>("[data-confirm]").forEach((button) => {
+    button.addEventListener("click", () => closeModal(dialog, button.dataset.confirm ?? "cancel"));
+  });
+  // textContent, not innerHTML: the message can carry Core-supplied identifiers.
+  const messageNode = dialog.querySelector<HTMLElement>(".confirm-message");
+  if (messageNode) messageNode.textContent = message;
+  const detailNode = dialog.querySelector<HTMLElement>(".confirm-detail");
+  if (detailNode) detailNode.textContent = detail;
+
+  root.append(dialog);
+  openModal(dialog);
+  dialog.querySelector<HTMLButtonElement>(".confirm-primary")?.focus();
+
+  return new Promise<boolean>((resolve) => {
+    dialog.addEventListener("close", () => {
+      // Escape closes with an empty returnValue, which must mean "do not act".
+      const accepted = dialog.returnValue === "confirm";
+      dialog.remove();
+      resolve(accepted);
+    }, { once: true });
+  });
+}
+
+/**
+ * `<dialog>` is native in every browser Restork targets, but `showModal` and
+ * `close` are absent under jsdom. Prefer the native implementation and fall back
+ * to the observable parts of its contract so behaviour stays testable.
+ */
+function openModal(dialog: HTMLDialogElement): void {
+  if (typeof dialog.showModal === "function") {
+    dialog.showModal();
+    return;
+  }
+  dialog.setAttribute("open", "");
+}
+
+function closeModal(dialog: HTMLDialogElement, returnValue: string): void {
+  if (typeof dialog.close === "function") {
+    dialog.close(returnValue);
+    return;
+  }
+  dialog.returnValue = returnValue;
+  dialog.removeAttribute("open");
+  dialog.dispatchEvent(new Event("close"));
+}
+
+/**
+ * Controls whose backing capability the connected Core does not expose. 49 of the
+ * 78 `DashboardApi` members are optional, so a button can render enabled and then
+ * do nothing at all when pressed. A control the user cannot use MUST say so.
+ */
+const CAPABILITY_CONTROLS: ReadonlyArray<[keyof DashboardApi, string]> = [
+  ["installExtension", "#extension-install-form button[type=submit]"],
+  ["createSchedule", "#schedule-form button[type=submit]"],
+  ["saveProviderProfile", "#provider-profile-form button[type=submit]"],
+  ["createPromptRevision", "#prompt-revision-form button[type=submit]"],
+  ["activatePromptRevision", "[data-prompt-activate]"],
+  ["savePersonalSettings", "#personal-settings-form button[type=submit]"],
+  ["saveConfigurationProfile", "#configuration-profile-form button[type=submit]"],
+  ["executeSessionToolCall", "[data-tool-execute]"],
+  ["previewSessionToolCall", "[data-tool-preview]"],
+  ["connectNativeMail", "[data-native-mail-connect]"],
+  ["disconnectNativeMail", "[data-native-mail-disconnect]"],
+  ["connectNativeCalendar", "[data-native-calendar-connect]"],
+  ["configureMusic", "[data-music-file], [data-music-sync]"],
+  ["refreshMusic", "[data-music-refresh]"],
+  ["researchMusic", "[data-music-research]"],
+  ["forkSession", "#session-fork-form button[type=submit]"],
+  ["createSession", "#session-create-form button[type=submit]"],
+];
+
+function applyCapabilityGuards(root: HTMLElement, api: DashboardApi, locale: Locale): void {
+  const reason = tr(
+    locale,
+    "The connected Core does not provide this capability.",
+    "已连接的 Core 不提供此能力。",
+  );
+  for (const [capability, selector] of CAPABILITY_CONTROLS) {
+    if (api[capability]) continue;
+    root.querySelectorAll<HTMLButtonElement>(selector).forEach((control) => {
+      control.disabled = true;
+      control.setAttribute("aria-disabled", "true");
+      control.dataset.unavailableCapability = String(capability);
+      if (!control.title) control.title = reason;
+    });
+  }
+}
+
+/**
+ * Roving tabindex for composite widgets. A list of buttons is one tab stop and
+ * arrow keys move within it; without this the navigation rail and the session
+ * rail are traversed one Tab press per item.
+ */
+function bindRovingFocus(container: HTMLElement, itemSelector: string): void {
+  const items = (): HTMLElement[] =>
+    Array.from(container.querySelectorAll<HTMLElement>(itemSelector))
+      .filter((item) => !item.hidden && !item.hasAttribute("disabled"));
+
+  const focusAt = (index: number): void => {
+    const list = items();
+    if (list.length === 0) return;
+    const next = list[(index + list.length) % list.length];
+    list.forEach((item) => { item.tabIndex = item === next ? 0 : -1; });
+    next.focus();
+  };
+
+  const vertical = container.dataset.rovingOrientation !== "horizontal";
+  const forward = vertical ? "ArrowDown" : "ArrowRight";
+  const backward = vertical ? "ArrowUp" : "ArrowLeft";
+
+  container.addEventListener("keydown", (event) => {
+    const list = items();
+    const current = list.indexOf(document.activeElement as HTMLElement);
+    if (current < 0) return;
+    if (event.key === forward) focusAt(current + 1);
+    else if (event.key === backward) focusAt(current - 1);
+    else if (event.key === "Home") focusAt(0);
+    else if (event.key === "End") focusAt(list.length - 1);
+    else return;
+    event.preventDefault();
+  });
+
+  // One tab stop: the active item, or the first when nothing is active yet.
+  const list = items();
+  const active = list.find((item) => item.classList.contains("is-active")
+    || item.getAttribute("aria-current") === "page");
+  list.forEach((item) => { item.tabIndex = item === (active ?? list[0]) ? 0 : -1; });
+}
+
+/**
+ * Re-render exactly one paginated panel. Returns false when the panel is not
+ * mounted so the caller can fall back to a full render.
+ */
+function renderListPanel(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+  kind: DashboardListKind,
+): boolean {
+  // `listPanelMarkup` returns null for anything outside the known panel set, so
+  // reaching the selector means `kind` is one of five literals and needs no
+  // escaping. `CSS.escape` is deliberately avoided: it is absent under jsdom.
+  const markup = listPanelMarkup(snapshot, kind, localeOf(root));
+  if (markup === null) return false;
+  const panel = root.querySelector<HTMLElement>(`[data-view-panel="${kind}"]`);
+  if (!panel) return false;
+  panel.innerHTML = markup;
+  bindListInteractions(root, api, snapshot, panel);
+  return true;
+}
+
+function listPanelMarkup(
+  snapshot: DashboardSnapshot,
+  kind: DashboardListKind,
+  locale: Locale,
+): string | null {
+  if (kind === "runs") return runsView(snapshot.runs, snapshot.pagination?.runs, locale);
+  if (kind === "approvals") {
+    return approvalsView(snapshot.approvals, snapshot.pagination?.approvals, locale);
+  }
+  if (kind === "tasks") return tasksView(snapshot, locale);
+  if (kind === "radar") return radarView(snapshot, locale);
+  if (kind === "memory") return memoryView(snapshot, locale);
+  return null;
+}
+
+/**
+ * Interactions owned by the paginated list views. Scoped to `host` so a single
+ * panel can be re-rendered and re-bound without tearing down the workspace.
+ */
+function bindListInteractions(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+  host: HTMLElement,
+): void {
+  host.querySelectorAll<HTMLButtonElement>("[data-approval-id]").forEach((button) => {
+    button.addEventListener("click", () => void decide(root, api, button));
+  });
+  host.querySelectorAll<HTMLButtonElement>("[data-task-apply]").forEach((button) => {
+    button.addEventListener("click", () => void applyApprovedTask(root, api, button));
+  });
+  host.querySelectorAll<HTMLInputElement>("[data-task-id]").forEach((input) => {
+    input.addEventListener("change", () => void previewTask(root, api, input));
+  });
+  host.querySelectorAll<HTMLButtonElement>("[data-radar-id]").forEach((button) => {
+    button.addEventListener("click", () => void actOnRadar(root, api, button));
+  });
+  host.querySelectorAll<HTMLButtonElement>("[data-run-id]").forEach((button) => {
+    button.addEventListener("click", () => void showRun(root, api, snapshot, button));
+  });
+  host.querySelectorAll<HTMLButtonElement>("[data-page-kind]").forEach((button) => {
+    if (button.dataset.pageKind === "events") return;
+    button.addEventListener("click", () => void loadMore(root, api, snapshot, button));
+  });
+}
+
 async function loadMore(
   root: HTMLElement,
   api: DashboardApi,
@@ -2597,11 +2956,15 @@ async function loadMore(
     }
     snapshot.pagination ??= {};
     snapshot.pagination[kind] = page.page;
-    renderWorkspace(root, api, snapshot);
-    selectView(root, kind);
+    // Pagination appends to one list. Rebuilding the workspace here discarded
+    // scroll position, drafts, open disclosures, and the run detail pane.
+    if (!renderListPanel(root, api, snapshot, kind)) {
+      renderWorkspace(root, api, snapshot);
+      selectView(root, kind);
+    }
   } catch (error) {
     button.disabled = false;
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2621,7 +2984,7 @@ function startEventStream(
   const controller = new AbortController();
   eventStreams.set(root, controller);
   void api.streamEvents(runId, after, onEvent, controller.signal).catch((error: unknown) => {
-    if (!controller.signal.aborted) announce(root, errorText(error, localeOf(root)));
+    if (!controller.signal.aborted) announceError(root, errorText(error, localeOf(root)));
   });
   return controller;
 }
@@ -2649,15 +3012,41 @@ async function refresh(root: HTMLElement, api: DashboardApi, view = "overview"):
     renderWorkspace(root, api, await api.loadDashboard());
     selectView(root, view);
   } catch (error) {
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
-function announce(root: HTMLElement, message: string): void {
-  const target = root.querySelector<HTMLElement>("#global-status")
-    ?? root.querySelector<HTMLElement>("#action-status");
-  if (target) target.textContent = message;
+// A message the user cannot see is not a message. Both live regions stay in the
+// DOM so assistive technology keeps its subscription; only visibility changes.
+function paintGlobalNotice(root: HTMLElement, message: string, severity: "status" | "error"): void {
+  const region = root.querySelector<HTMLElement>("#global-status-region");
+  const status = root.querySelector<HTMLElement>("#global-status");
+  const alert = root.querySelector<HTMLElement>("#global-alert");
+  const dismiss = root.querySelector<HTMLButtonElement>("#global-status-dismiss");
+  if (!region || !status || !alert) return;
+
+  const active = severity === "error" ? alert : status;
+  const idle = severity === "error" ? status : alert;
+  idle.textContent = "";
+  idle.hidden = true;
+  active.textContent = message;
+  active.hidden = message === "";
+  region.dataset.visible = message === "" ? "false" : "true";
+  if (dismiss) dismiss.hidden = message === "";
 }
+
+export function announceStatus(root: HTMLElement, message: string): void {
+  paintGlobalNotice(root, message, "status");
+}
+
+export function announceError(root: HTMLElement, message: string): void {
+  paintGlobalNotice(root, message, "error");
+}
+
+export function clearAnnouncement(root: HTMLElement): void {
+  paintGlobalNotice(root, "", "status");
+}
+
 
 function configureMusic(root: HTMLElement, api: DashboardApi): void {
   bindSettingsDialog(root, "#music-settings-dialog", "[data-music-open]");
@@ -2712,7 +3101,11 @@ function updateMusicSourceHelp(root: HTMLElement, form: HTMLFormElement): void {
   target.textContent = source === "apple-music"
     ? option.dataset.status === "ready"
       ? tr(localeOf(root), "Official Apple Music API credential is ready.", "Apple Music 官方 API 凭据已就绪。")
-      : tr(localeOf(root), `Native setup required: ${option.dataset.setup || "restorkd music apple configure"}`, `需要先配置系统凭据：${option.dataset.setup || "restorkd music apple configure"}`)
+      : tr(
+        localeOf(root),
+        `Native setup required: ${option.dataset.setup || "restorkd music apple configure"}`,
+        `需要先配置系统凭据：${option.dataset.setup || "restorkd music apple configure"}`,
+      )
     : tr(localeOf(root), "Experimental, credential-free and read-only; only public playlist metadata is read.", "实验性、无需凭据且只读；仅获取公开歌单元数据。");
 }
 
@@ -2768,7 +3161,7 @@ async function syncMusicSource(
     });
     form.reset();
     await refresh(root, api);
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       source === "qqmusic"
         ? "QQ Music connected. Daily analysis and current chart discoveries are ready."
@@ -2779,7 +3172,7 @@ async function syncMusicSource(
     ));
   } catch (error) {
     setMusicBusy(form, false, errorText(error, localeOf(root)));
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2812,14 +3205,14 @@ async function saveMusicFile(
     });
     form.reset();
     await refresh(root, api);
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       "Private playlist imported. Today's track is ready.",
       "私有歌单已导入，今日推荐已就绪。",
     ));
   } catch (error) {
     setMusicBusy(form, false, errorText(error, localeOf(root)));
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2837,14 +3230,14 @@ async function refreshMusic(
     ));
     await api.refreshMusic(localDate());
     await refresh(root, api);
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       "Music snapshot refreshed. Your previous snapshot would have been kept on failure.",
       "音乐快照已刷新；如果刷新失败，旧快照会继续保留。",
     ));
   } catch (error) {
     setMusicBusy(form, false, errorText(error, localeOf(root)));
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2863,14 +3256,14 @@ async function disableMusic(
     await api.configureMusic({ enabled: false, local_date: localDate() });
     form.reset();
     await refresh(root, api);
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       "Daily track disabled and the imported playlist deleted.",
       "每日一曲已停用，导入的歌单也已删除。",
     ));
   } catch (error) {
     setMusicBusy(form, false, errorText(error, localeOf(root)));
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2897,7 +3290,7 @@ async function researchMusic(
   try {
     await api.researchMusic(localDate());
     await refresh(root, api);
-    announce(root, tr(
+    announceStatus(root, tr(
       localeOf(root),
       "Online song research completed and its sources were cached locally.",
       "歌曲联网分析已完成，来源与结果已缓存在本地。",
@@ -2913,7 +3306,7 @@ async function researchMusic(
       status.classList.remove("is-busy");
       status.textContent = errorText(error, localeOf(root));
     }
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -2952,7 +3345,7 @@ async function loadMusicCover(root: HTMLElement, api: DashboardApi): Promise<voi
     image.src = url;
     image.hidden = false;
   } catch (error) {
-    announce(root, errorText(error, localeOf(root)));
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
