@@ -221,15 +221,35 @@ navigation may fetch lazily. Mutations MUST NOT trigger a full bootstrap; the 22
 
 ### 1D. Pairing and tokens
 
-- `pair()` MUST validate audience before consuming the challenge. `src/restork/api/auth.py:123-127`
-  pops the challenge at `:123` and checks audience at `:127`, so pasting the Web code into the CLI
-  permanently destroys it and the browser can never pair. The Rust implementation MUST NOT reproduce
-  this ordering.
-- Pairing-code TTL and access-token TTL MUST be separate values. A single 300-second TTL
-  (`auth.py:80`) governing both makes the CLI unusable five minutes after pairing.
-- The CLI MUST refresh its own token. `POST /v1/token/rotate` exists and no CLI command calls it.
-- The two printed pairing codes MUST be labelled unambiguously, and the wrong-audience error MUST say
-  which code was expected.
+**A misdirected pairing code MUST survive for its own client.** Both implementations consumed the
+challenge before checking the audience (`src/restork/api/auth.py:123-127`;
+`restork-core/src/auth.rs` before this change), so presenting the Web code to the CLI destroyed it
+and the browser could never pair.
+
+In Rust this was deliberate, asserted by a test named `wrong_audience_consumes_the_challenge`. That
+stance is overturned here, with reasons, rather than silently changed:
+
+- Its only benefit is against an attacker who holds a valid code but cannot guess its audience.
+- The audience is not a secret. Core prints it beside the code, so anyone who can obtain the code
+  can read its label.
+- Its cost is that one plausible copy-and-paste mistake permanently destroys the user's pairing
+  code, with recovery — restart Core — stated nowhere.
+
+An **expired** challenge is still consumed: it can never succeed again, so leaving it in place would
+only allow a dead code to be retried indefinitely.
+
+**Pairing-code TTL and access-token TTL MUST be independent.** One 300-second value governed both,
+so the CLI became unusable five minutes after pairing because it has no renewal path. The existing
+single-TTL constructors keep their original meaning; the split is opted into explicitly so no
+caller's behaviour changes implicitly.
+
+**Every pairing failure MUST state the recovery.** `invalid pairing code` names re-use and restart;
+the expiry error names restarting Core; the wrong-audience error names which client the code belongs
+to and states that it is still valid.
+
+The CLI's own token refresh moves to 1E: `restorkd` has no CLI client to add rotation to. It exposes
+`serve` and configuration subcommands only, and the sole CLI client lives in the Python package that
+Stage 1F deprecates.
 
 ### 1E. CLI MUST be usable
 

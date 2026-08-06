@@ -117,13 +117,20 @@ Runtime-independent; the Dashboard is embedded by both Cores.
 
 ### 1D. Pairing and tokens
 
-- [ ] Validate audience before consuming the pairing challenge (Python's ordering bug:
-      `src/restork/api/auth.py:123` pops, `:127` checks).
-- [ ] Separate pairing-code TTL from access-token TTL (`auth.py:80` uses one 300 s value for both).
-- [ ] Add CLI token rotation against the existing `POST /v1/token/rotate`.
-- [ ] Label the two printed pairing codes unambiguously; name the expected code in the
-      wrong-audience error.
-- [ ] Test: audience-before-consume, separate TTLs.
+- [x] Validate audience before consuming the pairing challenge. Rust reproduced the same ordering
+      and asserted it in `wrong_audience_consumes_the_challenge`; that test is replaced, not
+      deleted, and the spec records why the stance is overturned.
+- [x] Keep consuming an *expired* challenge — it can never succeed again.
+- [x] Separate pairing-code TTL from access-token TTL. Legacy single-TTL constructors keep their
+      original meaning; `restorkd` opts into the split explicitly.
+- [x] Make every pairing failure name its recovery path.
+- [x] Test: wrong audience preserves the code, expiry consumes it, the two lifetimes are
+      independent.
+- [ ] CLI token rotation — moved to 1E. `restorkd` has no CLI client yet; it exposes `serve` and
+      configuration subcommands only.
+- [ ] Human-readable startup output — moved to 1E. `restorkd serve` emits only a JSON readiness
+      record, so a human gets no URL and no instruction. (Rust prints one pairing code, not two, so
+      Python's label ambiguity does not arise.)
 
 ### 1E. CLI
 
