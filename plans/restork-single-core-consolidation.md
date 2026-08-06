@@ -5,7 +5,8 @@ Tracks `specs/restork-single-core-consolidation.md`. Stages 0–6 are implemente
 2026-08-06 local verification passed Rust fmt/Clippy/all tests/release build, 126 Dashboard tests and
 production build, seven desktop supervisor tests, both runtime smoke tests, README/privacy scans,
 SBOM generation, `cargo-deny`, and a fresh 1,190-advisory RustSec snapshot scan. The remote
-macOS/Linux/Windows matrix remains review evidence before merge, not a locally claimed result.
+macOS/Linux/Windows matrix is running on [PR #70](https://github.com/Totoro-qaq/restork/pull/70)
+and remains review evidence before merge, not a locally claimed result.
 
 ---
 

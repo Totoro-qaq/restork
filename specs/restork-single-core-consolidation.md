@@ -2,9 +2,10 @@
 
 ## Status
 
-Implemented and locally verified 2026-08-06 on `codex/finish-single-core-consolidation`; review and
-the remote three-platform CI matrix remain before merge. This supersedes the dual-runtime posture
-of `docs/adr/0001` (already marked Superseded) and enforces the migration constraint that
+Implemented and locally verified 2026-08-06 on `codex/finish-single-core-consolidation`; the remote
+three-platform CI matrix is running on [PR #70](https://github.com/Totoro-qaq/restork/pull/70)
+before merge. This supersedes the dual-runtime posture of `docs/adr/0001` (already marked
+Superseded) and enforces the migration constraint that
 `docs/adr/0002` stated but never applied:
 *"a Rust feature becomes authoritative only after parity; its Python production route is then
 removed."*
