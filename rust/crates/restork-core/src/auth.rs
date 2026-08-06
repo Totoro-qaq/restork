@@ -149,9 +149,15 @@ impl fmt::Display for AuthError {
             Self::EntropyUnavailable => "secure random generation is unavailable",
             Self::AuthorityUnavailable => "pairing authority is unavailable",
             Self::ScopeEscalation => "pairing scopes exceed the audience policy",
-            Self::InvalidPairingCode => "invalid pairing code",
-            Self::ExpiredPairingCode => "expired pairing code",
-            Self::PairingWrongAudience => "pairing code has the wrong audience",
+            Self::InvalidPairingCode => {
+                "invalid pairing code; it may already have been used, or Core was restarted \
+                 since it was printed"
+            }
+            Self::ExpiredPairingCode => "pairing code has expired; restart Core to print a new one",
+            Self::PairingWrongAudience => {
+                "this pairing code belongs to the other client; use the Web code in the browser \
+                 and the CLI code with `restorkd`. The code is still valid for its own client"
+            }
             Self::InvalidOrExpiredToken => "invalid or expired access token",
             Self::WrongAudience => "access token has the wrong audience",
             Self::MissingScope => "access token lacks the required scope",
@@ -229,9 +235,17 @@ struct AuthorityState {
     tokens: Vec<AccessToken>,
 }
 
+/// A pairing code is transcribed by a human from a terminal into a browser, so
+/// it needs long enough to read the instructions. An access token is renewed by
+/// the client and can be short. Governing both with one value forced a choice
+/// between an unusable first run and a long-lived credential.
+pub const DEFAULT_PAIRING_TTL: Duration = Duration::from_secs(900);
+pub const DEFAULT_TOKEN_TTL: Duration = Duration::from_secs(1800);
+
 #[derive(Clone)]
 pub struct PairingAuthority {
-    ttl: Duration,
+    pairing_ttl: Duration,
+    token_ttl: Duration,
     clock: Arc<dyn Clock>,
     state: Arc<Mutex<AuthorityState>>,
     initial_code: Arc<str>,
@@ -246,7 +260,8 @@ impl fmt::Debug for PairingAuthority {
             .unwrap_or_default();
         formatter
             .debug_struct("PairingAuthority")
-            .field("ttl", &self.ttl)
+            .field("pairing_ttl", &self.pairing_ttl)
+            .field("token_ttl", &self.token_ttl)
             .field("challenges", &challenges)
             .field("tokens", &tokens)
             .finish()
@@ -254,20 +269,40 @@ impl fmt::Debug for PairingAuthority {
 }
 
 impl PairingAuthority {
+    /// Applies one `ttl` to both pairing codes and access tokens.
+    ///
+    /// Retained with its original meaning so existing callers are unaffected.
+    /// Callers that want the two lifetimes to differ opt in explicitly through
+    /// [`Self::with_ttls`].
     pub fn new(ttl: Duration) -> Result<Self, AuthError> {
         Self::with_clock(ttl, Arc::new(SystemClock))
+    }
+
+    pub fn with_ttls(pairing_ttl: Duration, token_ttl: Duration) -> Result<Self, AuthError> {
+        Self::with_ttls_and_clock(pairing_ttl, token_ttl, Arc::new(SystemClock))
     }
 
     pub fn with_clock<C>(ttl: Duration, clock: Arc<C>) -> Result<Self, AuthError>
     where
         C: Clock + 'static,
     {
-        if ttl.is_zero() {
+        Self::with_ttls_and_clock(ttl, ttl, clock)
+    }
+
+    pub fn with_ttls_and_clock<C>(
+        pairing_ttl: Duration,
+        token_ttl: Duration,
+        clock: Arc<C>,
+    ) -> Result<Self, AuthError>
+    where
+        C: Clock + 'static,
+    {
+        if pairing_ttl.is_zero() || token_ttl.is_zero() {
             return Err(AuthError::InvalidTtl);
         }
         let clock: Arc<dyn Clock> = clock;
         let now = clock.now();
-        let expires_at = now.checked_add(ttl).ok_or(AuthError::InvalidTtl)?;
+        let expires_at = now.checked_add(pairing_ttl).ok_or(AuthError::InvalidTtl)?;
         let initial_code = random_hex::<24>()?;
         let initial_scopes = scope_set(WEB_SCOPES);
         let initial_challenge = PairingChallenge {
@@ -277,7 +312,8 @@ impl PairingAuthority {
             expires_at,
         };
         Ok(Self {
-            ttl,
+            pairing_ttl,
+            token_ttl,
             clock,
             state: Arc::new(Mutex::new(AuthorityState {
                 challenges: vec![initial_challenge],
@@ -325,18 +361,27 @@ impl PairingAuthority {
             .map_err(|_| AuthError::AuthorityUnavailable)?;
         let challenge_index = secret_position(&state.challenges, code, |item| &item.code)
             .ok_or(AuthError::InvalidPairingCode)?;
+
+        // Inspect before consuming. Removing the challenge first meant that
+        // presenting the Web code to the CLI destroyed it, after which the
+        // browser could never pair and the only recovery was restarting Core.
+        // A code offered to the wrong audience MUST survive for its own one.
+        if state.challenges[challenge_index].audience != audience {
+            return Err(AuthError::PairingWrongAudience);
+        }
+        // An expired challenge is consumed: it is dead either way, and leaving
+        // it in place would let the same dead code be retried indefinitely.
         let challenge = state.challenges.remove(challenge_index);
         if challenge.expires_at <= now {
             return Err(AuthError::ExpiredPairingCode);
-        }
-        if challenge.audience != audience {
-            return Err(AuthError::PairingWrongAudience);
         }
         let token = AccessToken {
             value: random_hex::<32>()?,
             audience: challenge.audience,
             scopes: challenge.scopes,
-            expires_at: now.checked_add(self.ttl).ok_or(AuthError::InvalidTtl)?,
+            expires_at: now
+                .checked_add(self.token_ttl)
+                .ok_or(AuthError::InvalidTtl)?,
         };
         state.tokens.push(token.clone());
         Ok(token)
@@ -414,7 +459,9 @@ impl PairingAuthority {
             value: replacement_value,
             audience: current.audience,
             scopes: current.scopes,
-            expires_at: now.checked_add(self.ttl).ok_or(AuthError::InvalidTtl)?,
+            expires_at: now
+                .checked_add(self.token_ttl)
+                .ok_or(AuthError::InvalidTtl)?,
         };
         state.tokens.push(replacement.clone());
         Ok(replacement)
@@ -432,7 +479,7 @@ impl PairingAuthority {
     fn expiration(&self) -> Result<SystemTime, AuthError> {
         self.clock
             .now()
-            .checked_add(self.ttl)
+            .checked_add(self.pairing_ttl)
             .ok_or(AuthError::InvalidTtl)
     }
 }

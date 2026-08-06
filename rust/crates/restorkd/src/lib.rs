@@ -16,7 +16,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use restork_automation::{ScheduleJob, ScheduleSpec};
-use restork_core::auth::{AuthError, PairingAuthority};
+use restork_core::auth::{AuthError, DEFAULT_PAIRING_TTL, DEFAULT_TOKEN_TTL, PairingAuthority};
 use restork_storage::{Database, StorageError};
 use serde::Serialize;
 use tokio::net::TcpListener;
@@ -299,7 +299,10 @@ pub async fn bind(config: ServerConfig) -> Result<BoundServer, StartupError> {
     let requested = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), config.port);
     let listener = TcpListener::bind(requested).await?;
     let address = listener.local_addr()?;
-    let authority = PairingAuthority::new(Duration::from_secs(300))?;
+    // A pairing code is read off a terminal and typed into a browser; an access
+    // token is renewed by the client. One 300-second value for both made the CLI
+    // unusable five minutes after pairing, because it has no renewal path.
+    let authority = PairingAuthority::with_ttls(DEFAULT_PAIRING_TTL, DEFAULT_TOKEN_TTL)?;
     let storage = config
         .state_db
         .map(Database::open)

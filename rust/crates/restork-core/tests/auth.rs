@@ -72,8 +72,19 @@ fn pairing_is_single_use_audience_bound_scope_bound_and_redacted() {
     );
 }
 
+/// A pairing code offered to the wrong client survives for its own client.
+///
+/// This deliberately replaces the previous fail-closed stance, under which a
+/// misdirected code was burned. That stance bought almost nothing: it only
+/// helps against an attacker who holds the code but cannot guess its audience,
+/// and the audience is not a secret — Core prints it on the same line as the
+/// code. Meanwhile it made one plausible copy-and-paste mistake permanently
+/// destroy the Web pairing code, after which the browser could never pair and
+/// the only recovery was restarting Core, which nothing told the user.
+///
+/// An expired code is still consumed; see `expired_challenge_is_consumed`.
 #[test]
-fn wrong_audience_consumes_the_challenge() {
+fn wrong_audience_preserves_the_challenge_for_its_own_client() {
     let authority = PairingAuthority::new(Duration::from_secs(300)).expect("authority");
     let code = authority
         .new_pairing_code(Audience::Cli, CLI_SCOPES)
@@ -83,9 +94,75 @@ fn wrong_audience_consumes_the_challenge() {
         authority.pair(&code, Audience::Web),
         Err(AuthError::PairingWrongAudience)
     );
+
+    // The mistake must not have cost the user their pairing code.
+    let token = authority
+        .pair(&code, Audience::Cli)
+        .expect("the CLI code still pairs its own client after a misdirected attempt");
+    assert_eq!(token.audience(), Audience::Cli);
+
+    // It remains single-use.
     assert_eq!(
         authority.pair(&code, Audience::Cli),
         Err(AuthError::InvalidPairingCode)
+    );
+}
+
+/// An expired code is consumed even though a wrong-audience one is not: it can
+/// never succeed again, so leaving it in place would only let a dead code be
+/// retried indefinitely.
+#[test]
+fn expired_challenge_is_consumed() {
+    let clock = Arc::new(TestClock::new(SystemTime::UNIX_EPOCH));
+    let authority = PairingAuthority::with_clock(Duration::from_secs(300), Arc::clone(&clock))
+        .expect("authority");
+    let code = authority
+        .new_pairing_code(Audience::Web, WEB_SCOPES)
+        .expect("web challenge");
+
+    clock.advance(Duration::from_secs(301));
+
+    assert_eq!(
+        authority.pair(&code, Audience::Web),
+        Err(AuthError::ExpiredPairingCode)
+    );
+    assert_eq!(
+        authority.pair(&code, Audience::Web),
+        Err(AuthError::InvalidPairingCode)
+    );
+}
+
+/// Pairing codes and access tokens are transcribed and renewed on completely
+/// different schedules, so one TTL cannot serve both. Governing both with a
+/// single 300-second value made the CLI unusable five minutes after pairing.
+#[test]
+fn pairing_and_token_lifetimes_are_independent() {
+    let clock = Arc::new(TestClock::new(SystemTime::UNIX_EPOCH));
+    let authority = PairingAuthority::with_ttls_and_clock(
+        Duration::from_secs(900),
+        Duration::from_secs(60),
+        Arc::clone(&clock),
+    )
+    .expect("authority");
+    let code = authority
+        .new_pairing_code(Audience::Web, WEB_SCOPES)
+        .expect("web challenge");
+
+    // Past the token lifetime, well inside the pairing lifetime.
+    clock.advance(Duration::from_secs(120));
+    let token = authority
+        .pair(&code, Audience::Web)
+        .expect("a code within its own lifetime still pairs");
+
+    assert!(
+        authority
+            .verify(token.value(), &[Audience::Web], &[])
+            .is_ok()
+    );
+    clock.advance(Duration::from_secs(61));
+    assert_eq!(
+        authority.verify(token.value(), &[Audience::Web], &[]),
+        Err(AuthError::InvalidOrExpiredToken)
     );
 }
 
