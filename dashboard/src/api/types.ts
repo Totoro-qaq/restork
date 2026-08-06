@@ -920,6 +920,47 @@ export interface RustWorkspaceSnapshot {
   prompts?: PromptRevisionRecordV2[];
 }
 
+/**
+ * Why a domain has no data.
+ *
+ * `.catch(() => [])` cannot express this distinction, so a 500 from Core and an
+ * empty install rendered identically and the user could not tell a broken
+ * backend from a fresh one.
+ *
+ * - `ready`          Core answered. `data` is authoritative, empty or not.
+ * - `not_configured` This Core does not serve the domain, or the feature is off.
+ * - `unavailable`    Core should serve it and did not. Something is wrong.
+ * - `forbidden`      The session lacks the scope.
+ */
+export type DomainState = "ready" | "not_configured" | "unavailable" | "forbidden";
+
+export interface DomainStatus {
+  state: DomainState;
+  /** Core's own `detail`, when it supplied one. Never a synthesised string. */
+  detail?: string;
+  /** Present for an HTTP failure; absent for a transport failure. */
+  status?: number;
+}
+
+/** Every domain in `DashboardSnapshot`, keyed for the UI to consult. */
+export type DomainKey =
+  | "runs"
+  | "approvals"
+  | "tasks"
+  | "radar"
+  | "memory"
+  | "daily"
+  | "provider"
+  | "sessions"
+  | "extensions"
+  | "deliverables"
+  | "schedules"
+  | "providerProfiles"
+  | "settings"
+  | "prompts";
+
+export type DomainStatuses = Partial<Record<DomainKey, DomainStatus>>;
+
 export interface DashboardSnapshot {
   runs: RunListEntry[];
   approvals: ApprovalRequest[];
@@ -935,6 +976,8 @@ export interface DashboardSnapshot {
   musicSources?: MusicSourceDefinition[];
   pagination?: Partial<Record<DashboardListKind, PageInfo>>;
   workspaceV2?: RustWorkspaceSnapshot;
+  /** Absent means "not measured", which the UI treats as `ready`. */
+  domains?: DomainStatuses;
 }
 
 export type DashboardListPage =

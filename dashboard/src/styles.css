@@ -414,6 +414,35 @@ button:disabled { cursor: wait; opacity: .55; }
   cursor: not-allowed;
 }
 
+/* Why a domain has no data. Distinct from `.empty`, which means the user really
+   has nothing yet — these mean Core could not or would not answer. */
+.domain-notice {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  color: var(--fg-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.domain-notice-unavailable {
+  border-style: solid;
+  border-color: var(--status-error-border);
+  background: var(--status-error-bg);
+  color: var(--status-error-fg);
+}
+.domain-notice-forbidden {
+  border-color: var(--warning);
+}
+.domain-notice-detail {
+  color: inherit;
+  font-size: var(--text-2xs);
+  opacity: .8;
+  overflow-wrap: anywhere;
+}
+
 /* Destructive confirmation. A native <dialog> supplies the focus trap, Escape
    handling, and inert background that `window.confirm` gave us for free. */
 .confirm-dialog {

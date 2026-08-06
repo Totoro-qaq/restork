@@ -32,6 +32,9 @@ import type {
   WeatherConfigurationResult,
   CatalogRecordV2,
   DailyContextV2,
+  DomainState,
+  DomainStatus,
+  DomainStatuses,
   PersonalSettingsRecord,
   ProviderProfileRecordV2,
   ProviderRegistryV2,
@@ -96,32 +99,68 @@ export class LocalApiClient implements DashboardApi {
 
   async loadDashboard(): Promise<DashboardSnapshot> {
     const emptyPage = { limit: 12, has_more: false, next_cursor: null };
-    const [runs, approvals, taskBoard, radar, memory, daily, provider, musicSources] = await Promise.all([
-      this.#request<{ runs: DashboardSnapshot["runs"]; page: NonNullable<DashboardSnapshot["pagination"]>["runs"] }>("GET", "/v1/runs?limit=12")
-        .catch(() => ({ runs: [], page: emptyPage })),
-      this.#request<{ approvals: DashboardSnapshot["approvals"]; page: NonNullable<DashboardSnapshot["pagination"]>["approvals"] }>(
-        "GET",
-        "/v1/approvals?pending_only=false&limit=12",
-      ).catch(() => ({ approvals: [], page: emptyPage })),
-      this.#request<DashboardSnapshot["taskBoard"] & { page: NonNullable<DashboardSnapshot["pagination"]>["tasks"] }>("GET", "/v1/tasks?limit=12")
-        .catch(() => ({ configured: false, tasks: [], page: emptyPage })),
-      this.#request<DashboardSnapshot["radar"] & { page: NonNullable<DashboardSnapshot["pagination"]>["radar"] }>("GET", "/v1/radar?limit=12")
-        .catch(() => ({ configured: false, items: [], page: emptyPage })),
-      this.#request<NonNullable<DashboardSnapshot["memory"]> & { page: NonNullable<DashboardSnapshot["pagination"]>["memory"] }>("GET", "/v1/memory?limit=12").catch(
-        () => null,
-      ),
-      this.#request<NonNullable<DashboardSnapshot["daily"]>>(
-        "GET",
-        `/v1/daily?timezone=${encodeURIComponent(systemTimeZone())}`,
-      ).catch(() => null),
-      this.#request<ProviderDiagnostic>("GET", "/v1/providers/deepseek").catch(
-        () => null,
-      ),
-      this.#request<NonNullable<DashboardSnapshot["musicSources"]>>(
-        "GET",
-        "/v1/daily/music/sources",
-      ).catch(() => []),
-    ]);
+    type Pag = NonNullable<DashboardSnapshot["pagination"]>;
+
+    const [runs, approvals, taskBoard, radar, memory, daily, provider, musicSources] =
+      await Promise.all([
+        probe(
+          this.#request<{ runs: DashboardSnapshot["runs"]; page: Pag["runs"] }>(
+            "GET",
+            "/v1/runs?limit=12",
+          ),
+          { runs: [], page: emptyPage } as { runs: DashboardSnapshot["runs"]; page: Pag["runs"] },
+        ),
+        probe(
+          this.#request<{ approvals: DashboardSnapshot["approvals"]; page: Pag["approvals"] }>(
+            "GET",
+            "/v1/approvals?pending_only=false&limit=12",
+          ),
+          { approvals: [], page: emptyPage } as {
+            approvals: DashboardSnapshot["approvals"];
+            page: Pag["approvals"];
+          },
+        ),
+        probe(
+          this.#request<DashboardSnapshot["taskBoard"] & { page: Pag["tasks"] }>(
+            "GET",
+            "/v1/tasks?limit=12",
+          ),
+          { configured: false, tasks: [], page: emptyPage },
+        ),
+        probe(
+          this.#request<DashboardSnapshot["radar"] & { page: Pag["radar"] }>(
+            "GET",
+            "/v1/radar?limit=12",
+          ),
+          { configured: false, items: [], page: emptyPage },
+        ),
+        probe(
+          this.#request<NonNullable<DashboardSnapshot["memory"]> & { page: Pag["memory"] }>(
+            "GET",
+            "/v1/memory?limit=12",
+          ),
+          null as (NonNullable<DashboardSnapshot["memory"]> & { page: Pag["memory"] }) | null,
+        ),
+        probe(
+          this.#request<NonNullable<DashboardSnapshot["daily"]>>(
+            "GET",
+            `/v1/daily?timezone=${encodeURIComponent(systemTimeZone())}`,
+          ),
+          null as DashboardSnapshot["daily"],
+        ),
+        probe(
+          this.#request<ProviderDiagnostic>("GET", "/v1/providers/deepseek"),
+          null as ProviderDiagnostic | null,
+        ),
+        probe(
+          this.#request<NonNullable<DashboardSnapshot["musicSources"]>>(
+            "GET",
+            "/v1/daily/music/sources",
+          ),
+          [] as NonNullable<DashboardSnapshot["musicSources"]>,
+        ),
+      ]);
+
     const [
       dailyContext,
       personal,
@@ -133,71 +172,110 @@ export class LocalApiClient implements DashboardApi {
       providerRegistry,
       profiles,
       prompts,
-    ] =
-      await Promise.all([
-        this.#request<DailyContextV2>("GET", "/v1/daily/context").catch(() => null),
-        this.#request<PersonalSettingsRecord>("GET", "/v1/settings/personal").catch(
-          () => null,
-        ),
+    ] = await Promise.all([
+      probe(this.#request<DailyContextV2>("GET", "/v1/daily/context"), null as DailyContextV2 | null),
+      probe(
+        this.#request<PersonalSettingsRecord>("GET", "/v1/settings/personal"),
+        null as PersonalSettingsRecord | null,
+      ),
+      probe(
         this.#request<{ items: SessionRecordV2[] }>("GET", "/v1/sessions?limit=20")
-          .then((page) => page.items)
-          .catch(() => []),
+          .then((page) => page.items),
+        [] as SessionRecordV2[],
+      ),
+      probe(
         this.#request<{ items: CatalogRecordV2[] }>("GET", "/v1/extensions?limit=20")
-          .then((page) => page.items)
-          .catch(() => []),
+          .then((page) => page.items),
+        [] as CatalogRecordV2[],
+      ),
+      probe(
         this.#request<{ items: CatalogRecordV2[] }>("GET", "/v1/deliverables?limit=20")
-          .then((page) => page.items)
-          .catch(() => []),
+          .then((page) => page.items),
+        [] as CatalogRecordV2[],
+      ),
+      probe(
         this.#request<{ items: CatalogRecordV2[] }>("GET", "/v1/schedules?limit=20")
-          .then((page) => page.items)
-          .catch(() => []),
+          .then((page) => page.items),
+        [] as CatalogRecordV2[],
+      ),
+      probe(
         this.#request<{ items: ProviderProfileRecordV2[] }>("GET", "/v1/provider-profiles")
-          .then((page) => page.items)
-          .catch(() => []),
-        this.#request<ProviderRegistryV2>("GET", "/v1/providers").catch(() => null),
+          .then((page) => page.items),
+        [] as ProviderProfileRecordV2[],
+      ),
+      probe(
+        this.#request<ProviderRegistryV2>("GET", "/v1/providers"),
+        null as ProviderRegistryV2 | null,
+      ),
+      probe(
         this.#request<{ items: ConfigurationProfileRecordV2[] }>(
           "GET",
           "/v1/configuration-profiles",
-        )
-          .then((page) => page.items)
-          .catch(() => []),
+        ).then((page) => page.items),
+        [] as ConfigurationProfileRecordV2[],
+      ),
+      probe(
         this.#request<{ items: PromptRevisionRecordV2[] }>("GET", "/v1/prompts/personal")
-          .then((page) => page.items)
-          .catch(() => []),
-      ]);
-    const workspaceV2 = dailyContext || personal || sessions.length || extensions.length
-      || deliverables.length || schedules.length || providers.length || providerRegistry || profiles.length
-      || prompts.length
-      ? {
-          dailyContext,
-          personal,
-          sessions,
-          extensions,
-          deliverables,
-          schedules,
-          providers,
-          providerRegistry: providerRegistry ?? undefined,
-          profiles,
-          prompts,
-        }
-      : undefined;
+          .then((page) => page.items),
+        [] as PromptRevisionRecordV2[],
+      ),
+    ]);
+
+    const domains: DomainStatuses = {
+      runs: runs.status,
+      approvals: approvals.status,
+      tasks: taskBoard.status,
+      radar: radar.status,
+      memory: memory.status,
+      daily: daily.status,
+      provider: provider.status,
+      sessions: sessions.status,
+      extensions: extensions.status,
+      deliverables: deliverables.status,
+      schedules: schedules.status,
+      providerProfiles: providers.status,
+      settings: personal.status,
+      prompts: prompts.status,
+    };
+
+    // The Rust workspace is present when any of its domains answered, not when
+    // some list happens to be non-empty: an empty-but-ready domain is still real.
+    const v2Reachable = [
+      dailyContext, personal, sessions, extensions, deliverables,
+      schedules, providers, providerRegistry, profiles, prompts,
+    ].some((entry) => entry.status.state === "ready");
+
     return {
-      runs: runs.runs,
-      approvals: approvals.approvals,
-      taskBoard,
-      radar,
-      memory,
-      daily,
-      provider,
-      musicSources,
+      runs: runs.data.runs,
+      approvals: approvals.data.approvals,
+      taskBoard: taskBoard.data,
+      radar: radar.data,
+      memory: memory.data,
+      daily: daily.data,
+      provider: provider.data,
+      musicSources: musicSources.data,
       pagination: {
-        runs: runs.page,
-        approvals: approvals.page,
-        tasks: taskBoard.page,
-        radar: radar.page,
-        memory: memory?.page,
+        runs: runs.data.page,
+        approvals: approvals.data.page,
+        tasks: taskBoard.data.page,
+        radar: radar.data.page,
+        memory: memory.data?.page,
       },
-      workspaceV2,
+      workspaceV2: v2Reachable
+        ? {
+          dailyContext: dailyContext.data,
+          personal: personal.data,
+          sessions: sessions.data,
+          extensions: extensions.data,
+          deliverables: deliverables.data,
+          schedules: schedules.data,
+          providers: providers.data,
+          providerRegistry: providerRegistry.data ?? undefined,
+          profiles: profiles.data,
+          prompts: prompts.data,
+        }
+        : undefined,
+      domains,
     };
   }
 
@@ -1270,7 +1348,59 @@ export function systemTimeZone(): string {
   }
 }
 
-async function apiError(response: Response): Promise<Error> {
+/**
+ * Carries the HTTP status alongside the message so a caller can tell "this Core
+ * does not serve that route" from "that request failed". Without the status,
+ * every failure collapses into one indistinguishable string.
+ */
+/**
+ * Run one domain request and classify its outcome instead of swallowing it.
+ *
+ * Status mapping, and why:
+ * - 404/405/501 — this Core does not serve the route at all. During the
+ *   single-Core migration that is the common case, and it is `not_configured`
+ *   rather than a fault.
+ * - 503 — Core serves the route but the feature is switched off. Python returns
+ *   this for an unconfigured task vault, for example.
+ * - 401/403 — the session lacks the scope.
+ * - anything else, including a transport failure — genuinely broken.
+ */
+async function probe<T>(
+  request: Promise<T>,
+  fallback: T,
+): Promise<{ data: T; status: DomainStatus }> {
+  try {
+    return { data: await request, status: { state: "ready" } };
+  } catch (error) {
+    if (error instanceof ApiError) {
+      const state: DomainState = [404, 405, 501, 503].includes(error.status)
+        ? "not_configured"
+        : [401, 403].includes(error.status)
+          ? "forbidden"
+          : "unavailable";
+      return { data: fallback, status: { state, detail: error.message, status: error.status } };
+    }
+    return {
+      data: fallback,
+      status: {
+        state: "unavailable",
+        detail: error instanceof Error ? error.message : undefined,
+      },
+    };
+  }
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+async function apiError(response: Response): Promise<ApiError> {
   let detail = `Core returned HTTP ${response.status}`;
   try {
     const payload = (await response.json()) as { detail?: unknown };
@@ -1278,5 +1408,5 @@ async function apiError(response: Response): Promise<Error> {
   } catch {
     // Do not include arbitrary response bodies in the error surface.
   }
-  return new Error(detail);
+  return new ApiError(detail, response.status);
 }
