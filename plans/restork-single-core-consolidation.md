@@ -155,10 +155,15 @@ Runtime-independent; the Dashboard is embedded by both Cores.
 
 ### 1F. Python deprecation
 
-- [ ] Point `scripts/quickstart.sh` at `restorkd`.
-- [ ] Remove the Python Core from CI's default path, README quickstart, and `docs/`.
-- [ ] Add a deprecation notice naming Stage 6 as removal.
-- [ ] Delete `dist/desktop-core/`, `packaging/restork-core.spec`, `scripts/build-desktop-core.sh`.
+- [x] Point `scripts/quickstart.sh` at `restorkd`; it now builds the Dashboard and the Core.
+- [x] Rewrite both READMEs' quickstart and capability tables against the Core that quickstart
+      actually starts, and split "available" from "being ported".
+- [x] Add a deprecation notice naming Stage 6 as removal.
+- [x] Delete `dist/desktop-core/`, `packaging/`, `scripts/build-desktop-core.sh`; rename
+      `smoke-desktop-core.sh` to match the binary it smokes.
+- [x] Rename CI's `core` job to `legacy-python-core`. It keeps running: refines the original
+      "remove from CI" intent, because all 14 release-blocking gates execute pytest and have no
+      Rust counterpart until 6C. Disabling them mid-migration would remove the only safety net.
 
 ### Stage 1 gate
 

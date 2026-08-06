@@ -1,10 +1,15 @@
 #!/bin/sh
 
+# Starts the native Rust Core, which is the Core the desktop application ships
+# and the only one under active development. The Python package in `src/` is
+# deprecated and is removed once its remaining domains are ported; see
+# `specs/restork-single-core-consolidation.md`.
+
 set -eu
 
-if ! command -v uv >/dev/null 2>&1; then
-  printf '%s\n' 'Restork needs uv: https://docs.astral.sh/uv/getting-started/installation/' >&2
-  printf '%s\n' 'Restork 需要先安装 uv：见上方官方安装文档。' >&2
+if ! command -v cargo >/dev/null 2>&1; then
+  printf '%s\n' 'Restork needs a Rust toolchain: https://rustup.rs' >&2
+  printf '%s\n' 'Restork 需要先安装 Rust 工具链：见上方 rustup 官方文档。' >&2
   exit 1
 fi
 
@@ -25,11 +30,20 @@ fi
 
 cd "$restork_root"
 
-printf '%s\n' 'Preparing the locked Restork environment…'
-uv sync --frozen
+# The Dashboard is embedded into the binary, so it must be built first.
+if command -v npm >/dev/null 2>&1; then
+  printf '%s\n' 'Building the Dashboard…'
+  npm --prefix dashboard ci --silent
+  npm --prefix dashboard run build --silent
+else
+  printf '%s\n' 'npm is unavailable; using the Dashboard bundle already in src/restork/web.' >&2
+fi
+
+printf '%s\n' 'Building the Restork Core…'
+cargo build --release --manifest-path rust/Cargo.toml -p restorkd
 
 printf '\n%s\n' "Dashboard: http://127.0.0.1:$restork_port"
-printf '%s\n' 'Enter the Web pairing code printed below. Press Ctrl-C to stop Restork.'
-printf '%s\n\n' '请在浏览器输入下方 Web 配对码；按 Ctrl-C 停止 Restork。'
+printf '%s\n' 'Enter the pairing code printed below. Press Ctrl-C to stop Restork.'
+printf '%s\n\n' '请在浏览器输入下方配对码；按 Ctrl-C 停止 Restork。'
 
-exec uv run restork "$@" serve --port "$restork_port"
+exec ./rust/target/release/restorkd serve --port "$restork_port" "$@"

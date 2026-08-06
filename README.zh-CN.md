@@ -89,9 +89,8 @@ Restork 的基础工作流不需要 LangGraph、图数据库、KAG、Valkey、Me
 
 ## 五分钟开始使用
 
-完整的 V1 Research/Study/Work 源码工作流仍是迁移期间正式支持的快速启动方式。日常使用只需要
-[`uv`](https://docs.astral.sh/uv/getting-started/installation/)；只有修改 Dashboard 源码时
-才需要 Node.js。
+一条命令构建 Dashboard 和原生 Core 并启动它。你需要 [Rust 工具链](https://rustup.rs)
+和 Node.js。
 
 ```bash
 git clone https://github.com/Totoro-qaq/restork.git
@@ -109,20 +108,21 @@ Restork 会在 `http://127.0.0.1:7337` 启动，并在终端打印一次性 Web 
 输入配对码就能开始。首次启动不需要 API Key，不会擅自选择 Vault，也不会自动开启天气或其他
 连接；离线 Research synthesizer 可以让你在不发送模型请求的情况下先体验产品。
 
-### 体验 Rust-first 工作台
-
-原生 Core 运行同一套内嵌 Dashboard，现在已经包含 Steps 18–22 的生产化能力表面。从源码启动
-时需要 Rust；桌面安装包会直接包含二进制。
+### 直接运行 Core
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- \
   serve --port 7337 --state-db ./build/restork-alpha.db
 ```
 
-打开 readiness 记录中的 `base_url`，输入其中的一次性配对码。原生工作台包含可取消对话与
-上下文预览、多供应商 Profile 与版本化 Prompt、受控 MCP 执行和扩展回滚、确定性 PPTX/PDF、
-真正绑定预览哈希的文件恢复、有界子任务、调度、记忆与每日上下文。只有在需要尚未达到 Rust
-行为对等的某条 V1 工作流时，才继续使用 `./scripts/quickstart.sh`。
+打开 readiness 记录中的 `base_url`，输入其中的一次性配对码。
+
+### 关于 Python 包
+
+`src/restork/` 是一个已弃用的第二 Core。它不在任何分发产物中，桌面应用不会启动它，仅作为
+迁移期的移植参考保留，直到
+[单核收敛规格](specs/restork-single-core-consolidation.md)完成。它仍持有的能力域——运行、
+审批、任务、记忆、Radar 与 Work——在 Dashboard 中会明确标注「当前 Core 未提供」，而不是显示为空。
 
 ### 桌面安装包
 
@@ -231,21 +231,39 @@ uv run restork \
 
 ## 现在可以使用的能力
 
+以下对照 `./scripts/quickstart.sh` 实际启动的那个 Core。
+
 | 区域 | 当前可以做什么 |
 |---|---|
-| **运行与审批** | 持久运行状态、预算、显式重试、恢复、单次审批、可取消对话与可重放 SSE 更新 |
-| **Dashboard 与本地 API** | 响应式中英文界面、仅监听 loopback 的 `/v1` API、独立 Web/CLI 配对与短期会话 |
-| **知识与任务** | 只读 Vault 检索、确定性 wiki-link 投影、日志化单文件写入，以及 Markdown 任务的预览/审批/应用 |
-| **Research、Study、Work** | 带证据的研究、引导式学习与练习，以及只做规划的仓库交接 |
-| **记忆与每日上下文** | 四层可检查记忆、可选天气、无需权限的系统日期/月历、显式 macOS EventKit 接入、通用只读 ICS 后备，以及统一的本地/QQ/网易云/Apple Music 来源 |
-| **模型与扩展** | DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter 与通用端点；供应商范围内思考强度；版本化 Prompt；真实有界 MCP stdio 执行；不可变扩展修订和回滚 |
-| **产物与恢复** | 确定性无宏 PPTX/PDF、精确产物哈希、包含真实内容的检查点、绑定预览的文件系统恢复、调度、评估与深度一有界子任务 |
-| **跨平台桌面源码** | Tauri 打包 `restorkd` 与 Dashboard，使用 Unix 进程组或 Windows Job Object 管理生命周期，验证签名更新并保留有限恢复副本，同时生成无需目标机运行时的三平台候选包 |
+| **Dashboard 与本地 API** | 中英文界面、仅监听 loopback 的 `/v1` API、独立 Web/CLI 配对、可轮转的短期会话 |
+| **对话** | 运行范围内的会话，支持分支、搜索、导出、归档、可取消操作与 SSE 重放 |
+| **模型** | DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter 与通用 OpenAI 兼容端点；供应商范围内思考强度；原生凭据存储；版本化 Prompt 与配置 Profile |
+| **扩展** | 清单校验、权限格、不可变修订与回滚，以及沙箱化的 stdio MCP 执行 |
+| **每日上下文** | 可选天气、无需权限的系统日期与月历、一个本地 ICS 日历、macOS 未读邮件计数，以及来自 QQ 音乐、网易云、Apple Music 或私有歌单文件的每日单曲 |
+| **产物与恢复** | 确定性无宏 PPTX/PDF、精确产物哈希、包含真实内容的检查点、绑定预览的文件恢复 |
+| **自动化** | 感知夏令时的重复调度与幂等周期键 |
+| **桌面** | Tauri 打包 `restorkd` 与 Dashboard，使用 Unix 进程组或 Windows Job Object 管理生命周期 |
 
-Steps 18–22 已在源码中实现，并有确定性本地门禁覆盖。公开 macOS Alpha 明确不在 Apple
-Developer ID 信任范围内；受保护正式版仍要求真实 Developer ID、Authenticode、Linux GPG、
-公证与干净 runner 证据。精确契约与仍依赖凭据的证明见
-[Steps 18–22 规格](specs/restork-steps18-22.md)和[交付计划](plans/restork-steps18-22.md)。
+### 正在移植
+
+以下能力实现在已弃用的 Python 包中，上述 Core **无法**访问。Dashboard 会将它们标注为
+「当前 Core 未提供」，而不是显示为空列表。
+
+| 区域 | 状态 |
+|---|---|
+| 运行、审批、预算、副作用恢复 | 随 agent 运行时一起在 Rust 落地 |
+| Markdown 任务与日志化写入 | 计划移植 |
+| 四层记忆 | 计划移植 |
+| Research 证据与引用笔记 | 计划移植 |
+| Work 校验与脱敏交接 | 计划移植；三步固定规划器不再保留 |
+| Radar | 保留，但需要真实摄取——它从未有过数据 |
+| Study | 已删除；将基于 agent loop 并以你的 Vault 为基础重建 |
+
+两个 Core 目前都还没有工具调用的 agent loop。排期、契约与验收门见
+[单核收敛规格](specs/restork-single-core-consolidation.md)。
+
+公开 macOS Alpha 明确不在 Apple Developer ID 信任范围内；受保护正式版仍要求真实
+Developer ID、Authenticode、Linux GPG、公证与干净 runner 证据。
 
 ## 使用指南
 
@@ -254,7 +272,6 @@ Developer ID 信任范围内；受保护正式版仍要求真实 Developer ID、
 - [记忆](docs/memory.md)
 - [Markdown 任务](docs/markdown-tasks.md)
 - [Research](docs/research-workflow.md)
-- [Study](docs/study.md)
 - [Work](docs/work.md)
 - [跨平台桌面端内测版](docs/desktop.zh-CN.md)
 - [Restork 与 Hermes Agent](docs/restork-vs-hermes.zh-CN.md)
@@ -285,7 +302,7 @@ npm --prefix dashboard run build
 # 跨平台桌面端内测版（在对应操作系统上运行匹配命令）
 npm --prefix desktop ci
 npm --prefix desktop run fmt:check
-./scripts/build-desktop-core.sh
+node scripts/build-desktop-runtime.mjs
 npm --prefix desktop run clippy
 npm --prefix desktop test
 npm --prefix desktop run build:macos
