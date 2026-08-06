@@ -3,6 +3,8 @@ import type {
   CalendarEvent,
   ConversationTurn,
   DashboardSnapshot,
+  DomainKey,
+  DomainState,
   MemoryRecord,
   MailSnapshot,
   MusicDiscovery,
@@ -147,8 +149,8 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
           ${dailyContext(snapshot, locale)}
           ${overview(snapshot, locale)}
         </section>
-        <section class="view" data-view-panel="runs" hidden>${runsView(snapshot.runs, snapshot.pagination?.runs, locale)}</section>
-        <section class="view" data-view-panel="approvals" hidden>${approvalsView(snapshot.approvals, snapshot.pagination?.approvals, locale)}</section>
+        <section class="view" data-view-panel="runs" hidden>${runsView(snapshot, locale)}</section>
+        <section class="view" data-view-panel="approvals" hidden>${approvalsView(snapshot, locale)}</section>
         <section class="view" data-view-panel="tasks" hidden>${tasksView(snapshot, locale)}</section>
         <section class="view" data-view-panel="radar" hidden>${radarView(snapshot, locale)}</section>
         <section class="view" data-view-panel="memory" hidden>${memoryView(snapshot, locale)}</section>
@@ -856,17 +858,27 @@ function overview(snapshot: DashboardSnapshot, locale: Locale): string {
   </div>`;
 }
 
-export function runsView(runs: RunListEntry[], page: PageInfo | undefined, locale: Locale): string {
+export function runsView(snapshot: DashboardSnapshot, locale: Locale): string {
+  const runs = snapshot.runs;
+  const page = snapshot.pagination?.runs;
+  const notice = domainNotice(snapshot, "runs", locale);
+  if (notice) return `<article class="paper-card full-card"><header><h2>${tr(locale, "Runs", "运行")}</h2></header>${notice}</article>`;
   return `<article class="paper-card full-card"><header><h2>${tr(locale, "Runs", "运行")}</h2><span class="ribbon research">CORE STATE</span></header>
     <div class="split-view"><div><div class="item-list">${runs.map((run) => `<button type="button" class="list-item" data-run-id="${escapeHtml(run.summary.run_id)}"><b>${escapeHtml(run.summary.mode.toUpperCase())}</b><span>${escapeHtml(run.task?.goal ?? run.summary.task_id)}</span><small>${escapeHtml(run.summary.state)} · ${formatDate(run.summary.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "No runs.", "没有运行。")}</p>`}</div>${paginationControl("runs", page, locale)}</div><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its events.", "选择一个运行查看事件。")}</div></div>
   </article>`;
 }
 
-export function approvalsView(approvals: ApprovalRequest[], page: PageInfo | undefined, locale: Locale): string {
+export function approvalsView(snapshot: DashboardSnapshot, locale: Locale): string {
+  const approvals = snapshot.approvals;
+  const page = snapshot.pagination?.approvals;
+  const notice = domainNotice(snapshot, "approvals", locale);
+  if (notice) return `<article class="paper-card"><header><h2>${tr(locale, "Approvals", "审批")}</h2></header>${notice}</article>`;
   return `<div class="stack">${approvals.map((approval) => approvalCard(approval, locale)).join("") || emptyCard(tr(locale, "Approvals", "审批"), tr(locale, "No approval records.", "没有审批记录。"))}${paginationControl("approvals", page, locale)}</div>`;
 }
 
 export function tasksView(snapshot: DashboardSnapshot, locale: Locale): string {
+  const notice = domainNotice(snapshot, "tasks", locale);
+  if (notice) return `<article class="paper-card full-card"><header><h2>${tr(locale, "Markdown tasks", "Markdown 任务")}</h2></header>${notice}</article>`;
   if (!snapshot.taskBoard.configured) return emptyCard(tr(locale, "Markdown tasks", "Markdown 任务"), tr(locale, "Configure a private Vault with --vault-dir. The browser receives no authority outside that Vault path.", "使用 --vault-dir 配置私有 Vault。浏览器不会持有 Vault 路径之外的权限。"));
   return `<article class="paper-card full-card"><header><h2>${tr(locale, "Markdown tasks", "Markdown 任务")}</h2><span class="ribbon work">MARKDOWN TRUTH</span></header>
     <form id="quick-task-form" class="quick-task-form"><label for="quick-task">${tr(locale, "Quick capture", "快速捕获")}</label><div><input id="quick-task" name="text" required maxlength="500" placeholder="${tr(locale, "One Markdown task", "一行 Markdown 任务")}"><select name="priority" aria-label="${tr(locale, "Priority", "优先级")}"><option value="">P–</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select><button type="submit">${tr(locale, "PREVIEW", "预览")}</button></div></form>
@@ -876,6 +888,8 @@ export function tasksView(snapshot: DashboardSnapshot, locale: Locale): string {
 }
 
 export function radarView(snapshot: DashboardSnapshot, locale: Locale): string {
+  const notice = domainNotice(snapshot, "radar", locale);
+  if (notice) return `<article class="paper-card full-card"><header><h2>Radar</h2></header>${notice}</article>`;
   const lanes: Array<[RadarItem["lane"], string]> = [["my_stars", "My Stars"], ["trending", "Trending"], ["hn", "HN"], ["papers", "Papers"]];
   return `<article class="paper-card full-card"><header><h2>Radar</h2><span class="ribbon radar">CORE CONNECTORS</span></header>
     <div id="research-result" class="research-result-host" role="status"></div>
@@ -884,6 +898,8 @@ export function radarView(snapshot: DashboardSnapshot, locale: Locale): string {
 }
 
 export function memoryView(snapshot: DashboardSnapshot, locale: Locale): string {
+  const notice = domainNotice(snapshot, "memory", locale);
+  if (notice) return `<article class="paper-card full-card"><header><h2>${tr(locale, "Four-layer memory", "四层记忆")}</h2></header>${notice}</article>`;
   if (!snapshot.memory) return emptyCard(tr(locale, "Four-layer memory", "四层记忆"), tr(locale, "The memory service is not configured.", "Memory service 尚未配置。"));
   const records = snapshot.memory.records.filter((record) => record.summary);
   return `<article class="paper-card full-card"><header><h2>${tr(locale, "Four-layer memory", "四层记忆")}</h2><span class="ribbon study">LOCAL</span></header>
@@ -1275,7 +1291,45 @@ function metric(kind: string, label: string, value: string, note: string): strin
 }
 
 function emptyCard(title: string, copy: string): string {
-  return `<article class="paper-card"><header><h2>${escapeHtml(title)}</h2></header><p class="empty">${escapeHtml(copy)}</p></article>`;
+  return `<article class="paper-card"><header><h2>${escapeHtml(title)}</h2></header><p class="empty">${escapeHtml(copy)}</p></article>`
+}
+
+/**
+ * Render why a domain has no data. "You have no runs yet" and "Core did not
+ * answer" are different facts and MUST NOT share a surface.
+ *
+ * Returns an empty string for `ready`, letting the caller render real content.
+ */
+export function domainNotice(
+  snapshot: DashboardSnapshot,
+  key: DomainKey,
+  locale: Locale,
+): string {
+  const status = snapshot.domains?.[key];
+  if (!status || status.state === "ready") return "";
+
+  const copy: Record<Exclude<DomainState, "ready">, [string, string]> = {
+    not_configured: [
+      "The connected Core does not provide this yet.",
+      "已连接的 Core 尚未提供此功能。",
+    ],
+    unavailable: [
+      "Core did not answer. This is not an empty workspace.",
+      "Core 没有响应。这不是空工作区。",
+    ],
+    forbidden: [
+      "This session is not authorised for this data.",
+      "当前会话无权访问这部分数据。",
+    ],
+  };
+  const [english, chinese] = copy[status.state];
+  const role = status.state === "unavailable" ? "alert" : "status";
+  // Core's own detail is shown verbatim; nothing here is synthesised.
+  const detail = status.detail
+    ? `<small class="domain-notice-detail">${escapeHtml(status.detail)}</small>`
+    : "";
+  return `<p class="domain-notice domain-notice-${status.state}" role="${role}">`
+    + `${escapeHtml(tr(locale, english, chinese))}${detail}</p>`;
 }
 
 function modeCounts(runs: RunListEntry[], locale: Locale): string {

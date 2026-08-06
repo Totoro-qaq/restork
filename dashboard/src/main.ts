@@ -2807,9 +2807,9 @@ function listPanelMarkup(
   kind: DashboardListKind,
   locale: Locale,
 ): string | null {
-  if (kind === "runs") return runsView(snapshot.runs, snapshot.pagination?.runs, locale);
+  if (kind === "runs") return runsView(snapshot, locale);
   if (kind === "approvals") {
-    return approvalsView(snapshot.approvals, snapshot.pagination?.approvals, locale);
+    return approvalsView(snapshot, locale);
   }
   if (kind === "tasks") return tasksView(snapshot, locale);
   if (kind === "radar") return radarView(snapshot, locale);

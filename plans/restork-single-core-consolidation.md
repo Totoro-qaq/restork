@@ -94,18 +94,18 @@ Runtime-independent; the Dashboard is embedded by both Cores.
       `src/restork/study/` to be removed with the rest of Python in Stage 6 — Study is rebuilt, not
       ported, so it has no reference value, and deleting it now would only break 12 Python tests in
       a tree that is already scheduled for removal.
-- [ ] Give every deferred domain the typed `not_configured` state instead of an empty list.
+- [x] Give every deferred domain the typed `not_configured` state instead of an empty list.
 - [x] Test: every Dashboard route literal is either served by `restork-api` or renders
       `not_configured`.
 
 ### 1B. Typed degradation
 
-- [ ] Replace the 17 `.catch(() => fallback)` in `client.ts:100-205` with a discriminated result:
+- [x] Replace the 17 `.catch(() => fallback)` in `client.ts:100-205` with a discriminated result:
       `ready` / `not_configured` / `unavailable` / `forbidden`.
-- [ ] Render a distinct, actionable surface per state.
-- [ ] Surface disabling configuration as `not_configured` (omitting `--vault-dir` silently 503s all
+- [x] Render a distinct, actionable surface per state.
+- [x] Surface disabling configuration as `not_configured` (omitting `--vault-dir` silently 503s all
       three task mutation routes).
-- [ ] Test: a 500 renders an error surface, not an empty state.
+- [x] Test: a 500 renders an error surface, not an empty state.
 
 ### 1C. Bootstrap
 
