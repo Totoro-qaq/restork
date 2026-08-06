@@ -1,3 +1,5 @@
+import { localeOf } from "../i18n";
+
 const cleanups = new WeakMap<HTMLElement, () => void>();
 
 export function startClock(root: HTMLElement): void {
@@ -8,6 +10,12 @@ export function startClock(root: HTMLElement): void {
   const text = root.querySelector<HTMLTimeElement>("#clock-text");
   if (!hour || !minute || !second || !text) return;
   const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  // Read the active locale rather than hardcoding one: an English user was
+  // shown a Chinese-formatted date under the clock.
+  const formatter = new Intl.DateTimeFormat(localeOf(root), {
+    dateStyle: "full",
+    timeStyle: "medium",
+  });
 
   const update = (): void => {
     const now = new Date();
@@ -18,10 +26,7 @@ export function startClock(root: HTMLElement): void {
     minute.setAttribute("transform", `rotate(${minutes * 6} 50 50)`);
     second.setAttribute("transform", `rotate(${seconds * 6} 50 50)`);
     text.dateTime = now.toISOString();
-    text.textContent = new Intl.DateTimeFormat("zh-CN", {
-      dateStyle: "full",
-      timeStyle: "medium",
-    }).format(now);
+    text.textContent = formatter.format(now);
   };
   update();
   const timer = window.setInterval(update, reduced ? 60_000 : 1_000);

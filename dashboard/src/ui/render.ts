@@ -30,7 +30,7 @@ import type {
   ToolSearchResultV2,
 } from "../api/types";
 import type { Locale } from "../i18n";
-import { alternateLocale, tr } from "../i18n";
+import { alternateLocale, plural, tr } from "../i18n";
 
 export type AgentWaitStage =
   | "prepare"
@@ -66,9 +66,10 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
   const greeting = personalGreeting(snapshot, locale);
   return `
     <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <a class="skip-link" href="#workspace-main">${tr(locale, "Skip to main content", "跳到主要内容")}</a>
     <section class="dashboard" aria-label="${tr(locale, "Restork local workspace", "Restork 本地工作台")}">
       <aside class="sidebar">
-        <div class="brand"><strong>RES<span>TORK</span></strong><small>LOCAL-FIRST AGENT</small></div>
+        <div class="brand"><h1>RES<span>TORK</span></h1><small>LOCAL-FIRST AGENT</small></div>
         <nav aria-label="${tr(locale, "Main navigation", "主导航")}">
           ${navButton("overview", "R", tr(locale, "Dashboard", "仪表盘"), true)}
           ${navButton("runs", "›", tr(locale, "Runs", "运行"), false, active.length)}
@@ -90,12 +91,22 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
         </div>
         <p class="session">127.0.0.1 · LOCAL<br><b>CORE PAIRED</b></p>
       </aside>
-      <main class="workspace">
+      <main class="workspace" id="workspace-main" tabindex="-1">
         <header class="topline">
           <p>&gt; <span id="greeting">${escapeHtml(greeting)}</span><span class="caret" aria-hidden="true"></span></p>
           <div class="topline-actions">${mailIndicator(snapshot, locale)}${localeSwitch(locale)}<button class="quiet-button" id="refresh" type="button">${tr(locale, "REFRESH", "刷新")}</button></div>
         </header>
-        <p id="global-status" class="sr-only" role="status"></p>
+        <div id="global-status-region" class="status-region">
+          <p id="global-status" class="status-note" role="status" hidden></p>
+          <p id="global-alert" class="status-note status-note-error" role="alert" hidden></p>
+          <button
+            id="global-status-dismiss"
+            class="status-note-dismiss"
+            type="button"
+            hidden
+            aria-label="${tr(locale, "Dismiss message", "关闭提示")}"
+          >×</button>
+        </div>
         ${mailSettings(snapshot, locale)}
         <section id="action-panel" class="action-panel" aria-labelledby="action-panel-title" hidden>
           <header class="action-panel-header">
@@ -278,7 +289,7 @@ function conversationWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
       <aside class="session-rail">
         <form id="session-create-form"><label for="session-title">${tr(locale, "New conversation", "新建对话")}</label><div><input id="session-title" name="title" maxlength="240" required placeholder="${tr(locale, "What are we working on?", "这次想做什么？")}"><button type="submit">+</button></div><label for="session-profile" class="sr-only">${tr(locale, "Conversation profile", "对话 Profile")}</label><select id="session-profile" name="profile_id" aria-describedby="session-profile-help"><option value="safe-mode">${tr(locale, "Safe Mode / local only", "安全模式 / 仅本地")}</option><option value="deepseek">${escapeHtml(builtInDeepSeekLabel)} / ${tr(locale, "cloud / public only", "云端 / 仅 public")}</option>${customProfiles.map(({ profile }) => `<option value="${escapeHtml(profile.profile_id)}">${escapeHtml(profileLabel(profile))}</option>`).join("")}</select><small id="session-profile-help">${tr(locale, "The selected profile freezes this exact provider and model for the conversation; cloud use is never selected silently.", "所选 Profile 会把精确的供应商与模型固定到本次对话；系统绝不会静默切换到云端。")}</small></form>
         <form id="session-search-form" class="compact-search"><label class="sr-only" for="session-search">${tr(locale, "Search conversations", "搜索对话")}</label><input id="session-search" name="query" maxlength="256" placeholder="${tr(locale, "Search message history", "搜索消息历史")}"><button type="submit">⌕</button></form><div id="session-search-results" aria-live="polite"></div>
-        <div class="session-list">${sessions.map((session) => `<button type="button" data-session-select="${escapeHtml(session.session_id)}" data-session-title="${escapeHtml(session.title)}" data-session-profile="${escapeHtml(session.profile_id)}" data-session-version="${session.version}" data-session-updated-at="${escapeHtml(session.updated_at)}" class="session-item ${session.session_id === active?.session_id ? "is-active" : ""}"><strong>${escapeHtml(session.title)}</strong><small>${escapeHtml(session.profile_id)} · ${formatDate(session.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "Create a conversation to begin locally.", "新建一个对话，从本地开始。")}</p>`}</div>
+        <div class="session-list" data-roving-group>${sessions.map((session) => `<button type="button" data-session-select="${escapeHtml(session.session_id)}" data-session-title="${escapeHtml(session.title)}" data-session-profile="${escapeHtml(session.profile_id)}" data-session-version="${session.version}" data-session-updated-at="${escapeHtml(session.updated_at)}" class="session-item ${session.session_id === active?.session_id ? "is-active" : ""}"><strong>${escapeHtml(session.title)}</strong><small>${escapeHtml(session.profile_id)} · ${formatDate(session.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "Create a conversation to begin locally.", "新建一个对话，从本地开始。")}</p>`}</div>
       </aside>
       <section class="conversation-pane" data-active-session="${escapeHtml(active?.session_id ?? "")}" data-active-profile="${escapeHtml(active?.profile_id ?? "safe-mode")}" data-active-updated-at="${escapeHtml(active?.updated_at ?? "")}">
         <header><div><small>${tr(locale, "Selected conversation", "当前对话")}</small><strong id="conversation-title">${escapeHtml(active?.title ?? tr(locale, "No conversation selected", "尚未选择对话"))}</strong></div><div class="session-actions"><span>${tr(locale, "No tools before proposal review", "提案确认前不调用工具")}</span><button type="button" data-session-export ${active ? "" : "disabled"}>${tr(locale, "EXPORT", "导出")}</button><button type="button" data-session-archive ${active ? "" : "disabled"}>${tr(locale, "ARCHIVE", "归档")}</button><button type="button" class="danger-text" data-session-delete ${active ? "" : "disabled"}>${tr(locale, "DELETE", "删除")}</button></div></header>
@@ -310,7 +321,7 @@ function extensionsWorkspace(snapshot: DashboardSnapshot, locale: Locale): strin
   const records = snapshot.workspaceV2?.extensions ?? [];
   const sessions = snapshot.workspaceV2?.sessions.filter((session) => session.status === "active") ?? [];
   return `<article class="paper-card full-card catalog-workspace"><header><div><p class="eyebrow">EXTENSION CENTER</p><h2>${tr(locale, "Skills, MCP & plugins", "Skills、MCP 与插件")}</h2></div><span class="ribbon research">${tr(locale, "GOVERNED", "受控")}</span></header>
-    <div class="catalog-toolbar" role="tablist"><button type="button" class="is-active" data-extension-filter="all">${tr(locale, "All", "全部")}</button><button type="button" data-extension-filter="skill">Skills</button><button type="button" data-extension-filter="mcp">MCP</button><button type="button" data-extension-filter="plugin">Plugins</button></div>
+    <div class="catalog-toolbar" role="group" data-roving-group data-roving-orientation="horizontal" aria-label="${tr(locale, "Filter extensions", "筛选扩展")}"><button type="button" class="is-active" aria-pressed="true" data-extension-filter="all">${tr(locale, "All", "全部")}</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="skill">Skills</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="mcp">MCP</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="plugin">Plugins</button></div>
     <div class="catalog-grid extension-grid">${records.map((record) => `<article data-extension-card-kind="${escapeHtml(record.package_kind ?? "unknown")}"><strong>${escapeHtml(record.package_id ?? "extension")}</strong><span>${escapeHtml(record.package_kind ?? "extension")} · ${escapeHtml(record.state)}</span><small>${escapeHtml(record.manifest_hash?.slice(0, 16) ?? "no hash")}… · ${formatDate(record.updated_at, locale)}</small><details><summary>${tr(locale, "Manifest", "清单")}</summary><pre>${prettyJson(record.manifest)}</pre></details>${record.manifest_hash ? `<div class="record-actions"><button type="button" data-extension-state="${record.state === "enabled" ? "disable" : "enable"}" data-extension-id="${escapeHtml(record.package_id ?? "")}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${record.state === "enabled" ? tr(locale, "DISABLE", "停用") : tr(locale, "REVIEW & ENABLE", "审查并启用")}</button><button type="button" class="quiet-button" data-extension-history data-extension-id="${escapeHtml(record.package_id ?? "")}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${tr(locale, "VERSIONS & ROLLBACK", "版本与回滚")}</button></div><div class="extension-history" data-extension-history-results role="status"></div>` : ""}</article>`).join("") || `<p class="empty">${tr(locale, "No extensions installed. Safe Mode remains blank by default.", "尚未安装扩展；安全模式默认保持空白。")}</p>`}</div>
     <div class="catalog-compose-grid"><form id="extension-install-form"><h3>${tr(locale, "Install a pinned manifest", "安装已固定版本的清单")}</h3><label>${tr(locale, "Package type", "包类型")}<select name="package_kind"><option value="skill">Skill</option><option value="mcp">MCP</option><option value="plugin">Plugin</option></select></label><label class="wide-label">JSON<textarea name="manifest" rows="12" maxlength="2000000" required spellcheck="false" placeholder='{"schema_version":1}'></textarea></label><button type="submit">${tr(locale, "VALIDATE & QUARANTINE", "验证并隔离")}</button><p id="extension-install-status" role="status"></p></form>
     <form id="extension-tool-search-form"><h3>${tr(locale, "Session tool search", "会话工具搜索")}</h3><label>${tr(locale, "Conversation", "对话")}<select name="session_id">${sessions.map((session) => `<option value="${escapeHtml(session.session_id)}">${escapeHtml(session.title)}</option>`).join("")}</select></label><label>${tr(locale, "Query", "查询")}<input name="query" maxlength="512" required></label><button type="submit" ${sessions.length ? "" : "disabled"}>${tr(locale, "SEARCH FROZEN CATALOG", "搜索冻结目录")}</button><div id="extension-tool-results"></div></form></div>
@@ -714,7 +725,11 @@ export function workVerificationMarkup(
   return `<article class="work-result ${report.completion_eligible ? "is-verified" : "is-failed"}" aria-labelledby="work-verification-title">
     <header><div><p class="eyebrow">${tr(locale, "IMPORTED RESULT · INDEPENDENT CHECK", "导入结果 · 独立检查")}</p><h3 id="work-verification-title">${escapeHtml(report.status.toUpperCase())}</h3></div><span>${report.completion_eligible ? tr(locale, "ELIGIBLE", "符合条件") : tr(locale, "USER ACTION", "需要用户处理")}</span></header>
     <section><h4>${tr(locale, "Filesystem evidence", "文件系统证据")}</h4><ul class="work-manifest">${evidence.map((item) => `<li><code>${escapeHtml(item.relative_path)}</code><span>${escapeHtml(item.status)} · ${escapeHtml(item.reason)}</span></li>`).join("") || `<li>${tr(locale, "No verifiable file evidence was supplied.", "未提供可验证的文件证据。")}</li>`}</ul></section>
-    ${report.commands.length ? `<section><h4>${tr(locale, "Command claims", "命令声明")}</h4><p>${tr(locale, `${report.commands.length} claim(s) remain UNVERIFIED. Restork did not execute them.`, `${report.commands.length} 项声明仍未验证。Restork 没有执行这些命令。`)}</p></section>` : ""}
+    ${report.commands.length ? `<section><h4>${tr(locale, "Command claims", "命令声明")}</h4><p>${plural(locale, report.commands.length, {
+      one: "{n} claim remains UNVERIFIED. Restork did not execute it.",
+      other: "{n} claims remain UNVERIFIED. Restork did not execute them.",
+      zh: "{n} 项声明仍未验证。Restork 没有执行这些命令。",
+    })}</p></section>` : ""}
     ${report.unexpected_changes.length ? `<section><h4>${tr(locale, "Unexpected changes", "意外变更")}</h4><p>${report.unexpected_changes.map(escapeHtml).join(" · ")}</p></section>` : ""}
     ${report.task_update_preview ? `<section><h4>${tr(locale, "Markdown task update · preview only", "Markdown 任务更新 · 仅预览")}</h4><pre>${escapeHtml(report.task_update_preview.suggested_markdown)}</pre><p>${tr(locale, "Apply is disabled here; review it through the Core-owned Markdown task flow.", "此处禁止应用；请通过 Core 管理的 Markdown 任务流程进行审阅。")}</p></section>` : ""}
     <p class="fine">${tr(locale, "Verification", "验证")} ${escapeHtml(report.verification_id)} · ${formatDate(report.created_at, locale)}</p>
@@ -887,17 +902,17 @@ function overview(snapshot: DashboardSnapshot, locale: Locale): string {
   </div>`;
 }
 
-function runsView(runs: RunListEntry[], page: PageInfo | undefined, locale: Locale): string {
+export function runsView(runs: RunListEntry[], page: PageInfo | undefined, locale: Locale): string {
   return `<article class="paper-card full-card"><header><h2>${tr(locale, "Runs", "运行")}</h2><span class="ribbon research">CORE STATE</span></header>
     <div class="split-view"><div><div class="item-list">${runs.map((run) => `<button type="button" class="list-item" data-run-id="${escapeHtml(run.summary.run_id)}"><b>${escapeHtml(run.summary.mode.toUpperCase())}</b><span>${escapeHtml(run.task?.goal ?? run.summary.task_id)}</span><small>${escapeHtml(run.summary.state)} · ${formatDate(run.summary.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "No runs.", "没有运行。")}</p>`}</div>${paginationControl("runs", page, locale)}</div><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its events.", "选择一个运行查看事件。")}</div></div>
   </article>`;
 }
 
-function approvalsView(approvals: ApprovalRequest[], page: PageInfo | undefined, locale: Locale): string {
+export function approvalsView(approvals: ApprovalRequest[], page: PageInfo | undefined, locale: Locale): string {
   return `<div class="stack">${approvals.map((approval) => approvalCard(approval, locale)).join("") || emptyCard(tr(locale, "Approvals", "审批"), tr(locale, "No approval records.", "没有审批记录。"))}${paginationControl("approvals", page, locale)}</div>`;
 }
 
-function tasksView(snapshot: DashboardSnapshot, locale: Locale): string {
+export function tasksView(snapshot: DashboardSnapshot, locale: Locale): string {
   if (!snapshot.taskBoard.configured) return emptyCard(tr(locale, "Markdown tasks", "Markdown 任务"), tr(locale, "Configure a private Vault with --vault-dir. The browser receives no authority outside that Vault path.", "使用 --vault-dir 配置私有 Vault。浏览器不会持有 Vault 路径之外的权限。"));
   return `<article class="paper-card full-card"><header><h2>${tr(locale, "Markdown tasks", "Markdown 任务")}</h2><span class="ribbon work">MARKDOWN TRUTH</span></header>
     <form id="quick-task-form" class="quick-task-form"><label for="quick-task">${tr(locale, "Quick capture", "快速捕获")}</label><div><input id="quick-task" name="text" required maxlength="500" placeholder="${tr(locale, "One Markdown task", "一行 Markdown 任务")}"><select name="priority" aria-label="${tr(locale, "Priority", "优先级")}"><option value="">P–</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select><button type="submit">${tr(locale, "PREVIEW", "预览")}</button></div></form>
@@ -906,7 +921,7 @@ function tasksView(snapshot: DashboardSnapshot, locale: Locale): string {
   </article>`;
 }
 
-function radarView(snapshot: DashboardSnapshot, locale: Locale): string {
+export function radarView(snapshot: DashboardSnapshot, locale: Locale): string {
   const lanes: Array<[RadarItem["lane"], string]> = [["my_stars", "My Stars"], ["trending", "Trending"], ["hn", "HN"], ["papers", "Papers"]];
   return `<article class="paper-card full-card"><header><h2>Radar</h2><span class="ribbon radar">CORE CONNECTORS</span></header>
     <div id="research-result" class="research-result-host" role="status"></div>
@@ -914,7 +929,7 @@ function radarView(snapshot: DashboardSnapshot, locale: Locale): string {
   </article>`;
 }
 
-function memoryView(snapshot: DashboardSnapshot, locale: Locale): string {
+export function memoryView(snapshot: DashboardSnapshot, locale: Locale): string {
   if (!snapshot.memory) return emptyCard(tr(locale, "Four-layer memory", "四层记忆"), tr(locale, "The memory service is not configured.", "Memory service 尚未配置。"));
   const records = snapshot.memory.records.filter((record) => record.summary);
   return `<article class="paper-card full-card"><header><h2>${tr(locale, "Four-layer memory", "四层记忆")}</h2><span class="ribbon study">LOCAL</span></header>
@@ -1006,7 +1021,7 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
       </dialog>
     </article>
     <article class="daily-card music-card"><header><h2>${tr(locale, "Daily track", "每日一曲")}</h2><span>${escapeHtml(music?.source?.provider ?? dailyStatusLabel(music?.status ?? "offline", locale))}</span></header>
-      ${recommendation ? `<div class="music-layout"><div class="disc" data-music-disc><div class="disc-label"><span>RESTORK</span><img id="music-cover" alt="${escapeHtml(tr(locale, `${recommendation.title} cover`, `${recommendation.title} 封面`))}" hidden></div></div><div class="music-copy"><strong>${escapeHtml(recommendation.title)}</strong><p>${escapeHtml([recommendation.artist, recommendation.album].filter(Boolean).join(" · ") || tr(locale, "Private playlist", "私有歌单"))}</p>${musicRecommendationInsights(recommendation, music?.source?.provider ?? "", locale)}<div class="music-track-actions"><button type="button" data-music-toggle aria-pressed="false">${tr(locale, "ROTATE CD", "转动唱片")}</button><button type="button" data-music-research aria-describedby="music-research-consent">${tr(locale, "RESEARCH ONLINE", "联网分析")}</button>${recommendation.source_url ? `<a href="${escapeHtml(recommendation.source_url)}" target="_blank" rel="noopener noreferrer">${tr(locale, "TRACK SOURCE", "歌曲来源")}</a>` : ""}</div><small id="music-research-consent" class="music-research-consent" role="status">${tr(locale, "Uses the same API key with V4 Flash Web Search. Sends only this title, artist and album; a small API charge may apply.", "使用同一 API Key 调用 V4 Flash 联网检索；只发送当前歌名、歌手与专辑，可能产生少量 API 费用。")}</small></div></div>` : `<p class="daily-empty">${escapeHtml(localeCompatibleMessage(music?.message, locale) || tr(locale, "Connect a supported music source or import a private JSON/CSV playlist.", "连接受支持的音乐来源，或导入私有 JSON/CSV 歌单。"))}</p>`}
+      ${recommendation ? `<div class="music-layout"><div class="disc" data-music-disc><div class="disc-label"><span>RESTORK</span><img id="music-cover" alt="${escapeHtml(tr(locale, `${recommendation.title} cover`, `${recommendation.title} 封面`))}" hidden></div></div><div class="music-copy"><strong>${escapeHtml(recommendation.title)}</strong><p>${escapeHtml([recommendation.artist, recommendation.album].filter(Boolean).join(" · ") || tr(locale, "Private playlist", "私有歌单"))}</p>${musicRecommendationInsights(recommendation, music?.source?.provider ?? "", locale)}<div class="music-track-actions"><button type="button" data-music-toggle aria-pressed="false">${tr(locale, "ROTATE CD", "转动唱片")}</button><button type="button" data-music-research aria-describedby="music-research-consent">${tr(locale, "RESEARCH ONLINE", "联网分析")}</button>${recommendation.source_url ? `${safeLink(recommendation.source_url, tr(locale, "TRACK SOURCE", "歌曲来源"), 'target="_blank" rel="noopener noreferrer"')}` : ""}</div><small id="music-research-consent" class="music-research-consent" role="status">${tr(locale, "Uses the same API key with V4 Flash Web Search. Sends only this title, artist and album; a small API charge may apply.", "使用同一 API Key 调用 V4 Flash 联网检索；只发送当前歌名、歌手与专辑，可能产生少量 API 费用。")}</small></div></div>` : `<p class="daily-empty">${escapeHtml(localeCompatibleMessage(music?.message, locale) || tr(locale, "Connect a supported music source or import a private JSON/CSV playlist.", "连接受支持的音乐来源，或导入私有 JSON/CSV 歌单。"))}</p>`}
       ${musicSourceSummary(music?.source, locale)}
       ${musicDiscoveries(music?.discoveries ?? [], locale)}
       <button type="button" class="settings-trigger" data-music-open>${music?.configured ? tr(locale, "MANAGE PLAYLIST", "管理歌单") : tr(locale, "CONNECT PLAYLIST", "连接歌单")}</button>
@@ -1069,7 +1084,7 @@ function calendarMonth(
     const eventCount = eventsByDay.get(key)?.length ?? 0;
     const dateLabel = new Intl.DateTimeFormat(locale, { dateStyle: "full" }).format(date);
     const eventLabel = eventCount
-      ? tr(locale, `${eventCount} event${eventCount === 1 ? "" : "s"}`, `${eventCount} 个事件`)
+      ? plural(locale, eventCount, { one: "{n} event", other: "{n} events", zh: "{n} 个事件" })
       : tr(locale, "No events", "无事件");
     const classes = [
       "calendar-day",
@@ -1234,7 +1249,7 @@ function musicResearchSources(
   const status = research.status === "stale"
     ? tr(locale, "STALE CACHE", "缓存已过期")
     : research.status.toUpperCase();
-  return `<details class="music-research-sources"><summary>${tr(locale, `WEB EVIDENCE · ${research.sources.length} SOURCES`, `联网证据 · ${research.sources.length} 个来源`)}</summary><div><small>${escapeHtml(research.model)} · ${escapeHtml(status)} · ${escapeHtml(musicDate(research.researched_at, locale))}</small>${research.sources.map((source, index) => `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer"><b>${index + 1}</b><span>${escapeHtml(source.title)}</span><em>${escapeHtml(source.publisher || tr(locale, "public source", "公开来源"))}</em></a>`).join("")}</div></details>`;
+  return `<details class="music-research-sources"><summary>${tr(locale, `WEB EVIDENCE · ${research.sources.length} SOURCES`, `联网证据 · ${research.sources.length} 个来源`)}</summary><div><small>${escapeHtml(research.model)} · ${escapeHtml(status)} · ${escapeHtml(musicDate(research.researched_at, locale))}</small>${research.sources.map((source, index) => `${safeAnchor(source.url, `<b>${index + 1}</b><span>${escapeHtml(source.title)}</span><em>${escapeHtml(source.publisher || tr(locale, "public source", "公开来源"))}</em>`, 'target="_blank" rel="noopener noreferrer"')}`).join("")}</div></details>`;
 }
 
 function musicSourceSummary(
@@ -1259,12 +1274,12 @@ function musicDiscoveries(discoveries: MusicDiscovery[], locale: Locale): string
       "No reviewed song details are available yet.",
       "暂时没有经过核验的歌曲资料。",
     );
-    return `<article><header><b>#${item.chart_rank} ${escapeHtml(item.title)}</b><a href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">${tr(locale, "SOURCE", "来源")}</a></header><p>${escapeHtml(item.artist)}${item.album ? ` · ${escapeHtml(item.album)}` : ""}</p><small><b>${tr(locale, "For you:", "推荐给你：")}</b> ${escapeHtml(affinity)}</small><small><b>${tr(locale, "Song:", "歌曲：")}</b> ${escapeHtml(song)}</small><small><b>${tr(locale, "Evidence:", "热度证据：")}</b> ${escapeHtml(popularity)}</small></article>`;
+    return `<article><header><b>#${item.chart_rank} ${escapeHtml(item.title)}</b>${safeLink(item.source_url, tr(locale, "SOURCE", "来源"), 'target="_blank" rel="noopener noreferrer"')}</header><p>${escapeHtml(item.artist)}${item.album ? ` · ${escapeHtml(item.album)}` : ""}</p><small><b>${tr(locale, "For you:", "推荐给你：")}</b> ${escapeHtml(affinity)}</small><small><b>${tr(locale, "Song:", "歌曲：")}</b> ${escapeHtml(song)}</small><small><b>${tr(locale, "Evidence:", "热度证据：")}</b> ${escapeHtml(popularity)}</small></article>`;
   }).join("")}</div></details>`;
 }
 
 function radarItem(item: RadarItem, locale: Locale): string {
-  return `<article class="radar-item"><a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.title)}</a><small>${escapeHtml(item.source)} · ${escapeHtml(item.state)}</small><div><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="research">${tr(locale, "research", "研究")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="read_later">${tr(locale, "read later", "稍后阅读")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="make_task">${tr(locale, "make task", "建任务")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="dismiss">${tr(locale, "dismiss", "忽略")}</button></div></article>`;
+  return `<article class="radar-item">${safeLink(item.url, item.title, 'target="_blank" rel="noreferrer"')}<small>${escapeHtml(item.source)} · ${escapeHtml(item.state)}</small><div><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="research">${tr(locale, "research", "研究")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="read_later">${tr(locale, "read later", "稍后阅读")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="make_task">${tr(locale, "make task", "建任务")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="dismiss">${tr(locale, "dismiss", "忽略")}</button></div></article>`;
 }
 
 function radarSummary(item: RadarItem): string {
@@ -1285,8 +1300,12 @@ function paginationControl(
   return `<div class="pagination"><button type="button" data-page-kind="${escapeHtml(kind)}" data-page-cursor="${escapeHtml(page.next_cursor)}">${escapeHtml(label)}</button><small>${tr(locale, "A bounded page is loaded from Core.", "由 Core 按页加载，不会一次读取全部列表。")}</small></div>`;
 }
 
-function eventRow(event: RunEvent): string {
-  return `<li><b>${escapeHtml(event.type)}</b><span>#${event.id}</span><code>${escapeHtml(JSON.stringify(event.data))}</code></li>`;
+/**
+ * One event row. Exported so a live stream can append a single row instead of
+ * re-serialising the whole run, which is quadratic in event count.
+ */
+export function eventRow(event: RunEvent): string {
+  return `<li data-event-id="${escapeHtml(String(event.id))}"><b>${escapeHtml(event.type)}</b><span>#${event.id}</span><code>${escapeHtml(JSON.stringify(event.data))}</code></li>`;
 }
 
 function navButton(view: string, icon: string, label: string, active: boolean, count?: number): string {
@@ -1348,4 +1367,52 @@ function percent(value: number): string {
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character);
+}
+
+/**
+ * Tool output, connector output, and Radar feeds are untrusted data. `escapeHtml`
+ * escapes `& < > ' "`, none of which appear in `javascript:alert(1)`, so escaping
+ * alone does not make a value safe to place in `href`.
+ *
+ * Returns null for anything outside the allowlist; callers MUST then render the
+ * value as inert text rather than a link.
+ */
+export function safeHref(value: string | null | undefined): string | null {
+  if (!value) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol === "https:") return parsed.toString();
+  // Plain HTTP is permitted only for the local Core, never for remote content.
+  const loopback = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+  if (parsed.protocol === "http:" && loopback.has(parsed.hostname)) return parsed.toString();
+  return null;
+}
+
+/**
+ * Renders an anchor when the URL is safe and inert text when it is not, so a
+ * rejected URL is still visible to the user instead of silently disappearing.
+ */
+export function safeLink(
+  value: string | null | undefined,
+  label: string,
+  attributes = "",
+): string {
+  return safeAnchor(value, escapeHtml(label), attributes);
+}
+
+/** As `safeLink`, but `innerHtml` is already escaped by the caller. */
+export function safeAnchor(
+  value: string | null | undefined,
+  innerHtml: string,
+  attributes = "",
+): string {
+  const href = safeHref(value);
+  if (href === null) {
+    return `<span class="unsafe-link" title="${escapeHtml(String(value ?? ""))}">${innerHtml}</span>`;
+  }
+  return `<a href="${escapeHtml(href)}"${attributes ? ` ${attributes}` : ""}>${innerHtml}</a>`;
 }
