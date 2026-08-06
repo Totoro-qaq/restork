@@ -92,10 +92,8 @@ short-lived capability workers when a scientific or document ecosystem materiall
 
 ## Try it in five minutes
 
-The complete V1 Research/Study/Work source workflow remains the supported quickstart while its
-vertical slices move to Rust. You only need
-[`uv`](https://docs.astral.sh/uv/getting-started/installation/); Node.js is required only when
-changing Dashboard source.
+One command builds the Dashboard and the native Core, then starts it. You need a
+[Rust toolchain](https://rustup.rs) and Node.js.
 
 ```bash
 git clone https://github.com/Totoro-qaq/restork.git
@@ -109,27 +107,27 @@ Already cloned?
 ./scripts/quickstart.sh
 ```
 
-Restork starts on `http://127.0.0.1:7337` and prints a one-time Web pairing code. Open the local
+Restork starts on `http://127.0.0.1:7337` and prints a one-time pairing code. Open the local
 address, enter the code, and you are in. The first launch does not need an API key, does not select
 a Vault for you, and does not enable weather or any other optional connection. The offline Research
 synthesizer lets you explore the product without sending a model request.
 
-### Try the Rust-first workspace
-
-The native Core runs the same embedded Dashboard and now includes the Steps 18–22 production
-surfaces. It needs Rust only when started from source; desktop packages include the binary.
+### Running the Core directly
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- \
   serve --port 7337 --state-db ./build/restork-alpha.db
 ```
 
-Open the `base_url` printed in the readiness record and enter its one-time pairing code. The native
-workspace includes cancellable conversations and context preview; multi-provider Profiles and
-versioned Prompts; governed MCP execution and extension rollback; deterministic PPTX/PDF exports;
-real hash-bound file restore; bounded child execution; schedules, memory, and daily context. Use
-`./scripts/quickstart.sh` when you specifically need a V1 workflow that has not yet reached Rust
-behavioral parity.
+Open the `base_url` printed in the readiness record and enter its one-time pairing code.
+
+### A note on the Python package
+
+`src/restork/` is a deprecated second Core. It is not in any shipped artefact, the desktop
+application does not start it, and it is retained only as a porting reference until the migration
+in [`specs/restork-single-core-consolidation.md`](./specs/restork-single-core-consolidation.md)
+completes. Domains it still owns — Runs, Approvals, Tasks, Memory, Radar, and Work — are marked
+"not provided by this Core" in the Dashboard until they are ported.
 
 ### Desktop installers
 
@@ -247,23 +245,39 @@ off. The formats and privacy behavior are documented in [Daily context](docs/dai
 
 ## Available today
 
+Measured against the Core that `./scripts/quickstart.sh` starts.
+
 | Area | What you can use now |
 |---|---|
-| **Runs and approvals** | Persisted run state, budgets, explicit retries, recovery, single-use approvals, cancellable conversations, and replayable SSE updates |
-| **Dashboard and local API** | Responsive English/Chinese UI, loopback-only `/v1` API, separate Web/CLI pairing, and short-lived sessions |
-| **Knowledge and tasks** | Read-only Vault retrieval, deterministic wiki-link projection, journaled single-file writes, and preview/approve/apply Markdown tasks |
-| **Research, Study, Work** | Evidence-backed research, guided study and practice, and planning-only repository handoffs |
-| **Memory and daily context** | Four inspectable memory layers, optional weather, system date/month without permission, explicit macOS EventKit access, universal read-only ICS fallback, and provider-neutral local/QQ/NetEase/Apple Music sources |
-| **Models and extensions** | DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, and generic endpoints; provider-scoped reasoning; versioned Prompts; real bounded MCP stdio execution; immutable extension revisions and rollback |
-| **Artifacts and recovery** | Deterministic macro-free PPTX/PDF, exact artifact hashes, content-bearing checkpoints, preview-bound filesystem restore, schedules, evaluations, and depth-one bounded child execution |
-| **Cross-platform desktop source** | Tauri packages `restorkd` and the Dashboard, owns Unix process groups or a Windows Job Object, verifies signed updates, keeps bounded recovery copies, and builds macOS, Windows, and Linux candidates without a target-machine runtime |
+| **Dashboard and local API** | Bilingual UI, loopback-only `/v1` API, separate Web/CLI pairing, short-lived sessions with rotation |
+| **Conversation** | Run-scoped sessions with fork, search, export, archive, cancellable operations, and SSE replay |
+| **Models** | DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, and generic OpenAI-compatible endpoints; provider-scoped reasoning; native credential storage; versioned prompts and configuration profiles |
+| **Extensions** | Manifest validation, a permission lattice, immutable revisions with rollback, and sandboxed stdio MCP execution |
+| **Daily context** | Optional weather, system date and month without a permission prompt, one local ICS calendar, macOS unread-mail count, and a daily track from QQ Music, NetEase, Apple Music, or a private playlist file |
+| **Artifacts and recovery** | Deterministic macro-free PPTX and PDF, exact artifact hashes, content-bearing checkpoints, and preview-bound file restore |
+| **Automation** | DST-aware recurrence with idempotent period keys |
+| **Desktop** | Tauri packages `restorkd` and the Dashboard, owns Unix process groups or a Windows Job Object |
 
-Steps 18–22 are implemented in source and covered by deterministic local gates. The public macOS
-Alpha is intentionally outside Apple Developer ID trust; a protected stable release still requires
-real Developer ID, Authenticode, Linux GPG, notarization, and clean-runner evidence. Exact contracts
-and remaining credential-dependent proof live in the
-[Steps 18–22 specification](specs/restork-steps18-22.md) and
-[delivery plan](plans/restork-steps18-22.md).
+### Being ported
+
+These are implemented in the deprecated Python package and are **not** reachable from the Core above.
+The Dashboard marks each as "not provided by this Core" rather than showing it empty.
+
+| Area | Status |
+|---|---|
+| Runs, approvals, budgets, effect recovery | Rust implementation lands with the agent runtime |
+| Markdown tasks and journaled writes | Port scheduled |
+| Four-layer memory | Port scheduled |
+| Research evidence and cited notes | Port scheduled |
+| Work verification and redacted handoff | Port scheduled; the three-step planner is dropped |
+| Radar | Kept, but it needs real ingestion — it has never held data |
+| Study | Deleted; rebuilt on the agent loop and grounded in your Vault |
+
+There is no tool-calling agent loop in either Core yet. Sequencing, contracts, and acceptance gates
+are in [the consolidation specification](specs/restork-single-core-consolidation.md).
+
+The public macOS Alpha is intentionally outside Apple Developer ID trust; a protected stable release
+still requires real Developer ID, Authenticode, Linux GPG, notarization, and clean-runner evidence.
 
 ## Guides
 
@@ -272,7 +286,6 @@ and remaining credential-dependent proof live in the
 - [Memory](docs/memory.md)
 - [Markdown tasks](docs/markdown-tasks.md)
 - [Research](docs/research-workflow.md)
-- [Study](docs/study.md)
 - [Work](docs/work.md)
 - [Cross-platform desktop alpha](docs/desktop.md)
 - [Restork and Hermes Agent](docs/restork-vs-hermes.md)
@@ -303,7 +316,7 @@ npm --prefix dashboard run build
 # Cross-platform desktop alpha (run the matching build command on each host OS)
 npm --prefix desktop ci
 npm --prefix desktop run fmt:check
-./scripts/build-desktop-core.sh
+node scripts/build-desktop-runtime.mjs
 npm --prefix desktop run clippy
 npm --prefix desktop test
 npm --prefix desktop run build:macos

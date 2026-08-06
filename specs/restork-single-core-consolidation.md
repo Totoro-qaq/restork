@@ -288,11 +288,21 @@ Dashboard route-coverage gate in 1A can be mechanical rather than textual.
 
 ### 1F. Python Core deprecated
 
-`scripts/quickstart.sh` MUST start `restorkd`. The Python Core MUST be removed from CI's default
-path, from README quickstart, and from `docs/`, and MUST carry a deprecation notice naming its
-removal stage. Its source remains in-tree until Stage 6 as a porting reference. `dist/desktop-core/`,
-`packaging/restork-core.spec`, and `scripts/build-desktop-core.sh` MUST be deleted in this stage —
-they are already dead.
+`scripts/quickstart.sh` MUST start `restorkd`. The Python Core MUST be removed from the README
+quickstart and from the desktop build, and MUST carry a deprecation notice naming its removal stage.
+Its source remains in-tree until Stage 6 as a porting reference.
+
+Dead distribution artefacts MUST be deleted now: `dist/desktop-core/`, `packaging/`, and
+`scripts/build-desktop-core.sh`, which is a five-line shim that builds Rust despite its name.
+`scripts/smoke-desktop-core.sh` tests `restorkd` and MUST be renamed to match what it does.
+
+**Python's CI job MUST keep running until Stage 6C.** This refines the original intent of removing
+it here. All 14 named release-blocking gates — `SEC-NET-001`, `SEC-APPROVAL-001`, `SEC-AUTH-001`,
+`SEC-SQL-001`, `SEC-PROMPT-001`, `CONV-BOUNDARY-001`, `PRIV-LABEL-001`, `REC-EFFECT-001`,
+`REL-WRITE-001`, `REL-EVENT-001`, `OSS-CLEAN-001`, `MEM-RETENTION-001`, `UI-CONTEXT-001`,
+`DESKTOP-BOUNDARY-001` — execute `pytest` and have no Rust counterpart. Switching them off before
+6C lands equivalents would remove the migration's only safety net at the exact moment the code is
+moving. The job MUST instead be named so its legacy status is visible.
 
 ### Stage 1 acceptance gates
 

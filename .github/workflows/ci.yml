@@ -33,7 +33,10 @@ jobs:
       - run: cargo test --manifest-path rust/Cargo.toml --locked -p restorkd
       - run: cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
 
-  core:
+  # Deprecated Python Core. Retained only because all 14 release-blocking gates
+  # below still execute pytest and have no Rust counterpart yet; Stage 6C ports
+  # them and this job is deleted with `src/restork/`.
+  legacy-python-core:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -86,10 +89,10 @@ jobs:
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
       - run: npm --prefix desktop run fmt:check
-      - run: ./scripts/build-desktop-core.sh
+      - run: node scripts/build-desktop-runtime.mjs
       - run: npm --prefix desktop run clippy
       - run: npm --prefix desktop test
-      - run: ./scripts/smoke-desktop-core.sh
+      - run: ./scripts/smoke-desktop-runtime.sh
       - run: npm --prefix desktop run build:app
       - name: Ad-hoc sign internal test bundle
         run: >-
