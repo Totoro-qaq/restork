@@ -9,6 +9,9 @@ import type {
   ProviderDiagnostic,
   ResearchArtifact,
   RunSummary,
+  StudyArtifact,
+  StudyDiagnostic,
+  PracticeAttemptResult,
   TaskApplyResult,
   TaskMutationPreview,
   WorkExportResult,
@@ -18,6 +21,56 @@ import type {
 } from "./api/types";
 
 const NOW = "2026-08-02T03:00:00Z";
+
+const studyDiagnostic: StudyDiagnostic = {
+  diagnostic_id: "study-diagnostic-demo",
+  run_id: "demo-study",
+  objective: "Understand durable agent loops",
+  questions: [{
+    question_id: "study-question-demo",
+    prompt: "Which part of durable state recovery is least clear to you?",
+    response_kind: "free_text",
+  }],
+  source_snapshot_hash: null,
+  created_at: NOW,
+};
+
+const studyArtifact: StudyArtifact = {
+  artifact_id: "study-artifact-demo",
+  run_id: "demo-study",
+  readiness_signal: "developing",
+  objective: {
+    objective_id: "study-objective-demo",
+    outcome: "Explain and test a durable agent checkpoint loop",
+    success_criteria: ["Recover without duplicate effects"],
+  },
+  prerequisites: [],
+  related_notes: [],
+  learning_path: [{
+    step_id: "study-step-demo",
+    order: 1,
+    title: "Trace one checkpoint",
+    outcome: "Identify the durable inputs and state transition.",
+    note_refs: [],
+  }],
+  exercises: [{
+    exercise_id: "study-exercise-demo",
+    concept: "optimistic concurrency",
+    kind: "active_recall",
+    prompt: "Why must checkpoint writes compare an expected version?",
+    hints: ["Think about duplicate effects."],
+    answer_revealed: false,
+  }],
+  metrics: {
+    diagnostic_completed: true,
+    explicit_prerequisite_ratio: 0,
+    practice_count: 1,
+    related_note_count: 0,
+  },
+  sensitivity: "personal",
+  created_at: NOW,
+  validation: { status: "validated", mechanism: "demo" },
+};
 
 const approval: ApprovalRequest = {
   approval_id: "approval-synthetic-note",
@@ -67,8 +120,8 @@ const researchArtifact: ResearchArtifact = {
   },
   metrics: {
     supported_claim_rate: 0.5,
-    primary_source_ratio: 1,
-    citation_correctness: 1,
+    primary_source_ratio: null,
+    citation_correctness: null,
     duplicate_sources: 0,
     related_note_count: 1,
     conflict_count: 0,
@@ -112,7 +165,7 @@ const workPlan: WorkPlanArtifact = {
   warnings: ["Restork Work V1 never executes commands or launches Codex."],
   sensitivity: "public",
   created_at: NOW,
-  validation_status: "valid",
+  validation: { status: "validated", mechanism: "bounded_read_only_snapshot" },
 };
 
 const workApproval: ApprovalRequest = {
@@ -151,7 +204,7 @@ const workPreview: WorkHandoffPreview = {
     }],
     executor_boundary: "external_user_started_no_restork_executor",
     created_at: NOW,
-    validation_status: "valid",
+    validation: { status: "validated", mechanism: "frozen_context_hashes" },
   },
   package_hash: "2".repeat(64),
   byte_count: 894,
@@ -388,7 +441,7 @@ const snapshot: DashboardSnapshot = {
     model: "deepseek-v4-pro",
     status: "ready",
     message: "Configuration and Keychain metadata are ready.",
-    setup_command: "uv run restork provider configure",
+    setup_command: "restorkd provider configure deepseek",
     config_present: true,
     config_valid: true,
     credential_present: true,
@@ -411,6 +464,30 @@ class DemoApi implements DashboardApi {
   async loadDashboard(): Promise<DashboardSnapshot> { return snapshot; }
   async createRun(mode: Mode, goal: string): Promise<RunSummary> {
     return { ...snapshot.runs[0].summary, run_id: `demo-${mode}`, mode, task_id: goal };
+  }
+  async prepareStudy(): Promise<StudyDiagnostic> { return studyDiagnostic; }
+  async submitStudyDiagnostic(): Promise<StudyArtifact> { return studyArtifact; }
+  async submitStudyPractice(
+    runId: string,
+    exerciseId: string,
+  ): Promise<PracticeAttemptResult> {
+    return {
+      attempt_id: "study-attempt-demo",
+      run_id: runId,
+      exercise_id: exerciseId,
+      correct: true,
+      feedback: "The response addresses the concurrency risk.",
+      error_count: 0,
+      attempt_count: 1,
+      next_review: {
+        action: "spaced_review",
+        due_at: NOW,
+        interval_days: 3,
+        reason: "Scheduled for spaced review.",
+      },
+      record_preview: null,
+      created_at: NOW,
+    };
   }
   async planWork(): Promise<WorkPlanArtifact> {
     return workPlan;

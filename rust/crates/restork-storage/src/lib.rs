@@ -7,6 +7,9 @@ use std::{
     sync::Mutex,
 };
 
+mod features;
+pub use features::*;
+
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -433,6 +436,20 @@ pub struct NewRun<'a> {
     pub occurred_at: &'a str,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RunRecord {
+    pub run_id: String,
+    pub task_id: String,
+    pub task_spec: Value,
+    pub mode: String,
+    pub state: String,
+    pub state_version: i64,
+    pub stop_reason: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub schema_version: i64,
+}
+
 #[derive(Clone, Copy)]
 pub struct NewEvent<'a> {
     pub event_id: &'a str,
@@ -493,7 +510,15 @@ impl Database {
         }
         let had_data = path.metadata().is_ok_and(|metadata| metadata.len() > 0);
         let mut connection = Connection::open(&path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+        }
         connection.pragma_update(None, "foreign_keys", "ON")?;
+        connection.pragma_update(None, "journal_mode", "WAL")?;
+        connection.pragma_update(None, "synchronous", "NORMAL")?;
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         let previous: i64 =
             connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -586,6 +611,69 @@ impl Database {
             .optional()?)
     }
 
+    pub fn run(&self, run_id: &str) -> Result<Option<RunRecord>, StorageError> {
+        validate_identifier(run_id)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        connection
+            .query_row(
+                "SELECT run_id, task_id, task_spec_json, mode, state, state_version, stop_reason, \
+                 created_at, updated_at, schema_version FROM runs WHERE run_id = ?1",
+                [run_id],
+                run_record_from_row,
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
+    pub fn replace_proposed_run_task_spec(
+        &self,
+        run_id: &str,
+        expected_version: i64,
+        task_spec: &Value,
+        occurred_at: &str,
+    ) -> Result<RunRecord, StorageError> {
+        validate_identifier(run_id)?;
+        validate_object(task_spec, "run task specification must be a JSON object")?;
+        validate_timestamp(occurred_at)?;
+        let document = serde_json::to_string(task_spec)?;
+        let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if transaction.execute(
+            "UPDATE runs SET task_spec_json=?1, state_version=state_version+1, updated_at=?2
+             WHERE run_id=?3 AND state='proposed' AND state_version=?4",
+            params![document, occurred_at, run_id, expected_version],
+        )? != 1
+        {
+            return Err(StorageError::Conflict(
+                "run is no longer proposed or changed while its context was frozen",
+            ));
+        }
+        let record = transaction.query_row(
+            "SELECT run_id, task_id, task_spec_json, mode, state, state_version, stop_reason,
+             created_at, updated_at, schema_version FROM runs WHERE run_id = ?1",
+            [run_id],
+            run_record_from_row,
+        )?;
+        transaction.commit()?;
+        Ok(record)
+    }
+
+    pub fn runs(&self, limit: usize) -> Result<Vec<RunRecord>, StorageError> {
+        if !(1..=100).contains(&limit) {
+            return Err(StorageError::Invalid("run list bounds are invalid"));
+        }
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT run_id, task_id, task_spec_json, mode, state, state_version, stop_reason, \
+             created_at, updated_at, schema_version FROM runs \
+             ORDER BY updated_at DESC, run_id DESC LIMIT ?1",
+        )?;
+        statement
+            .query_map([limit as i64], run_record_from_row)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
+    }
+
     pub fn create_run(&self, run: NewRun<'_>) -> Result<(), StorageError> {
         validate_identifier(run.run_id)?;
         validate_identifier(run.task_id)?;
@@ -609,6 +697,45 @@ impl Database {
             ],
         )?;
         Ok(())
+    }
+
+    pub fn transition_run(
+        &self,
+        run_id: &str,
+        expected_version: i64,
+        state: &str,
+        stop_reason: Option<&str>,
+        occurred_at: &str,
+    ) -> Result<RunRecord, StorageError> {
+        validate_identifier(run_id)?;
+        if expected_version < 0 {
+            return Err(StorageError::Invalid("run version must not be negative"));
+        }
+        validate_text(state, 64)?;
+        if let Some(stop_reason) = stop_reason {
+            validate_text(stop_reason, 128)?;
+        }
+        validate_timestamp(occurred_at)?;
+        let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = transaction.execute(
+            "UPDATE runs SET state = ?1, state_version = state_version + 1, stop_reason = ?2, \
+             updated_at = ?3 WHERE run_id = ?4 AND state_version = ?5",
+            params![state, stop_reason, occurred_at, run_id, expected_version],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::Conflict(
+                "run changed since it was loaded or does not exist",
+            ));
+        }
+        let record = transaction.query_row(
+            "SELECT run_id, task_id, task_spec_json, mode, state, state_version, stop_reason, \
+             created_at, updated_at, schema_version FROM runs WHERE run_id = ?1",
+            [run_id],
+            run_record_from_row,
+        )?;
+        transaction.commit()?;
+        Ok(record)
     }
 
     pub fn append_event(&self, event: NewEvent<'_>) -> Result<StoredEvent, StorageError> {
@@ -674,18 +801,47 @@ impl Database {
              FROM events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT ?3",
         )?;
         let rows = statement.query_map(
-            params![
-                run_id,
-                after,
-                i64::try_from(limit + 1).expect("bounded limit")
-            ],
+            params![run_id, after, (limit + 1) as i64],
             stored_event_from_row,
         )?;
         let mut items = rows.collect::<Result<Vec<_>, _>>()?;
         let has_more = items.len() > limit;
         items.truncate(limit);
-        let next_after = has_more.then(|| items.last().expect("non-empty bounded page").sequence);
+        let next_after = has_more
+            .then(|| items.last().map(|item| item.sequence))
+            .flatten();
         Ok(EventPage { items, next_after })
+    }
+
+    pub fn events_before(
+        &self,
+        run_id: &str,
+        before: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<StoredEvent>, StorageError> {
+        validate_identifier(run_id)?;
+        if before.is_some_and(|value| value <= 0) || !(1..=100).contains(&limit) {
+            return Err(StorageError::Invalid("event page bounds are invalid"));
+        }
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT event_id, run_id, seq, occurred_at, kind, metadata_json, schema_version
+             FROM events WHERE run_id = ?1 AND (?2 IS NULL OR seq < ?2)
+             ORDER BY seq DESC LIMIT ?3",
+        )?;
+        let mut items = statement
+            .query_map(
+                params![
+                    run_id,
+                    before,
+                    i64::try_from(limit)
+                        .map_err(|_| { StorageError::Invalid("event page limit is invalid") })?
+                ],
+                stored_event_from_row,
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        items.reverse();
+        Ok(items)
     }
 
     pub fn save_snapshot(
@@ -727,6 +883,59 @@ impl Database {
                 "snapshot sequence cannot move backwards",
             ));
         }
+        transaction.commit()?;
+        Ok(StoredSnapshot {
+            run_id: run_id.to_owned(),
+            covered_sequence,
+            snapshot: snapshot.clone(),
+        })
+    }
+
+    pub fn save_snapshot_cas(
+        &self,
+        run_id: &str,
+        expected_covered_sequence: Option<i64>,
+        covered_sequence: i64,
+        snapshot: &Value,
+    ) -> Result<StoredSnapshot, StorageError> {
+        validate_identifier(run_id)?;
+        if covered_sequence < 0 || expected_covered_sequence.is_some_and(|value| value < 0) {
+            return Err(StorageError::Invalid(
+                "snapshot sequence must not be negative",
+            ));
+        }
+        validate_object(snapshot, "event snapshot must be a JSON object")?;
+        let snapshot_json = serde_json::to_string(snapshot)?;
+        let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current = transaction
+            .query_row(
+                "SELECT covered_seq FROM event_snapshots WHERE run_id = ?1",
+                [run_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        if current != expected_covered_sequence {
+            return Err(StorageError::Conflict(
+                "run checkpoint changed since it was loaded",
+            ));
+        }
+        let maximum: Option<i64> = transaction.query_row(
+            "SELECT MAX(seq) FROM events WHERE run_id = ?1",
+            [run_id],
+            |row| row.get(0),
+        )?;
+        if maximum.is_none() || maximum.is_some_and(|value| covered_sequence > value) {
+            return Err(StorageError::Invalid(
+                "snapshot cannot cover events that do not exist",
+            ));
+        }
+        transaction.execute(
+            "INSERT INTO event_snapshots (run_id, covered_seq, snapshot_json) VALUES (?1, ?2, ?3) \
+             ON CONFLICT(run_id) DO UPDATE SET covered_seq = excluded.covered_seq, \
+             snapshot_json = excluded.snapshot_json",
+            params![run_id, covered_sequence, snapshot_json],
+        )?;
         transaction.commit()?;
         Ok(StoredSnapshot {
             run_id: run_id.to_owned(),
@@ -941,6 +1150,29 @@ fn create_backup(connection: &Connection, path: &Path) -> Result<PathBuf, Storag
         .ok_or(StorageError::Invalid("database backup path is invalid"))?;
     connection.execute("VACUUM INTO ?1", [backup_text])?;
     Ok(backup)
+}
+
+fn run_record_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRecord> {
+    let task_spec_json: String = row.get(2)?;
+    let task_spec = serde_json::from_str(&task_spec_json).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            task_spec_json.len(),
+            rusqlite::types::Type::Text,
+            Box::new(error),
+        )
+    })?;
+    Ok(RunRecord {
+        run_id: row.get(0)?,
+        task_id: row.get(1)?,
+        task_spec,
+        mode: row.get(3)?,
+        state: row.get(4)?,
+        state_version: row.get(5)?,
+        stop_reason: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
+        schema_version: row.get(9)?,
+    })
 }
 
 fn stored_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredEvent> {

@@ -215,20 +215,19 @@ describe("LocalApiClient private playlist configuration", () => {
 });
 
 describe("LocalApiClient daily timezone", () => {
-  it("requests daily context using the browser system timezone", async () => {
+  it("loads the complete workspace through one timezone-aware bootstrap request", async () => {
     const responses = [
       jsonResponse({ access_token: "paired-token" }),
-      jsonResponse({ runs: [] }),
-      jsonResponse({ approvals: [] }),
-      jsonResponse({ configured: false, tasks: [] }),
-      jsonResponse({ configured: false, items: [] }),
-      jsonResponse({ records: [], counts: {}, architecture: [] }),
       jsonResponse({
-        weather: { configured: false, status: "not_configured" },
-        calendar: { configured: false, status: "not_configured", events: [], message: "" },
-        music: { configured: false, status: "not_configured", recommendation: null },
+        runs: [],
+        approvals: [],
+        taskBoard: { configured: false, tasks: [] },
+        radar: { configured: false, items: [] },
+        memory: null,
+        daily: null,
+        provider: null,
+        domains: { daily: { state: "ready" } },
       }),
-      jsonResponse({ status: "ready" }),
     ];
     const fetchMock = vi.fn<typeof fetch>(async () => {
       const response = responses.shift();
@@ -241,10 +240,10 @@ describe("LocalApiClient daily timezone", () => {
     await client.pair("pairing-code");
     await client.loadDashboard();
 
-    const dailyPath = fetchMock.mock.calls
-      .map(([path]) => String(path))
-      .find((path) => path.startsWith("/v1/daily?"));
-    expect(dailyPath).toBe(`/v1/daily?timezone=${encodeURIComponent(systemTimeZone())}`);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `/v1/bootstrap?timezone=${encodeURIComponent(systemTimeZone())}`,
+    );
   });
 });
 

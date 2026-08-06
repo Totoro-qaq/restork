@@ -103,7 +103,46 @@ pub const WEB_SCOPES: &[&str] = &[
     EVALS_RUN,
     EVALS_EXPORT,
 ];
-pub const CLI_SCOPES: &[&str] = WEB_SCOPES;
+/// The command-line client deliberately receives a narrower capability set
+/// than the interactive Dashboard. It can operate the resources exposed by
+/// the consolidated CLI, but it cannot silently reconfigure personal
+/// connections, extensions, MCP servers, schedules, templates, or evaluation
+/// execution from a shell token.
+pub const CLI_SCOPES: &[&str] = &[
+    RUNS_READ,
+    RUNS_WRITE,
+    APPROVALS_READ,
+    APPROVALS_DECIDE,
+    EFFECTS_RESOLVE,
+    TOKENS_MANAGE,
+    MEMORY_READ,
+    MEMORY_WRITE,
+    TASKS_READ,
+    TASKS_WRITE,
+    RADAR_READ,
+    RADAR_WRITE,
+    DAILY_READ,
+    SETTINGS_READ,
+    SESSIONS_READ,
+    SESSIONS_WRITE,
+    SESSIONS_EXPORT,
+    PROFILES_READ,
+    PROVIDERS_READ,
+    PROMPTS_READ,
+    EXTENSIONS_READ,
+    MCP_READ,
+    TOOLS_DISCOVER,
+    TOOLS_INVOKE,
+    DELIVERABLES_READ,
+    DELIVERABLES_COMPOSE,
+    DELIVERABLES_EXPORT,
+    SCHEDULES_READ,
+    CHECKPOINTS_READ,
+    CHECKPOINTS_RESTORE,
+    SUBTASKS_READ,
+    EVALS_READ,
+    EVALS_EXPORT,
+];
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Audience {

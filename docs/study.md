@@ -47,43 +47,29 @@ All Study routes use the authenticated, loopback-only Core API:
 | Prepare diagnostic | `POST /v1/study/runs/{run_id}/diagnostic` |
 | Submit exact answers and build a path | `POST /v1/study/runs/{run_id}/path` |
 | Submit one practice attempt | `POST /v1/study/runs/{run_id}/exercises/{exercise_id}/attempt` |
-| Inspect diagnostic or artifact | `GET /v1/study/runs/{run_id}/diagnostic` and `/artifact` |
 
 Practice submissions require an `Idempotency-Key`. The API returns safe validation and state
 errors without including submitted answer bodies. The Dashboard keeps the current form only in page
 memory, clears a practice response after submission, and never places Study data in browser storage.
 
-After pairing the CLI, a complete flow is:
+After pairing the native CLI, create a proposed Study run without putting private answers in shell
+history:
 
 ```bash
-uv run restork create \
-  --task-id learn-bayes --mode study \
+./rust/target/debug/restork --url http://127.0.0.1:<port> \
+  runs create --mode study \
   --goal 'Explain and apply Bayesian model comparison' \
-  --scope private-vault --criterion 'complete one evaluated response' \
-  --idempotency-key learn-bayes-1
-
-uv run restork study-diagnostic '<run-id>' \
-  --objective 'Explain and apply Bayesian model comparison' \
-  --target-note 'Study/Bayesian.md'
-
-uv run restork study-path '<run-id>' \
-  --answer 'diagnostic-<id>=2' \
-  --answer 'diagnostic-<id>=A bounded explanation'
-
-uv run restork study-practice '<run-id>' 'exercise-<id>' \
-  --answer 'A private response' --confidence 3 \
-  --idempotency-key learn-bayes-attempt-1
+  --provider '<configured-profile-id>' --no-start
 ```
 
-The diagnostic and exercise IDs must be copied from the preceding JSON response. Shell history may
-retain CLI arguments, so use the Dashboard or another protected input channel for sensitive answer
-text.
+Open the Study run in Dashboard to select the optional Vault note, answer the diagnostic, and submit
+practice. The UI clears answer fields after submission; Core stores hashes and grading outcomes, not
+raw answer bodies. The API remains available for trusted local clients that provide an
+`Idempotency-Key`.
 
 Run the Core gates with:
 
 ```bash
-uv run pytest tests/study tests/evals/test_study_golden.py
-uv run pytest tests/api/test_study.py
-uv run ruff check src tests
-uv run mypy src
+cargo test --manifest-path rust/Cargo.toml --locked -p restork-core
+cargo test --manifest-path rust/Cargo.toml --locked -p restork-api
 ```

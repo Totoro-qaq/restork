@@ -1,6 +1,6 @@
 # Gate 2 review — Steps 12–17 Rust-first alpha
 
-> Status: Awaiting user approval
+> Status: Approved historical checkpoint; superseded by the single-Core consolidation
 >
 > Branch: `codex/steps12-17`
 >
@@ -97,7 +97,7 @@ The following remain visible in the specification and README and must not be des
 
 - [x] Source and trust-boundary diff reviewed locally.
 - [x] Migrations, backup, drift, concurrency, and idempotency tests pass.
-- [x] Rust, Python, TypeScript, and desktop local quality gates pass.
+- [x] Rust, legacy Python, TypeScript, and desktop local quality gates passed at this checkpoint.
 - [x] Security/privacy claims match implemented behavior.
 - [x] Known limitations are documented rather than hidden.
-- [ ] User approves Gate 2 for commit and push.
+- [x] User approved Gate 2 for commit and push.

@@ -4,22 +4,27 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+default-run = "restorkd"
 
 [dependencies]
 axum.workspace = true
 libc.workspace = true
 chrono.workspace = true
-restork-automation = { path = "../restork-automation" }
-restork-api = { path = "../restork-api" }
-restork-core = { path = "../restork-core" }
-restork-daily = { path = "../restork-daily" }
-restork-personal = { path = "../restork-personal" }
-restork-provider = { path = "../restork-provider" }
-restork-storage = { path = "../restork-storage" }
+futures-util.workspace = true
+getrandom.workspace = true
+reqwest = { workspace = true, default-features = false, features = ["json", "rustls", "stream", "system-proxy"] }
+restork-automation = { path = "../restork-automation", version = "=0.1.0" }
+restork-api = { path = "../restork-api", version = "=0.1.0" }
+restork-core = { path = "../restork-core", version = "=0.1.0" }
+restork-daily = { path = "../restork-daily", version = "=0.1.0" }
+restork-personal = { path = "../restork-personal", version = "=0.1.0" }
+restork-provider = { path = "../restork-provider", version = "=0.1.0" }
+restork-storage = { path = "../restork-storage", version = "=0.1.0" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 time = { workspace = true, features = ["formatting"] }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
+url.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [

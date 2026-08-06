@@ -11,7 +11,7 @@ Describe the user outcome and the smallest implementation surface.
 ## Verification
 
 - [ ] Added or updated tests for behavior and failure paths
-- [ ] Ran the relevant Rust, Python, Dashboard, and desktop checks
+- [ ] Ran the relevant Rust, repository-tool, Dashboard, and desktop checks
 - [ ] Updated English and Chinese user-facing copy together
 - [ ] Kept private Vaults, credentials, logs, runtime state, and generated personal artifacts out of Git
 - [ ] Documented any intentionally incomplete platform or release gate

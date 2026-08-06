@@ -10,9 +10,7 @@ describe("dashboard shell", () => {
 
     expect(root.textContent).toContain("Restork");
     expect(root.textContent).toContain("Research");
+    expect(root.textContent).toContain("Study");
     expect(root.textContent).toContain("Work");
-    // Study returns with the vault-grounded rebuild; until then the shell must
-    // not advertise a mode the user cannot start.
-    expect(root.querySelector('[data-mode="study"]')).toBeNull();
   });
 });

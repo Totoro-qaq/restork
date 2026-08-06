@@ -18,7 +18,6 @@
   <a href="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml/badge.svg" alt="Release provenance status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0ea5e9.svg" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/Rust-1.97-dea584.svg" alt="Rust 1.97 runtime foundation">
-  <img src="https://img.shields.io/badge/Python-3.12-8b5cf6.svg" alt="Python 3.12">
   <img src="https://img.shields.io/badge/UI-TypeScript-06b6d4.svg" alt="TypeScript Dashboard">
   <img src="https://img.shields.io/badge/data-local--first-f59e0b.svg" alt="Local-first data">
 </p>
@@ -79,7 +78,7 @@ Working ─ Episodic ─ Semantic ─ Profile memory
 Restork Core ─ Run policy ─ Preview ─ Approval ─ Event history
         │
         ├── Local Dashboard / CLI
-        └── Outbound Gateway ──► DeepSeek V4 Pro / approved public services
+        └── Outbound Gateway ──► Selected model / approved public services
 ```
 
 Markdown is the durable home for notes and user tasks. SQLite stores operational state such as
@@ -87,8 +86,8 @@ runs, approvals, and events. Rebuildable indexes and link projections can be dis
 again. The Dashboard and CLI never receive the model credential or authority to bypass Core policy.
 
 Restork needs no LangGraph, graph database, KAG, Valkey, Memory MCP, or Obsidian plugin for its base
-workflow. The new runtime uses one bounded Rust Core loop; Python is reserved for optional,
-short-lived capability workers when a scientific or document ecosystem materially needs it.
+workflow. One bounded Rust Core owns policy, storage, tools, recovery, and the embedded Dashboard.
+Small Python scripts in this repository are development helpers, not a product runtime or package.
 
 ## Try it in five minutes
 
@@ -107,27 +106,27 @@ Already cloned?
 ./scripts/quickstart.sh
 ```
 
-Restork starts on `http://127.0.0.1:7337` and prints a one-time pairing code. Open the local
-address, enter the code, and you are in. The first launch does not need an API key, does not select
+Restork asks the operating system for a free loopback port and prints the exact local URL plus
+separate one-time Web and CLI pairing codes. Open the URL, enter the Web code, and you are in. The
+first launch does not need an API key, does not select
 a Vault for you, and does not enable weather or any other optional connection. The offline Research
 synthesizer lets you explore the product without sending a model request.
 
 ### Running the Core directly
 
 ```bash
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- \
-  serve --port 7337 --state-db ./build/restork-alpha.db
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- \
+  serve --port 0 --state-db ./build/restork-alpha.db
 ```
 
-Open the `base_url` printed in the readiness record and enter its one-time pairing code.
+Open the Dashboard URL printed by Core and enter its one-time Web pairing code. Add `--json` before
+`serve` only when another program needs the readiness record.
 
-### A note on the Python package
+### One Core, one set of rules
 
-`src/restork/` is a deprecated second Core. It is not in any shipped artefact, the desktop
-application does not start it, and it is retained only as a porting reference until the migration
-in [`specs/restork-single-core-consolidation.md`](./specs/restork-single-core-consolidation.md)
-completes. Domains it still owns — Runs, Approvals, Tasks, Memory, Radar, and Work — are marked
-"not provided by this Core" in the Dashboard until they are ported.
+The product has one authoritative runtime: `restorkd`. Dashboard, CLI, desktop lifecycle, API,
+agent loop, memory, tasks, Research, Study, Work, and Radar all cross the same Rust policy and event
+boundary. The retired Python Core and its build path are no longer present.
 
 ### Desktop installers
 
@@ -162,8 +161,8 @@ than inventing why a song is hot. Apple Music uses the official catalog API and 
 token in native credential storage first:
 
 ```bash
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- music apple configure
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- music apple status
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- music apple configure
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- music apple status
 ```
 
 The token is not your Apple ID password and never enters the Dashboard or SQLite. Refresh is always
@@ -204,8 +203,8 @@ For a cloud key, use the provider-scoped native credential flow rather than a se
 Dashboard. Omitting the kind keeps the built-in DeepSeek default:
 
 ```bash
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure qwen
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- provider configure
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- provider configure qwen
 ```
 
 The platform-native prompt writes the key to macOS Keychain, Windows Credential Manager, or Linux
@@ -217,10 +216,10 @@ reference. Supported credential kinds are `deepseek`, `glm`, `kimi`, `qwen`, `op
 Restart Restork, then choose how far you want the Rust check to go:
 
 ```bash
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --connect
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --smoke
-cargo run --manifest-path rust/Cargo.toml -p restorkd -- doctor --web-search
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor --connect
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor --smoke
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor --web-search
 ```
 
 `--connect` checks the shared key and model catalog, `--smoke` tests V4 Pro synthesis, and
@@ -232,16 +231,15 @@ private directories, backup, restore, and credentials.
 ### Keep your personal data outside the checkout
 
 ```bash
-uv run restork \
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- \
+  serve --port 0 \
   --state-db /path/to/private/restork.db \
-  --profile-dir /path/to/private-profile \
-  --vault-dir /path/to/vault \
-  serve --port 7337
+  --vault-dir /path/to/vault
 ```
 
-For daily context, copy [the example profile](examples/profile.example.toml) to your private profile
-directory and enable only the fields you want. Blank weather, calendar, and playlist settings stay
-off. The formats and privacy behavior are documented in [Daily context](docs/daily-context.md).
+Configure daily context after pairing and enable only the fields you want. Blank weather, calendar,
+and playlist settings stay off. The formats and privacy behavior are documented in
+[Daily context](docs/daily-context.md).
 
 ## Available today
 
@@ -252,29 +250,24 @@ Measured against the Core that `./scripts/quickstart.sh` starts.
 | **Dashboard and local API** | Bilingual UI, loopback-only `/v1` API, separate Web/CLI pairing, short-lived sessions with rotation |
 | **Conversation** | Run-scoped sessions with fork, search, export, archive, cancellable operations, and SSE replay |
 | **Models** | DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, and generic OpenAI-compatible endpoints; provider-scoped reasoning; native credential storage; versioned prompts and configuration profiles |
+| **Agent runtime** | Durable model/tool loop with separate step, repair, token, cost, and wall-clock bounds; cancellation; approval pauses; event replay; visible context compaction |
+| **Research, Study, Work** | Evidence-led research with reviewable note writes; Vault-grounded learning paths and confidence-aware review; bounded work plans, redacted handoffs, and evidence-based result verification |
+| **Local knowledge** | Four-layer inspectable memory, Markdown task previews with single-use approval, unified search across sessions/Vault/tasks/memory/Radar, and opt-in GitHub/Hacker News Radar ingestion |
 | **Extensions** | Manifest validation, a permission lattice, immutable revisions with rollback, and sandboxed stdio MCP execution |
 | **Daily context** | Optional weather, system date and month without a permission prompt, one local ICS calendar, macOS unread-mail count, and a daily track from QQ Music, NetEase, Apple Music, or a private playlist file |
 | **Artifacts and recovery** | Deterministic macro-free PPTX and PDF, exact artifact hashes, content-bearing checkpoints, and preview-bound file restore |
-| **Automation** | DST-aware recurrence with idempotent period keys |
+| **Automation** | DST-aware deterministic health/daily refresh jobs with idempotent period keys |
 | **Desktop** | Tauri packages `restorkd` and the Dashboard, owns Unix process groups or a Windows Job Object |
 
-### Being ported
+### Deliberate boundaries
 
-These are implemented in the deprecated Python package and are **not** reachable from the Core above.
-The Dashboard marks each as "not provided by this Core" rather than showing it empty.
-
-| Area | Status |
+| Area | Current boundary |
 |---|---|
-| Runs, approvals, budgets, effect recovery | Rust implementation lands with the agent runtime |
-| Markdown tasks and journaled writes | Port scheduled |
-| Four-layer memory | Port scheduled |
-| Research evidence and cited notes | Port scheduled |
-| Work verification and redacted handoff | Port scheduled; the three-step planner is dropped |
-| Radar | Kept, but it needs real ingestion — it has never held data |
-| Study | Deleted; rebuilt on the agent loop and grounded in your Vault |
-
-There is no tool-calling agent loop in either Core yet. Sequencing, contracts, and acceptance gates
-are in [the consolidation specification](specs/restork-single-core-consolidation.md).
+| Web search | Public HTTPS research uses the declared outbound gateway; availability depends on the selected provider capability. |
+| MCP | Reviewed stdio MCP executes in the platform sandbox. Remote HTTPS MCP is rejected until its transport policy lands. |
+| Deliverable authoring | Restork assembles validated Markdown, deterministic macro-free PPTX, and PDF from explicit content; it does not silently invent source claims. |
+| Work execution | Work produces a bounded plan and handoff, then verifies a returned manifest. It does not take ownership of an external coding process. |
+| Native mail | Aggregate unread count is macOS-only; Windows/Linux expose an honest unavailable state. |
 
 The public macOS Alpha is intentionally outside Apple Developer ID trust; a protected stable release
 still requires real Developer ID, Authenticode, Linux GPG, notarization, and clean-runner evidence.
@@ -295,17 +288,13 @@ still requires real Developer ID, Authenticode, Linux GPG, notarization, and cle
 <summary><strong>Develop and contribute</strong></summary>
 
 ```bash
-# Core
-uv run pytest
-uv run ruff check .
-uv run mypy src
-uv run bandit -q -r src
-
-# Rust-first runtime foundation
+# Rust Core and release gates
 cargo fmt --manifest-path rust/Cargo.toml --all -- --check
 cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets -- -D warnings
 cargo test --manifest-path rust/Cargo.toml --locked
 cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
+cargo audit --file rust/Cargo.lock
+cargo deny --manifest-path rust/Cargo.toml check advisories bans sources
 
 # Dashboard
 npm --prefix dashboard ci
@@ -327,14 +316,12 @@ node scripts/smoke-desktop-runtime.mjs
 ./scripts/smoke-desktop-faults.sh
 
 # Public artifacts and release bundle
-uv run python scripts/audit_readme.py README.md README.zh-CN.md
+python3 scripts/audit_readme.py README.md README.zh-CN.md
 ./scripts/scan-public-artifacts.sh
-uv run python scripts/build_release.py --output dist/release
 ```
 
 The provider-free [runtime benchmark](benchmarks/README.md) records readiness, idle memory, binary
-size, and loopback latency without sending a prompt. The V1 source quickstart stays available until
-each remaining execution route reaches compatibility and recovery parity in Rust.
+size, and loopback latency without sending a prompt.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. The implemented product contracts
 live in the [V1 specification](specs/restork-v1.md) and

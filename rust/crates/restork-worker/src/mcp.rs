@@ -8,6 +8,7 @@ use tokio::{
     process::{Child, Command},
     time::timeout,
 };
+use zeroize::Zeroizing;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct McpExecutionOutput {
@@ -55,7 +56,7 @@ impl McpRuntimeError {
 pub async fn execute_stdio_mcp(
     execution_id: &str,
     call: &ResolvedToolCall,
-    secret_values: &BTreeMap<String, String>,
+    secret_values: &BTreeMap<String, Zeroizing<String>>,
 ) -> Result<McpExecutionOutput, McpRuntimeError> {
     let McpTransport::Stdio(definition) = &call.transport else {
         return Err(McpRuntimeError::UnsupportedTransport);
@@ -91,7 +92,7 @@ pub async fn execute_stdio_mcp(
     for (name, value) in &definition.environment.variables {
         let selected = secret_values
             .get(value)
-            .map_or(value.as_str(), String::as_str);
+            .map_or(value.as_str(), |secret| secret.as_str());
         command.env(name, selected);
     }
     #[cfg(unix)]

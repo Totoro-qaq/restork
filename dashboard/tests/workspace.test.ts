@@ -50,7 +50,7 @@ const snapshot: DashboardSnapshot = {
     model: "deepseek-v4-pro",
     status: "ready",
     message: "Ready without a network check.",
-    setup_command: "uv run restork provider configure",
+    setup_command: "restorkd provider configure deepseek",
     config_present: true,
     config_valid: true,
     credential_present: true,
@@ -73,6 +73,15 @@ function fakeApi(): DashboardApi {
     pair: vi.fn(async () => undefined),
     loadDashboard: vi.fn(async () => snapshot),
     createRun: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    prepareStudy: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    submitStudyDiagnostic: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    submitStudyPractice: vi.fn(async () => {
       throw new Error("not used");
     }),
     planWork: vi.fn(async () => {
@@ -1098,7 +1107,7 @@ describe("authenticated workspace", () => {
       warnings: ["Restork never executes commands or launches Codex."],
       sensitivity: "confidential",
       created_at: "2026-08-02T00:00:00Z",
-      validation_status: "valid",
+      validation: { status: "validated", mechanism: "bounded_read_only_snapshot" },
     };
     const approval = {
       approval_id: `work-approval-${"1".repeat(24)}`,
@@ -1140,7 +1149,7 @@ describe("authenticated workspace", () => {
         }],
         executor_boundary: "external_user_started_no_restork_executor",
         created_at: "2026-08-02T00:00:00Z",
-        validation_status: "valid",
+        validation: { status: "validated", mechanism: "frozen_context_hashes" },
       },
       package_hash: "2".repeat(64),
       byte_count: 812,

@@ -2,19 +2,23 @@
 
 ## Status
 
-Proposed 2026-08-06. Supersedes the dual-runtime posture of `docs/adr/0001` (already marked
-Superseded) and enforces the migration constraint that `docs/adr/0002` stated but never applied:
+Implemented and locally verified 2026-08-06 on `codex/finish-single-core-consolidation`; review and
+the remote three-platform CI matrix remain before merge. This supersedes the dual-runtime posture
+of `docs/adr/0001` (already marked Superseded) and enforces the migration constraint that
+`docs/adr/0002` stated but never applied:
 *"a Rust feature becomes authoritative only after parity; its Python production route is then
 removed."*
 
-This document covers Stages 0–6. Stages 0–3 are authorised for immediate implementation.
+This document covers the completed Stages 0–6. The shipped product path is one Rust Core; Python is
+limited to repository and release helpers.
 
-## Problem statement
+## Problem statement at the audited baseline
 
-The repository presents one product but contains two disjoint Core implementations that share a URL
-namespace and a Dashboard bundle, and neither implements the agent runtime the product is named for.
+The repository presented one product but contained two disjoint Core implementations that shared a
+URL namespace and a Dashboard bundle, and neither implemented the agent runtime the product was
+named for.
 
-Verified facts that motivate every stage below:
+The verified baseline facts that motivated every stage below were:
 
 1. **Two Cores, one frontend.** `scripts/quickstart.sh:31` starts the Python Core (62 routes).
    `desktop/src-tauri/src/supervisor.rs:191` starts `restorkd` (73 routes). There is no FFI bridge

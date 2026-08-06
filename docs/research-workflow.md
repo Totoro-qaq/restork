@@ -14,8 +14,9 @@ capability.
    time.
 5. A grounded claim must reference existing Evidence Card IDs. A conclusion without direct support
    must be labeled `inference` and state its basis. Conflicts keep at least two distinct references.
-6. The validated artifact reports supported-claim rate, primary-source ratio, citation correctness,
-   duplicate count, related-note count, and conflict count.
+6. The validated artifact reports only metrics Core actually computes. Supported-claim rate,
+   duplicate count, related-note count, and conflict count are measured; primary-source ratio and
+   citation correctness remain `null` until dedicated evaluators run.
 
 The DeepSeek synthesizer receives only the question, Source Card metadata, and bounded Evidence
 Cards. Source text is explicitly treated as data, not instructions. A deterministic synthesizer is
@@ -43,41 +44,39 @@ digest.
 
 ## Dashboard, CLI, and model selection
 
-Choosing **research** on a Dashboard Radar item creates the governed run, fetches the public source,
-validates the artifact, and returns the Markdown preview in the same action. The authenticated API
-also exposes:
+Choosing **Research** in Dashboard creates the governed run, follows durable events, validates the
+artifact, and returns a Markdown preview. The authenticated API exposes:
 
-- `POST /v1/research/runs/{run_id}/execute`;
-- `GET /v1/research/runs/{run_id}/artifact`;
-- `GET /v1/research/artifacts/{artifact_id}`.
+- `POST /v1/runs` and `POST /v1/runs/{run_id}/advance` for the bounded agent loop;
+- `GET /v1/runs/{run_id}/events?follow=true` for resumable SSE;
+- `GET /v1/research/{run_id}` for the validated artifact;
+- `POST /v1/research/{run_id}/note/preview` for a separate approval-bound Vault write preview.
 
 The CLI equivalent for an existing Research run is:
 
 ```bash
-restork research RUN_ID \
-  --question "What does this project establish?" \
-  --source https://github.com/owner/repository
+./rust/target/debug/restork --url http://127.0.0.1:<port> \
+  runs create --mode research \
+  --goal "What does https://github.com/owner/repository establish?" \
+  --provider deepseek
 ```
 
-Without `$RESTORK_CONFIG_DIR/config.toml`, Restork uses the deterministic grounded synthesizer and
-makes no model call. To enable DeepSeek V4 Pro, run the secure terminal setup and restart Core:
+Use `safe-mode` for local storage without a model operation. To enable the built-in DeepSeek Profile,
+run the secure terminal setup and restart Core:
 
 ```bash
-uv run restork provider configure
-uv run restork doctor --connect
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- provider configure
+cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor --connect
 ```
 
-The first command prompts directly through macOS Keychain and creates only a non-secret private
-configuration file. `examples/config.example.toml` remains the manual fallback shape.
-
-The TOML stores only `keychain:restork/provider/deepseek`; the key never enters the repository,
-SQLite, Dashboard, URL, or event stream. Provider requests remain limited to public or personal
-data in V1; confidential, secret, and credential task payloads fail closed.
+The first command prompts through native credential storage. The key never enters the repository,
+SQLite, Dashboard, URL, or event stream. The built-in direct DeepSeek Profile is public-only;
+governed Profiles must explicitly declare any broader data class, while secret and credential
+payloads always fail closed.
 
 Run the slice gates with:
 
 ```bash
-uv run pytest tests/research tests/evals
-uv run ruff check src tests
-uv run mypy src
+cargo test --manifest-path rust/Cargo.toml --locked -p restork-core
+cargo test --manifest-path rust/Cargo.toml --locked -p restork-api
 ```

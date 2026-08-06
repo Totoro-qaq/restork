@@ -13,7 +13,7 @@ Research–Study–Work 工作流构建的本地优先桌面工作台。
 | 方面 | Hermes Agent | Restork |
 |---|---|---|
 | 主要体验 | 终端与 Gateway 驱动的对话 | 中英文桌面工作台，加一套受控对话界面 |
-| 运行时重心 | 扩展性很强的 Python Agent runtime | Rust Core 拥有策略、生命周期、存储、网络与副作用；Python 只留给可选能力 Worker |
+| 运行时重心 | 扩展性很强的 Python Agent runtime | 单一 Rust Core 拥有策略、生命周期、存储、网络、工具与副作用；当前不分发 Python runtime |
 | 模型选择 | 广泛的 Provider 插件、配置向导与会话内切换 | 版本化 Provider Registry 与对话内可见选择器；切换时创建独立受控的有界分支，原对话继续冻结 |
 | 思考强度 | 全局/按模型强度设置与运行时 `/reasoning` 命令 | 只显示供应商声明支持的档位；不支持就失败关闭；不展示或保留私有思维链 |
 | 扩展 | 可插拔的 Provider、Memory、Context、媒体与平台插件 | Skill/MCP/Plugin 先隔离，版本不可变，展示权限差异，显式启用、回滚，并冻结会话目录 |

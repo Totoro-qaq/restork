@@ -6,18 +6,25 @@
 mod secrets;
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     net::IpAddr,
+    pin::Pin,
     time::{Duration, Instant},
 };
 
-use reqwest::{Client, RequestBuilder, StatusCode, redirect::Policy};
+use futures_util::{Stream, StreamExt};
+use reqwest::{
+    Client, RequestBuilder, StatusCode,
+    header::{HeaderMap, RETRY_AFTER},
+    redirect::Policy,
+};
 use restork_personal::{
     ModelDiscovery, ProviderAuthKind, ProviderKind, ProviderProfile, ProviderProtocol,
     ProviderRequestAdapter, ReasoningEffort,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use url::Url;
 
 pub use secrets::{NativeSecretStore, SecretError};
 
@@ -102,17 +109,133 @@ pub struct ProviderModelCatalog {
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ToolCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
+}
+
+impl ChatMessage {
+    #[must_use]
+    pub fn text(role: impl Into<String>, content: impl Into<String>) -> Self {
+        Self {
+            role: role.into(),
+            content: content.into(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            reasoning_content: None,
+        }
+    }
+
+    #[must_use]
+    pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
+        Self {
+            role: "tool".to_owned(),
+            content: content.into(),
+            tool_calls: Vec::new(),
+            tool_call_id: Some(tool_call_id.into()),
+            reasoning_content: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ChatTool {
+    pub name: String,
+    pub description: String,
+    pub parameters: Value,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct SamplingControls {
+    pub temperature: Option<f64>,
+    pub top_p: Option<f64>,
+    pub seed: Option<i64>,
+    #[serde(default)]
+    pub stop: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatToolChoice {
+    #[default]
+    Auto,
+    None,
+    Required,
+    Function(String),
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ChatOptions {
+    #[serde(default)]
+    pub tools: Vec<ChatTool>,
+    #[serde(default)]
+    pub tool_choice: ChatToolChoice,
+    pub parallel_tool_calls: Option<bool>,
+    #[serde(default)]
+    pub sampling: SamplingControls,
+    #[serde(default)]
+    pub retry: ChatRetryPolicy,
+}
+
+impl Default for ChatOptions {
+    fn default() -> Self {
+        Self {
+            tools: Vec::new(),
+            tool_choice: ChatToolChoice::Auto,
+            parallel_tool_calls: None,
+            sampling: SamplingControls::default(),
+            retry: ChatRetryPolicy::Disabled,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatRetryPolicy {
+    #[default]
+    Disabled,
+    Bounded,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ChatCompletion {
     pub content: String,
+    #[serde(default)]
+    pub tool_calls: Vec<ToolCall>,
+    pub reasoning_content: Option<String>,
+    pub finish_reason: Option<String>,
     pub latency_ms: u64,
     pub request_id: Option<String>,
     pub prompt_tokens: Option<u64>,
     pub completion_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
+    pub cost_usd_micros: Option<u64>,
 }
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ChatChunk {
+    pub content: String,
+    pub reasoning_content: Option<String>,
+    pub tool_calls: Vec<ToolCall>,
+    pub finish_reason: Option<String>,
+    pub prompt_tokens: Option<u64>,
+    pub completion_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
+    pub cost_usd_micros: Option<u64>,
+}
+
+pub type ChatEventStream =
+    Pin<Box<dyn Stream<Item = Result<ChatChunk, ProviderError>> + Send + 'static>>;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct WebCitation {
@@ -148,6 +271,60 @@ pub struct ProviderClient {
     secrets: NativeSecretStore,
 }
 
+/// Bounded, redirect-free HTTP gateway for explicitly allowlisted public JSON sources.
+#[derive(Clone)]
+pub struct PublicWebGateway {
+    client: Client,
+}
+
+impl PublicWebGateway {
+    pub fn new() -> Result<Self, ProviderError> {
+        let client = Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(20))
+            .redirect(Policy::none())
+            .no_proxy()
+            .user_agent(concat!("restork/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|_| ProviderError::Configuration)?;
+        Ok(Self { client })
+    }
+
+    pub async fn get_json(&self, url: &str) -> Result<Value, ProviderError> {
+        let parsed = Url::parse(url).map_err(|_| ProviderError::PolicyDenied)?;
+        if parsed.scheme() != "https"
+            || parsed.username() != ""
+            || parsed.password().is_some()
+            || parsed.fragment().is_some()
+            || !matches!(
+                parsed.host_str(),
+                Some("api.github.com" | "hacker-news.firebaseio.com")
+            )
+        {
+            return Err(ProviderError::PolicyDenied);
+        }
+        let response = self
+            .client
+            .get(parsed)
+            .send()
+            .await
+            .map_err(map_transport)?;
+        let status = response.status();
+        let length = response.content_length();
+        if length.is_some_and(|length| length > 2 * 1024 * 1024) {
+            return Err(ProviderError::InvalidResponse);
+        }
+        let bytes = response.bytes().await.map_err(map_transport)?;
+        if bytes.len() > 2 * 1024 * 1024 {
+            return Err(ProviderError::InvalidResponse);
+        }
+        let payload =
+            serde_json::from_slice::<Value>(&bytes).map_err(|_| ProviderError::InvalidResponse)?;
+        map_status(status, &payload)?;
+        Ok(payload)
+    }
+}
+
 impl ProviderClient {
     pub fn new() -> Result<Self, ProviderError> {
         let client = Client::builder()
@@ -177,10 +354,7 @@ impl ProviderClient {
             let smoke_profile = fixed_smoke_profile(profile);
             self.chat(
                 &smoke_profile,
-                &[ChatMessage {
-                    role: "user".to_owned(),
-                    content: "Reply with exactly OK.".to_owned(),
-                }],
+                &[ChatMessage::text("user", "Reply with exactly OK.")],
                 16,
             )
             .await
@@ -389,24 +563,120 @@ impl ProviderClient {
         messages: &[ChatMessage],
         max_tokens: u32,
     ) -> Result<ChatCompletion, ProviderError> {
-        if messages.is_empty()
-            || messages.len() > 64
-            || max_tokens == 0
-            || max_tokens > 8_192
-            || messages.iter().any(|message| {
-                !matches!(message.role.as_str(), "system" | "user" | "assistant")
-                    || message.content.len() > 128_000
-                    || message.content.contains('\0')
-            })
-        {
-            return Err(ProviderError::PolicyDenied);
-        }
+        self.chat_with_options(profile, messages, max_tokens, &ChatOptions::default())
+            .await
+    }
+
+    pub async fn chat_with_options(
+        &self,
+        profile: &ProviderProfile,
+        messages: &[ChatMessage],
+        max_tokens: u32,
+        options: &ChatOptions,
+    ) -> Result<ChatCompletion, ProviderError> {
+        validate_chat_request(profile, messages, max_tokens, options)?;
         match profile.kind().definition().protocol {
-            ProviderProtocol::OllamaChat => self.chat_ollama(profile, messages, max_tokens).await,
+            ProviderProtocol::OllamaChat => {
+                self.chat_ollama(profile, messages, max_tokens, options)
+                    .await
+            }
             ProviderProtocol::OpenAiChatCompletions => {
-                self.chat_openai(profile, messages, max_tokens).await
+                self.chat_openai(profile, messages, max_tokens, options)
+                    .await
             }
         }
+    }
+
+    pub async fn chat_stream(
+        &self,
+        profile: &ProviderProfile,
+        messages: &[ChatMessage],
+        max_tokens: u32,
+        options: &ChatOptions,
+    ) -> Result<ChatEventStream, ProviderError> {
+        validate_chat_request(profile, messages, max_tokens, options)?;
+        let protocol = profile.kind().definition().protocol;
+        let request = match protocol {
+            ProviderProtocol::OpenAiChatCompletions => {
+                let secret = self.resolve_secret(profile).await?;
+                self.client
+                    .post(format!("{}/chat/completions", profile.base_url()))
+                    .bearer_auth(secret.expose())
+                    .json(&build_openai_chat_request_with_options(
+                        profile, messages, max_tokens, options, true,
+                    )?)
+            }
+            ProviderProtocol::OllamaChat => self
+                .client
+                .post(format!("{}/api/chat", profile.base_url()))
+                .json(&build_ollama_chat_request_with_options(
+                    profile, messages, max_tokens, options, true,
+                )?),
+        };
+        let response = send_chat_request(request, options.retry).await?;
+        let status = response.status();
+        if !status.is_success() {
+            let payload = response
+                .json::<Value>()
+                .await
+                .map_err(|_| ProviderError::InvalidResponse)?;
+            return Err(map_status(status, &payload)
+                .err()
+                .unwrap_or(ProviderError::InvalidResponse));
+        }
+        let state = ChatStreamState {
+            body: Box::pin(response.bytes_stream()),
+            buffer: Vec::new(),
+            protocol,
+            model: profile.model().to_owned(),
+            tool_calls: BTreeMap::new(),
+            finished: false,
+        };
+        Ok(Box::pin(futures_util::stream::unfold(
+            state,
+            |mut state| async move {
+                loop {
+                    if state.finished {
+                        return None;
+                    }
+                    if let Some(frame) = take_stream_frame(&mut state) {
+                        match frame {
+                            Ok(frame) => match parse_stream_frame(&mut state, &frame) {
+                                Ok(Some(chunk)) => return Some((Ok(chunk), state)),
+                                Ok(None) => continue,
+                                Err(error) => {
+                                    state.finished = true;
+                                    return Some((Err(error), state));
+                                }
+                            },
+                            Err(error) => {
+                                state.finished = true;
+                                return Some((Err(error), state));
+                            }
+                        }
+                    }
+                    match state.body.next().await {
+                        Some(Ok(bytes)) => {
+                            if state.buffer.len().saturating_add(bytes.len()) > 4_000_000 {
+                                state.finished = true;
+                                return Some((Err(ProviderError::InvalidResponse), state));
+                            }
+                            state.buffer.extend_from_slice(&bytes);
+                        }
+                        Some(Err(error)) => {
+                            state.finished = true;
+                            return Some((Err(map_transport(error)), state));
+                        }
+                        None => {
+                            if state.buffer.is_empty() {
+                                return None;
+                            }
+                            state.buffer.push(b'\n');
+                        }
+                    }
+                }
+            },
+        )))
     }
 
     pub async fn models(
@@ -579,25 +849,7 @@ impl ProviderClient {
         &self,
         request: RequestBuilder,
     ) -> Result<reqwest::Response, ProviderError> {
-        let retry = request.try_clone();
-        match request.send().await {
-            Ok(response) if retryable_discovery_status(response.status()) => {
-                let Some(retry) = retry else {
-                    return Ok(response);
-                };
-                tokio::time::sleep(Duration::from_millis(250)).await;
-                retry.send().await.map_err(map_transport)
-            }
-            Ok(response) => Ok(response),
-            Err(error) if error.is_connect() && !error.is_timeout() => {
-                let Some(retry) = retry else {
-                    return Err(map_transport(error));
-                };
-                tokio::time::sleep(Duration::from_millis(250)).await;
-                retry.send().await.map_err(map_transport)
-            }
-            Err(error) => Err(map_transport(error)),
-        }
+        send_with_bounded_retry(request, 3, true).await
     }
 
     async fn check_models(
@@ -637,17 +889,18 @@ impl ProviderClient {
         profile: &ProviderProfile,
         messages: &[ChatMessage],
         max_tokens: u32,
+        options: &ChatOptions,
     ) -> Result<ChatCompletion, ProviderError> {
         let secret = self.resolve_secret(profile).await?;
         let started = Instant::now();
-        let response = self
+        let request = self
             .client
             .post(format!("{}/chat/completions", profile.base_url()))
             .bearer_auth(secret.expose())
-            .json(&build_openai_chat_request(profile, messages, max_tokens)?)
-            .send()
-            .await
-            .map_err(map_transport)?;
+            .json(&build_openai_chat_request_with_options(
+                profile, messages, max_tokens, options, false,
+            )?);
+        let response = send_chat_request(request, options.retry).await?;
         let request_id = request_id(&response);
         let status = response.status();
         let payload: Value = response
@@ -655,19 +908,35 @@ impl ProviderClient {
             .await
             .map_err(|_| ProviderError::InvalidResponse)?;
         map_status(status, &payload)?;
-        let content = payload["choices"][0]["message"]["content"]
+        let message = &payload["choices"][0]["message"];
+        let content = message["content"].as_str().unwrap_or_default().to_owned();
+        let tool_calls = parse_openai_tool_calls(&message["tool_calls"])?;
+        if (content.is_empty() && tool_calls.is_empty()) || content.len() > 2_000_000 {
+            return Err(ProviderError::InvalidResponse);
+        }
+        let reasoning_content = message["reasoning_content"]
             .as_str()
-            .filter(|content| !content.is_empty() && content.len() <= 2_000_000)
-            .ok_or(ProviderError::InvalidResponse)?
-            .to_owned();
+            .filter(|content| content.len() <= 2_000_000)
+            .map(str::to_owned);
         let usage = &payload["usage"];
+        let prompt_tokens = usage["prompt_tokens"].as_u64();
+        let completion_tokens = usage["completion_tokens"].as_u64();
+        let total_tokens = usage["total_tokens"].as_u64();
         Ok(ChatCompletion {
             content,
+            tool_calls,
+            reasoning_content,
+            finish_reason: payload["choices"][0]["finish_reason"]
+                .as_str()
+                .map(str::to_owned),
             latency_ms: elapsed_ms(started),
             request_id,
-            prompt_tokens: usage["prompt_tokens"].as_u64(),
-            completion_tokens: usage["completion_tokens"].as_u64(),
-            total_tokens: usage["total_tokens"].as_u64(),
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+            cost_usd_micros: response_cost_usd_micros(usage).or_else(|| {
+                model_cost_usd_micros(profile.model(), prompt_tokens?, completion_tokens?)
+            }),
         })
     }
 
@@ -676,30 +945,35 @@ impl ProviderClient {
         profile: &ProviderProfile,
         messages: &[ChatMessage],
         max_tokens: u32,
+        options: &ChatOptions,
     ) -> Result<ChatCompletion, ProviderError> {
         let started = Instant::now();
-        let response = self
+        let request = self
             .client
             .post(format!("{}/api/chat", profile.base_url()))
-            .json(&build_ollama_chat_request(profile, messages, max_tokens)?)
-            .send()
-            .await
-            .map_err(map_transport)?;
+            .json(&build_ollama_chat_request_with_options(
+                profile, messages, max_tokens, options, false,
+            )?);
+        let response = send_chat_request(request, options.retry).await?;
         let status = response.status();
         let payload: Value = response
             .json()
             .await
             .map_err(|_| ProviderError::InvalidResponse)?;
         map_status(status, &payload)?;
-        let content = payload["message"]["content"]
-            .as_str()
-            .filter(|content| !content.is_empty() && content.len() <= 2_000_000)
-            .ok_or(ProviderError::InvalidResponse)?
-            .to_owned();
+        let message = &payload["message"];
+        let content = message["content"].as_str().unwrap_or_default().to_owned();
+        let tool_calls = parse_ollama_tool_calls(&message["tool_calls"])?;
+        if (content.is_empty() && tool_calls.is_empty()) || content.len() > 2_000_000 {
+            return Err(ProviderError::InvalidResponse);
+        }
         let prompt_tokens = payload["prompt_eval_count"].as_u64();
         let completion_tokens = payload["eval_count"].as_u64();
         Ok(ChatCompletion {
             content,
+            tool_calls,
+            reasoning_content: message["thinking"].as_str().map(str::to_owned),
+            finish_reason: payload["done_reason"].as_str().map(str::to_owned),
             latency_ms: elapsed_ms(started),
             request_id: None,
             prompt_tokens,
@@ -707,6 +981,7 @@ impl ProviderClient {
             total_tokens: prompt_tokens
                 .zip(completion_tokens)
                 .map(|(left, right)| left + right),
+            cost_usd_micros: None,
         })
     }
 
@@ -722,6 +997,176 @@ impl ProviderClient {
             .await
             .map_err(|_| ProviderError::CredentialMissing)
     }
+}
+
+struct ChatStreamState {
+    body: Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>,
+    buffer: Vec<u8>,
+    protocol: ProviderProtocol,
+    model: String,
+    tool_calls: BTreeMap<usize, StreamingToolCall>,
+    finished: bool,
+}
+
+#[derive(Default)]
+struct StreamingToolCall {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+fn take_stream_frame(state: &mut ChatStreamState) -> Option<Result<Vec<u8>, ProviderError>> {
+    let delimiter = match state.protocol {
+        ProviderProtocol::OpenAiChatCompletions => state
+            .buffer
+            .windows(2)
+            .position(|window| window == b"\n\n")
+            .map(|position| (position, 2))
+            .or_else(|| {
+                state
+                    .buffer
+                    .windows(4)
+                    .position(|window| window == b"\r\n\r\n")
+                    .map(|position| (position, 4))
+            }),
+        ProviderProtocol::OllamaChat => state
+            .buffer
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|position| (position, 1)),
+    }?;
+    let (position, width) = delimiter;
+    let frame = state.buffer.drain(..position).collect::<Vec<_>>();
+    state.buffer.drain(..width);
+    if frame.len() > 2_000_000 {
+        return Some(Err(ProviderError::InvalidResponse));
+    }
+    Some(Ok(frame))
+}
+
+fn parse_stream_frame(
+    state: &mut ChatStreamState,
+    frame: &[u8],
+) -> Result<Option<ChatChunk>, ProviderError> {
+    match state.protocol {
+        ProviderProtocol::OpenAiChatCompletions => parse_openai_stream_frame(state, frame),
+        ProviderProtocol::OllamaChat => parse_ollama_stream_frame(state, frame),
+    }
+}
+
+fn parse_openai_stream_frame(
+    state: &mut ChatStreamState,
+    frame: &[u8],
+) -> Result<Option<ChatChunk>, ProviderError> {
+    let text = std::str::from_utf8(frame).map_err(|_| ProviderError::InvalidResponse)?;
+    let data = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("data:"))
+        .map(str::trim_start)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if data.is_empty() {
+        return Ok(None);
+    }
+    if data == "[DONE]" {
+        state.finished = true;
+        return Ok(None);
+    }
+    let payload: Value = serde_json::from_str(&data).map_err(|_| ProviderError::InvalidResponse)?;
+    let choice = &payload["choices"][0];
+    let delta = &choice["delta"];
+    if let Some(calls) = delta["tool_calls"].as_array() {
+        for call in calls {
+            let index = call["index"]
+                .as_u64()
+                .and_then(|value| usize::try_from(value).ok())
+                .ok_or(ProviderError::StructuredOutputInvalid)?;
+            let entry = state.tool_calls.entry(index).or_default();
+            if let Some(id) = call["id"].as_str() {
+                entry.id.push_str(id);
+            }
+            if let Some(name) = call["function"]["name"].as_str() {
+                entry.name.push_str(name);
+            }
+            if let Some(arguments) = call["function"]["arguments"].as_str() {
+                entry.arguments.push_str(arguments);
+            }
+            if entry.id.len() > 256 || entry.name.len() > 128 || entry.arguments.len() > 1_000_000 {
+                return Err(ProviderError::StructuredOutputInvalid);
+            }
+        }
+    }
+    let finish_reason = choice["finish_reason"].as_str().map(str::to_owned);
+    let tool_calls = if finish_reason.is_some() {
+        complete_stream_tool_calls(&state.tool_calls)?
+    } else {
+        Vec::new()
+    };
+    let usage = &payload["usage"];
+    let prompt_tokens = usage["prompt_tokens"].as_u64();
+    let completion_tokens = usage["completion_tokens"].as_u64();
+    let total_tokens = usage["total_tokens"].as_u64();
+    let chunk = ChatChunk {
+        content: delta["content"].as_str().unwrap_or_default().to_owned(),
+        reasoning_content: delta["reasoning_content"].as_str().map(str::to_owned),
+        tool_calls,
+        finish_reason,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        cost_usd_micros: response_cost_usd_micros(usage)
+            .or_else(|| model_cost_usd_micros(&state.model, prompt_tokens?, completion_tokens?)),
+    };
+    Ok(Some(chunk))
+}
+
+fn parse_ollama_stream_frame(
+    state: &mut ChatStreamState,
+    frame: &[u8],
+) -> Result<Option<ChatChunk>, ProviderError> {
+    if frame.iter().all(u8::is_ascii_whitespace) {
+        return Ok(None);
+    }
+    let payload: Value =
+        serde_json::from_slice(frame).map_err(|_| ProviderError::InvalidResponse)?;
+    let message = &payload["message"];
+    let done = payload["done"].as_bool().unwrap_or(false);
+    if done {
+        state.finished = true;
+    }
+    let prompt_tokens = payload["prompt_eval_count"].as_u64();
+    let completion_tokens = payload["eval_count"].as_u64();
+    Ok(Some(ChatChunk {
+        content: message["content"].as_str().unwrap_or_default().to_owned(),
+        reasoning_content: message["thinking"].as_str().map(str::to_owned),
+        tool_calls: parse_ollama_tool_calls(&message["tool_calls"])?,
+        finish_reason: payload["done_reason"].as_str().map(str::to_owned),
+        prompt_tokens,
+        completion_tokens,
+        total_tokens: prompt_tokens
+            .zip(completion_tokens)
+            .map(|(left, right)| left + right),
+        cost_usd_micros: None,
+    }))
+}
+
+fn complete_stream_tool_calls(
+    calls: &BTreeMap<usize, StreamingToolCall>,
+) -> Result<Vec<ToolCall>, ProviderError> {
+    calls
+        .values()
+        .map(|call| {
+            let arguments = serde_json::from_str::<Value>(&call.arguments)
+                .map_err(|_| ProviderError::StructuredOutputInvalid)?;
+            let call = ToolCall {
+                id: call.id.clone(),
+                name: call.name.clone(),
+                arguments,
+            };
+            validate_tool_call(&call)?;
+            Ok(call)
+        })
+        .collect()
 }
 
 fn fixed_smoke_profile(profile: &ProviderProfile) -> ProviderProfile {
@@ -747,18 +1192,36 @@ pub fn build_openai_chat_request(
     messages: &[ChatMessage],
     max_tokens: u32,
 ) -> Result<Value, ProviderError> {
+    build_openai_chat_request_with_options(
+        profile,
+        messages,
+        max_tokens,
+        &ChatOptions::default(),
+        false,
+    )
+}
+
+pub fn build_openai_chat_request_with_options(
+    profile: &ProviderProfile,
+    messages: &[ChatMessage],
+    max_tokens: u32,
+    options: &ChatOptions,
+    stream: bool,
+) -> Result<Value, ProviderError> {
     if !matches!(
         profile.kind().definition().protocol,
         ProviderProtocol::OpenAiChatCompletions
     ) {
         return Err(ProviderError::Configuration);
     }
+    validate_chat_request(profile, messages, max_tokens, options)?;
     let mut body = json!({
         "model": profile.model(),
-        "messages": messages,
+        "messages": encode_openai_messages(profile, messages)?,
         "max_tokens": max_tokens,
-        "stream": false
+        "stream": stream
     });
+    apply_chat_options(&mut body, options)?;
     match profile.kind().definition().request_adapter {
         ProviderRequestAdapter::DeepSeek => {
             apply_toggle_and_effort(&mut body, profile.reasoning());
@@ -813,18 +1276,39 @@ pub fn build_ollama_chat_request(
     messages: &[ChatMessage],
     max_tokens: u32,
 ) -> Result<Value, ProviderError> {
+    build_ollama_chat_request_with_options(
+        profile,
+        messages,
+        max_tokens,
+        &ChatOptions::default(),
+        false,
+    )
+}
+
+pub fn build_ollama_chat_request_with_options(
+    profile: &ProviderProfile,
+    messages: &[ChatMessage],
+    max_tokens: u32,
+    options: &ChatOptions,
+    stream: bool,
+) -> Result<Value, ProviderError> {
     if !matches!(
         profile.kind().definition().protocol,
         ProviderProtocol::OllamaChat
     ) {
         return Err(ProviderError::Configuration);
     }
+    validate_chat_request(profile, messages, max_tokens, options)?;
     let mut body = json!({
         "model": profile.model(),
-        "messages": messages,
-        "stream": false,
+        "messages": encode_ollama_messages(messages)?,
+        "stream": stream,
         "options": {"num_predict": max_tokens}
     });
+    if !options.tools.is_empty() {
+        body["tools"] = encode_tools(&options.tools)?;
+    }
+    apply_sampling_options(&mut body["options"], &options.sampling)?;
     match profile.reasoning().effort() {
         ReasoningEffort::Auto => {}
         ReasoningEffort::Off => body["think"] = Value::Bool(false),
@@ -834,6 +1318,280 @@ pub fn build_ollama_chat_request(
         _ => return Err(ProviderError::Configuration),
     }
     Ok(body)
+}
+
+fn validate_chat_request(
+    profile: &ProviderProfile,
+    messages: &[ChatMessage],
+    max_tokens: u32,
+    options: &ChatOptions,
+) -> Result<(), ProviderError> {
+    if messages.is_empty()
+        || messages.len() > 256
+        || max_tokens == 0
+        || max_tokens > 131_072
+        || estimate_chat_tokens(messages)? > 1_000_000
+    {
+        return Err(ProviderError::PolicyDenied);
+    }
+    for message in messages {
+        if !matches!(
+            message.role.as_str(),
+            "system" | "user" | "assistant" | "tool"
+        ) || message.content.len() > 2_000_000
+            || message.content.contains('\0')
+            || message
+                .reasoning_content
+                .as_ref()
+                .is_some_and(|value| value.len() > 2_000_000 || value.contains('\0'))
+        {
+            return Err(ProviderError::PolicyDenied);
+        }
+        match message.role.as_str() {
+            "assistant" => {
+                if message.content.is_empty() && message.tool_calls.is_empty() {
+                    return Err(ProviderError::PolicyDenied);
+                }
+                if profile.kind() == ProviderKind::DeepSeek
+                    && profile.reasoning().effort() != ReasoningEffort::Off
+                    && !message.tool_calls.is_empty()
+                    && message.reasoning_content.is_none()
+                {
+                    return Err(ProviderError::Configuration);
+                }
+            }
+            "tool" => {
+                if message.tool_call_id.as_deref().is_none_or(str::is_empty)
+                    || !message.tool_calls.is_empty()
+                {
+                    return Err(ProviderError::PolicyDenied);
+                }
+            }
+            _ => {
+                if message.content.is_empty()
+                    || message.tool_call_id.is_some()
+                    || !message.tool_calls.is_empty()
+                {
+                    return Err(ProviderError::PolicyDenied);
+                }
+            }
+        }
+        for call in &message.tool_calls {
+            validate_tool_call(call)?;
+        }
+    }
+    let mut names = BTreeSet::new();
+    for tool in &options.tools {
+        if !valid_identifier(&tool.name)
+            || tool.description.is_empty()
+            || tool.description.len() > 8_192
+            || !tool.parameters.is_object()
+            || !names.insert(tool.name.as_str())
+        {
+            return Err(ProviderError::Configuration);
+        }
+    }
+    if let ChatToolChoice::Function(name) = &options.tool_choice
+        && (!valid_identifier(name) || !names.contains(name.as_str()))
+    {
+        return Err(ProviderError::Configuration);
+    }
+    if options.tools.is_empty()
+        && (!matches!(
+            options.tool_choice,
+            ChatToolChoice::Auto | ChatToolChoice::None
+        ) || options.parallel_tool_calls.is_some())
+    {
+        return Err(ProviderError::Configuration);
+    }
+    validate_sampling(&options.sampling)
+}
+
+fn validate_sampling(sampling: &SamplingControls) -> Result<(), ProviderError> {
+    if sampling
+        .temperature
+        .is_some_and(|value| !value.is_finite() || !(0.0..=2.0).contains(&value))
+        || sampling
+            .top_p
+            .is_some_and(|value| !value.is_finite() || !(0.0..=1.0).contains(&value))
+        || sampling.stop.len() > 8
+        || sampling
+            .stop
+            .iter()
+            .any(|value| value.is_empty() || value.len() > 256 || value.contains('\0'))
+    {
+        return Err(ProviderError::Configuration);
+    }
+    Ok(())
+}
+
+fn validate_tool_call(call: &ToolCall) -> Result<(), ProviderError> {
+    if call.id.is_empty()
+        || call.id.len() > 256
+        || call.id.contains('\0')
+        || !valid_identifier(&call.name)
+        || !call.arguments.is_object()
+    {
+        return Err(ProviderError::StructuredOutputInvalid);
+    }
+    Ok(())
+}
+
+fn valid_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
+pub fn estimate_chat_tokens(messages: &[ChatMessage]) -> Result<u64, ProviderError> {
+    let tokenizer = tiktoken_rs::cl100k_base().map_err(|_| ProviderError::Configuration)?;
+    messages.iter().try_fold(2_u64, |total, message| {
+        let content = tokenizer.encode_with_special_tokens(&message.content);
+        let reasoning = message
+            .reasoning_content
+            .as_deref()
+            .map(|value| tokenizer.encode_with_special_tokens(value).len())
+            .unwrap_or_default();
+        let tool_bytes = message.tool_calls.iter().try_fold(0_usize, |size, call| {
+            serde_json::to_vec(call)
+                .map(|encoded| size.saturating_add(encoded.len()))
+                .map_err(|_| ProviderError::Configuration)
+        })?;
+        let tool_tokens = tool_bytes.div_ceil(3);
+        let count = content
+            .len()
+            .saturating_add(reasoning)
+            .saturating_add(tool_tokens)
+            .saturating_add(4);
+        total
+            .checked_add(u64::try_from(count).map_err(|_| ProviderError::PolicyDenied)?)
+            .ok_or(ProviderError::PolicyDenied)
+    })
+}
+
+fn encode_tools(tools: &[ChatTool]) -> Result<Value, ProviderError> {
+    let tools = tools
+        .iter()
+        .map(|tool| {
+            Ok(json!({
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                    "strict": true,
+                }
+            }))
+        })
+        .collect::<Result<Vec<_>, ProviderError>>()?;
+    Ok(Value::Array(tools))
+}
+
+fn encode_openai_messages(
+    profile: &ProviderProfile,
+    messages: &[ChatMessage],
+) -> Result<Value, ProviderError> {
+    let mut encoded = Vec::with_capacity(messages.len());
+    for message in messages {
+        let mut value = json!({"role": message.role, "content": message.content});
+        if let Some(tool_call_id) = &message.tool_call_id {
+            value["tool_call_id"] = Value::String(tool_call_id.clone());
+        }
+        if !message.tool_calls.is_empty() {
+            value["tool_calls"] = Value::Array(
+                message
+                    .tool_calls
+                    .iter()
+                    .map(|call| {
+                        validate_tool_call(call)?;
+                        Ok(json!({
+                            "id": call.id,
+                            "type": "function",
+                            "function": {
+                                "name": call.name,
+                                "arguments": serde_json::to_string(&call.arguments)
+                                    .map_err(|_| ProviderError::Configuration)?,
+                            }
+                        }))
+                    })
+                    .collect::<Result<Vec<_>, ProviderError>>()?,
+            );
+        }
+        if profile.kind() == ProviderKind::DeepSeek
+            && let Some(reasoning_content) = &message.reasoning_content
+        {
+            value["reasoning_content"] = Value::String(reasoning_content.clone());
+        }
+        encoded.push(value);
+    }
+    Ok(Value::Array(encoded))
+}
+
+fn encode_ollama_messages(messages: &[ChatMessage]) -> Result<Value, ProviderError> {
+    let mut encoded = Vec::with_capacity(messages.len());
+    for message in messages {
+        let mut value = json!({"role": message.role, "content": message.content});
+        if !message.tool_calls.is_empty() {
+            value["tool_calls"] = Value::Array(
+                message
+                    .tool_calls
+                    .iter()
+                    .map(|call| {
+                        validate_tool_call(call)?;
+                        Ok(json!({
+                            "function": {"name": call.name, "arguments": call.arguments}
+                        }))
+                    })
+                    .collect::<Result<Vec<_>, ProviderError>>()?,
+            );
+        }
+        encoded.push(value);
+    }
+    Ok(Value::Array(encoded))
+}
+
+fn apply_chat_options(body: &mut Value, options: &ChatOptions) -> Result<(), ProviderError> {
+    if !options.tools.is_empty() {
+        body["tools"] = encode_tools(&options.tools)?;
+        body["tool_choice"] = match &options.tool_choice {
+            ChatToolChoice::Auto => Value::String("auto".to_owned()),
+            ChatToolChoice::None => Value::String("none".to_owned()),
+            ChatToolChoice::Required => Value::String("required".to_owned()),
+            ChatToolChoice::Function(name) => json!({
+                "type": "function",
+                "function": {"name": name},
+            }),
+        };
+        if let Some(parallel) = options.parallel_tool_calls {
+            body["parallel_tool_calls"] = Value::Bool(parallel);
+        }
+    }
+    apply_sampling_options(body, &options.sampling)
+}
+
+fn apply_sampling_options(
+    body: &mut Value,
+    sampling: &SamplingControls,
+) -> Result<(), ProviderError> {
+    validate_sampling(sampling)?;
+    if let Some(temperature) = sampling.temperature {
+        body["temperature"] = json!(temperature);
+    }
+    if let Some(top_p) = sampling.top_p {
+        body["top_p"] = json!(top_p);
+    }
+    if let Some(seed) = sampling.seed {
+        body["seed"] = json!(seed);
+    }
+    if sampling.stop.len() == 1 {
+        body["stop"] = Value::String(sampling.stop[0].clone());
+    } else if !sampling.stop.is_empty() {
+        body["stop"] =
+            serde_json::to_value(&sampling.stop).map_err(|_| ProviderError::Configuration)?;
+    }
+    Ok(())
 }
 
 fn apply_toggle_and_effort(body: &mut Value, reasoning: restork_personal::ReasoningConfig) {
@@ -1153,7 +1911,83 @@ fn map_transport(error: reqwest::Error) -> ProviderError {
 }
 
 fn retryable_discovery_status(status: StatusCode) -> bool {
-    matches!(status.as_u16(), 502..=504)
+    status == StatusCode::TOO_MANY_REQUESTS || matches!(status.as_u16(), 502..=504)
+}
+
+async fn send_chat_request(
+    request: RequestBuilder,
+    policy: ChatRetryPolicy,
+) -> Result<reqwest::Response, ProviderError> {
+    match policy {
+        ChatRetryPolicy::Disabled => request.send().await.map_err(map_transport),
+        ChatRetryPolicy::Bounded => send_with_bounded_retry(request, 2, true).await,
+    }
+}
+
+async fn send_with_bounded_retry(
+    request: RequestBuilder,
+    maximum_retries: u8,
+    retry_connect_errors: bool,
+) -> Result<reqwest::Response, ProviderError> {
+    let mut next = Some(request);
+    for attempt in 0..=maximum_retries {
+        let current = next.take().ok_or(ProviderError::Unavailable)?;
+        let retry = current.try_clone();
+        match current.send().await {
+            Ok(response)
+                if attempt < maximum_retries && retryable_discovery_status(response.status()) =>
+            {
+                let Some(retry) = retry else {
+                    return Ok(response);
+                };
+                tokio::time::sleep(retry_delay(response.headers(), attempt)).await;
+                next = Some(retry);
+            }
+            Ok(response) => return Ok(response),
+            Err(error)
+                if attempt < maximum_retries
+                    && retry_connect_errors
+                    && (error.is_connect() || error.is_timeout()) =>
+            {
+                let Some(retry) = retry else {
+                    return Err(map_transport(error));
+                };
+                tokio::time::sleep(retry_delay(&HeaderMap::new(), attempt)).await;
+                next = Some(retry);
+            }
+            Err(error) => return Err(map_transport(error)),
+        }
+    }
+    Err(ProviderError::Unavailable)
+}
+
+fn retry_delay(headers: &HeaderMap, attempt: u8) -> Duration {
+    const MAXIMUM: Duration = Duration::from_secs(30);
+    if let Some(value) = headers
+        .get(RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+    {
+        let parsed = value
+            .parse::<u64>()
+            .ok()
+            .map(Duration::from_secs)
+            .or_else(|| {
+                httpdate::parse_http_date(value)
+                    .ok()
+                    .and_then(|deadline| deadline.duration_since(std::time::SystemTime::now()).ok())
+            });
+        if let Some(parsed) = parsed {
+            return parsed.min(MAXIMUM);
+        }
+    }
+    let base = 200_u64.saturating_mul(1_u64 << attempt.min(7));
+    let mut entropy = [0_u8; 2];
+    let jitter = if getrandom::fill(&mut entropy).is_ok() {
+        u64::from(u16::from_le_bytes(entropy)) % (base / 2 + 1)
+    } else {
+        0
+    };
+    Duration::from_millis(base.saturating_add(jitter)).min(MAXIMUM)
 }
 
 fn map_status(status: StatusCode, payload: &Value) -> Result<(), ProviderError> {
@@ -1173,6 +2007,95 @@ fn map_status(status: StatusCode, payload: &Value) -> Result<(), ProviderError> 
         500..=599 => ProviderError::Unavailable,
         _ => ProviderError::InvalidResponse,
     })
+}
+
+fn parse_openai_tool_calls(value: &Value) -> Result<Vec<ToolCall>, ProviderError> {
+    if value.is_null() {
+        return Ok(Vec::new());
+    }
+    let calls = value.as_array().ok_or(ProviderError::InvalidResponse)?;
+    calls
+        .iter()
+        .map(|call| {
+            let arguments = call["function"]["arguments"]
+                .as_str()
+                .ok_or(ProviderError::StructuredOutputInvalid)
+                .and_then(|value| {
+                    serde_json::from_str::<Value>(value)
+                        .map_err(|_| ProviderError::StructuredOutputInvalid)
+                })?;
+            let parsed = ToolCall {
+                id: call["id"]
+                    .as_str()
+                    .ok_or(ProviderError::InvalidResponse)?
+                    .to_owned(),
+                name: call["function"]["name"]
+                    .as_str()
+                    .ok_or(ProviderError::InvalidResponse)?
+                    .to_owned(),
+                arguments,
+            };
+            validate_tool_call(&parsed)?;
+            Ok(parsed)
+        })
+        .collect()
+}
+
+fn parse_ollama_tool_calls(value: &Value) -> Result<Vec<ToolCall>, ProviderError> {
+    if value.is_null() {
+        return Ok(Vec::new());
+    }
+    let calls = value.as_array().ok_or(ProviderError::InvalidResponse)?;
+    calls
+        .iter()
+        .enumerate()
+        .map(|(index, call)| {
+            let arguments = call["function"]["arguments"].clone();
+            let parsed = ToolCall {
+                id: call["id"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("ollama-call-{index}")),
+                name: call["function"]["name"]
+                    .as_str()
+                    .ok_or(ProviderError::InvalidResponse)?
+                    .to_owned(),
+                arguments,
+            };
+            validate_tool_call(&parsed)?;
+            Ok(parsed)
+        })
+        .collect()
+}
+
+fn response_cost_usd_micros(usage: &Value) -> Option<u64> {
+    let cost = usage["cost"]
+        .as_f64()
+        .or_else(|| usage["cost_details"]["total_cost"].as_f64())?;
+    (cost.is_finite() && cost >= 0.0).then(|| (cost * 1_000_000.0).round() as u64)
+}
+
+pub fn model_cost_usd_micros(
+    model: &str,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+) -> Option<u64> {
+    let (input_millimicros, output_millimicros) = match model {
+        value if value == "deepseek-v4-flash" || value.starts_with("deepseek-v4-flash-") => {
+            (140_u64, 280_u64)
+        }
+        value if value == "deepseek-v4-pro" || value.starts_with("deepseek-v4-pro-") => {
+            (435_u64, 870_u64)
+        }
+        _ => return None,
+    };
+    let total = u128::from(prompt_tokens)
+        .saturating_mul(u128::from(input_millimicros))
+        .saturating_add(
+            u128::from(completion_tokens).saturating_mul(u128::from(output_millimicros)),
+        )
+        .div_ceil(1_000);
+    u64::try_from(total).ok()
 }
 
 fn safe_message(error: &ProviderError) -> &'static str {
@@ -1242,10 +2165,7 @@ mod tests {
 
     #[test]
     fn reasoning_fields_are_provider_scoped_and_auto_is_not_overridden() {
-        let messages = [ChatMessage {
-            role: "user".to_owned(),
-            content: "hello".to_owned(),
-        }];
+        let messages = [ChatMessage::text("user", "hello")];
         let automatic = build_openai_chat_request(&profile(ProviderKind::DeepSeek), &messages, 32)
             .expect("automatic deepseek request");
         assert!(automatic.get("thinking").is_none());
@@ -1322,11 +2242,8 @@ mod tests {
     }
 
     #[test]
-    fn fixed_smoke_disables_reasoning_and_retries_only_transient_discovery_statuses() {
-        let messages = [ChatMessage {
-            role: "user".to_owned(),
-            content: "Reply with exactly OK.".to_owned(),
-        }];
+    fn fixed_smoke_disables_reasoning_and_discovery_retries_transient_statuses() {
+        let messages = [ChatMessage::text("user", "Reply with exactly OK.")];
         let smoke = fixed_smoke_profile(&profile(ProviderKind::DeepSeek));
         let request =
             build_openai_chat_request(&smoke, &messages, 16).expect("fixed smoke request");
@@ -1334,7 +2251,7 @@ mod tests {
         assert!(retryable_discovery_status(StatusCode::BAD_GATEWAY));
         assert!(retryable_discovery_status(StatusCode::SERVICE_UNAVAILABLE));
         assert!(retryable_discovery_status(StatusCode::GATEWAY_TIMEOUT));
-        assert!(!retryable_discovery_status(StatusCode::TOO_MANY_REQUESTS));
+        assert!(retryable_discovery_status(StatusCode::TOO_MANY_REQUESTS));
         assert!(!retryable_discovery_status(StatusCode::UNAUTHORIZED));
     }
 
@@ -1474,5 +2391,229 @@ mod tests {
         );
         assert!(normalize_structured_json("[\"not\",\"an\",\"object\"]").is_none());
         assert!(normalize_structured_json("{\"unfinished\":\"value").is_none());
+    }
+
+    fn tool_options() -> ChatOptions {
+        ChatOptions {
+            tools: vec![ChatTool {
+                name: "vault.search".to_owned(),
+                description: "Search the explicitly connected local vault.".to_owned(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                    "additionalProperties": false,
+                }),
+            }],
+            tool_choice: ChatToolChoice::Auto,
+            parallel_tool_calls: Some(false),
+            sampling: SamplingControls {
+                temperature: Some(0.2),
+                top_p: Some(0.9),
+                seed: Some(7),
+                stop: vec!["<END>".to_owned()],
+            },
+            retry: ChatRetryPolicy::Bounded,
+        }
+    }
+
+    #[test]
+    fn tool_requests_round_trip_through_every_protocol_adapter() {
+        let messages = [ChatMessage::text(
+            "user",
+            "Find the note about Rust ownership.",
+        )];
+        for kind in [
+            ProviderKind::DeepSeek,
+            ProviderKind::Glm,
+            ProviderKind::Kimi,
+            ProviderKind::Qwen,
+            ProviderKind::OpenAiCompatible,
+            ProviderKind::OpenRouter,
+        ] {
+            let body = build_openai_chat_request_with_options(
+                &profile(kind),
+                &messages,
+                256,
+                &tool_options(),
+                false,
+            )
+            .expect("tool request");
+            assert_eq!(body["tools"][0]["function"]["name"], "vault.search");
+            assert_eq!(body["parallel_tool_calls"], false);
+            assert_eq!(body["temperature"], 0.2);
+            assert_eq!(body["top_p"], 0.9);
+            assert_eq!(body["seed"], 7);
+            assert_eq!(body["stop"], "<END>");
+        }
+
+        let ollama = ProviderProfile::try_new(
+            "ollama",
+            1,
+            "Ollama",
+            ProviderKind::Ollama,
+            "http://127.0.0.1:11434",
+            "qwen3",
+            None,
+            FallbackPolicy::Disabled,
+        )
+        .expect("Ollama profile");
+        let body =
+            build_ollama_chat_request_with_options(&ollama, &messages, 256, &tool_options(), false)
+                .expect("Ollama tool request");
+        assert_eq!(body["tools"][0]["function"]["name"], "vault.search");
+        assert_eq!(body["options"]["temperature"], 0.2);
+    }
+
+    #[test]
+    fn tool_call_arguments_must_decode_to_an_object() {
+        let parsed = parse_openai_tool_calls(&json!([{
+            "id": "call-1",
+            "type": "function",
+            "function": {"name": "vault.search", "arguments": "{\"query\":\"Rust\"}"}
+        }]))
+        .expect("valid call");
+        assert_eq!(parsed[0].arguments, json!({"query": "Rust"}));
+
+        assert_eq!(
+            parse_openai_tool_calls(&json!([{
+                "id": "call-1",
+                "function": {"name": "vault.search", "arguments": "[]"}
+            }])),
+            Err(ProviderError::StructuredOutputInvalid),
+        );
+    }
+
+    #[test]
+    fn deepseek_thinking_tool_continuation_carries_reasoning_content() {
+        let mut assistant = ChatMessage::text("assistant", "");
+        assistant.tool_calls.push(ToolCall {
+            id: "call-1".to_owned(),
+            name: "vault.search".to_owned(),
+            arguments: json!({"query": "ownership"}),
+        });
+        assert_eq!(
+            build_openai_chat_request_with_options(
+                &profile(ProviderKind::DeepSeek),
+                &[assistant.clone()],
+                128,
+                &tool_options(),
+                false,
+            ),
+            Err(ProviderError::Configuration),
+        );
+        assistant.reasoning_content = Some("I should inspect the connected vault.".to_owned());
+        let body = build_openai_chat_request_with_options(
+            &profile(ProviderKind::DeepSeek),
+            &[assistant],
+            128,
+            &tool_options(),
+            false,
+        )
+        .expect("DeepSeek continuation");
+        assert_eq!(
+            body["messages"][0]["reasoning_content"],
+            "I should inspect the connected vault."
+        );
+    }
+
+    #[test]
+    fn accounting_uses_a_real_tokenizer_and_records_priced_models() {
+        let messages = [ChatMessage::text(
+            "user",
+            "你好，Restork。研究一下这个问题。",
+        )];
+        let tokens = estimate_chat_tokens(&messages).expect("token estimate");
+        assert!(tokens > 4);
+        assert_eq!(
+            model_cost_usd_micros("deepseek-v4-pro", 1_000, 500),
+            Some(870)
+        );
+        assert_eq!(model_cost_usd_micros("unknown-model", 1_000, 500), None);
+    }
+
+    #[test]
+    fn retry_after_overrides_exponential_jitter_and_429_is_retryable() {
+        let mut headers = HeaderMap::new();
+        headers.insert(RETRY_AFTER, "3".parse().expect("header"));
+        assert_eq!(retry_delay(&headers, 0), Duration::from_secs(3));
+        let jittered = retry_delay(&HeaderMap::new(), 0);
+        assert!((Duration::from_millis(200)..=Duration::from_millis(300)).contains(&jittered));
+        assert!(retryable_discovery_status(StatusCode::TOO_MANY_REQUESTS));
+    }
+
+    #[tokio::test]
+    async fn streaming_yields_the_first_chunk_before_the_body_finishes() {
+        use axum::{Router, body::Body, routing::post};
+        use std::convert::Infallible;
+
+        let app = Router::new().route(
+            "/api/chat",
+            post(|| async {
+                let chunks = futures_util::stream::unfold(0_u8, |state| async move {
+                    match state {
+                        0 => Some((
+                            Ok::<_, Infallible>(bytes::Bytes::from_static(
+                                b"{\"message\":{\"content\":\"hel\"},\"done\":false}\n",
+                            )),
+                            1,
+                        )),
+                        1 => {
+                            tokio::time::sleep(Duration::from_millis(300)).await;
+                            Some((
+                                Ok(bytes::Bytes::from_static(
+                                    b"{\"message\":{\"content\":\"lo\"},\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":3,\"eval_count\":2}\n",
+                                )),
+                                2,
+                            ))
+                        }
+                        _ => None,
+                    }
+                });
+                Body::from_stream(chunks)
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("mock server");
+        });
+        let profile = ProviderProfile::try_new(
+            "ollama-stream",
+            1,
+            "Ollama stream",
+            ProviderKind::Ollama,
+            &format!("http://{address}"),
+            "fixture",
+            None,
+            FallbackPolicy::Disabled,
+        )
+        .expect("stream profile");
+        let client = ProviderClient::new().expect("provider client");
+        let mut stream = client
+            .chat_stream(
+                &profile,
+                &[ChatMessage::text("user", "hello")],
+                32,
+                &ChatOptions::default(),
+            )
+            .await
+            .expect("stream");
+        let first = tokio::time::timeout(Duration::from_millis(150), stream.next())
+            .await
+            .expect("first chunk before completion")
+            .expect("first item")
+            .expect("valid chunk");
+        assert_eq!(first.content, "hel");
+        let second = stream
+            .next()
+            .await
+            .expect("second item")
+            .expect("valid chunk");
+        assert_eq!(second.content, "lo");
+        assert_eq!(second.total_tokens, Some(5));
+        server.abort();
     }
 }

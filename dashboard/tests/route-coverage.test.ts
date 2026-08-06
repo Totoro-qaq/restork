@@ -12,24 +12,7 @@ import { describe, expect, it } from "vitest";
  *
  * See the 1A table in `specs/restork-single-core-consolidation.md`.
  */
-const DEFERRED: ReadonlyArray<{ route: string; stage: string }> = [
-  { route: "/v1/runs", stage: "3" },
-  { route: "/v1/runs/{}/conversation", stage: "3" },
-  { route: "/v1/runs/{}/event-page", stage: "3" },
-  { route: "/v1/approvals", stage: "4" },
-  { route: "/v1/approvals/{}", stage: "4" },
-  { route: "/v1/tasks", stage: "5" },
-  { route: "/v1/tasks/{}/preview", stage: "5" },
-  { route: "/v1/tasks/quick-capture/preview", stage: "5" },
-  { route: "/v1/tasks/approvals/{}/apply", stage: "5" },
-  { route: "/v1/memory", stage: "5" },
-  { route: "/v1/radar", stage: "5" },
-  { route: "/v1/radar/{}/action", stage: "5" },
-  { route: "/v1/work/runs/{}/plan", stage: "5" },
-  { route: "/v1/work/runs/{}/handoff/preview", stage: "5" },
-  { route: "/v1/work/runs/{}/handoff/export", stage: "5" },
-  { route: "/v1/work/runs/{}/verify", stage: "5" },
-];
+const DEFERRED: ReadonlyArray<{ route: string; stage: string }> = [];
 
 const normalise = (route: string): string =>
   route.replace(/\$\{[^}]*\}/g, "{}").replace(/\{[^}]*\}/g, "{}").replace(/\?.*$/, "");
@@ -72,7 +55,7 @@ describe("dashboard route coverage", () => {
 
   it("keeps the deferred list shrinking, never growing", () => {
     // A ratchet. Implementing a deferred domain means deleting its rows here.
-    expect(DEFERRED.length).toBeLessThanOrEqual(16);
+    expect(DEFERRED.length).toBe(0);
   });
 
   it("does not defer a route that Rust already serves", () => {
@@ -84,7 +67,10 @@ describe("dashboard route coverage", () => {
     expect(stale, `Deferred but already served:\n${stale.join("\n")}`).toEqual([]);
   });
 
-  it("has retired every Study route with the feature", () => {
-    expect(dashboardRoutes().filter((route) => route.includes("/study"))).toEqual([]);
+  it("serves every route in the rebuilt Study flow", () => {
+    const rust = rustRoutes();
+    const studyRoutes = dashboardRoutes().filter((route) => route.includes("/study"));
+    expect(studyRoutes).toHaveLength(3);
+    expect(studyRoutes.every((route) => servedByRust(route, rust))).toBe(true);
   });
 });

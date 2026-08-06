@@ -257,14 +257,8 @@ impl Database {
             "SELECT operation_id, sequence, occurred_at, kind, data_json FROM operation_events \
              WHERE operation_id = ?1 AND sequence > ?2 ORDER BY sequence ASC LIMIT ?3",
         )?;
-        let rows = statement.query_map(
-            params![
-                operation_id,
-                after,
-                i64::try_from(limit).expect("bounded limit")
-            ],
-            event_from_row,
-        )?;
+        let rows =
+            statement.query_map(params![operation_id, after, limit as i64], event_from_row)?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 

@@ -65,7 +65,7 @@ commands automatically.
 | `SEC-AUTH-001` | Missing scopes, wrong audience, hostile Origin, query credentials |
 | `SEC-NET-001` | Network clients or targets outside the outbound gateway policy |
 | `SEC-APPROVAL-001` | Replayed, stale, expired, or symlink-swapped approved effects |
-| `CODEQL-001` | CodeQL security-extended findings in Python, TypeScript, or workflows |
+| `CODEQL-001` | CodeQL security-extended findings in Rust, TypeScript, JavaScript, or workflows |
 | `DESKTOP-BOUNDARY-001` | Unsafe bootstrap/parent leases, executable fallback, orphan process groups, broad Tauri permissions, or leaked desktop session material |
 
 The complete product decisions are in the [V1 specification](../../specs/restork-v1.md).

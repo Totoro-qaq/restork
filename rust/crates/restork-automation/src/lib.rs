@@ -43,13 +43,7 @@ pub enum MissedRunPolicy {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum ScheduleJob {
-    Deterministic {
-        job: String,
-    },
-    ModelDraft {
-        profile_id: String,
-        requested_effect: Option<String>,
-    },
+    Deterministic { job: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -86,18 +80,8 @@ impl ScheduleSpec {
             .parse::<Tz>()
             .map_err(|_| "schedule timezone is invalid")?;
         validate_recurrence(&recurrence)?;
-        match &job {
-            ScheduleJob::Deterministic { job } => validate_text(job, 128)?,
-            ScheduleJob::ModelDraft {
-                profile_id,
-                requested_effect,
-            } => {
-                validate_text(profile_id, 256)?;
-                if requested_effect.is_some() {
-                    return Err("model schedules may only create drafts");
-                }
-            }
-        }
+        let ScheduleJob::Deterministic { job: job_name } = &job;
+        validate_text(job_name, 128)?;
         Ok(Self {
             schedule_id,
             timezone,

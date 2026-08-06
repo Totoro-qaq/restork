@@ -30,33 +30,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup toolchain install 1.97.1 --profile minimal
       - run: rustup default 1.97.1
-      - run: cargo test --manifest-path rust/Cargo.toml --locked -p restorkd
+      - run: cargo test --manifest-path rust/Cargo.toml --locked --workspace
       - run: cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
 
-  # Deprecated Python Core. Retained only because all 14 release-blocking gates
-  # below still execute pytest and have no Rust counterpart yet; Stage 6C ports
-  # them and this job is deleted with `src/restork/`.
-  legacy-python-core:
+  dependency-policy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
-      - run: uv sync --frozen --all-groups
-      - run: uv run pytest
-      - run: uv run ruff check .
-      - run: uv run mypy src
-      - run: uv run bandit -q -r src
-      - run: uv run restork --help
+      - run: rustup toolchain install 1.97.1 --profile minimal
+      - run: rustup default 1.97.1
+      - run: cargo install cargo-audit --locked
+      - run: cargo install cargo-deny --locked
+      - run: cargo audit --file rust/Cargo.lock
+      - run: cargo deny --config deny.toml --manifest-path rust/Cargo.toml check advisories bans sources
 
   dashboard:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
@@ -66,16 +57,12 @@ jobs:
       - run: npm --prefix dashboard run lint
       - run: npm --prefix dashboard test
       - run: npm --prefix dashboard run build
-      - run: uv build --no-sources
 
   desktop-macos:
     runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
@@ -85,7 +72,6 @@ jobs:
             desktop/package-lock.json
       - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - run: rustup default 1.97.1
-      - run: uv sync --frozen --all-groups
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
       - run: npm --prefix desktop run fmt:check
@@ -171,63 +157,69 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - run: rustup toolchain install 1.97.1 --profile minimal
+      - run: rustup default 1.97.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          python-version: "3.12"
-      - run: uv sync --frozen --all-groups
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm --prefix dashboard ci
       - name: SEC-NET-001
         run: >-
-          uv run pytest tests/network
-          tests/e2e/test_release_gates.py::test_sec_net_001_core_network_clients_stay_behind_declared_boundaries
+          cargo test --manifest-path rust/Cargo.toml --locked -p restork-provider
+          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test loopback_boundary
       - name: SEC-APPROVAL-001
         run: >-
-          uv run pytest tests/storage/test_approvals.py
-          tests/recovery/test_writes.py::test_sec_approval_001_symlink_swap_cannot_escape_approved_note
+          cargo test --manifest-path rust/Cargo.toml --locked -p restork-deliverables --test approval_contract
+          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-core --test durable_loop_contract
+          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test deliverables_api_contract
       - name: SEC-AUTH-001
         run: >-
-          uv run pytest tests/api/test_auth.py tests/api/test_app.py tests/api/test_provider.py
-          tests/e2e/test_release_gates.py::test_sec_auth_001_every_non_pairing_api_route_has_a_scoped_token_dependency
+          cargo test --manifest-path rust/Cargo.toml --locked -p restork-core --test auth
+          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test auth_contract
       - name: SEC-SQL-001
-        run: >-
-          uv run pytest
-          tests/security/test_prompt_and_sql_gates.py::test_sec_sql_001_sqlite_calls_cannot_build_queries_from_dynamic_expressions
+        run: cargo test --manifest-path rust/Cargo.toml --locked -p restork-storage --tests
       - name: SEC-PROMPT-001
         run: >-
-          uv run pytest
-          tests/security/test_prompt_and_sql_gates.py
-          tests/conversation/test_conversation_service.py::test_run_conversation_is_idempotent_toolless_and_prompt_versioned
+          cargo test --manifest-path rust/Cargo.toml --locked -p restork-personal --test domain_contracts
+          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-provider
       - name: CONV-BOUNDARY-001
-        run: uv run pytest tests/conversation tests/api/test_conversation.py
+        run: >-
+          cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test workspace_api_contract
+          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test operation_sse_contract
       - name: PRIV-LABEL-001
-        run: uv run pytest tests/privacy
+        run: >-
+          cargo test --manifest-path rust/Cargo.toml --locked -p restork-personal
+          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test automation_api_contract
       - name: REC-EFFECT-001
         run: >-
-          uv run pytest tests/recovery/test_effects.py
-          tests/runtime/test_agent_loop.py::test_rec_effect_001_never_repeats_started_or_committed_non_pure_effects
+          cargo test --manifest-path rust/Cargo.toml --locked -p restork-core --test durable_loop_contract
+          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-storage --test operation_contract
       - name: REL-WRITE-001
-        run: uv run pytest tests/knowledge/test_write_journal.py tests/recovery/test_writes.py
+        run: >-
+          cargo test --manifest-path rust/Cargo.toml --locked -p restork-core workspace
+          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test bootstrap_api_contract
       - name: REL-EVENT-001
         run: >-
-          uv run pytest tests/recovery/test_event_recovery.py tests/storage/test_events.py
-          tests/storage/test_replay.py tests/storage/test_runs.py tests/storage/test_intents.py
+          cargo test --manifest-path rust/Cargo.toml --locked -p restork-storage --test storage_contract
+          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test sse_replay_contract
       - name: OSS-CLEAN-001
-        run: uv run pytest tests/test_public_artifact_scan.py && ./scripts/scan-public-artifacts.sh
+        run: ./scripts/scan-public-artifacts.sh
       - name: MEM-RETENTION-001
-        run: uv run pytest tests/memory tests/api/test_memory.py
+        run: cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test feature_api_contract
       - name: UI-CONTEXT-001
-        run: uv run pytest tests/daily tests/api/test_daily.py
-      - name: DESKTOP-BOUNDARY-001
-        run: uv run pytest tests/desktop
-      - name: README-ASSET-001
-        run: uv run python scripts/audit_readme.py README.md README.zh-CN.md
-      - name: Golden modes, rendering parity, and aggregate metrics
         run: >-
-          uv run pytest tests/evals tests/rendering
-          && uv run python scripts/evaluate_release.py
-          tests/evals/release_observations.json --output build/release-metrics.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: aggregate-release-metrics
-          path: build/release-metrics.json
-          if-no-files-found: error
-          retention-days: 14
+          cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test daily_api_contract
+          && npm --prefix dashboard test
+      - name: DESKTOP-BOUNDARY-001
+        run: >-
+          cargo test --manifest-path rust/Cargo.toml --locked -p restorkd
+          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-worker
+      - name: README-ASSET-001
+        run: python3 scripts/audit_readme.py README.md README.zh-CN.md
+      - name: Golden modes and rendering parity
+        run: >-
+          cargo test --manifest-path rust/Cargo.toml --locked -p restork-core
+          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-deliverables
+          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-render

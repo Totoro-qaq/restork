@@ -53,16 +53,15 @@ All Work routes use the authenticated loopback-only Core API:
 
 | Phase | Endpoint |
 |---|---|
-| Create a separate Work child | `POST /v1/runs/{parent_run_id}/work-child` |
+| Create a proposed Work run | `POST /v1/runs` |
 | Freeze a read-only plan | `POST /v1/work/runs/{run_id}/plan` |
 | Review exact sanitized bytes | `POST /v1/work/runs/{run_id}/handoff/preview` |
 | Export after approval | `POST /v1/work/runs/{run_id}/handoff/export` |
 | Import and verify evidence | `POST /v1/work/runs/{run_id}/verify` |
-| Inspect saved artifacts | `GET /v1/work/runs/{run_id}/artifact`, `/handoff`, or `/verification` |
 
-Child creation, handoff preview, export, and verification require an `Idempotency-Key`. A
-Research/Study handoff creates a new Work run and atomically consumes one parent child-task budget;
-it never changes the parent's mode or permissions.
+Run creation, handoff preview, export, and verification require an `Idempotency-Key`. Delegated
+subtasks use their own reduced-authority contract; they cannot approve effects, write memory, or
+delegate again.
 
 The Dashboard clears the private workspace form immediately after Core returns the path-free plan.
 It then displays the frozen manifest and, in a separate step, every exact sanitized context body,
@@ -70,39 +69,18 @@ classification, and redaction before approval. After export it removes those bod
 accepts a pasted result manifest without browser storage. There is no execute, shell, Git, deploy, or
 message control.
 
-A complete direct CLI flow is:
+A safe CLI entry creates the proposed run; private repository selection and reviewed writes stay in
+Dashboard rather than shell arguments:
 
 ```bash
-uv run restork create \
-  --task-id bounded-change --mode work \
-  --goal 'Add bounded validation' \
-  --scope selected-local-workspace \
-  --criterion 'verify changed-file hashes' \
-  --data-class confidential \
-  --idempotency-key bounded-change-1
-
-uv run restork work-plan '<run-id>' \
-  --goal 'Add bounded validation' \
-  --workspace-root /absolute/path/to/repository \
-  --target src/validation.py \
-  --context README.md \
-  --criterion 'verify changed-file hashes' \
-  --verify-command 'uv run pytest -q' \
-  --context-data-class confidential
-
-uv run restork work-handoff-preview '<run-id>' \
-  --idempotency-key bounded-change-preview-1
-uv run restork approve '<approval-id>' --by local-user \
-  --idempotency-key bounded-change-approve-1
-uv run restork work-handoff-export '<run-id>' '<approval-id>' \
-  --idempotency-key bounded-change-export-1
-uv run restork work-verify '<run-id>' --manifest result-manifest.json \
-  --idempotency-key bounded-change-verify-1
+./rust/target/debug/restork --url http://127.0.0.1:<port> \
+  runs create --mode work --goal 'Add bounded validation' \
+  --provider '<configured-profile-id>' --no-start
 ```
 
-The CLI repeats the immutable goal and completion criterion deliberately so Core can reject a
-request that tries to weaken its `TaskSpec`. Shell history may retain arguments; use the Dashboard
-for sensitive local selections.
+Open the proposed Work run in Dashboard, choose the bounded workspace and files, review the
+path-free plan and exact sanitized handoff, approve it once, then import the executor's result
+manifest for verification. Shell history never receives the private root or selected source bodies.
 
 ## Recovery and privacy
 
@@ -118,8 +96,6 @@ without encryption, or paste credentials into a Work context file.
 ## Core checks
 
 ```bash
-uv run pytest tests/work tests/security/test_workspace_escape.py tests/evals/test_work_golden.py
-uv run pytest tests/api/test_work.py tests/test_cli_lifecycle.py
-uv run ruff check src tests
-uv run mypy src
+cargo test --manifest-path rust/Cargo.toml --locked -p restork-core workspace
+cargo test --manifest-path rust/Cargo.toml --locked -p restork-api
 ```

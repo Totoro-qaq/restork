@@ -28,49 +28,6 @@ jobs:
           test "$(git cat-file -t "$GITHUB_REF_NAME")" = tag
           test "$(git rev-list -n 1 "$GITHUB_REF_NAME")" = "$GITHUB_SHA"
 
-  source-release:
-    needs: validate-release-ref
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: dashboard/package-lock.json
-      - run: uv sync --frozen --all-groups
-      - run: npm --prefix dashboard ci
-      - run: uv run pytest
-      - run: uv run ruff check .
-      - run: uv run mypy src
-      - run: uv run bandit -q -r src
-      - run: npm --prefix dashboard run lint
-      - run: npm --prefix dashboard test
-      - run: npm --prefix dashboard run build
-      - run: uv run python scripts/audit_readme.py README.md README.zh-CN.md
-      - run: ./scripts/scan-public-artifacts.sh
-      - run: uv run python scripts/build_release.py --output dist/release
-      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
-        with:
-          subject-path: |
-            dist/release/*.whl
-            dist/release/*.tar.gz
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: restork-source-release
-          path: dist/release/
-          if-no-files-found: error
-          retention-days: 30
-
   desktop-macos:
     needs: validate-release-ref
     runs-on: macos-15
@@ -84,9 +41,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
@@ -96,7 +50,6 @@ jobs:
             desktop/package-lock.json
       - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - run: rustup default 1.97.1
-      - run: uv sync --frozen --all-groups
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
       - name: Require protected macOS and updater credentials
@@ -148,7 +101,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          uv run python scripts/desktop_release.py config --platform macos --output build/desktop-release-config.json
+          python3 scripts/desktop_release.py config --platform macos --output build/desktop-release-config.json
           npm --prefix desktop exec tauri build -- --config ../build/desktop-release-config.json
       - name: Verify Developer ID, Gatekeeper, notarization, and stapling
         shell: bash
@@ -192,9 +145,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
@@ -204,7 +154,6 @@ jobs:
             desktop/package-lock.json
       - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - run: rustup default 1.97.1
-      - run: uv sync --frozen --all-groups
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
       - name: Require protected Windows and updater credentials
@@ -246,7 +195,7 @@ jobs:
           RESTORK_UPDATER_ENDPOINT: ${{ secrets.RESTORK_UPDATER_ENDPOINT }}
         run: |
           $ErrorActionPreference = 'Stop'
-          uv run python scripts/desktop_release.py config --platform windows --output build/desktop-release-config.json
+          python scripts/desktop_release.py config --platform windows --output build/desktop-release-config.json
           npm --prefix desktop exec tauri build -- --config ../build/desktop-release-config.json
       - name: Verify downloaded-file Authenticode policy
         shell: pwsh
@@ -297,9 +246,6 @@ jobs:
         run: >-
           sudo apt-get update && sudo apt-get install -y
           libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
@@ -309,7 +255,6 @@ jobs:
             desktop/package-lock.json
       - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - run: rustup default 1.97.1
-      - run: uv sync --frozen --all-groups
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
       - name: Require protected Linux and updater credentials
@@ -349,7 +294,7 @@ jobs:
           RESTORK_UPDATER_ENDPOINT: ${{ secrets.RESTORK_UPDATER_ENDPOINT }}
         run: |
           set -euo pipefail
-          uv run python scripts/desktop_release.py config --platform linux --output build/desktop-release-config.json
+          python3 scripts/desktop_release.py config --platform linux --output build/desktop-release-config.json
           npm --prefix desktop exec tauri build -- --config ../build/desktop-release-config.json
           appimage="$(find desktop/src-tauri/target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)"
           "$appimage" --appimage-signature | grep -E '.+'
@@ -506,9 +451,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: restork-desktop-*-signed
@@ -518,8 +460,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          uv run python scripts/generate_sbom.py --root . --output dist/desktop-release/restork.cdx.json
-          uv run python scripts/desktop_release.py manifest --directory dist/desktop-release --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --version "${GITHUB_REF_NAME#v}" --commit "$GITHUB_SHA" --channel alpha
+          python3 scripts/generate_sbom.py --root . --output dist/desktop-release/restork.cdx.json
+          python3 scripts/desktop_release.py manifest --directory dist/desktop-release --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --version "${GITHUB_REF_NAME#v}" --commit "$GITHUB_SHA" --channel alpha
       - name: Sign and verify aggregate checksums
         shell: bash
         env:
@@ -547,7 +489,7 @@ jobs:
           retention-days: 30
 
   publish-github-release:
-    needs: [source-release, assemble-desktop-release]
+    needs: [assemble-desktop-release]
     runs-on: ubuntu-latest
     environment: release-publish
     permissions:

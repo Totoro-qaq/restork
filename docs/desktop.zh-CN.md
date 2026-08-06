@@ -5,8 +5,8 @@
 # 桌面端分发
 
 Restork 现在把原生 Rust `restorkd` Core、中英文 Dashboard 与 Tauri 2 Rust supervisor 打包在
-一起。目标电脑无需安装 Python、Node.js、Rust、`uv` 或包管理器；可选 Python 能力包不进入
-启动路径，只会在用户明确选择对应能力后按需启动。
+一起。目标电脑无需安装 Python、Node.js、Rust、`uv` 或包管理器。当前版本不包含 Python runtime
+或能力 Worker；未来若增加可选 Worker，必须另行定义协议、沙箱、依赖锁与发布审查。
 
 源码已经适配 macOS、Windows 和 Linux。Restork 现在把分发明确拆成两条：供早期测试的 Apple
 Silicon macOS 公开 Alpha，以及仍要求真实平台身份的受保护正式通道；PR 产物继续只是短期候选包。

@@ -271,11 +271,7 @@ pub fn connect_native_mail_unread_count() -> MailSnapshot {
 fn native_mail_unread_count(timeout: Duration) -> MailSnapshot {
     #[cfg(target_os = "macos")]
     {
-        use std::{
-            process::{Command, Stdio},
-            thread,
-            time::Instant,
-        };
+        use std::process::{Command, Stdio};
 
         const SCRIPT: &str = r#"
 if application "Mail" is running then
@@ -286,7 +282,7 @@ else
   return "NOT_RUNNING"
 end if
 "#;
-        let mut child = match Command::new("/usr/bin/osascript")
+        let child = match Command::new("/usr/bin/osascript")
             .args(["-e", SCRIPT])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -302,56 +298,7 @@ end if
                 );
             }
         };
-        let started = Instant::now();
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) if started.elapsed() < timeout => {
-                    thread::sleep(Duration::from_millis(40));
-                }
-                Ok(None) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return MailSnapshot::adapter_status(
-                        false,
-                        "error",
-                        "The macOS Mail permission request timed out. Try Connect again.",
-                    );
-                }
-                Err(_) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return MailSnapshot::adapter_status(
-                        false,
-                        "error",
-                        "The local Mail adapter stopped unexpectedly.",
-                    );
-                }
-            }
-        }
-        let output = match child.wait_with_output() {
-            Ok(output) => output,
-            Err(_) => {
-                return MailSnapshot::adapter_status(
-                    false,
-                    "error",
-                    "The local Mail adapter returned no result.",
-                );
-            }
-        };
-        if !output.status.success() {
-            let denied = String::from_utf8_lossy(&output.stderr).contains("-1743");
-            return MailSnapshot::adapter_status(
-                false,
-                if denied { "denied" } else { "error" },
-                if denied {
-                    "Mail access is denied in System Settings. Restork still has no access to message content."
-                } else {
-                    "The macOS Mail unread count is temporarily unavailable."
-                },
-            );
-        }
-        parse_native_mail_output(&String::from_utf8_lossy(&output.stdout))
+        collect_native_mail_output(child, timeout)
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -359,6 +306,60 @@ end if
         let _ = timeout;
         MailSnapshot::adapter_status(false, "unsupported", &native_mail_capability().message)
     }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn collect_native_mail_output(mut child: std::process::Child, timeout: Duration) -> MailSnapshot {
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if started.elapsed() < timeout => {
+                std::thread::sleep(Duration::from_millis(40));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return MailSnapshot::adapter_status(
+                    false,
+                    "error",
+                    "The macOS Mail permission request timed out. Try Connect again.",
+                );
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return MailSnapshot::adapter_status(
+                    false,
+                    "error",
+                    "The local Mail adapter stopped unexpectedly.",
+                );
+            }
+        }
+    }
+    let output = match child.wait_with_output() {
+        Ok(output) => output,
+        Err(_) => {
+            return MailSnapshot::adapter_status(
+                false,
+                "error",
+                "The local Mail adapter returned no result.",
+            );
+        }
+    };
+    if !output.status.success() {
+        let denied = String::from_utf8_lossy(&output.stderr).contains("-1743");
+        return MailSnapshot::adapter_status(
+            false,
+            if denied { "denied" } else { "error" },
+            if denied {
+                "Mail access is denied in System Settings. Restork still has no access to message content."
+            } else {
+                "The macOS Mail unread count is temporarily unavailable."
+            },
+        );
+    }
+    parse_native_mail_output(&String::from_utf8_lossy(&output.stdout))
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -1383,6 +1384,9 @@ fn condition_name(code: Option<i64>, language: &str) -> &'static str {
 mod tests {
     use super::{music_snapshot, parse_ics, parse_native_mail_output, parse_playlist};
 
+    #[cfg(unix)]
+    use super::collect_native_mail_output;
+
     #[test]
     fn local_ics_is_bounded_and_redacts_event_details() {
         let events = parse_ics(
@@ -1433,5 +1437,26 @@ mod tests {
         assert!(!invalid.configured);
         assert_eq!(invalid.status, "error");
         assert_eq!(invalid.unread_count, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_mail_process_boundary_returns_only_the_bounded_aggregate() {
+        use std::{
+            process::{Command, Stdio},
+            time::Duration,
+        };
+
+        let child = Command::new("/bin/sh")
+            .args(["-c", "printf 'COUNT:7\\n'"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("aggregate fixture");
+        let snapshot = collect_native_mail_output(child, Duration::from_secs(1));
+        assert_eq!(snapshot.status, "fresh");
+        assert_eq!(snapshot.unread_count, Some(7));
+        assert!(snapshot.observed_at.is_some());
     }
 }

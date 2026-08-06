@@ -35,7 +35,7 @@ _PUBLIC_RASTERS = {
 }
 _PLACEHOLDER_USERS = {"demo", "example", "name", "user", "username"}
 _CREDENTIAL = re.compile(
-    rb"(?:gh[pous]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|"
+    rb"(?:gh[pous]_[A-Za-z0-9_]{20,}|(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}|"
     rb"DEEPSEEK_API_KEY[ \t]*=)"
 )
 _ABSOLUTE_HOME = re.compile(
@@ -104,6 +104,14 @@ def _content_issues(payload: bytes) -> list[str]:
     return issues
 
 
+def _credential_pattern_is_sound() -> bool:
+    return (
+        _CREDENTIAL.search(b"task-apply-before-approval") is None
+        and _CREDENTIAL.search(b"sk-" + b"x" * 20) is not None
+        and _CREDENTIAL.search(b"ghp_" + b"x" * 20) is not None
+    )
+
+
 def _history_issues() -> list[str]:
     payload = _git_output("log", "-p", "--all", "--", ".")
     if payload is None:
@@ -112,6 +120,9 @@ def _history_issues() -> list[str]:
 
 
 def main() -> int:
+    if not _credential_pattern_is_sound():
+        print("error: credential scanner self-check failed", file=sys.stderr)
+        return 2
     root = Path.cwd().resolve()
     issues: list[str] = []
     for path in _tracked_paths(root):

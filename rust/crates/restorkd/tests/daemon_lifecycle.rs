@@ -19,6 +19,7 @@ fn config_accepts_an_os_selected_port_but_never_a_host_override() {
         ServerConfig {
             port: 0,
             state_db: None,
+            vault_dir: None,
         }
     );
     assert_eq!(
@@ -26,6 +27,7 @@ fn config_accepts_an_os_selected_port_but_never_a_host_override() {
         ServerConfig {
             port: 0,
             state_db: None,
+            vault_dir: None,
         }
     );
     assert_eq!(
@@ -36,6 +38,17 @@ fn config_accepts_an_os_selected_port_but_never_a_host_override() {
         ServerConfig::parse(["serve", "--port", "not-a-port"]),
         Err(ConfigError::InvalidPort("not-a-port".to_owned()))
     );
+}
+
+#[test]
+fn cli_help_never_executes_the_requested_command() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_restork"))
+        .args(["runs", "create", "--help"])
+        .output()
+        .expect("run CLI help");
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Restork command line"));
+    assert!(output.stderr.is_empty());
 }
 
 #[cfg(unix)]
@@ -79,9 +92,11 @@ fn desktop_bootstrap_is_private_and_parent_lease_owns_the_daemon_lifetime() {
     let (lease_reader, lease_writer) = pipe();
     close_on_exec(&bootstrap_reader);
     close_on_exec(&lease_writer);
+    let state_directory = tempfile::tempdir().expect("private state directory");
     let mut command = Command::new(env!("CARGO_BIN_EXE_restorkd"));
     command
-        .args(["serve", "--port", "0"])
+        .args(["serve", "--port", "0", "--state-db"])
+        .arg(state_directory.path().join("restork.db"))
         .env(
             "RESTORK_DESKTOP_BOOTSTRAP_FD",
             bootstrap_writer.as_raw_fd().to_string(),
@@ -177,9 +192,11 @@ fn desktop_daemon_still_honors_sigterm_while_the_parent_lease_is_open() {
     let (lease_reader, lease_writer) = pipe();
     close_on_exec(&bootstrap_reader);
     close_on_exec(&lease_writer);
+    let state_directory = tempfile::tempdir().expect("private state directory");
     let mut command = Command::new(env!("CARGO_BIN_EXE_restorkd"));
     command
-        .args(["serve", "--port", "0"])
+        .args(["serve", "--port", "0", "--state-db"])
+        .arg(state_directory.path().join("restork.db"))
         .env(
             "RESTORK_DESKTOP_BOOTSTRAP_FD",
             bootstrap_writer.as_raw_fd().to_string(),
@@ -249,9 +266,11 @@ fn desktop_daemon_still_honors_sigterm_while_the_parent_lease_is_open() {
 
 #[tokio::test]
 async fn daemon_owns_a_loopback_only_listener_and_shuts_down_cleanly() {
+    let state_directory = tempfile::tempdir().expect("private state directory");
     let bound = bind(ServerConfig {
         port: 0,
-        state_db: None,
+        state_db: Some(state_directory.path().join("restork.db")),
+        vault_dir: None,
     })
     .await
     .expect("bind loopback listener");
@@ -261,6 +280,7 @@ async fn daemon_owns_a_loopback_only_listener_and_shuts_down_cleanly() {
     let ready = bound.ready_record();
     assert_eq!(ready.address, address.to_string());
     assert_eq!(ready.pairing_code.len(), 48);
+    assert_eq!(ready.cli_pairing_code.len(), 48);
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let server = tokio::spawn(bound.serve_until(async move {

@@ -41,9 +41,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          python-version: "3.12"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
@@ -53,10 +50,9 @@ jobs:
             desktop/package-lock.json
       - run: rustup toolchain install 1.97.1 --profile minimal
       - run: rustup default 1.97.1
-      - run: uv sync --frozen --all-groups
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
-      - run: uv run pytest tests/desktop/test_desktop_release.py
+      - run: python3 scripts/desktop_release.py --help
       - run: ./scripts/scan-public-artifacts.sh
       - name: Require only updater credentials and an Apple Silicon runner
         env:
@@ -80,7 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          uv run python scripts/desktop_release.py config --platform macos --version "$version" --signing-mode ad-hoc --output build/desktop-alpha-config.json
+          python3 scripts/desktop_release.py config --platform macos --version "$version" --signing-mode ad-hoc --output build/desktop-alpha-config.json
           npm --prefix desktop exec tauri build -- --config build/desktop-alpha-config.json
       - name: Verify the signature is ad hoc and never claim Developer ID trust
         shell: bash
@@ -104,8 +100,8 @@ jobs:
           cp "$dmg" "dist/macos-alpha/Restork-${version}-macOS-arm64-UNSIGNED-ALPHA.dmg"
           cp "$archive" "dist/macos-alpha/Restork-${version}-macOS-arm64.app.tar.gz"
           cp "$archive.sig" "dist/macos-alpha/Restork-${version}-macOS-arm64.app.tar.gz.sig"
-          uv run python scripts/generate_sbom.py --root . --output dist/macos-alpha/restork.cdx.json
-          uv run python scripts/desktop_release.py manifest --directory dist/macos-alpha --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --version "$version" --commit "$GITHUB_SHA" --channel alpha --trust ad-hoc
+          python3 scripts/generate_sbom.py --root . --output dist/macos-alpha/restork.cdx.json
+          python3 scripts/desktop_release.py manifest --directory dist/macos-alpha --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --version "$version" --commit "$GITHUB_SHA" --channel alpha --trust ad-hoc
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: dist/macos-alpha/*

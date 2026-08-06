@@ -21,13 +21,13 @@ short-lived token, bootstrap, and lifecycle foundations. This baseline is a migr
 each future Rust slice must add its own SQLite, SSE, provider-overhead, and WebView measurements
 without silently weakening the existing contracts.
 
-Reproduce from the repository root:
+The retired Python comparison command is intentionally no longer reproducible from the current
+tree. Re-measure the current single Core from the repository root:
 
 ```bash
 cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
-uv run python scripts/benchmark-runtime.py \
-  --python-core dist/desktop-core/restork-core/restork-core \
-  --rust-core rust/target/release/restorkd \
+python3 scripts/benchmark-runtime.py \
+  --core rust/target/release/restorkd \
   --iterations 10 \
   --requests 100
 ```

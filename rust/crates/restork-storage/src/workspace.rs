@@ -756,20 +756,20 @@ impl Database {
                 i64::from(include_archived),
                 cursor_time,
                 cursor_id,
-                i64::try_from(limit + 1).expect("bounded limit")
+                (limit + 1) as i64
             ],
             session_from_row,
         )?;
         let mut items = rows.collect::<Result<Vec<_>, _>>()?;
         let has_more = items.len() > limit;
         items.truncate(limit);
-        let next = has_more.then(|| {
-            let last = items.last().expect("non-empty bounded page");
-            SessionCursor {
+        let next = has_more
+            .then(|| items.last())
+            .flatten()
+            .map(|last| SessionCursor {
                 updated_at: last.updated_at.clone(),
                 session_id: last.session_id.clone(),
-            }
-        });
+            });
         Ok(SessionPage { items, next })
     }
 
@@ -900,17 +900,15 @@ impl Database {
              ORDER BY sequence ASC LIMIT ?3",
         )?;
         let rows = statement.query_map(
-            params![
-                session_id,
-                after,
-                i64::try_from(limit + 1).expect("bounded limit")
-            ],
+            params![session_id, after, (limit + 1) as i64],
             message_from_row,
         )?;
         let mut items = rows.collect::<Result<Vec<_>, _>>()?;
         let has_more = items.len() > limit;
         items.truncate(limit);
-        let next_after = has_more.then(|| items.last().expect("non-empty bounded page").sequence);
+        let next_after = has_more
+            .then(|| items.last().map(|item| item.sequence))
+            .flatten();
         Ok(MessagePage { items, next_after })
     }
 
@@ -929,10 +927,7 @@ impl Database {
              created_at FROM session_messages WHERE session_id = ?1 \
              ORDER BY sequence DESC LIMIT ?2",
         )?;
-        let rows = statement.query_map(
-            params![session_id, i64::try_from(limit).expect("bounded limit")],
-            message_from_row,
-        )?;
+        let rows = statement.query_map(params![session_id, limit as i64], message_from_row)?;
         let mut items = rows.collect::<Result<Vec<_>, _>>()?;
         items.reverse();
         Ok(items)
@@ -956,17 +951,14 @@ impl Database {
              JOIN session_messages AS message ON message.rowid = session_messages_fts.rowid \
              WHERE session_messages_fts MATCH ?1 ORDER BY rank LIMIT ?2",
         )?;
-        let rows = statement.query_map(
-            params![literal, i64::try_from(limit).expect("bounded limit")],
-            |row| {
-                Ok(SessionSearchHit {
-                    session_id: row.get(0)?,
-                    message_id: row.get(1)?,
-                    sequence: row.get(2)?,
-                    excerpt: row.get(3)?,
-                })
-            },
-        )?;
+        let rows = statement.query_map(params![literal, limit as i64], |row| {
+            Ok(SessionSearchHit {
+                session_id: row.get(0)?,
+                message_id: row.get(1)?,
+                sequence: row.get(2)?,
+                excerpt: row.get(3)?,
+            })
+        })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 }
