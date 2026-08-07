@@ -96,7 +96,7 @@ pub(crate) async fn list_provider_registry(
     }
     Json(ProviderRegistryResponse {
         registry_version: PROVIDER_REGISTRY_VERSION,
-        items: provider_definitions(),
+        items: provider_registry_items(),
     })
     .into_response()
 }

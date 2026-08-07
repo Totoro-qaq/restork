@@ -923,6 +923,7 @@ export interface ProviderDefinitionV2 {
     supports_token_budget: boolean;
   };
   docs_url: string;
+  setup_command: string;
 }
 
 export interface ProviderRegistryV2 {

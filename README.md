@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="Restork — a local-first agent workspace for research, study, and work.">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Restork — a desktop agent with reviewable writes, OS-sandboxed MCP tools, and local Markdown.">
 </p>
 
 <p align="center">
@@ -23,9 +23,9 @@
 </p>
 
 <p align="center">
-  <strong>Your private workspace for research, learning, and getting thoughtful work done.</strong><br>
-  Restork brings your notes, tasks, and model-assisted workflows together locally—and asks before
-  anything is written or sent beyond your machine.
+  <strong>The desktop agent you can trust with your files.</strong><br>
+  Ask questions across local Markdown with citations. Before Restork writes a note, you see the
+  exact change; approvals are single-use and content-bound, while MCP tools run in OS-level sandboxes.
 </p>
 
 ## See Restork in action
@@ -107,10 +107,10 @@ Already cloned?
 ```
 
 Restork asks the operating system for a free loopback port and prints the exact local URL plus
-separate one-time Web and CLI pairing codes. Open the URL, enter the Web code, and you are in. The
-first launch does not need an API key, does not select
-a Vault for you, and does not enable weather or any other optional connection. The offline Research
-synthesizer lets you explore the product without sending a model request.
+separate one-time Web and CLI pairing codes. Open the URL, enter the Web code, and you are in. You
+can inspect the local workspace without an API key; model-backed conversations and runs require a
+provider you explicitly configure. Restork does not select a Vault or enable weather, location, or
+any other optional connection for you.
 
 ### Running the Core directly
 

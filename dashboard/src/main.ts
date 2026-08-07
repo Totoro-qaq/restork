@@ -1400,6 +1400,7 @@ interface OverviewProviderSelection {
   model: string;
   displayName: string;
   authKind: "none" | "bearer";
+  setupCommand: string;
   configured: boolean;
 }
 
@@ -1414,6 +1415,8 @@ function overviewProviderSelection(root: HTMLElement): OverviewProviderSelection
     model: option.dataset.providerModel ?? "",
     displayName: option.dataset.providerName ?? option.textContent ?? "Provider",
     authKind: option.dataset.providerAuthKind === "none" ? "none" : "bearer",
+    setupCommand: option.dataset.providerSetupCommand
+      ?? overviewProviderCommand((option.dataset.providerKind ?? "deepseek") as ProviderKindV2),
     configured: option.dataset.providerConfigured === "true",
   };
 }
@@ -1454,7 +1457,7 @@ function syncOverviewProvider(
   if (model) model.textContent = selected.configured
     ? `${selected.kind} / ${selected.model}`
     : tr(locale, "No model profile saved", "尚未保存模型 Profile");
-  if (command) command.textContent = overviewProviderCommand(selected.kind);
+  if (command) command.textContent = selected.setupCommand;
   if (help) help.textContent = selected.kind === "ollama"
     ? tr(
       locale,

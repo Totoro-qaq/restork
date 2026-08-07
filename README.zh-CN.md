@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="./assets/readme/hero.zh-CN.svg" width="100%" alt="Restork——服务于研究、学习与工作的本地优先智能工作台。">
+  <img src="./assets/readme/hero.zh-CN.svg" width="100%" alt="Restork——写入可审查、MCP 工具受系统沙箱约束、Markdown 留在本地的桌面 Agent。">
 </p>
 
 <p align="center">
@@ -23,8 +23,9 @@
 </p>
 
 <p align="center">
-  <strong>把研究、学习和手头的工作，放进一个真正属于你的本地工作台。</strong><br>
-  Restork 把笔记、任务与模型能力连接起来；写入文件或把内容发送到设备之外前，先让你看清并确认。
+  <strong>一个你敢让它碰文件的桌面 Agent。</strong><br>
+  让 Restork 跨本地 Markdown 查找并给出带引用的答案；写回前先看精确改动，每次审批只对这份
+  内容有效，MCP 工具则运行在操作系统级沙箱中。
 </p>
 
 ## 看看 Restork 怎么工作
@@ -104,8 +105,9 @@ cd restork
 ```
 
 Restork 会让系统自动选择一个空闲 loopback 端口，并打印准确的本地 URL，以及彼此独立的一次性
-Web/CLI 配对码。打开 URL，输入 Web 配对码就能开始。首次启动不需要 API Key，不会擅自选择 Vault，也不会自动开启天气或其他
-连接；离线 Research synthesizer 可以让你在不发送模型请求的情况下先体验产品。
+Web/CLI 配对码。打开 URL，输入 Web 配对码就能进入本地工作台；查看界面不需要 API Key，真正的
+模型对话和运行则需要你明确配置 Provider。Restork 不会擅自选择 Vault，也不会自动开启天气、
+定位或其他可选连接。
 
 ### 直接运行 Core
 

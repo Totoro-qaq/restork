@@ -41,8 +41,9 @@ tokens and Core data remain memory-only.
 
 ## Model access
 
-The Overview **Model access** card is the built-in DeepSeek quick path. It shows local
-configuration/Keychain status and the exact secure setup command:
+The Overview **Model access** card shows local configuration/credential status and the exact secure
+setup command. In a packaged app, the command includes the bundled Core's absolute path; in a source
+checkout, the equivalent command is:
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml --bin restorkd -- provider configure
@@ -78,8 +79,8 @@ DeepSeek profile. A saved DeepSeek V4 Flash card additionally exposes **Test web
 
 The Dashboard **Model Center** lists those saved profiles and the providers that can still be added.
 Selecting a saved profile tests that exact provider/model pair. Selecting an unconfigured provider
-shows its provider-scoped terminal command (for example `restorkd provider configure qwen`, or
-`ollama serve` for local Ollama) and keeps network-test buttons disabled until the profile is saved.
+shows its provider-scoped, installation-aware terminal command (or `ollama serve` for local Ollama)
+and keeps network-test buttons disabled until the profile is saved.
 
 ## Rust-first workspace pages
 

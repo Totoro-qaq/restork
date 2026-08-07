@@ -1800,6 +1800,7 @@ describe("Rust conversation workspace", () => {
             supports_token_budget: false,
           },
           docs_url: "https://api-docs.deepseek.com/",
+          setup_command: "restorkd provider configure deepseek",
         },
         {
           registry_version: 1,
@@ -1825,6 +1826,7 @@ describe("Rust conversation workspace", () => {
             supports_token_budget: true,
           },
           docs_url: "https://help.aliyun.com/",
+          setup_command: "restorkd provider configure qwen",
         },
       ],
     };
@@ -1944,6 +1946,7 @@ describe("Rust conversation workspace", () => {
         capabilities: { streaming: true, tool_calls: true, json_output: true, reasoning: true, vision: true },
         reasoning: { can_disable: true, supported_efforts: ["medium"], supports_token_budget: true },
         docs_url: "https://help.aliyun.com/",
+        setup_command: "'/Applications/Restork Preview.app/Contents/Resources/core/restorkd' provider configure qwen",
       }, {
         registry_version: 1,
         kind: "ollama",
@@ -1958,6 +1961,7 @@ describe("Rust conversation workspace", () => {
         capabilities: { streaming: true, tool_calls: true, json_output: true, reasoning: true, vision: true },
         reasoning: { can_disable: true, supported_efforts: ["low", "medium", "high"], supports_token_budget: false },
         docs_url: "https://docs.ollama.com/",
+        setup_command: "ollama serve",
       }],
     };
     const diagnostic = vi.spyOn(api, "providerDiagnostics").mockResolvedValue({
@@ -1980,7 +1984,7 @@ describe("Rust conversation workspace", () => {
     expect(root.querySelector("[data-provider-selected-name]")?.textContent).toBe("Qwen Main");
     expect(root.querySelector("[data-provider-selected-model]")?.textContent).toContain("qwen-max");
     expect(root.querySelector("[data-provider-command]")?.textContent)
-      .toBe("restorkd provider configure qwen");
+      .toBe("'/Applications/Restork Preview.app/Contents/Resources/core/restorkd' provider configure qwen");
     expect(root.querySelector<HTMLButtonElement>('[data-provider-diagnostic="web_search"]')?.hidden)
       .toBe(true);
 

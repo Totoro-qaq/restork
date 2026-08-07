@@ -1901,7 +1901,7 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
             "providers": providers,
             "providerRegistry": {
                 "registry_version": PROVIDER_REGISTRY_VERSION,
-                "items": provider_definitions(),
+                "items": provider_registry_items(),
             },
             "profiles": profiles,
             "prompts": prompts,
@@ -2126,7 +2126,24 @@ fn provider_profile_records(
 #[derive(Serialize)]
 struct ProviderRegistryResponse {
     registry_version: u16,
-    items: &'static [restork_personal::ProviderDefinition],
+    items: Vec<ProviderRegistryItem>,
+}
+
+#[derive(Serialize)]
+struct ProviderRegistryItem {
+    #[serde(flatten)]
+    definition: &'static restork_personal::ProviderDefinition,
+    setup_command: String,
+}
+
+fn provider_registry_items() -> Vec<ProviderRegistryItem> {
+    provider_definitions()
+        .iter()
+        .map(|definition| ProviderRegistryItem {
+            definition,
+            setup_command: provider_setup_command(definition.kind),
+        })
+        .collect()
 }
 
 async fn provider_status_document(
@@ -2204,12 +2221,10 @@ async fn provider_status_document(
     })
 }
 
+/// Delegates to the provider crate so the Dashboard and the diagnostic never
+/// disagree about how a credential is configured.
 fn provider_setup_command(kind: ProviderKind) -> String {
-    if kind == ProviderKind::Ollama {
-        "ollama serve".to_owned()
-    } else {
-        format!("restorkd provider configure {}", kind.definition().id)
-    }
+    restork_provider::credential_setup_command(kind)
 }
 
 fn configured_provider(
