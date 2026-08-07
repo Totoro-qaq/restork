@@ -24,7 +24,12 @@ async fn reviewed_stdio_mcp_uses_json_rpc_without_shell_or_ambient_environment()
         }),
         secret_references: BTreeSet::new(),
         sandbox: SandboxPolicy {
-            max_runtime_ms: 2_000,
+            // This budget must survive a full-workspace `cargo test`, where many
+            // test binaries compete for CPU. The fixture spawns a real process
+            // and, on macOS, wraps it in `sandbox-exec` before a JSON-RPC
+            // handshake; 2_000 ms passed in isolation and failed roughly one run
+            // in three under load. Production callers set their own budget.
+            max_runtime_ms: 30_000,
             max_output_bytes: 64 * 1024,
             allow_network: false,
             allowed_paths: BTreeSet::new(),
