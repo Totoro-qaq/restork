@@ -104,7 +104,9 @@ impl AgentBounds {
             maximum_iterations: 16,
             maximum_repairs: 4,
             maximum_provider_retries: 2,
-            maximum_wall_time_ms: 120_000,
+            // One server-side web search can take 30-60s and tool calls run
+            // sequentially; 120s starved any research run that searched twice.
+            maximum_wall_time_ms: 300_000,
             maximum_total_tokens: 64_000,
             maximum_cost_usd_micros: 100_000,
             maximum_output_tokens_per_request: 8_192,

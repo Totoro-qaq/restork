@@ -642,8 +642,8 @@ export function runEventsMarkup(
         <div><dt>TOKENS</dt><dd>${String(run.budget?.usage.tokens ?? 0)}</dd></div>
       </dl>
       ${paginationControl("events", page, locale, tr(locale, "LOAD EARLIER EVENTS", "加载更早事件"))}
-      <section class="assistant-stream" ${assistantOutput ? "" : "hidden"} aria-live="polite"><small>ASSISTANT · STREAM</small><pre data-assistant-stream>${escapeHtml(assistantOutput)}</pre></section>
-      <ol class="event-list">${phaseEvents.length ? phaseEvents.map(eventRow).join("") : `<li>${tr(locale, "No new events.", "暂无新事件。")}</li>`}</ol>
+      <section class="assistant-stream" ${assistantOutput ? "" : "hidden"} aria-live="polite"><small>ASSISTANT · STREAM</small>${assistantStreamMarkup(assistantOutput, locale)}</section>
+      <ol class="event-list">${phaseEvents.length ? phaseEvents.map((event) => eventRow(event, locale)).join("") : `<li>${tr(locale, "No new events.", "暂无新事件。")}</li>`}</ol>
       <section class="conversation-panel" aria-labelledby="conversation-title">
         <header>
           <div><p class="eyebrow">RUN-SCOPED · NO TOOLS</p><h3 id="conversation-title">${tr(locale, "Conversation", "多轮对话")}</h3></div>
@@ -1402,16 +1402,222 @@ function paginationControl(
   return `<div class="pagination"><button type="button" data-page-kind="${escapeHtml(kind)}" data-page-cursor="${escapeHtml(page.next_cursor)}">${escapeHtml(label)}</button><small>${tr(locale, "A bounded page is loaded from Core.", "由 Core 按页加载，不会一次读取全部列表。")}</small></div>`;
 }
 
+interface ResearchEnvelope {
+  answer: string;
+  claims: { statement: string; kind: string; evidenceRefs: string[] }[];
+  conflicts: string[];
+  unresolvedQuestions: string[];
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+/** The research contract ends in one JSON object; anything else stays raw. */
+function parseResearchEnvelope(output: string): ResearchEnvelope | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(output);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value == null) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.answer !== "string" || !record.answer.trim()) return null;
+  const claims = (Array.isArray(record.claims) ? record.claims : []).flatMap((claim) => {
+    if (typeof claim !== "object" || claim == null) return [];
+    const entry = claim as Record<string, unknown>;
+    if (typeof entry.statement !== "string") return [];
+    return [{
+      statement: entry.statement,
+      kind: typeof entry.kind === "string" ? entry.kind : "",
+      evidenceRefs: stringList(entry.evidence_refs),
+    }];
+  });
+  return {
+    answer: record.answer,
+    claims,
+    conflicts: stringList(record.conflicts),
+    unresolvedQuestions: stringList(record.unresolved_questions),
+  };
+}
+
+function envelopeList(title: string, items: string[]): string {
+  if (!items.length) return "";
+  const rows = items
+    .slice(0, 8)
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
+    .join("");
+  return `<h4>${escapeHtml(title)}</h4><ul>${rows}</ul>`;
+}
+
+/**
+ * The assistant stream box. While a run streams, the raw text accumulates in a
+ * plain pre; once the research JSON envelope is complete it is upgraded to a
+ * readable answer with the raw payload tucked behind a disclosure.
+ */
+export function assistantStreamMarkup(output: string, locale: Locale = "en"): string {
+  const envelope = parseResearchEnvelope(output);
+  if (!envelope) return `<pre data-assistant-stream>${escapeHtml(output)}</pre>`;
+  const claims = envelope.claims.slice(0, 12).map((claim) => {
+    const refs = claim.evidenceRefs.slice(0, 4).join(" · ");
+    const kind = claim.kind ? ` <b>${escapeHtml(claim.kind)}</b>` : "";
+    const source = refs ? `<small>${escapeHtml(refs)}</small>` : "";
+    return `<li>${escapeHtml(claim.statement)}${kind}${source}</li>`;
+  }).join("");
+  const claimsSection = claims
+    ? `<h4>${tr(locale, "Claims", "关键论断")}</h4><ul>${claims}</ul>`
+    : "";
+  const conflicts = envelopeList(tr(locale, "Conflicts", "冲突"), envelope.conflicts);
+  const open = envelopeList(
+    tr(locale, "Unresolved questions", "未解问题"),
+    envelope.unresolvedQuestions,
+  );
+  return `<div class="assistant-answer" data-assistant-stream><p>${escapeHtml(envelope.answer)}</p>`
+    + `${claimsSection}${conflicts}${open}`
+    + `<details><summary>JSON</summary><pre>${escapeHtml(output)}</pre></details></div>`;
+}
+
 /**
  * One event row. Exported so a live stream can append a single row instead of
  * re-serialising the whole run, which is quadratic in event count.
+ *
+ * The row leads with a human-readable summary; the raw payload stays one click
+ * away in a collapsed details block so the stream remains auditable.
  */
-export function eventRow(event: RunEvent): string {
-  return `<li data-event-id="${escapeHtml(String(event.id))}"><b>${escapeHtml(event.type)}</b><span>#${event.id}</span><code>${escapeHtml(JSON.stringify(event.data))}</code></li>`;
+export function eventRow(event: RunEvent, locale: Locale = "en"): string {
+  const id = escapeHtml(String(event.id));
+  const type = escapeHtml(event.type);
+  const summary = eventSummary(event, locale);
+  const raw = escapeHtml(JSON.stringify(event.data));
+  return `<li data-event-id="${id}"><b>${type}</b><span>#${event.id}</span>`
+    + `<div class="event-detail"><p>${summary}</p>`
+    + `<details><summary>JSON</summary><code>${raw}</code></details></div></li>`;
+}
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function esc(value: unknown): string {
+  return escapeHtml(text(value));
+}
+
+function num(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function clipped(value: string, max = 160): string {
+  return value.length > max ? `${value.slice(0, max)}…` : value;
+}
+
+function costLabel(micros: number | null): string {
+  return micros == null ? "" : ` · $${(micros / 1_000_000).toFixed(4)}`;
+}
+
+/** Count hint for common tool-result shapes ({items|results|notes|hits: []}). */
+function resultCount(result: unknown): number | null {
+  if (typeof result !== "object" || result == null) return null;
+  for (const key of ["items", "results", "notes", "hits"]) {
+    const list = (result as Record<string, unknown>)[key];
+    if (Array.isArray(list)) return list.length;
+  }
+  return null;
+}
+
+function toolNameList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((name): name is string => typeof name === "string").map(escapeHtml)
+    : [];
+}
+
+function recordOf(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value != null ? (value as Record<string, unknown>) : {};
+}
+
+function eventSummary(event: RunEvent, locale: Locale): string {
+  const data = event.data;
+  switch (event.type) {
+    case "run.created": {
+      const mode = esc(data.mode) || "run";
+      const provider = esc(data.provider_profile_id) || tr(locale, "default", "默认");
+      return tr(locale, `Created · ${mode} · provider ${provider}`, `已创建 · ${mode} · 提供商 ${provider}`);
+    }
+    case "run.started":
+      return tr(locale, "Run started.", "运行已开始。");
+    case "model.started": {
+      const iteration = num(data.iteration) ?? "?";
+      return tr(locale, `Model call · iteration ${iteration}`, `模型调用 · 第 ${iteration} 轮`);
+    }
+    case "model.completed": {
+      const iteration = num(data.iteration) ?? "?";
+      const tools = toolNameList(data.tool_calls);
+      const tokens = num(data.total_tokens);
+      const base = tr(locale, `Iteration ${iteration} done`, `第 ${iteration} 轮完成`);
+      const usage = tokens == null ? "" : ` · ${tokens.toLocaleString()} tokens`;
+      const calls = tools.length
+        ? tr(locale, ` · tools: ${tools.join(", ")}`, ` · 工具：${tools.join("、")}`)
+        : "";
+      return `${base}${usage}${costLabel(num(data.cost_usd_micros))}${calls}`;
+    }
+    case "tool.completed": {
+      const count = resultCount(recordOf(data.observation).result);
+      const tool = esc(data.tool) || "tool";
+      const hint = count == null ? "" : tr(locale, ` · ${count} result(s)`, ` · ${count} 条结果`);
+      return tr(locale, `Tool ok · ${tool}${hint}`, `工具成功 · ${tool}${hint}`);
+    }
+    case "tool.failed": {
+      const failure = recordOf(recordOf(data.observation).error);
+      const tool = esc(data.tool) || "tool";
+      const kind = esc(failure.kind) || "error";
+      const message = escapeHtml(clipped(text(failure.message)));
+      const detail = message ? ` · ${message}` : "";
+      return tr(locale, `Tool failed · ${tool} · ${kind}${detail}`, `工具失败 · ${tool} · ${kind}${detail}`);
+    }
+    case "approval.requested": {
+      const tool = esc(data.tool) || tr(locale, "tool", "工具");
+      return tr(locale, `Approval required · ${tool}`, `等待审批 · ${tool}`);
+    }
+    case "retry.scheduled": {
+      const attempt = num(data.attempt) ?? "?";
+      const kind = esc(data.kind) || "provider";
+      const status = data.status == null ? "" : ` · HTTP ${num(data.status) ?? esc(data.status)}`;
+      return tr(locale, `Retry ${attempt} · ${kind}${status}`, `第 ${attempt} 次重试 · ${kind}${status}`);
+    }
+    case "context.compacted": {
+      const removed = num(data.removed_messages) ?? "?";
+      return tr(
+        locale,
+        `Context compacted · merged ${removed} earlier messages`,
+        `上下文压缩 · 合并了 ${removed} 条早期消息`,
+      );
+    }
+    case "run.completed": {
+      const iterations = num(data.iterations) ?? "?";
+      const tokens = num(data.total_tokens);
+      const usage = tokens == null ? "" : ` · ${tokens.toLocaleString()} tokens`;
+      return tr(locale, `Completed · ${iterations} iteration(s)${usage}`, `运行完成 · 共 ${iterations} 轮${usage}`);
+    }
+    case "run.stopped": {
+      const reason = esc(data.stop_reason) || tr(locale, "unknown reason", "未知原因");
+      return tr(locale, `Stopped · ${reason}`, `运行停止 · ${reason}`);
+    }
+    case "run.cancelled":
+      return tr(locale, "Cancelled before start.", "运行已在启动前取消。");
+    case "run.runtime_failed":
+      return tr(locale, "Runtime error · the run can be retried.", "运行时错误 · 运行可重试。");
+    case "run.snapshot":
+      return tr(locale, "State snapshot.", "状态快照。");
+    default:
+      return escapeHtml(event.type);
+  }
 }
 
 function navButton(view: string, icon: string, label: string, active: boolean, count?: number): string {
-  return `<button class="nav-item ${active ? "is-active" : ""}" type="button" data-view="${view}"${active ? ' aria-current="page"' : ""}><b class="icon">${icon}</b>${label}${count ? `<em>${count}</em>` : ""}</button>`;
+  const badge = count ? `<em data-nav-count="${view}" data-raw-count="${count}">${count}</em>` : "";
+  return `<button class="nav-item ${active ? "is-active" : ""}" type="button" data-view="${view}"${active ? ' aria-current="page"' : ""}><b class="icon">${icon}</b>${label}${badge}</button>`;
 }
 
 function modeButton(mode: string, icon: string, description: string): string {
