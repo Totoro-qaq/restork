@@ -20,7 +20,9 @@ use tauri::{AppHandle, Manager, RunEvent, State, WebviewWindow};
 use tauri_plugin_updater::UpdaterExt;
 
 use diagnostics::Diagnostics;
-use supervisor::{CoreProcess, readiness_request, start_core};
+use supervisor::{
+    CoreProcess, configured_vault_dir, readiness_request, save_vault_dir, start_core,
+};
 use updates::{RecoveryArtifact, UpdateStorage, recovery_artifacts};
 #[cfg(not(debug_assertions))]
 use updates::{accepts_update, archive_verified_update};
@@ -189,6 +191,45 @@ fn desktop_store_session(
     inner.pairing_code = None;
     inner.record("browser_session_stored");
     Ok(())
+}
+
+#[tauri::command]
+fn desktop_vault_dir(
+    app: AppHandle,
+    window: WebviewWindow,
+    state: State<'_, DesktopState>,
+) -> Result<Option<String>, String> {
+    let inner = state
+        .inner
+        .lock()
+        .map_err(|_| "desktop_state_unavailable")?;
+    require_dashboard_window(&window, inner.origin.as_deref())?;
+    let data_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "vault_path_unavailable")?;
+    Ok(configured_vault_dir(&data_root).map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+fn desktop_set_vault_dir(
+    app: AppHandle,
+    window: WebviewWindow,
+    state: State<'_, DesktopState>,
+    path: String,
+) -> Result<String, String> {
+    let inner = state
+        .inner
+        .lock()
+        .map_err(|_| "desktop_state_unavailable")?;
+    require_dashboard_window(&window, inner.origin.as_deref())?;
+    let data_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "vault_path_unavailable")?;
+    let canonical = save_vault_dir(&data_root, &path).map_err(str::to_owned)?;
+    inner.record("vault_dir_configured");
+    Ok(canonical.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -550,6 +591,8 @@ pub fn run() {
             desktop_status,
             desktop_session,
             desktop_store_session,
+            desktop_vault_dir,
+            desktop_set_vault_dir,
             desktop_retry,
             desktop_quit,
             desktop_update_recovery,

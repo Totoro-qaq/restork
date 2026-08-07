@@ -6,6 +6,8 @@ import type {
   Mode,
   RadarAction,
   RadarActionResult,
+  RadarConfiguration,
+  RadarConfigurationInput,
   ProviderDiagnostic,
   ResearchArtifact,
   RunSummary,
@@ -512,6 +514,10 @@ class DemoApi implements DashboardApi {
       task_approval_id: null,
     };
   }
+  async configureRadar(input: RadarConfigurationInput): Promise<RadarConfiguration> {
+    return { ...input };
+  }
+  async cancelRun(): Promise<void> {}
   async previewTask(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }
   async captureTask(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }
   async applyTask(approvalId: string): Promise<TaskApplyResult> {

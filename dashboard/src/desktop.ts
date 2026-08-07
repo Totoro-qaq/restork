@@ -28,6 +28,8 @@ export interface DesktopBridge {
   session(): Promise<DesktopSession>;
   store(session: LocalSession): Promise<void>;
   recovery(): Promise<DesktopRecoveryArtifact[]>;
+  vaultDir(): Promise<string | null>;
+  setVaultDir(path: string): Promise<string>;
 }
 
 export function detectDesktopBridge(
@@ -77,6 +79,21 @@ export function detectDesktopBridge(
       const value = await invoke<unknown>("desktop_update_recovery");
       if (!Array.isArray(value) || !value.every(isRecoveryArtifact)) {
         throw new Error("The native recovery bridge returned an invalid response");
+      }
+      return value;
+    },
+    async vaultDir(): Promise<string | null> {
+      const value = await invoke<unknown>("desktop_vault_dir");
+      if (value === null) return null;
+      if (typeof value === "string" && value.length > 0 && value.length <= 4096) {
+        return value;
+      }
+      throw new Error("The native vault bridge returned an invalid response");
+    },
+    async setVaultDir(path: string): Promise<string> {
+      const value = await invoke<unknown>("desktop_set_vault_dir", { path });
+      if (typeof value !== "string" || value.length === 0 || value.length > 4096) {
+        throw new Error("The native vault bridge returned an invalid response");
       }
       return value;
     },

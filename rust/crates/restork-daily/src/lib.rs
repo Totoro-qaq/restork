@@ -164,6 +164,13 @@ pub struct NativeMailCapability {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MailMessageHeader {
+    pub subject: String,
+    pub sender: String,
+    pub date_received: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct MailSnapshot {
     pub configured: bool,
     pub status: String,
@@ -171,6 +178,8 @@ pub struct MailSnapshot {
     pub unread_count: Option<u64>,
     pub observed_at: Option<String>,
     pub message: String,
+    #[serde(default)]
+    pub messages: Vec<MailMessageHeader>,
 }
 
 impl MailSnapshot {
@@ -183,6 +192,7 @@ impl MailSnapshot {
             unread_count: None,
             observed_at: None,
             message: "Mail awareness is off. Restork has not requested access.".to_owned(),
+            messages: Vec::new(),
         }
     }
 
@@ -195,9 +205,19 @@ impl MailSnapshot {
             unread_count: None,
             observed_at: None,
             message: message.to_owned(),
+            messages: Vec::new(),
         }
     }
 }
+
+#[cfg(any(target_os = "macos", test))]
+const MAX_MAIL_HEADERS: usize = 20;
+#[cfg(any(target_os = "macos", test))]
+const MAX_MAIL_SUBJECT_CHARS: usize = 300;
+#[cfg(any(target_os = "macos", test))]
+const MAX_MAIL_SENDER_CHARS: usize = 200;
+#[cfg(any(target_os = "macos", test))]
+const MAX_MAIL_DATE_CHARS: usize = 100;
 
 /// Inspect the local mail adapter without reading Mail or triggering a prompt.
 #[must_use]
@@ -209,9 +229,9 @@ pub fn native_mail_capability() -> NativeMailCapability {
             adapter: "mail-app-apple-events".to_owned(),
             available: true,
             status: "available".to_owned(),
-            detail_scopes: vec!["unread_count".to_owned()],
+            detail_scopes: vec!["unread_count".to_owned(), "unread_headers".to_owned()],
             refresh_interval_seconds: 15,
-            message: "Press Connect to let macOS ask for access to Mail. Restork reads only the aggregate unread count.".to_owned(),
+            message: "Press Connect to let macOS ask for access to Mail. Restork reads only the aggregate unread count and unread headers.".to_owned(),
         };
     }
 
@@ -254,8 +274,9 @@ pub fn native_mail_capability() -> NativeMailCapability {
     }
 }
 
-/// Read only the aggregate unread count from the already-running macOS Mail app.
-/// The fixed AppleScript neither accepts user input nor requests message fields.
+/// Read the aggregate unread count and up to 20 unread message headers
+/// (subject, sender, date received) from the already-running macOS Mail app.
+/// The fixed AppleScript neither accepts user input nor reads message bodies.
 #[must_use]
 pub fn read_native_mail_unread_count() -> MailSnapshot {
     native_mail_unread_count(Duration::from_secs(8))
@@ -276,7 +297,15 @@ fn native_mail_unread_count(timeout: Duration) -> MailSnapshot {
         const SCRIPT: &str = r#"
 if application "Mail" is running then
   tell application "Mail"
-    return "COUNT:" & (unread count of inbox)
+    set unreadMessages to (messages of inbox whose read status is false)
+    set output to "COUNT:" & (count of unreadMessages)
+    set shown to 0
+    repeat with m in unreadMessages
+      if shown ≥ 20 then exit repeat
+      set shown to shown + 1
+      set output to output & (ASCII character 30) & (subject of m) & (ASCII character 31) & (sender of m) & (ASCII character 31) & ((date received of m) as string)
+    end repeat
+    return output
   end tell
 else
   return "NOT_RUNNING"
@@ -372,7 +401,8 @@ fn parse_native_mail_output(output: &str) -> MailSnapshot {
             "Open macOS Mail, then press Connect. Restork will not launch Mail for you.",
         );
     }
-    let Some(raw_count) = value.strip_prefix("COUNT:") else {
+    let mut segments = value.split('\u{1e}');
+    let Some(raw_count) = segments.next().and_then(|head| head.strip_prefix("COUNT:")) else {
         return MailSnapshot::adapter_status(
             false,
             "error",
@@ -393,15 +423,52 @@ fn parse_native_mail_output(output: &str) -> MailSnapshot {
             "The macOS Mail adapter returned an out-of-range unread count.",
         );
     }
+    let messages = segments
+        .filter_map(parse_mail_header_segment)
+        .take(MAX_MAIL_HEADERS)
+        .collect::<Vec<_>>();
     MailSnapshot {
         configured: true,
         status: "fresh".to_owned(),
         provider: "macos-mail".to_owned(),
         unread_count: Some(unread_count),
         observed_at: Some(Utc::now().to_rfc3339()),
-        message: "Live unread total from macOS Mail; no sender, subject, or message body was read."
+        message: "Live unread total and unread headers from macOS Mail; no message body was read."
             .to_owned(),
+        messages,
     }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn parse_mail_header_segment(segment: &str) -> Option<MailMessageHeader> {
+    let mut fields = segment.split('\u{1f}');
+    let subject = sanitize_mail_field(fields.next()?, MAX_MAIL_SUBJECT_CHARS)?;
+    let sender = sanitize_mail_field(fields.next()?, MAX_MAIL_SENDER_CHARS)?;
+    let date_received = sanitize_mail_field(fields.next()?, MAX_MAIL_DATE_CHARS)?;
+    Some(MailMessageHeader {
+        subject,
+        sender,
+        date_received,
+    })
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn sanitize_mail_field(raw: &str, max_chars: usize) -> Option<String> {
+    let flattened = raw
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let collapsed = flattened.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+    Some(collapsed.chars().take(max_chars).collect())
 }
 
 /// Inspect native calendar capability without triggering an operating-system prompt.
@@ -1428,6 +1495,7 @@ mod tests {
         assert!(snapshot.configured);
         assert_eq!(snapshot.status, "fresh");
         assert_eq!(snapshot.unread_count, Some(42));
+        assert!(snapshot.messages.is_empty());
 
         let stopped = parse_native_mail_output("NOT_RUNNING");
         assert!(!stopped.configured);
@@ -1437,6 +1505,32 @@ mod tests {
         assert!(!invalid.configured);
         assert_eq!(invalid.status, "error");
         assert_eq!(invalid.unread_count, None);
+    }
+
+    #[test]
+    fn native_mail_parser_reads_bounded_sanitized_headers() {
+        let snapshot = parse_native_mail_output(
+            "COUNT:3\u{1e}Release plan\u{1f}alice@example.com\u{1f}2026-08-07 10:00:00\u{1e}Lunch?\u{1f}bob <bob@example.com>\u{1f}2026-08-07 09:30:00",
+        );
+        assert!(snapshot.configured);
+        assert_eq!(snapshot.unread_count, Some(3));
+        assert_eq!(snapshot.messages.len(), 2);
+        assert_eq!(snapshot.messages[0].subject, "Release plan");
+        assert_eq!(snapshot.messages[1].sender, "bob <bob@example.com>");
+
+        // Control characters are flattened and overlong fields are capped.
+        let long_subject = "s".repeat(500);
+        let messy = parse_native_mail_output(&format!(
+            "COUNT:1\u{1e}{long_subject}\u{1f}a\nb@example.com\u{1f}today"
+        ));
+        assert_eq!(messy.messages.len(), 1);
+        assert_eq!(messy.messages[0].subject.chars().count(), 300);
+        assert_eq!(messy.messages[0].sender, "a b@example.com");
+
+        // Malformed records are skipped instead of failing the snapshot.
+        let partial = parse_native_mail_output("COUNT:1\u{1e}only-subject");
+        assert!(partial.configured);
+        assert!(partial.messages.is_empty());
     }
 
     #[cfg(unix)]

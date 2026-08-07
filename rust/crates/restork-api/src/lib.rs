@@ -2677,10 +2677,56 @@ async fn cancel_agent_run(
         .ok()
         .and_then(|runs| runs.get(&run_id).cloned());
     let Some(sender) = sender else {
-        return error_response(
-            StatusCode::CONFLICT,
-            "run is not currently advancing; refresh its durable state before retrying",
-        );
+        // A run that never started advancing (for example a Study run whose
+        // preparation failed before spawn) has no live cancellation channel.
+        // Cancelling it directly prevents zombie `proposed` runs when the
+        // client gives up on a failed preparation.
+        let Some(storage) = state.storage.as_ref() else {
+            return storage_unavailable();
+        };
+        let run = match storage.run(&run_id) {
+            Ok(Some(run)) => run,
+            Ok(None) => return error_response(StatusCode::NOT_FOUND, "run not found"),
+            Err(error) => return storage_error_response(error),
+        };
+        if run.state != "proposed" {
+            return error_response(
+                StatusCode::CONFLICT,
+                "run is not currently advancing; refresh its durable state before retrying",
+            );
+        }
+        let Ok(occurred_at) = now_rfc3339() else {
+            return error_response(StatusCode::SERVICE_UNAVAILABLE, "clock is unavailable");
+        };
+        if let Ok(event_id) = random_id("event") {
+            let _ = storage.append_event(restork_storage::NewEvent {
+                event_id: &event_id,
+                run_id: &run_id,
+                occurred_at: &occurred_at,
+                kind: "run.cancelled",
+                metadata: &serde_json::json!({
+                    "state": "cancelled",
+                    "stop_reason": "cancelled_before_start",
+                }),
+            });
+        }
+        return match storage.transition_run(
+            &run_id,
+            run.state_version,
+            "cancelled",
+            Some("cancelled_before_start"),
+            &occurred_at,
+        ) {
+            Ok(_) => (
+                StatusCode::ACCEPTED,
+                Json(serde_json::json!({"run_id": run_id, "state": "cancelled"})),
+            )
+                .into_response(),
+            Err(_) => error_response(
+                StatusCode::CONFLICT,
+                "run changed while it was being cancelled; refresh its durable state",
+            ),
+        };
     };
     if sender.send(true).is_err() {
         return error_response(
