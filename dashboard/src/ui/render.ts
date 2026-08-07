@@ -381,7 +381,7 @@ function prettyJson(value: unknown): string {
 }
 
 function providerRegistryOption(definition: ProviderDefinitionV2, locale: Locale): string {
-  return `<option value="${escapeHtml(definition.id)}" data-base-url="${escapeHtml(definition.default_base_url)}" data-auth-kind="${escapeHtml(definition.auth_kind)}" data-discovery="${escapeHtml(definition.model_discovery)}" data-reasoning-efforts="${escapeHtml(definition.reasoning.supported_efforts.join(","))}" data-reasoning-can-disable="${definition.reasoning.can_disable}" data-reasoning-budget="${definition.reasoning.supports_token_budget}">${escapeHtml(definition.display_name)}${definition.kind === "ollama" ? ` (${tr(locale, "local", "本地")})` : ""}</option>`;
+  return `<option value="${escapeHtml(definition.id)}" data-base-url="${escapeHtml(definition.default_base_url)}" data-auth-kind="${escapeHtml(definition.auth_kind)}" data-discovery="${escapeHtml(definition.model_discovery)}" data-setup-command="${escapeHtml(definition.setup_command)}" data-reasoning-efforts="${escapeHtml(definition.reasoning.supported_efforts.join(","))}" data-reasoning-can-disable="${definition.reasoning.can_disable}" data-reasoning-budget="${definition.reasoning.supports_token_budget}">${escapeHtml(definition.display_name)}${definition.kind === "ollama" ? ` (${tr(locale, "local", "本地")})` : ""}</option>`;
 }
 
 function reasoningEffortOptions(locale: Locale): string {
@@ -431,7 +431,7 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
           <label>${tr(locale, "Native secret reference (never the key)", "原生密钥引用（绝不是 Key 本身）")}<input name="secret_ref" maxlength="256" placeholder="keychain:restork/provider/deepseek"></label>
           <button type="submit">${tr(locale, "SAVE PROVIDER", "保存供应商")}</button><p id="provider-profile-status" role="status"></p>
         </form>
-        <p class="fine">${tr(locale, "Save a Provider Profile, then test that exact provider and model from its card. Configure cloud keys with `restorkd provider configure <kind>` and paste only the printed native reference here. Each provider exposes only supported reasoning levels; Restork never retains private chain-of-thought or passes a key through Dashboard JavaScript.", "先保存 Provider Profile，再从对应卡片测试该供应商与精确模型。云端 Key 使用 `restorkd provider configure <类型>` 配置，这里只填写命令打印的原生引用。每个供应商只显示真正支持的思考档位；Restork 不保存私有思维链，Key 也绝不经过 Dashboard JavaScript。")}</p>
+        <p class="fine">${tr(locale, "Save a Provider Profile, then test that exact provider and model from its card. Use the bundle-aware native setup command shown on the Dashboard and paste only its printed reference here. Each provider exposes only supported reasoning levels; Restork never retains private chain-of-thought or passes a key through Dashboard JavaScript.", "先保存 Provider Profile，再从对应卡片测试该供应商与精确模型。请使用仪表盘显示的、适配当前安装位置的原生配置命令，并只把命令打印的引用填到这里。每个供应商只显示真正支持的思考档位；Restork 不保存私有思维链，Key 也绝不经过 Dashboard JavaScript。")}</p>
       </section>
       <section class="settings-section"><header><div><small>PROMPT STUDIO</small><h3>${tr(locale, "Versioned instructions", "版本化指令")}</h3></div><span>${prompts.length}</span></header>
         <div class="settings-records prompt-history">${prompts.map((record) => `<article><strong>${escapeHtml(record.prompt.prompt_id)} · v${record.prompt.revision}</strong><span>${escapeHtml(record.prompt.layer)} · ${escapeHtml(record.content_hash.slice(0, 12))}…</span><small>${record.active ? tr(locale, "ACTIVE", "当前启用") : formatDate(record.created_at, locale)}</small>${record.active ? "" : `<button type="button" data-prompt-activate="${record.prompt.revision}" data-prompt-id="${escapeHtml(record.prompt.prompt_id)}" data-active-revision="${activePrompt?.prompt.revision ?? 0}">${tr(locale, "ACTIVATE", "启用")}</button>`}</article>`).join("") || `<p class="empty">${tr(locale, "Create a personal or Skill prompt revision. Core policy cannot be edited here.", "新建个人或 Skill Prompt 修订；Core Policy 不能在这里编辑。")}</p>`}</div>
@@ -769,24 +769,33 @@ export function errorText(error: unknown, locale: Locale = "en"): string {
     : tr(locale, "Unexpected local error", "发生意外的本地错误");
 }
 
-function providerNativeCommand(kind: ProviderKindV2): string {
-  return kind === "ollama"
-    ? "ollama serve"
-    : `restorkd provider configure ${kind}`;
+/**
+ * Prefer the command Core reports, because only Core knows where its own binary
+ * lives. A bare `restorkd` is not on PATH for a packaged install, so guessing it
+ * here left DMG users unable to configure a model at all.
+ *
+ * The literal is a last resort for a snapshot that carries no diagnostic.
+ */
+function providerNativeCommand(kind: ProviderKindV2, reported?: string): string {
+  if (reported) return reported;
+  return kind === "ollama" ? "ollama serve" : `restorkd provider configure ${kind}`;
 }
 
 function providerSetup(snapshot: DashboardSnapshot, locale: Locale): string {
   const report = snapshot.provider;
   const records = snapshot.workspaceV2?.providers ?? [];
   const definitions = snapshot.workspaceV2?.providerRegistry?.items ?? [];
-  const configured = records.map(({ provider }) => ({
-    profileId: provider.profile_id,
-    displayName: provider.display_name,
-    kind: provider.kind,
-    model: provider.model,
-    authKind: definitions.find((item) => item.kind === provider.kind)?.auth_kind
-      ?? (provider.kind === "ollama" ? "none" : "bearer"),
-  }));
+  const configured = records.map(({ provider }) => {
+    const definition = definitions.find((item) => item.kind === provider.kind);
+    return {
+      profileId: provider.profile_id,
+      displayName: provider.display_name,
+      kind: provider.kind,
+      model: provider.model,
+      authKind: definition?.auth_kind ?? (provider.kind === "ollama" ? "none" : "bearer"),
+      setupCommand: definition?.setup_command ?? providerNativeCommand(provider.kind),
+    };
+  });
   if (report && !configured.some((item) => item.profileId === report.provider)) {
     configured.unshift({
       profileId: report.provider,
@@ -794,20 +803,25 @@ function providerSetup(snapshot: DashboardSnapshot, locale: Locale): string {
       kind: report.provider === "deepseek" ? "deepseek" : "open_ai_compatible",
       model: report.model,
       authKind: "bearer",
+      setupCommand: report.setup_command,
     });
   }
   const selected = configured.find((item) => item.profileId === report?.provider)
     ?? configured[0];
   const selectedKind = selected?.kind ?? "deepseek";
   const selectedModel = selected?.model ?? report?.model ?? "deepseek-v4-pro";
-  const setupCommand = providerNativeCommand(selectedKind);
+  const setupCommand = selected?.setupCommand
+    ?? providerNativeCommand(
+      selectedKind,
+      report && report.provider === selected?.profileId ? report.setup_command : undefined,
+    );
   const status = report && report.provider === selected?.profileId
     ? report.status
     : selected
     ? "not_tested"
     : "setup_required";
-  const configuredOptions = configured.map((item) => `<option value="${escapeHtml(item.profileId)}" data-provider-profile-id="${escapeHtml(item.profileId)}" data-provider-kind="${escapeHtml(item.kind)}" data-provider-model="${escapeHtml(item.model)}" data-provider-name="${escapeHtml(item.displayName)}" data-provider-auth-kind="${escapeHtml(item.authKind)}" data-provider-configured="true" ${item.profileId === selected?.profileId ? "selected" : ""}>${escapeHtml(`${item.displayName} / ${item.model}`)}</option>`).join("");
-  const availableOptions = definitions.map((definition) => `<option value="setup:${escapeHtml(definition.kind)}" data-provider-profile-id="" data-provider-kind="${escapeHtml(definition.kind)}" data-provider-model="" data-provider-name="${escapeHtml(definition.display_name)}" data-provider-auth-kind="${escapeHtml(definition.auth_kind)}" data-provider-configured="false">${escapeHtml(tr(locale, `Add ${definition.display_name}`, `配置 ${definition.display_name}`))}</option>`).join("");
+  const configuredOptions = configured.map((item) => `<option value="${escapeHtml(item.profileId)}" data-provider-profile-id="${escapeHtml(item.profileId)}" data-provider-kind="${escapeHtml(item.kind)}" data-provider-model="${escapeHtml(item.model)}" data-provider-name="${escapeHtml(item.displayName)}" data-provider-auth-kind="${escapeHtml(item.authKind)}" data-provider-setup-command="${escapeHtml(item.setupCommand)}" data-provider-configured="true" ${item.profileId === selected?.profileId ? "selected" : ""}>${escapeHtml(`${item.displayName} / ${item.model}`)}</option>`).join("");
+  const availableOptions = definitions.map((definition) => `<option value="setup:${escapeHtml(definition.kind)}" data-provider-profile-id="" data-provider-kind="${escapeHtml(definition.kind)}" data-provider-model="" data-provider-name="${escapeHtml(definition.display_name)}" data-provider-auth-kind="${escapeHtml(definition.auth_kind)}" data-provider-setup-command="${escapeHtml(definition.setup_command)}" data-provider-configured="false">${escapeHtml(tr(locale, `Add ${definition.display_name}`, `配置 ${definition.display_name}`))}</option>`).join("");
   const setupHelp = selectedKind === "ollama"
     ? tr(locale, "No API key is needed. Restork only connects to the exact local loopback endpoint saved in this profile.", "无需 API Key。Restork 只会连接这个 Profile 中保存的本机 loopback 地址。")
     : tr(locale, "The command stores the key in native credentials. Only its non-secret reference is saved in the profile.", "命令会把 Key 存入系统凭据库，Profile 只保存不含密钥的引用。")

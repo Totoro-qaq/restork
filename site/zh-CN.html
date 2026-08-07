@@ -3,18 +3,18 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Restork 是服务于研究、学习与工作的本地优先桌面 Agent 工作台。">
+    <meta name="description" content="一个你敢让它碰文件的桌面 Agent：写入先审查，MCP 工具进系统沙箱，Markdown 留在本地。">
     <meta name="theme-color" content="#fbf7ef">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://totoro-qaq.github.io/restork/zh-CN.html">
-    <meta property="og:title" content="Restork——把研究、学习与工作放进一个受控工作台">
-    <meta property="og:description" content="连接本地 Markdown 与云端或本地模型，让上下文、工具与写入始终可审查、可恢复。">
+    <meta property="og:title" content="Restork——一个你敢让它碰文件的桌面 Agent">
+    <meta property="og:description" content="每次写入先看精确改动，每次审批绑定具体内容，MCP 工具运行在操作系统级沙箱中。">
     <meta property="og:image" content="https://totoro-qaq.github.io/restork/assets/readme/social-preview.zh-CN.png">
     <meta property="og:image:width" content="1280">
     <meta property="og:image:height" content="640">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="https://totoro-qaq.github.io/restork/assets/readme/social-preview.zh-CN.png">
-    <title>Restork——本地优先 Agent 工作台</title>
+    <title>Restork——一个你敢让它碰文件的桌面 Agent</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./styles.css">
   </head>
@@ -34,9 +34,9 @@
       <section class="hero">
         <div class="hero-copy">
           <p class="eyebrow">本地优先 · RUST CORE · MIT</p>
-          <h1>你的笔记，你选的模型，<br><em>一个始终看得懂的 Agent。</em></h1>
-          <p class="lede">Restork 连接本地 Markdown 与云端或本地模型，再把上下文、工具、写入和
-            恢复能力都放在一个可审查的 Core 后面。</p>
+          <h1>让 Agent 碰文件，<br><em>但不必盲目信任它。</em></h1>
+          <p class="lede">跨本地 Markdown 查找并给出带引用的答案；每次写入先预览并绑定具体内容，
+            MCP 工具运行在操作系统级沙箱中。</p>
           <div class="actions">
             <a class="primary" href="https://github.com/Totoro-qaq/restork/blob/main/README.zh-CN.md#五分钟开始使用">从源码体验</a>
             <a href="https://github.com/Totoro-qaq/restork/releases">macOS 未签名 Alpha</a>
@@ -75,7 +75,7 @@
         <pre><code>git clone https://github.com/Totoro-qaq/restork.git
 cd restork
 ./scripts/quickstart.sh</code></pre>
-        <p>打开终端打印的本地地址，输入一次性配对码。离线路径不需要 API Key，也不会读取 Vault。</p>
+        <p>打开终端打印的本地地址并输入一次性配对码。查看本地工作台不需要 API Key；模型任务需要你明确配置 Provider，也只有在你主动选择后才会读取 Vault。</p>
         <div class="actions">
           <a class="primary" href="https://github.com/Totoro-qaq/restork/blob/main/README.zh-CN.md">查看完整指南</a>
           <a href="https://github.com/Totoro-qaq/restork/discussions">加入 Discussions</a>

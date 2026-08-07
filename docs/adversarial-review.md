@@ -8,8 +8,10 @@ history, long-term memory, distillation, active recall, tool selection, tool exe
 interpretation, answer shaping, Dashboard/CLI rendering, hidden repair paths, and persistence. The
 entry points in scope are the loopback Web Dashboard, CLI, local API, Research, Study, planning-only
 Work, and the shared persisted Harness. The model path in scope is the official DeepSeek-compatible
-provider behind `ModelRuntime`; deterministic offline synthesis is also included. No private Vault,
-Profile, credential, production trace, or live provider call was used in this review.
+provider behind the then-current `ModelRuntime`; the retired Python implementation also included a
+deterministic offline synthesizer. The consolidated Rust Core no longer exposes that fallback, so
+current model-backed work requires an explicitly configured provider. No private Vault, Profile,
+credential, production trace, or live provider call was used in this review.
 
 ## Severity-ranked findings
 

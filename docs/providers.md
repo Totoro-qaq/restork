@@ -61,8 +61,9 @@ target Profile's data-class limit, and atomically rejects a stale source. The or
 and audit chain remain unchanged. A public-only cloud Profile therefore cannot inherit personal or
 confidential messages; choose a sufficiently private Profile or start a clean conversation.
 
-The API key never enters Dashboard JavaScript. From a source checkout, the native setup command is
-provider-scoped (omitting the kind keeps the backward-compatible DeepSeek default):
+The API key never enters Dashboard JavaScript. Packaged apps display a provider-scoped command with
+the exact bundled Core path. From a source checkout, the equivalent commands are (omitting the kind
+keeps the backward-compatible DeepSeek default):
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure

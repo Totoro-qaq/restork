@@ -234,6 +234,10 @@ fn known_pre_release_trailing_newline_checksums_remain_compatible() {
             8,
             "1bd1046039d2e6be8f10fe35a9d99255419c57ae12ee9f048faf7f7666df0acd",
         ),
+        (
+            11,
+            "f3d6ceeacb7a24dea769f54ec1899d71848b58be7fc6c4926ee4c465dba70c33",
+        ),
     ] {
         connection
             .execute(

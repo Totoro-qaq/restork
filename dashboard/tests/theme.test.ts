@@ -98,6 +98,22 @@ describe("theme is a real control, not a placebo", () => {
     expect(stylesheet).toMatch(/body\s*\{[^}]*color:\s*var\(--fg\)/);
   });
 
+  it("keeps translucent panels and controls on theme-aware colour channels", () => {
+    expect(stylesheet).toContain("--surface-rgb: 255 255 255");
+    expect(stylesheet).toContain("--surface-rgb: 34 30 25");
+    expect(stylesheet).toContain("rgb(var(--surface-rgb) /");
+    expect(stylesheet).not.toMatch(/background:\s*rgb\(255 255 255\s*\//);
+  });
+
+  it("uses readable dark secondary and muted text rather than the old washed-out ramp", () => {
+    const dark = stylesheet.slice(stylesheet.indexOf(':root[data-theme="dark"]'));
+    const block = dark.slice(0, dark.indexOf("}"));
+    expect(block).toContain("--fg-secondary: #c3b6a1");
+    expect(block).toContain("--fg-muted: #ad9d87");
+    expect(block).toContain("--action-start: #6849bd");
+    expect(block).toContain("--action-end: #126778");
+  });
+
   it("keeps the token definitions free of self-reference", () => {
     const rootBlock = stylesheet.slice(0, stylesheet.indexOf("* { box-sizing"));
     // `--muted` is a deliberate alias; nothing else may resolve to another token.

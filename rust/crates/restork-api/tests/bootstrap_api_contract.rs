@@ -141,7 +141,17 @@ async fn bootstrap_returns_one_typed_workspace_projection() {
     assert_eq!(body["domains"]["sessions"]["state"], "ready");
     assert!(body["workspaceV2"]["dailyContext"]["local_date"].is_string());
     assert!(body["workspaceV2"]["sessions"].is_array());
-    assert!(body["workspaceV2"]["providerRegistry"]["items"].is_array());
+    let providers = body["workspaceV2"]["providerRegistry"]["items"]
+        .as_array()
+        .expect("provider registry");
+    let deepseek = providers
+        .iter()
+        .find(|item| item["kind"] == "deepseek")
+        .expect("DeepSeek definition");
+    let setup_command = deepseek["setup_command"]
+        .as_str()
+        .expect("installation-aware setup command");
+    assert!(setup_command.ends_with(" provider configure deepseek"));
     assert!(body["musicSources"].is_array());
 }
 

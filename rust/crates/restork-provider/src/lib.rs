@@ -2122,15 +2122,63 @@ fn safe_message(error: &ProviderError) -> &'static str {
     }
 }
 
-fn provider_setup_command(profile: &ProviderProfile) -> String {
-    if profile.kind() == ProviderKind::Ollama {
-        "ollama serve".to_owned()
-    } else {
-        format!(
-            "restorkd provider configure {}",
-            profile.kind().definition().id
-        )
+/// The command that configures a credential, addressed so the user can actually
+/// run it.
+///
+/// A bare `restorkd` only works when the binary is on `PATH`, which it is not for
+/// a packaged install: the desktop bundle keeps it at
+/// `Restork.app/Contents/Resources/core/restorkd`. Reporting the bare name left
+/// every DMG user unable to configure a model at all. The running executable's
+/// own path is correct for both a source checkout and a bundle.
+#[must_use]
+pub fn credential_setup_command(kind: ProviderKind) -> String {
+    if kind == ProviderKind::Ollama {
+        return "ollama serve".to_owned();
     }
+    format!(
+        "{} provider configure {}",
+        core_executable_argument(),
+        kind.definition().id
+    )
+}
+
+/// The current executable as a shell argument, quoted when it needs to be.
+///
+/// Falls back to the bare name only if the path is unavailable, which keeps the
+/// message useful rather than empty.
+fn core_executable_argument() -> String {
+    let Ok(path) = std::env::current_exe() else {
+        return "restorkd".to_owned();
+    };
+    let display = path.to_string_lossy();
+    if display.is_empty() {
+        return "restorkd".to_owned();
+    }
+    native_shell_argument(&display)
+}
+
+#[cfg(not(windows))]
+fn native_shell_argument(display: &str) -> String {
+    if display
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || "/._-".contains(character))
+    {
+        return display.to_owned();
+    }
+    // Single quotes are the only shell quoting that needs no other escaping,
+    // and an embedded quote is closed, escaped, and reopened.
+    format!("'{}'", display.replace('\'', "'\\''"))
+}
+
+#[cfg(windows)]
+fn native_shell_argument(display: &str) -> String {
+    // Windows paths cannot contain a double quote, so quoting a bundle path for
+    // Command Prompt and PowerShell does not need an escape sequence.
+    format!("\"{display}\"")
+}
+
+fn provider_setup_command(profile: &ProviderProfile) -> String {
+    credential_setup_command(profile.kind())
 }
 
 #[cfg(test)]
@@ -2257,10 +2305,9 @@ mod tests {
 
     #[test]
     fn setup_commands_follow_the_selected_provider_without_exposing_secrets() {
-        assert_eq!(
-            provider_setup_command(&profile(ProviderKind::Qwen)),
-            "restorkd provider configure qwen"
-        );
+        let qwen = provider_setup_command(&profile(ProviderKind::Qwen));
+        assert!(qwen.ends_with(" provider configure qwen"));
+        assert!(!qwen.contains("secret"));
         let ollama = ProviderProfile::try_new(
             "ollama",
             1,
@@ -2273,6 +2320,15 @@ mod tests {
         )
         .expect("valid local profile");
         assert_eq!(provider_setup_command(&ollama), "ollama serve");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn native_setup_command_quotes_bundle_paths_for_the_host_shell() {
+        assert_eq!(
+            native_shell_argument("/Applications/Restork Preview.app/Contents/restorkd"),
+            "'/Applications/Restork Preview.app/Contents/restorkd'"
+        );
     }
 
     #[test]

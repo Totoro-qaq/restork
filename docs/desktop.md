@@ -84,17 +84,17 @@ macOS also has process-group and repeated-launch fault checks:
 
 ## Credentials
 
-The Dashboard never accepts or receives an API key. From a source checkout, configure the native
-credential store with the Rust CLI:
+The Dashboard never accepts or receives an API key. A packaged build shows a copyable setup command
+that includes the exact bundled Core path, so it works even though `restorkd` is intentionally not
+installed on `PATH`. Run that command in Terminal. From a source checkout, use the Rust CLI:
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
 ```
 
 The resulting secret lives in macOS Keychain, Windows Credential Manager, or Linux Secret Service.
-Only the reference is stored in a provider profile. A packaged native setup dialog remains a release
-gate; until it lands, configuring a new key requires the source CLI or the operating system's own
-credential manager.
+Only the reference is stored in a provider profile. A future native setup dialog can shorten this
+flow, but packaged users are not blocked on it and the key still never crosses Dashboard JavaScript.
 
 ## Diagnostics and recovery
 
