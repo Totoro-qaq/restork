@@ -14,6 +14,7 @@ import type {
   ReasoningEffortV2,
   ProviderKindV2,
   RunEvent,
+  RunSummary,
   WorkDataClass,
   WorkHandoffPreview,
   WorkResultManifest,
@@ -24,6 +25,7 @@ import {
   conversationOperationWaitMarkup,
   errorText,
   eventRow,
+  mailHeadersMarkup,
   memoryView,
   radarView,
   runsView,
@@ -217,7 +219,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
     bindRovingFocus(group, "button");
   });
   root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
-    button.addEventListener("click", () => openRunForm(root, button.dataset.mode as Mode, button));
+    button.addEventListener("click", () => openRunForm(root, button.dataset.mode as Mode, button, snapshot));
   });
   root.querySelector<HTMLButtonElement>("[data-run-panel-close]")?.addEventListener("click", () => {
     closeRunForm(root, true);
@@ -229,7 +231,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   });
   root.querySelector<HTMLFormElement>("#run-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
-    void createRun(root, api, event.currentTarget as HTMLFormElement);
+    void createRun(root, api, event.currentTarget as HTMLFormElement, snapshot);
   });
   root.querySelector<HTMLButtonElement>("#refresh")?.addEventListener("click", () => {
     const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "overview";
@@ -246,6 +248,8 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   configureMail(root, api, snapshot);
   configureProvider(root, api, snapshot);
   configureRustWorkspace(root, api, snapshot);
+  bindRadarConfig(root, api);
+  bindVaultDir(root);
   // Last, so it overrides any enabled state the feature wiring just set.
   applyCapabilityGuards(root, api, locale);
   if (snapshot.daily?.music?.recommendation?.cover_available) {
@@ -1637,6 +1641,87 @@ function configureWeather(root: HTMLElement, api: DashboardApi): void {
   );
 }
 
+function bindRadarConfig(root: HTMLElement, api: DashboardApi): void {
+  const form = root.querySelector<HTMLFormElement>("#radar-config-form");
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void saveRadarConfig(root, api, form);
+  });
+}
+
+function bindVaultDir(root: HTMLElement): void {
+  const form = root.querySelector<HTMLFormElement>("#vault-dir-form");
+  if (!form) return;
+  const status = form.querySelector<HTMLElement>("#vault-dir-status");
+  const input = form.querySelector<HTMLInputElement>("[name=vault_dir]");
+  const bridge = detectDesktopBridge();
+  if (!bridge) {
+    form.querySelectorAll("input, button").forEach((control) => {
+      (control as HTMLInputElement | HTMLButtonElement).disabled = true;
+    });
+    if (status) {
+      status.textContent = tr(
+        localeOf(root),
+        "Vault setup is available in the desktop app.",
+        "知识库配置需要在桌面应用中进行。",
+      );
+    }
+    return;
+  }
+  void bridge.vaultDir()
+    .then((dir) => { if (dir && input) input.value = dir; })
+    .catch(() => undefined);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const path = input?.value.trim() ?? "";
+    if (!path) return;
+    if (status) status.textContent = tr(localeOf(root), "Saving…", "正在保存…");
+    void bridge.setVaultDir(path)
+      .then((saved) => {
+        if (input) input.value = saved;
+        if (status) {
+          status.textContent = tr(
+            localeOf(root),
+            "Saved. Restart the app so the Core can read your vault.",
+            "已保存。重启应用后 Core 将读取你的知识库。",
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        if (status) status.textContent = errorText(error, localeOf(root));
+      });
+  });
+}
+
+async function saveRadarConfig(root: HTMLElement, api: DashboardApi, form: HTMLFormElement): Promise<void> {
+  const data = new FormData(form);
+  const githubUser = String(data.get("github_user") ?? "").trim();
+  const hackerNews = data.get("hacker_news") === "1";
+  const status = form.querySelector<HTMLElement>("#radar-config-status");
+  if (!githubUser && !hackerNews) {
+    if (status) {
+      status.textContent = tr(
+        localeOf(root),
+        "Enable at least one source: a GitHub username or Hacker News.",
+        "至少启用一个来源：GitHub 用户名或 Hacker News。",
+      );
+    }
+    return;
+  }
+  if (status) status.textContent = tr(localeOf(root), "Saving sources and fetching…", "正在保存来源并拉取…");
+  try {
+    await api.configureRadar({
+      enabled: true,
+      github_user: githubUser || null,
+      hacker_news: hackerNews,
+    });
+    await refresh(root, api, "radar");
+    announceStatus(root, tr(localeOf(root), "Radar sources saved.", "Radar 来源已保存。"));
+  } catch (error) {
+    if (status) status.textContent = errorText(error, localeOf(root));
+  }
+}
+
 async function saveWeather(
   root: HTMLElement,
   api: DashboardApi,
@@ -1792,8 +1877,8 @@ async function connectNativeMail(
     await refresh(root, api, view);
     announceStatus(root, tr(
       localeOf(root),
-      "Mail unread count connected. No message content is available to Restork.",
-      "邮件未读数量已连接；Restork 无法访问邮件内容。",
+      "Mail connected. Restork can read the unread count and unread headers; bodies stay in Mail.",
+      "邮件已连接；Restork 可读取未读数量与消息头，正文仍留在邮件应用内。",
     ));
   } catch (error) {
     button.disabled = false;
@@ -1877,6 +1962,8 @@ function updateMailUi(root: HTMLElement, mail: MailSnapshot): void {
   if (count) count.textContent = label;
   const dialogStatus = root.querySelector<HTMLElement>("[data-mail-dialog-status]");
   if (dialogStatus) dialogStatus.textContent = localizedMailStatus(mail, locale);
+  const list = root.querySelector<HTMLElement>("[data-mail-list]");
+  if (list) list.innerHTML = mailHeadersMarkup(mail, locale);
 }
 
 function localizedMailStatus(mail: MailSnapshot, locale: Locale): string {
@@ -2059,7 +2146,7 @@ function selectView(root: HTMLElement, view: string): void {
   });
 }
 
-function openRunForm(root: HTMLElement, mode: Mode, trigger?: HTMLButtonElement): void {
+function openRunForm(root: HTMLElement, mode: Mode, trigger?: HTMLButtonElement, snapshot?: DashboardSnapshot): void {
   const panel = root.querySelector<HTMLElement>("#action-panel");
   const field = root.querySelector<HTMLInputElement>("#run-mode");
   if (!panel || !field) return;
@@ -2101,6 +2188,17 @@ function openRunForm(root: HTMLElement, mode: Mode, trigger?: HTMLButtonElement)
   if (studyHost) studyHost.hidden = mode !== "study";
   const workHost = root.querySelector<HTMLElement>("#work-workspace");
   if (workHost) workHost.hidden = mode !== "work";
+  // Pre-submit guard: Study cannot start without a Core-side Vault. Disable
+  // the submit button up front instead of failing the run after creation.
+  const vaultReady = snapshot?.taskBoard.configured ?? true;
+  const studyBlocked = mode === "study" && !vaultReady;
+  const hint = root.querySelector<HTMLElement>("#study-vault-hint");
+  if (hint) hint.hidden = !studyBlocked;
+  const submit = root.querySelector<HTMLButtonElement>("#run-submit");
+  if (submit) {
+    submit.disabled = studyBlocked;
+    submit.setAttribute("aria-disabled", String(studyBlocked));
+  }
   root.querySelector<HTMLInputElement>("#run-goal")?.focus();
 }
 
@@ -2124,7 +2222,7 @@ function capitalizedMode(mode: Mode): string {
   return `${mode.charAt(0).toUpperCase()}${mode.slice(1)}`;
 }
 
-async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormElement): Promise<void> {
+async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormElement, snapshot?: DashboardSnapshot): Promise<void> {
   const data = new FormData(form);
   const mode = String(data.get("mode")) as Mode;
   const goal = String(data.get("goal") ?? "").trim();
@@ -2136,6 +2234,16 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
   const status = root.querySelector<HTMLElement>("#action-status");
   const waitHost = root.querySelector<HTMLElement>("#agent-wait-host");
   if (!goal) return;
+  if (mode === "study" && snapshot && !snapshot.taskBoard.configured) {
+    if (status) {
+      status.textContent = tr(
+        localeOf(root),
+        "Study needs the Core to be started with a Vault (--vault-dir). Configure your knowledge base in Settings, then restart the app.",
+        "Study 需要 Core 以 --vault-dir 指定知识库。请先在设置中配置知识库目录并重启应用。",
+      );
+    }
+    return;
+  }
   if (mode === "work" && (!workspaceRoot || !targetFiles.length)) {
     if (status) {
       status.textContent = tr(
@@ -2149,8 +2257,10 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
   if (status) status.textContent = tr(localeOf(root), "Creating a local run…", "正在创建本地运行…");
   if (waitHost) waitHost.innerHTML = agentWaitMarkup("prepare", localeOf(root));
   let stream: AbortController | null = null;
+  let createdRun: RunSummary | null = null;
   try {
     const run = await api.createRun(mode, goal, dataClass, providerProfileId);
+    createdRun = run;
     let waitStage: AgentWaitStage = "prepare";
     stream = startEventStream(root, api, run.run_id, 0, (event) => {
       waitStage = waitStageForEvent(waitStage, event);
@@ -2202,7 +2312,20 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       waitHost.innerHTML = agentWaitMarkup("complete", localeOf(root));
     }
   } catch (error) {
-    if (waitHost?.isConnected) waitHost.innerHTML = agentWaitMarkup("error", localeOf(root));
+    // A Study/Work run never auto-starts: if preparation or planning failed,
+    // the run is still `proposed` and would stay in the run list forever.
+    // Cancel it best-effort so a failed start leaves no zombie run behind.
+    if (createdRun && mode !== "research") {
+      try {
+        await api.cancelRun(createdRun.run_id);
+      } catch {
+        // Cancellation is best-effort; the original error is what matters.
+      }
+    }
+    const neverStarted = createdRun != null && mode !== "research";
+    if (waitHost?.isConnected) {
+      waitHost.innerHTML = agentWaitMarkup(neverStarted ? "blocked" : "error", localeOf(root));
+    }
     if (status) status.textContent = errorText(error, localeOf(root));
   } finally {
     if (stream && eventStreams.get(root) === stream) stopEventStream(root);

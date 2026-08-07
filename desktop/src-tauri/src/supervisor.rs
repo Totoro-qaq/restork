@@ -13,6 +13,56 @@ use serde::Deserialize;
 use tauri::{AppHandle, Manager};
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 const RETRY_LIMIT: usize = 3;
+const VAULT_DIR_FILE: &str = "vault-dir.txt";
+const VAULT_PATH_LIMIT: usize = 4_096;
+
+/// Resolve the user's knowledge-base directory for `restorkd --vault-dir`.
+/// A developer override via RESTORK_VAULT_DIR wins; otherwise the path saved
+/// from the dashboard Settings screen (vault-dir.txt next to restork.db) is
+/// used. Anything unreadable or missing disables the grant instead of
+/// blocking Core startup.
+pub(crate) fn configured_vault_dir(data_root: &std::path::Path) -> Option<PathBuf> {
+    let raw = std::env::var_os("RESTORK_VAULT_DIR")
+        .and_then(|value| value.into_string().ok())
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| fs::read_to_string(data_root.join(VAULT_DIR_FILE)).ok())?;
+    let candidate = raw.trim();
+    if candidate.is_empty() || candidate.len() > VAULT_PATH_LIMIT || candidate.contains('\0') {
+        return None;
+    }
+    let path = PathBuf::from(candidate);
+    if !path.is_dir() {
+        return None;
+    }
+    let canonical = fs::canonicalize(path).ok()?;
+    canonical.is_dir().then_some(canonical)
+}
+
+/// Persist the knowledge-base directory chosen in Settings. The Core picks it
+/// up on the next launch; the file is owner-only like the state database.
+pub(crate) fn save_vault_dir(
+    data_root: &std::path::Path,
+    raw: &str,
+) -> Result<PathBuf, &'static str> {
+    let candidate = raw.trim();
+    if candidate.is_empty() || candidate.len() > VAULT_PATH_LIMIT || candidate.contains('\0') {
+        return Err("vault_path_invalid");
+    }
+    let path = PathBuf::from(candidate);
+    if !path.is_dir() {
+        return Err("vault_path_not_directory");
+    }
+    let canonical = fs::canonicalize(path).map_err(|_| "vault_path_unavailable")?;
+    if !canonical.is_dir() {
+        return Err("vault_path_unavailable");
+    }
+    let target = data_root.join(VAULT_DIR_FILE);
+    fs::write(&target, canonical.to_string_lossy().as_bytes())
+        .map_err(|_| "vault_path_persist_failed")?;
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o600))
+        .map_err(|_| "vault_path_persist_failed")?;
+    Ok(canonical)
+}
 
 pub(crate) struct CoreProcess {
     pub(crate) child: Child,
@@ -50,9 +100,14 @@ struct BootstrapPayload {
 pub(crate) fn start_core(app: &AppHandle) -> Result<CoreProcess, &'static str> {
     let executable = core_executable(app)?;
     let state_database = state_database(app)?;
+    let vault_dir = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .and_then(|directory| configured_vault_dir(&directory));
     let mut last_error = "core_start_failed";
     for _attempt in 0..RETRY_LIMIT {
-        match start_attempt(&executable, &state_database) {
+        match start_attempt(&executable, &state_database, vault_dir.as_ref()) {
             Ok(core) => return Ok(core),
             Err(error) => last_error = error,
         }
@@ -63,6 +118,7 @@ pub(crate) fn start_core(app: &AppHandle) -> Result<CoreProcess, &'static str> {
 fn start_attempt(
     executable: &PathBuf,
     state_database: &PathBuf,
+    vault_dir: Option<&PathBuf>,
 ) -> Result<CoreProcess, &'static str> {
     let port = reserve_port()?;
     let (bootstrap_reader, bootstrap_writer) = bootstrap_pipe()?;
@@ -73,7 +129,11 @@ fn start_attempt(
         .arg("--port")
         .arg(port.to_string())
         .arg("--state-db")
-        .arg(state_database)
+        .arg(state_database);
+    if let Some(vault) = vault_dir {
+        command.arg("--vault-dir").arg(vault);
+    }
+    command
         .env(
             "RESTORK_DESKTOP_BOOTSTRAP_FD",
             bootstrap_writer.as_raw_fd().to_string(),

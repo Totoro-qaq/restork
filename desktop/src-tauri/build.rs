@@ -4,6 +4,8 @@ fn main() {
         "desktop_session",
         "desktop_store_session",
         "desktop_update_recovery",
+        "desktop_vault_dir",
+        "desktop_set_vault_dir",
         "desktop_retry",
         "desktop_quit",
     ];

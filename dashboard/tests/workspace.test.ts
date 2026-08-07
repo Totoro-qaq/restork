@@ -106,6 +106,8 @@ function fakeApi(): DashboardApi {
       task_preview_available: false,
       task_approval_id: null,
     })),
+    configureRadar: vi.fn(async (input) => ({ ...input })),
+    cancelRun: vi.fn(async () => undefined),
     previewTask: vi.fn(async () => {
       throw new Error("not used");
     }),
@@ -385,7 +387,7 @@ describe("authenticated workspace", () => {
     expect(workRoot?.value).toBe("/private/example");
   });
 
-  it("updates only the aggregate unread count through the private mail stream", async () => {
+  it("updates the unread count and bounded headers through the private mail stream", async () => {
     const root = document.createElement("main");
     const api = fakeApi();
     const streamMail = vi.fn<NonNullable<DashboardApi["streamMail"]>>(async (onSnapshot) => {
@@ -396,6 +398,9 @@ describe("authenticated workspace", () => {
         unread_count: 7,
         observed_at: "2026-08-05T12:00:15Z",
         message: "PRIVATE SUBJECT MUST NEVER RENDER",
+        messages: [
+          { subject: "Sprint review agenda", sender: "pm@example.com", date_received: "2026-08-05 11:58" },
+        ],
       });
     });
     api.streamMail = streamMail;
@@ -408,7 +413,8 @@ describe("authenticated workspace", () => {
 
     await vi.waitFor(() => expect(root.querySelector("[data-mail-count]")?.textContent).toBe("7 封未读"));
     expect(streamMail).toHaveBeenCalledOnce();
-    expect(root.textContent).toContain("仅未读数量");
+    expect(root.textContent).toContain("未读数量与消息头");
+    expect(root.textContent).toContain("Sprint review agenda");
     expect(root.textContent).not.toContain("PRIVATE SUBJECT MUST NEVER RENDER");
   });
 

@@ -372,6 +372,18 @@ export interface RadarActionResult {
   task_approval_id: string | null;
 }
 
+export interface RadarConfigurationInput {
+  enabled: boolean;
+  github_user: string | null;
+  hacker_news: boolean;
+}
+
+export interface RadarConfiguration {
+  enabled: boolean;
+  github_user: string | null;
+  hacker_news: boolean;
+}
+
 export interface MemoryRecord {
   memory_id: string;
   layer: "working" | "episodic" | "semantic" | "profile";
@@ -441,6 +453,12 @@ export interface CalendarEvent {
   redacted: boolean;
 }
 
+export interface MailMessageHeader {
+  subject: string;
+  sender: string;
+  date_received: string;
+}
+
 export interface MailSnapshot {
   configured: boolean;
   status: DailyStatus;
@@ -448,6 +466,7 @@ export interface MailSnapshot {
   unread_count: number | null;
   observed_at: string | null;
   message: string;
+  messages?: MailMessageHeader[];
 }
 
 export interface NativeMailCapability {
@@ -1173,6 +1192,8 @@ export interface DashboardApi {
     decision: "approve" | "reject",
   ): Promise<ApprovalRequest>;
   radarAction(itemId: string, action: RadarAction): Promise<RadarActionResult>;
+  configureRadar(input: RadarConfigurationInput): Promise<RadarConfiguration>;
+  cancelRun(runId: string): Promise<void>;
   previewTask(taskId: string, completed: boolean): Promise<TaskMutationPreview>;
   captureTask(text: string, priority: string): Promise<TaskMutationPreview>;
   applyTask(approvalId: string): Promise<TaskApplyResult>;

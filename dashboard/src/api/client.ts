@@ -8,6 +8,8 @@ import type {
   Mode,
   RadarAction,
   RadarActionResult,
+  RadarConfiguration,
+  RadarConfigurationInput,
   ProviderDiagnostic,
   RunEvent,
   RunEventPage,
@@ -695,6 +697,26 @@ export class LocalApiClient implements DashboardApi {
       { action },
       true,
       `dashboard-radar-${crypto.randomUUID()}`,
+    );
+  }
+
+  async configureRadar(input: RadarConfigurationInput): Promise<RadarConfiguration> {
+    return this.#request<RadarConfiguration>(
+      "PUT",
+      "/v1/radar/config",
+      input,
+      true,
+      `dashboard-radar-config-${crypto.randomUUID()}`,
+    );
+  }
+
+  async cancelRun(runId: string): Promise<void> {
+    await this.#request<{ run_id: string; state: string }>(
+      "POST",
+      `/v1/runs/${encodeURIComponent(runId)}/cancel`,
+      {},
+      true,
+      `dashboard-run-cancel-${crypto.randomUUID()}`,
     );
   }
 

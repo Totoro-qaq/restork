@@ -262,3 +262,67 @@ async fn durable_agent_runs_are_created_idempotently_and_listed() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(run.expect("run")["state"], "proposed");
 }
+
+#[tokio::test]
+async fn proposed_agent_run_can_be_cancelled_before_it_starts() {
+    let (app, authorization, _directory) = paired_app().await;
+    let request = json!({
+        "goal": "Prepare a Study intake that will be abandoned before launch.",
+        "mode": "study",
+        "provider_profile_id": "deepseek",
+        "auto_start": false
+    });
+    let (status, created) = call_idempotent(
+        app.clone(),
+        Method::POST,
+        "/v1/runs",
+        request,
+        &authorization,
+        "run-cancel-before-start-create",
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let run_id = created.expect("created run")["run"]["run_id"]
+        .as_str()
+        .expect("run id")
+        .to_owned();
+
+    // A proposed run has no live cancellation channel; it is cancelled
+    // directly so failed preparation cannot leave a zombie run behind.
+    let (status, cancelled) = call_idempotent(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/runs/{run_id}/cancel"),
+        json!({}),
+        &authorization,
+        "run-cancel-before-start",
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(cancelled.expect("cancelled")["state"], "cancelled");
+
+    let (status, run) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/runs/{run_id}"),
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let run = run.expect("run");
+    assert_eq!(run["state"], "cancelled");
+    assert_eq!(run["stop_reason"], "cancelled_before_start");
+
+    // A terminal run must not be rewritten by a repeated cancellation.
+    let (status, _) = call_idempotent(
+        app,
+        Method::POST,
+        &format!("/v1/runs/{run_id}/cancel"),
+        json!({}),
+        &authorization,
+        "run-cancel-before-start-retry",
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+}

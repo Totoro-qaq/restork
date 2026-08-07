@@ -41,6 +41,7 @@ export type AgentWaitStage =
   | "verify"
   | "retry"
   | "complete"
+  | "blocked"
   | "error";
 
 export function pairingMarkup(locale: Locale = "en"): string {
@@ -127,12 +128,13 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
           <form id="run-form">
             <input type="hidden" name="mode" id="run-mode" value="research">
             <label for="run-goal">${tr(locale, "Goal", "目标")}</label>
-            <div><input id="run-goal" name="goal" required maxlength="1000"><button type="submit">${tr(locale, "START", "开始")}</button></div>
+            <div><input id="run-goal" name="goal" required maxlength="1000"><button id="run-submit" type="submit">${tr(locale, "START", "开始")}</button></div>
             <label for="run-provider">${tr(locale, "Model profile", "模型 Profile")}</label>
             <select id="run-provider" name="provider_profile_id" required>${runProviders.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.label)}</option>`).join("")}</select>
             <small>${tr(locale, "The exact provider and model are frozen into this run's audit record.", "所选供应商与模型会固定写入本次运行的审计记录。")}</small>
             <label id="study-target-label" for="study-target-note" hidden>${tr(locale, "Optional Obsidian note", "可选 Obsidian 笔记")}</label>
             <input id="study-target-note" name="target_note" maxlength="1024" hidden placeholder="Study/Topic.md">
+            <small id="study-vault-hint" class="form-hint" hidden>${tr(locale, "Study needs the Core to be started with a Vault (--vault-dir). Configure your knowledge base in Settings, then restart the app.", "Study 需要 Core 以 --vault-dir 指定知识库。请先在设置中配置知识库目录并重启应用。")}</small>
             <fieldset id="work-fields" class="work-fields" hidden>
               <legend>${tr(locale, "PLANNING ONLY · RESTORK WILL NOT RUN CODE", "仅规划 · RESTORK 不会运行代码")}</legend>
               <label for="work-root">${tr(locale, "Workspace root · absolute local path", "本地仓库绝对路径")}</label>
@@ -201,8 +203,9 @@ function mailSettings(snapshot: DashboardSnapshot, locale: Locale): string {
   return `<dialog id="mail-settings-dialog" class="settings-dialog mail-settings" aria-labelledby="mail-settings-title">
     <section>
       <header><strong id="mail-settings-title">${tr(locale, "PRIVATE MAIL AWARENESS", "私有邮件提醒")}</strong><button type="button" class="dialog-close" data-settings-close aria-label="${tr(locale, "Close mail settings", "关闭邮件设置")}">×</button></header>
-      <p>${tr(locale, "Restork reads one number from the already-running macOS Mail app: the aggregate unread count. Senders, subjects, bodies, account addresses, and attachments are never requested.", "Restork 只从已经运行的 macOS 邮件读取一个数字：未读总数。它不会请求发件人、主题、正文、账户地址或附件。")}</p>
-      <dl class="mail-privacy"><div><dt>${tr(locale, "ACCESS", "访问范围")}</dt><dd>${tr(locale, "Unread count only", "仅未读数量")}</dd></div><div><dt>${tr(locale, "UPDATE", "更新方式")}</dt><dd>${tr(locale, "Private SSE · 15-second local sample", "私有 SSE · 本地每 15 秒采样")}</dd></div><div><dt>${tr(locale, "STATUS", "状态")}</dt><dd data-mail-dialog-status aria-live="polite">${escapeHtml(mailStatusText(mail, locale))}</dd></div></dl>
+      <p>${tr(locale, "Restork reads the aggregate unread count and up to 20 unread headers (subject, sender, received date) from the already-running macOS Mail app. Message bodies, attachments, and account passwords are never requested.", "Restork 从已运行的 macOS 邮件读取未读总数和最多 20 条未读消息头（主题、发件人、收到时间）。它不会请求正文、附件或账户密码。")}</p>
+      <dl class="mail-privacy"><div><dt>${tr(locale, "ACCESS", "访问范围")}</dt><dd>${tr(locale, "Unread count + headers", "未读数量与消息头")}</dd></div><div><dt>${tr(locale, "UPDATE", "更新方式")}</dt><dd>${tr(locale, "Private SSE · 15-second local sample", "私有 SSE · 本地每 15 秒采样")}</dd></div><div><dt>${tr(locale, "STATUS", "状态")}</dt><dd data-mail-dialog-status aria-live="polite">${escapeHtml(mailStatusText(mail, locale))}</dd></div></dl>
+      <ul class="mail-headers" data-mail-list>${mailHeadersMarkup(mail, locale)}</ul>
       <p class="fine">${escapeHtml(mailCapabilityText(capability.available, capability.platform, locale))}</p>
       <div class="mail-actions">
         ${mail.configured ? `<button type="button" data-native-mail-disconnect>${tr(locale, "DISCONNECT MAIL", "断开邮件")}</button>` : `<button type="button" data-native-mail-connect ${canConnect ? "" : "disabled"}>${tr(locale, "CONNECT MAIL", "连接邮件")}</button>`}
@@ -211,8 +214,14 @@ function mailSettings(snapshot: DashboardSnapshot, locale: Locale): string {
   </dialog>`;
 }
 
-function mailStatusText(mail: MailSnapshot, locale: Locale): string {
-  if (!mail.configured) return tr(locale, "Off — no access requested", "未启用 · 尚未请求权限");
+export function mailHeadersMarkup(mail: MailSnapshot, locale: Locale): string {
+  if (!mail.configured || !mail.messages?.length) {
+    return `<li class="empty">${tr(locale, "No unread messages to show.", "暂无未读消息。")}</li>`;
+  }
+  return mail.messages.map((header) => `<li><strong>${escapeHtml(header.subject)}</strong><small>${escapeHtml(header.sender)} · ${escapeHtml(header.date_received)}</small></li>`).join("");
+}
+
+function mailStatusText(mail: MailSnapshot, locale: Locale): string {  if (!mail.configured) return tr(locale, "Off — no access requested", "未启用 · 尚未请求权限");
   if (mail.status === "fresh" && mail.unread_count !== null) {
     return tr(locale, `${mail.unread_count} unread · live`, `${mail.unread_count} 封未读 · 实时`);
   }
@@ -418,6 +427,13 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
         </form>
         <p class="fine">${tr(locale, "Your display name is not sent to a model unless a profile explicitly opts in.", "称呼默认不会发送给模型，只有明确启用的 Profile 才会包含它。")}</p>
       </section>
+      <section class="settings-section"><header><div><small>KNOWLEDGE BASE</small><h3>${tr(locale, "Vault directory", "知识库目录")}</h3></div></header>
+        <form id="vault-dir-form">
+          <label>${tr(locale, "Vault directory (absolute path)", "知识库目录（绝对路径）")}<input name="vault_dir" maxlength="4096" autocomplete="off" spellcheck="false" placeholder="/Users/name/Documents/notes"></label>
+          <button type="submit">${tr(locale, "SAVE VAULT", "保存知识库")}</button><p id="vault-dir-status" role="status"></p>
+        </form>
+        <p class="fine">${tr(locale, "The Core grants access to this directory on the next app launch. Without it, Study, Markdown tasks, and vault search stay off. Saving requires the desktop app; a plain browser cannot hold this grant.", "Core 会在下次启动应用时获得该目录的访问授权；未配置时 Study、Markdown 任务与库内检索保持关闭。保存需要桌面应用；纯浏览器无法持有此授权。")}</p>
+      </section>
       <section class="settings-section"><header><div><small>MODEL CENTER</small><h3>${tr(locale, "Providers", "模型供应商")}</h3></div><span>${providers.length}</span></header>
         <div class="settings-records">${providers.map((record) => `<article data-provider-profile-card="${escapeHtml(record.provider.profile_id)}"><strong>${escapeHtml(record.provider.display_name)}</strong><span>${escapeHtml(record.provider.kind)} · ${escapeHtml(record.provider.model)}</span><small>v${record.revision} · ${tr(locale, "reasoning", "思考强度")} ${escapeHtml(record.provider.reasoning?.effort ?? "auto")} · ${record.provider.secret_ref ? tr(locale, "native secret reference", "原生密钥引用") : tr(locale, "no secret", "无需密钥")}</small><div class="provider-record-actions"><button type="button" data-provider-edit="${escapeHtml(record.provider.profile_id)}" data-provider-record="${escapeHtml(JSON.stringify(record))}">${tr(locale, "EDIT", "编辑")}</button><button type="button" data-provider-profile-test="${escapeHtml(record.provider.profile_id)}" data-provider-model="${escapeHtml(record.provider.model)}">${tr(locale, "TEST MODEL", "测试模型")}</button>${record.provider.kind === "deepseek" && record.provider.model === "deepseek-v4-flash" ? `<button type="button" data-provider-profile-test="${escapeHtml(record.provider.profile_id)}" data-provider-model="${escapeHtml(record.provider.model)}" data-provider-web-search="true">${tr(locale, "TEST WEB SEARCH", "测试联网")}</button>` : ""}</div><div data-provider-profile-result role="status" aria-live="polite"></div></article>`).join("") || `<p class="empty">${tr(locale, "Choose a cloud provider, local Ollama, or a generic OpenAI-compatible endpoint.", "选择云端供应商、本地 Ollama 或通用 OpenAI 兼容端点。")}</p>`}</div>
         <form id="provider-profile-form" data-version="0">
@@ -513,9 +529,10 @@ export function agentWaitMarkup(
     verify: tr(locale, "Validating evidence, schema, and policy…", "正在校验证据、Schema 与策略…"),
     retry: tr(locale, "A bounded retry was scheduled…", "已安排一次有界重试…"),
     complete: tr(locale, "The reviewable result is ready.", "可审阅结果已就绪。"),
+    blocked: tr(locale, "The run never started; inspect the status for details.", "运行未能启动；请查看状态详情。"),
     error: tr(locale, "The run stopped safely; inspect the status for details.", "运行已安全停止；请查看状态详情。"),
   }[stage];
-  const busy = !["complete", "error"].includes(stage);
+  const busy = !["complete", "blocked", "error"].includes(stage);
   return `<section class="agent-wait is-${stage}" role="status" aria-live="polite" aria-busy="${String(busy)}">
     <div class="typewriter-motion" aria-hidden="true"><i></i><i></i><i></i><span></span></div>
     <div class="agent-wait-copy"><small>CORE EVENT STREAM · ${escapeHtml(stage.toUpperCase())}</small><strong>${escapeHtml(status)}</strong>
@@ -976,9 +993,24 @@ export function radarView(snapshot: DashboardSnapshot, locale: Locale): string {
   const notice = domainNotice(snapshot, "radar", locale);
   if (notice) return `<article class="paper-card full-card"><header><h2>Radar</h2></header>${notice}</article>`;
   const lanes: Array<[RadarItem["lane"], string]> = [["my_stars", "My Stars"], ["trending", "Trending"], ["hn", "HN"], ["papers", "Papers"]];
+  const configForm = `<form id="radar-config-form" class="radar-config">
+    <label for="radar-github-user">${tr(locale, "GitHub username (your starred repos feed My Stars)", "GitHub 用户名（你 star 的仓库进入 My Stars）")}</label>
+    <input id="radar-github-user" name="github_user" maxlength="39" autocomplete="off" spellcheck="false" placeholder="octocat">
+    <label class="radar-config-hn"><input type="checkbox" name="hacker_news" value="1" checked> ${tr(locale, "Include Hacker News top stories", "收录 Hacker News 热门")}</label>
+    <button type="submit">${tr(locale, "SAVE & FETCH", "保存并拉取")}</button>
+    <small>${tr(locale, "All fetching happens in the Core through the outbound gateway; the browser never goes online.", "所有抓取都由 Core 经出站网关完成；浏览器不会自行联网。")}</small>
+    <p class="form-hint" id="radar-config-status" role="status"></p>
+  </form>`;
+  if (!snapshot.radar.configured) {
+    return `<article class="paper-card full-card"><header><h2>Radar</h2><span class="ribbon radar">CORE CONNECTORS</span></header>
+      <p class="empty">${tr(locale, "Radar sources are not configured; the browser never fetches them directly.", "Radar 来源尚未配置；浏览器不会自行联网。")}</p>
+      ${configForm}
+    </article>`;
+  }
   return `<article class="paper-card full-card"><header><h2>Radar</h2><span class="ribbon radar">CORE CONNECTORS</span></header>
     <div id="research-result" class="research-result-host" role="status"></div>
-    ${snapshot.radar.configured ? `<div class="lanes">${lanes.map(([lane, label]) => `<section><h3>${label}</h3>${snapshot.radar.items.filter((item) => item.lane === lane).map((item) => radarItem(item, locale)).join("") || `<p class="empty">${tr(locale, "Empty", "暂无内容")}</p>`}</section>`).join("")}</div>${paginationControl("radar", snapshot.pagination?.radar, locale)}` : `<p class="empty">${tr(locale, "Radar sources are not configured; the browser never fetches them directly.", "Radar 来源尚未配置；浏览器不会自行联网。")}</p>`}
+    <div class="lanes">${lanes.map(([lane, label]) => `<section><h3>${label}</h3>${snapshot.radar.items.filter((item) => item.lane === lane).map((item) => radarItem(item, locale)).join("") || `<p class="empty">${tr(locale, "Empty", "暂无内容")}</p>`}</section>`).join("")}</div>${paginationControl("radar", snapshot.pagination?.radar, locale)}
+    <details class="radar-recheck"><summary>${tr(locale, "Radar sources", "Radar 来源设置")}</summary>${configForm}</details>
   </article>`;
 }
 

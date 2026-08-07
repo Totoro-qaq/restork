@@ -10,6 +10,8 @@
   "permissions": [
     "allow-desktop-session",
     "allow-desktop-store-session",
+    "allow-desktop-vault-dir",
+    "allow-desktop-set-vault-dir",
     "allow-desktop-update-recovery"
   ]
 }
