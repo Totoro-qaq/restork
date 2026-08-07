@@ -1,11 +1,15 @@
 //! Symlink-safe, hash-checked access to the user's explicitly configured Vault.
 
 use std::{
-    fs::{self, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Component, Path, PathBuf},
 };
 
+use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
+use cap_std::{
+    ambient_authority,
+    fs::{Dir, OpenOptions},
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -15,9 +19,18 @@ const MAX_WORK_FILE_BYTES: u64 = 200_000;
 const MAX_WORK_FILES: usize = 2_000;
 const MAX_WORK_BYTES: u64 = 20_000_000;
 
-#[derive(Clone, Debug)]
 pub struct SafeWorkspace {
     root: PathBuf,
+    directory: Dir,
+}
+
+impl std::fmt::Debug for SafeWorkspace {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SafeWorkspace")
+            .field("root", &self.root)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -77,7 +90,9 @@ impl SafeWorkspace {
         if !root.is_dir() {
             return Err(WorkspaceError::InvalidRoot);
         }
-        Ok(Self { root })
+        let directory = Dir::open_ambient_dir(&root, ambient_authority())
+            .map_err(|_| WorkspaceError::InvalidRoot)?;
+        Ok(Self { root, directory })
     }
 
     #[must_use]
@@ -95,11 +110,7 @@ impl SafeWorkspace {
         maximum_bytes: u64,
     ) -> Result<(String, String), WorkspaceError> {
         let path = self.resolve_existing(relative_path)?;
-        let metadata = fs::metadata(&path)?;
-        if !metadata.is_file() || maximum_bytes == 0 || metadata.len() > maximum_bytes {
-            return Err(WorkspaceError::TooLarge);
-        }
-        let bytes = fs::read(path)?;
+        let bytes = self.read_regular_file(&path, maximum_bytes)?;
         let content = String::from_utf8(bytes).map_err(|_| WorkspaceError::InvalidPath)?;
         let digest = sha256_hex(content.as_bytes());
         Ok((content, digest))
@@ -115,43 +126,39 @@ impl SafeWorkspace {
 
     pub fn work_file_exists(&self, relative_path: &str) -> Result<bool, WorkspaceError> {
         let relative_path = self.validate_work_path(relative_path)?;
-        let path = self.root.join(&relative_path);
-        if !path.exists() {
-            validate_missing_parent(&self.root, &path)?;
-            return Ok(false);
-        }
-        let metadata = fs::symlink_metadata(&path)?;
+        let path = Path::new(&relative_path);
+        let metadata = match self.directory.symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
         if metadata.file_type().is_symlink() {
             return Err(WorkspaceError::SymlinkDenied);
         }
-        let canonical = path.canonicalize()?;
-        Ok(metadata.is_file() && canonical.starts_with(&self.root))
+        Ok(metadata.is_file())
     }
 
     pub fn work_snapshot(&self) -> Result<WorkspaceSnapshot, WorkspaceError> {
         let mut files = Vec::new();
         let mut total_bytes = 0_u64;
-        let mut stack = vec![self.root.clone()];
-        while let Some(directory) = stack.pop() {
-            for entry in fs::read_dir(directory)? {
+        let mut stack = vec![(self.directory.try_clone()?, PathBuf::new())];
+        while let Some((directory, directory_path)) = stack.pop() {
+            for entry in directory.entries()? {
                 let entry = entry?;
                 let file_type = entry.file_type()?;
                 if file_type.is_symlink() {
                     continue;
                 }
-                let path = entry.path();
-                let relative = path
-                    .strip_prefix(&self.root)
-                    .map_err(|_| WorkspaceError::OutsideRoot)?;
+                let relative = directory_path.join(entry.file_name());
                 if file_type.is_dir() {
-                    if !denied_work_path(relative) {
-                        stack.push(path);
+                    if !denied_work_path(&relative) {
+                        stack.push((entry.open_dir()?, relative));
                     }
                     continue;
                 }
                 if !file_type.is_file()
-                    || denied_work_path(relative)
-                    || !allowed_work_file(relative)
+                    || denied_work_path(&relative)
+                    || !allowed_work_file(&relative)
                 {
                     continue;
                 }
@@ -163,15 +170,26 @@ impl SafeWorkspace {
                 if files.len() >= MAX_WORK_FILES || total_bytes > MAX_WORK_BYTES {
                     return Err(WorkspaceError::TooLarge);
                 }
-                let bytes = fs::read(&path)?;
-                if bytes.contains(&0) || std::str::from_utf8(&bytes).is_err() {
+                let mut options = OpenOptions::new();
+                options.read(true).follow(FollowSymlinks::No);
+                let mut bytes = Vec::with_capacity(
+                    usize::try_from(metadata.len()).unwrap_or(MAX_WORK_FILE_BYTES as usize),
+                );
+                entry
+                    .open_with(&options)?
+                    .take(MAX_WORK_FILE_BYTES.saturating_add(1))
+                    .read_to_end(&mut bytes)?;
+                if bytes.len() as u64 > MAX_WORK_FILE_BYTES
+                    || bytes.contains(&0)
+                    || std::str::from_utf8(&bytes).is_err()
+                {
                     continue;
                 }
                 files.push(WorkspaceFileSnapshot {
                     relative_path: relative.to_string_lossy().replace('\\', "/"),
                     sha256: sha256_hex(&bytes),
                     byte_count: metadata.len(),
-                    language: work_language(relative),
+                    language: work_language(&relative),
                 });
             }
         }
@@ -211,24 +229,24 @@ impl SafeWorkspace {
         }
         let terms = query.split_whitespace().collect::<Vec<_>>();
         let mut candidates = Vec::new();
-        let mut stack = vec![self.root.clone()];
+        let mut stack = vec![(self.directory.try_clone()?, PathBuf::new())];
         let mut visited = 0_usize;
-        while let Some(directory) = stack.pop() {
-            for entry in fs::read_dir(directory)? {
+        while let Some((directory, directory_path)) = stack.pop() {
+            for entry in directory.entries()? {
                 let entry = entry?;
                 let file_type = entry.file_type()?;
                 if file_type.is_symlink() {
                     continue;
                 }
-                let path = entry.path();
+                let relative_path = directory_path.join(entry.file_name());
                 if file_type.is_dir() {
                     let name = entry.file_name();
                     if !matches!(name.to_str(), Some(".git" | ".obsidian" | ".trash")) {
-                        stack.push(path);
+                        stack.push((entry.open_dir()?, relative_path));
                     }
                     continue;
                 }
-                if path.extension().and_then(|value| value.to_str()) != Some("md") {
+                if relative_path.extension().and_then(|value| value.to_str()) != Some("md") {
                     continue;
                 }
                 visited = visited.saturating_add(1);
@@ -239,14 +257,20 @@ impl SafeWorkspace {
                 if metadata.len() > MAX_NOTE_BYTES {
                     continue;
                 }
-                let Ok(content) = fs::read_to_string(&path) else {
+                let mut options = OpenOptions::new();
+                options.read(true).follow(FollowSymlinks::No);
+                let mut content = String::new();
+                let Ok(_) = entry
+                    .open_with(&options)
+                    .map(|file| file.take(MAX_NOTE_BYTES.saturating_add(1)))
+                    .and_then(|mut file| file.read_to_string(&mut content))
+                else {
                     continue;
                 };
-                let relative = path
-                    .strip_prefix(&self.root)
-                    .map_err(|_| WorkspaceError::OutsideRoot)?
-                    .to_string_lossy()
-                    .replace('\\', "/");
+                if content.len() as u64 > MAX_NOTE_BYTES {
+                    continue;
+                }
+                let relative = relative_path.to_string_lossy().replace('\\', "/");
                 let haystack = format!("{}\n{}", relative.to_lowercase(), content.to_lowercase());
                 let score = terms
                     .iter()
@@ -284,26 +308,22 @@ impl SafeWorkspace {
             return Err(WorkspaceError::InvalidPath);
         }
         let mut paths = Vec::new();
-        let mut stack = vec![self.root.clone()];
-        while let Some(directory) = stack.pop() {
-            for entry in fs::read_dir(directory)? {
+        let mut stack = vec![(self.directory.try_clone()?, PathBuf::new())];
+        while let Some((directory, directory_path)) = stack.pop() {
+            for entry in directory.entries()? {
                 let entry = entry?;
                 let file_type = entry.file_type()?;
                 if file_type.is_symlink() {
                     continue;
                 }
-                let path = entry.path();
+                let relative_path = directory_path.join(entry.file_name());
                 if file_type.is_dir() {
                     let name = entry.file_name();
                     if !matches!(name.to_str(), Some(".git" | ".obsidian" | ".trash")) {
-                        stack.push(path);
+                        stack.push((entry.open_dir()?, relative_path));
                     }
-                } else if path.extension().and_then(|value| value.to_str()) == Some("md") {
-                    let relative = path
-                        .strip_prefix(&self.root)
-                        .map_err(|_| WorkspaceError::OutsideRoot)?
-                        .to_string_lossy()
-                        .replace('\\', "/");
+                } else if relative_path.extension().and_then(|value| value.to_str()) == Some("md") {
+                    let relative = relative_path.to_string_lossy().replace('\\', "/");
                     paths.push(relative);
                     if paths.len() >= maximum {
                         paths.sort();
@@ -325,18 +345,19 @@ impl SafeWorkspace {
             return Err(WorkspaceError::TooLarge);
         }
         let path = self.resolve_write_target(relative_path)?;
-        let current = if path.exists() {
-            let metadata = fs::symlink_metadata(&path)?;
-            if metadata.file_type().is_symlink() {
-                return Err(WorkspaceError::SymlinkDenied);
+        let current = match self.directory.symlink_metadata(&path) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err(WorkspaceError::SymlinkDenied);
+                }
+                if !metadata.is_file() || metadata.len() > MAX_NOTE_BYTES {
+                    return Err(WorkspaceError::TooLarge);
+                }
+                let bytes = self.read_regular_file(&path, MAX_NOTE_BYTES)?;
+                Some(sha256_hex(&bytes))
             }
-            let bytes = fs::read(&path)?;
-            if bytes.len() as u64 > MAX_NOTE_BYTES {
-                return Err(WorkspaceError::TooLarge);
-            }
-            Some(sha256_hex(&bytes))
-        } else {
-            None
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
         };
         let next = sha256_hex(content.as_bytes());
         Ok(WritePreview {
@@ -370,15 +391,14 @@ impl SafeWorkspace {
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
         let temporary = parent.join(format!(".restork-write-{suffix}.tmp"));
-        let mut output = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temporary)?;
+        let mut options = OpenOptions::new();
+        options.create_new(true).write(true);
+        let mut output = self.directory.open_with(&temporary, &options)?;
         output.write_all(content.as_bytes())?;
         output.sync_all()?;
         drop(output);
-        if let Err(error) = fs::rename(&temporary, &target) {
-            let _ = fs::remove_file(&temporary);
+        if let Err(error) = self.directory.rename(&temporary, &self.directory, &target) {
+            let _ = self.directory.remove_file(&temporary);
             return Err(WorkspaceError::Io(error));
         }
         Ok(preview)
@@ -386,16 +406,36 @@ impl SafeWorkspace {
 
     fn resolve_existing(&self, relative_path: &str) -> Result<PathBuf, WorkspaceError> {
         let relative = validate_relative(relative_path)?;
-        let joined = self.root.join(relative);
-        let metadata = fs::symlink_metadata(&joined)?;
+        let metadata = self.directory.symlink_metadata(relative)?;
         if metadata.file_type().is_symlink() {
             return Err(WorkspaceError::SymlinkDenied);
         }
-        let canonical = joined.canonicalize()?;
-        if !canonical.starts_with(&self.root) {
-            return Err(WorkspaceError::OutsideRoot);
+        self.directory.canonicalize(relative).map_err(Into::into)
+    }
+
+    fn read_regular_file(
+        &self,
+        relative_path: &Path,
+        maximum_bytes: u64,
+    ) -> Result<Vec<u8>, WorkspaceError> {
+        if maximum_bytes == 0 {
+            return Err(WorkspaceError::TooLarge);
         }
-        Ok(canonical)
+        let mut options = OpenOptions::new();
+        options.read(true).follow(FollowSymlinks::No);
+        let file = self.directory.open_with(relative_path, &options)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() || metadata.len() > maximum_bytes {
+            return Err(WorkspaceError::TooLarge);
+        }
+        let mut bytes =
+            Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(maximum_bytes as usize));
+        file.take(maximum_bytes.saturating_add(1))
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > maximum_bytes {
+            return Err(WorkspaceError::TooLarge);
+        }
+        Ok(bytes)
     }
 
     fn resolve_write_target(&self, relative_path: &str) -> Result<PathBuf, WorkspaceError> {
@@ -403,13 +443,12 @@ impl SafeWorkspace {
         if relative.extension().and_then(|value| value.to_str()) != Some("md") {
             return Err(WorkspaceError::InvalidPath);
         }
-        let target = self.root.join(relative);
-        let parent = target.parent().ok_or(WorkspaceError::InvalidPath)?;
-        let canonical_parent = parent.canonicalize()?;
-        if !canonical_parent.starts_with(&self.root) {
-            return Err(WorkspaceError::OutsideRoot);
-        }
-        Ok(canonical_parent.join(target.file_name().ok_or(WorkspaceError::InvalidPath)?))
+        let parent = relative
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let canonical_parent = self.directory.canonicalize(parent)?;
+        Ok(canonical_parent.join(relative.file_name().ok_or(WorkspaceError::InvalidPath)?))
     }
 }
 
@@ -426,21 +465,6 @@ fn validate_relative(value: &str) -> Result<&Path, WorkspaceError> {
         return Err(WorkspaceError::InvalidPath);
     }
     Ok(path)
-}
-
-fn validate_missing_parent(root: &Path, target: &Path) -> Result<(), WorkspaceError> {
-    let mut parent = target.parent().ok_or(WorkspaceError::InvalidPath)?;
-    while !parent.exists() && parent != root {
-        parent = parent.parent().ok_or(WorkspaceError::OutsideRoot)?;
-    }
-    let metadata = fs::symlink_metadata(parent)?;
-    if metadata.file_type().is_symlink() {
-        return Err(WorkspaceError::SymlinkDenied);
-    }
-    if !parent.canonicalize()?.starts_with(root) {
-        return Err(WorkspaceError::OutsideRoot);
-    }
-    Ok(())
 }
 
 fn denied_work_path(path: &Path) -> bool {
@@ -579,5 +603,51 @@ mod tests {
             workspace.read_note("escape.md"),
             Err(WorkspaceError::SymlinkDenied)
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn capability_directory_blocks_intermediate_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let outside = tempfile::tempdir().expect("outside directory");
+        std::fs::write(outside.path().join("private.md"), "outside").expect("outside note");
+        symlink(outside.path(), directory.path().join("escape")).expect("directory symlink");
+
+        let workspace = SafeWorkspace::open(directory.path()).expect("workspace");
+        assert!(workspace.read_note("escape/private.md").is_err());
+        assert!(
+            workspace
+                .markdown_paths(50)
+                .expect("markdown paths")
+                .is_empty()
+        );
+        assert!(
+            workspace
+                .search_notes("outside", 10)
+                .expect("search")
+                .is_empty()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn capability_remains_bound_to_the_reviewed_root_after_rename() {
+        let parent = tempfile::tempdir().expect("temporary parent");
+        let configured = parent.path().join("vault");
+        let reviewed = parent.path().join("reviewed-vault");
+        std::fs::create_dir(&configured).expect("configured root");
+        std::fs::write(configured.join("note.md"), "reviewed").expect("reviewed note");
+        let workspace = SafeWorkspace::open(&configured).expect("workspace");
+
+        std::fs::rename(&configured, &reviewed).expect("move reviewed root");
+        std::fs::create_dir(&configured).expect("replacement root");
+        std::fs::write(configured.join("note.md"), "replacement").expect("replacement note");
+
+        assert_eq!(
+            workspace.read_note("note.md").expect("bound note").0,
+            "reviewed"
+        );
     }
 }

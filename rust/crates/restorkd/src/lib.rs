@@ -7,7 +7,7 @@ use std::{
     env,
     error::Error,
     ffi::OsStr,
-    fmt, fs,
+    fmt,
     future::Future,
     io,
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -16,6 +16,7 @@ use std::{
     time::Duration,
 };
 
+use cap_std::{ambient_authority, fs::Dir};
 use chrono::{DateTime, Utc};
 use restork_automation::{ScheduleJob, ScheduleSpec};
 use restork_core::auth::Audience;
@@ -354,12 +355,13 @@ fn default_state_database() -> io::Result<PathBuf> {
     } else {
         platform_data_directory()?
     };
-    fs::create_dir_all(&data_directory)?;
+    Dir::create_ambient_dir_all(&data_directory, ambient_authority())?;
+    let directory = Dir::open_ambient_dir(&data_directory, ambient_authority())?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
+        use cap_std::fs::PermissionsExt;
 
-        fs::set_permissions(&data_directory, fs::Permissions::from_mode(0o700))?;
+        directory.set_permissions(".", cap_std::fs::Permissions::from_mode(0o700))?;
     }
     Ok(data_directory.join("restork.db"))
 }

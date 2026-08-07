@@ -3,12 +3,16 @@
 use std::{
     ffi::{OsStr, OsString},
     fmt,
-    fs::{self, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
 
+use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
+use cap_std::{
+    ambient_authority,
+    fs::{Dir, OpenOptions},
+};
 use futures_util::StreamExt;
 use reqwest::{Client, Method, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -446,12 +450,33 @@ async fn rotate_token(client: &Client, config: &CliConfig) -> Result<String, Cli
 }
 
 fn load_token(config: &CliConfig) -> Result<TokenDocument, CliError> {
-    let bytes = fs::read(&config.token_file).map_err(|error| {
+    let (directory, file_name) = open_token_directory(&config.token_file, false)?;
+    let mut options = OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    let file = directory.open_with(&file_name, &options).map_err(|error| {
         CliError::Authentication(format!(
             "CLI token is unavailable at {} ({error}); pair this CLI first",
             config.token_file.display()
         ))
     })?;
+    let metadata = file.metadata().map_err(|_| {
+        CliError::Authentication("CLI token cache metadata is unavailable".to_owned())
+    })?;
+    const MAX_TOKEN_DOCUMENT_BYTES: u64 = 64 * 1024;
+    if !metadata.is_file() || metadata.len() > MAX_TOKEN_DOCUMENT_BYTES {
+        return Err(CliError::Authentication(
+            "CLI token cache is not a bounded regular file".to_owned(),
+        ));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(MAX_TOKEN_DOCUMENT_BYTES.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|_| CliError::Authentication("CLI token cache could not be read".to_owned()))?;
+    if bytes.len() as u64 > MAX_TOKEN_DOCUMENT_BYTES {
+        return Err(CliError::Authentication(
+            "CLI token cache exceeds the size limit".to_owned(),
+        ));
+    }
     let token: TokenDocument = serde_json::from_slice(&bytes).map_err(|_| {
         CliError::Authentication(format!(
             "CLI token cache at {} is invalid; delete it and pair again",
@@ -475,38 +500,104 @@ fn save_token(config: &CliConfig, token: &TokenResponse) -> Result<(), CliError>
     };
     let bytes = serde_json::to_vec(&document)
         .map_err(|_| CliError::Io("CLI token could not be encoded".to_owned()))?;
-    let parent = config.token_file.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent).map_err(|error| {
+    let (directory, file_name) = open_token_directory(&config.token_file, true)?;
+    let mut entropy = [0_u8; 12];
+    getrandom::fill(&mut entropy)
+        .map_err(|_| CliError::Io("secure randomness is unavailable".to_owned()))?;
+    let suffix = entropy
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let temporary = PathBuf::from(format!(".restork-token-{suffix}.tmp"));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use cap_std::fs::OpenOptionsExt;
+
+        options.mode(0o600);
+    }
+    let mut file = directory
+        .open_with(&temporary, &options)
+        .map_err(|error| CliError::Io(format!("cannot create private token cache: {error}")))?;
+    if let Err(error) = file.write_all(&bytes).and_then(|()| file.sync_all()) {
+        drop(file);
+        let _ = directory.remove_file(&temporary);
+        return Err(CliError::Io(format!(
+            "cannot write private token cache: {error}"
+        )));
+    }
+    drop(file);
+    #[cfg(unix)]
+    {
+        use cap_std::fs::PermissionsExt;
+
+        if let Err(error) =
+            directory.set_permissions(&temporary, cap_std::fs::Permissions::from_mode(0o600))
+        {
+            let _ = directory.remove_file(&temporary);
+            return Err(CliError::Io(format!("cannot protect token cache: {error}")));
+        }
+    }
+    if let Err(error) = directory.rename(&temporary, &directory, &file_name) {
+        let _ = directory.remove_file(&temporary);
+        return Err(CliError::Io(format!("cannot replace token cache: {error}")));
+    }
+    Ok(())
+}
+
+fn open_token_directory(
+    token_file: &Path,
+    create_parent: bool,
+) -> Result<(Dir, OsString), CliError> {
+    let file_name = token_file
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| CliError::Configuration("token cache must name a file".to_owned()))?
+        .to_os_string();
+    if Path::new(&file_name).components().count() != 1 {
+        return Err(CliError::Configuration(
+            "token cache filename is invalid".to_owned(),
+        ));
+    }
+    let parent = token_file
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if create_parent {
+        Dir::create_ambient_dir_all(parent, ambient_authority()).map_err(|error| {
+            CliError::Io(format!(
+                "cannot create token directory {}: {error}",
+                parent.display()
+            ))
+        })?;
+    }
+    let canonical_parent = parent.canonicalize().map_err(|error| {
         CliError::Io(format!(
-            "cannot create token directory {}: {error}",
+            "cannot access token directory {}: {error}",
             parent.display()
         ))
     })?;
-    let temporary = config
-        .token_file
-        .with_extension(format!("tmp-{}", std::process::id()));
-    let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
+    let directory =
+        Dir::open_ambient_dir(&canonical_parent, ambient_authority()).map_err(|error| {
+            CliError::Io(format!(
+                "cannot open token directory {}: {error}",
+                canonical_parent.display()
+            ))
+        })?;
+    match directory.symlink_metadata(&file_name) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            return Err(CliError::Io(
+                "token cache must be a regular file, not a symlink".to_owned(),
+            ));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(CliError::Io(format!("cannot inspect token cache: {error}")));
+        }
     }
-    let mut file = options
-        .open(&temporary)
-        .map_err(|error| CliError::Io(format!("cannot create private token cache: {error}")))?;
-    file.write_all(&bytes)
-        .and_then(|()| file.sync_all())
-        .map_err(|error| CliError::Io(format!("cannot write private token cache: {error}")))?;
-    #[cfg(unix)]
-    fs::set_permissions(
-        &temporary,
-        std::os::unix::fs::PermissionsExt::from_mode(0o600),
-    )
-    .map_err(|error| CliError::Io(format!("cannot protect token cache: {error}")))?;
-    fs::rename(&temporary, &config.token_file)
-        .map_err(|error| CliError::Io(format!("cannot replace token cache: {error}")))?;
-    Ok(())
+    Ok((directory, file_name))
 }
 
 async fn request_json(
@@ -712,5 +803,67 @@ mod tests {
             error_detail(br#"{"detail":"Vault is not configured; restart with --vault-dir"}"#),
             Some("Vault is not configured; restart with --vault-dir".to_owned())
         );
+    }
+
+    #[test]
+    fn token_cache_round_trip_uses_a_private_regular_file() {
+        let directory = tempfile::tempdir().expect("token directory");
+        let token_file = directory.path().join("token.json");
+        let config = CliConfig {
+            base_url: Url::parse("http://127.0.0.1:7337").expect("loopback URL"),
+            token_file: token_file.clone(),
+            json: true,
+            command: Command::Get {
+                path: "/v1/health".to_owned(),
+            },
+        };
+        let token = TokenResponse {
+            access_token: "private-token".to_owned(),
+            expires_at: "2026-08-07T00:00:00Z".to_owned(),
+        };
+
+        save_token(&config, &token).expect("save token");
+        let loaded = load_token(&config).expect("load token");
+        assert_eq!(loaded.access_token, token.access_token);
+        assert_eq!(loaded.base_url, config.base_url.as_str());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            assert_eq!(
+                std::fs::metadata(token_file)
+                    .expect("token metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn token_cache_rejects_symlink_targets() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("token directory");
+        let outside = tempfile::NamedTempFile::new().expect("outside token");
+        let token_file = directory.path().join("token.json");
+        symlink(outside.path(), &token_file).expect("token symlink");
+        let config = CliConfig {
+            base_url: Url::parse("http://127.0.0.1:7337").expect("loopback URL"),
+            token_file,
+            json: true,
+            command: Command::Get {
+                path: "/v1/health".to_owned(),
+            },
+        };
+        let token = TokenResponse {
+            access_token: "private-token".to_owned(),
+            expires_at: "2026-08-07T00:00:00Z".to_owned(),
+        };
+
+        assert!(matches!(save_token(&config, &token), Err(CliError::Io(_))));
+        assert_eq!(std::fs::read(outside.path()).expect("outside file"), b"");
     }
 }
