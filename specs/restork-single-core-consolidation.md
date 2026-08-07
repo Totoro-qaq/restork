@@ -663,8 +663,14 @@ execution is proven only at the worker layer.
 ### 6D. Deletion
 
 `src/restork/`, `tests/`, `packaging/restork-core.spec`, and the Python build path are removed.
-`pyproject.toml` retains only what `scripts/` requires. `restork-api/src/lib.rs` MUST be split into
-modules; a 7,674-line file MUST NOT be the Core's shape at release.
+`pyproject.toml` retains only what `scripts/` requires.
+
+`restork-api/src/lib.rs` MUST be split into modules; a 7,674-line file MUST NOT be the Core's shape
+at release. Splitting once is insufficient — the file was split during Stage 1 and had regrown to
+9,464 lines by Stage 6, still owning all 104 routes. The split MUST therefore be held by an
+executable ratchet (`restork-api/tests/module_shape.rs`) that bounds the crate root, bounds every
+domain module so none becomes the next monolith, and asserts each module is actually declared so a
+split cannot be faked by leaving an orphaned file on disk. Its ceilings may only be lowered.
 
 ---
 
