@@ -8,6 +8,8 @@ default-run = "restorkd"
 
 [dependencies]
 axum.workspace = true
+cap-std.workspace = true
+cap-fs-ext.workspace = true
 libc.workspace = true
 chrono.workspace = true
 futures-util.workspace = true
