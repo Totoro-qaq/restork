@@ -1270,6 +1270,28 @@ function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
     }).then(() => reloadWorkspaceView(root, api, "deliverables"))
       .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
   });
+  root.querySelector<HTMLFormElement>("#ai-report-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const data = new FormData(form);
+    const status = form.querySelector<HTMLElement>("#ai-report-status");
+    const button = form.querySelector<HTMLButtonElement>("button[type=submit]");
+    const providerProfileId = String(data.get("provider_profile_id") ?? "").trim();
+    if (!providerProfileId || !api.composeAiReportDraft) return;
+    if (button) button.disabled = true;
+    if (status) status.textContent = tr(localeOf(root), "The model is drafting from verified runs…", "模型正在基于已验证运行起草…");
+    void api.composeAiReportDraft({
+      report_id: String(data.get("report_id") ?? "").trim(),
+      revision: 1,
+      kind: String(data.get("kind") ?? "daily") as "daily" | "weekly",
+      title: String(data.get("title") ?? "").trim(),
+      language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
+      timezone: systemTimeZone(),
+      provider_profile_id: providerProfileId,
+    }).then(() => reloadWorkspaceView(root, api, "deliverables"))
+      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); })
+      .finally(() => { if (button) button.disabled = false; });
+  });
   root.querySelector<HTMLFormElement>("#deck-from-report-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { mountDashboard } from "../src/main";
 import type {
+  AiReportDraftInputV2,
+  CatalogRecordV2,
   ConversationTurn,
   ConversationOperationCreateResultV2,
   ConversationOperationV2,
@@ -1720,6 +1722,60 @@ describe("Rust conversation workspace", () => {
     expect(root.querySelector("#schedule-create-form")).not.toBeNull();
     expect(root.textContent).toContain("恢复与评估契约");
     expect(root.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it("drafts an AI report from a configured provider through Core", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const state = workspaceSnapshot();
+    if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.providers = [{
+      provider: {
+        profile_id: "ollama",
+        version: 1,
+        display_name: "Ollama · Gemma 4 26B",
+        kind: "ollama",
+        base_url: "http://127.0.0.1:11434",
+        model: "gemma4:26b-mlx",
+        secret_ref: null,
+        fallback: "disabled",
+        reasoning: { effort: "auto", max_tokens: null },
+      },
+      revision: 1,
+      updated_at: "2026-08-04T00:00:00Z",
+    }];
+    const compose = vi.fn<(input: AiReportDraftInputV2) => Promise<CatalogRecordV2>>(async () => ({
+      deliverable_id: "report-ai-2026-08-07",
+      kind: "daily_report",
+      state: "draft",
+      revision: 1,
+      artifact: { markdown: "# AI 报告" },
+      updated_at: "2026-08-07T12:00:00Z",
+    }));
+    api.composeAiReportDraft = compose;
+    mountDashboard(root, { api, snapshot: state, locale: "zh-CN" });
+
+    root.querySelector<HTMLButtonElement>('[data-view="deliverables"]')?.click();
+    const form = root.querySelector<HTMLFormElement>("#ai-report-form");
+    expect(form).not.toBeNull();
+    expect(root.textContent).toContain("AI 起草近期运行");
+    expect(root.textContent).toContain("Ollama · Gemma 4 26B · gemma4:26b-mlx");
+    const kindSelect = form?.querySelector<HTMLSelectElement>('select[name="kind"]');
+    if (kindSelect) kindSelect.value = "weekly";
+    form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(compose).toHaveBeenCalledOnce());
+    const input = compose.mock.calls[0]?.[0];
+    if (!input) throw new Error("compose input missing");
+    expect(input).toMatchObject({
+      revision: 1,
+      kind: "weekly",
+      title: "AI 报告",
+      language: "zh-CN",
+      provider_profile_id: "ollama",
+    });
+    expect(input.report_id).toMatch(/^report-ai-\d{4}-\d{2}-\d{2}$/);
+    expect(input.timezone).toBeTruthy();
   });
 
   it("shows immutable extension history and creates a reviewed rollback without executing a tool", async () => {

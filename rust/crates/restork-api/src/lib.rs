@@ -503,6 +503,10 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
         methods: &["POST"],
     },
     ApiRouteDescription {
+        path: "/v1/deliverables/reports/ai-draft",
+        methods: &["POST"],
+    },
+    ApiRouteDescription {
         path: "/v1/deliverables/decks",
         methods: &["POST"],
     },
@@ -980,6 +984,18 @@ struct ManualReportCompose {
     language: String,
     timezone: String,
     entries: Vec<ManualReportEntry>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AiReportCompose {
+    report_id: String,
+    revision: u64,
+    kind: ReportKind,
+    title: String,
+    language: String,
+    timezone: String,
+    provider_profile_id: String,
 }
 
 #[derive(Deserialize)]
@@ -1501,6 +1517,10 @@ fn build_router(state: ApiState) -> Router {
         .route(
             "/v1/deliverables/reports/manual",
             axum::routing::post(compose_manual_report),
+        )
+        .route(
+            "/v1/deliverables/reports/ai-draft",
+            axum::routing::post(compose_ai_report),
         )
         .route("/v1/deliverables/decks", axum::routing::post(compose_deck))
         .route(

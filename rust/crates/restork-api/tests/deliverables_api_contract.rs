@@ -7,8 +7,10 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use restork_core::auth::PairingAuthority;
-use restork_storage::Database;
+use restork_storage::{Database, NewRun};
 use serde_json::{Value, json};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower::ServiceExt;
 
 struct TestDirectory(PathBuf);
@@ -102,11 +104,16 @@ async fn call_raw(
 }
 
 async fn paired_app() -> (Router, String, TestDirectory) {
+    let (app, token, directory, _) = paired_app_with_database().await;
+    (app, token, directory)
+}
+
+async fn paired_app_with_database() -> (Router, String, TestDirectory, Arc<Database>) {
     let directory = TestDirectory::new();
     let database = Arc::new(Database::open(directory.0.join("restork.db")).expect("database"));
     let authority = PairingAuthority::new(Duration::from_secs(300)).expect("authority");
     let code = authority.initial_pairing_code();
-    let app = restork_api::router_with_storage(authority, database);
+    let app = restork_api::router_with_storage(authority, database.clone());
     let (_, body) = call(
         app.clone(),
         Method::POST,
@@ -119,7 +126,7 @@ async fn paired_app() -> (Router, String, TestDirectory) {
         .as_str()
         .expect("token")
         .to_owned();
-    (app, format!("Bearer {token}"), directory)
+    (app, format!("Bearer {token}"), directory, database)
 }
 
 fn ledger(source_kind: &str, verification: &str) -> Value {
@@ -409,5 +416,228 @@ async fn dashboard_report_marks_manual_claims_and_can_freeze_a_deck_outline_from
             .get("x-restork-idempotent-replay")
             .and_then(|value| value.to_str().ok()),
         Some("true")
+    );
+}
+
+async fn spawn_mock_ollama(content: &str) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let port = listener.local_addr().expect("address").port();
+    let payload = json!({
+        "message": {"role": "assistant", "content": content},
+        "done": true,
+        "done_reason": "stop",
+        "prompt_eval_count": 42,
+        "eval_count": 24
+    })
+    .to_string();
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let mut chunk = [0_u8; 8_192];
+        let mut request = Vec::new();
+        loop {
+            let read = socket.read(&mut chunk).await.expect("read");
+            if read == 0 {
+                break;
+            }
+            request.extend_from_slice(&chunk[..read]);
+            if request.windows(4).any(|window| window == b"\r\n\r\n") || request.len() > 64 * 1024 {
+                break;
+            }
+        }
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            payload.len(),
+            payload
+        );
+        socket.write_all(response.as_bytes()).await.expect("write");
+    });
+    format!("http://127.0.0.1:{port}")
+}
+
+async fn configure_ollama_profile(app: &Router, authorization: &str, base_url: &str) {
+    let (status, body) = call(
+        app.clone(),
+        Method::PUT,
+        "/v1/provider-profiles/ollama",
+        Some(json!({
+            "provider": {
+                "profile_id": "ollama",
+                "version": 1,
+                "display_name": "Mock Ollama",
+                "kind": "ollama",
+                "base_url": base_url,
+                "model": "mock-model",
+                "secret_ref": null,
+                "fallback": "disabled",
+                "reasoning": {"effort": "auto", "max_tokens": null}
+            },
+            "expected_revision": null
+        })),
+        Some(authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "profile stored: {body:?}");
+}
+
+fn seed_run(database: &Database, run_id: &str, state: &str, title: Option<&str>) {
+    let occurred_at = OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .expect("timestamp");
+    let task_spec = match title {
+        Some(title) => json!({"goal": title}),
+        None => json!({}),
+    };
+    database
+        .create_run(NewRun {
+            run_id,
+            task_id: &format!("task-{run_id}"),
+            task_spec: &task_spec,
+            mode: "study",
+            state,
+            occurred_at: &occurred_at,
+        })
+        .expect("run");
+}
+
+#[tokio::test]
+async fn ai_drafted_report_freezes_model_entries_with_run_evidence() {
+    let (app, authorization, _directory, database) = paired_app_with_database().await;
+    seed_run(&database, "run-1", "succeeded", Some("整理学习笔记"));
+    seed_run(&database, "run-2", "failed", None);
+    let base_url = spawn_mock_ollama(
+        "{\"entries\":[{\"section\":\"summary\",\"text\":\"本周完成一次学习整理\",\"fact_refs\":[\"fact:run:run-1\"]},{\"section\":\"blockers\",\"text\":\"一个运行失败\",\"fact_refs\":[\"fact:run:run-2\"]}]}",
+    )
+    .await;
+    configure_ollama_profile(&app, &authorization, &base_url).await;
+
+    let (status, body) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/deliverables/reports/ai-draft",
+        Some(json!({
+            "report_id": "report:ai",
+            "revision": 1,
+            "kind": "daily",
+            "title": "AI 日报",
+            "language": "zh-CN",
+            "timezone": "Asia/Shanghai",
+            "provider_profile_id": "ollama"
+        })),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "body: {body:?}");
+    let artifact = &body.expect("record")["artifact"];
+    let entries = artifact["entries"].as_array().expect("entries");
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["section"], "summary");
+    assert_eq!(entries[0]["fact_refs"], json!(["fact:run:run-1"]));
+    let markdown = artifact["markdown"].as_str().expect("markdown");
+    assert!(markdown.contains("本周完成一次学习整理"));
+    assert!(markdown.contains("一个运行失败"));
+    assert!(
+        entries
+            .iter()
+            .all(|entry| entry["verification"] == "verified")
+    );
+}
+
+#[tokio::test]
+async fn ai_drafted_report_rejects_invalid_model_json() {
+    let (app, authorization, _directory, database) = paired_app_with_database().await;
+    seed_run(&database, "run-1", "succeeded", None);
+    let base_url = spawn_mock_ollama("这不是 JSON").await;
+    configure_ollama_profile(&app, &authorization, &base_url).await;
+
+    let (status, body) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/deliverables/reports/ai-draft",
+        Some(json!({
+            "report_id": "report:ai-bad",
+            "revision": 1,
+            "kind": "daily",
+            "title": "AI 日报",
+            "language": "zh-CN",
+            "timezone": "Asia/Shanghai",
+            "provider_profile_id": "ollama"
+        })),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(
+        body.expect("error")["detail"]
+            .as_str()
+            .expect("detail")
+            .contains("not valid report JSON")
+    );
+}
+
+#[tokio::test]
+async fn ai_drafted_report_rejects_unknown_fact_references() {
+    let (app, authorization, _directory, database) = paired_app_with_database().await;
+    seed_run(&database, "run-1", "succeeded", None);
+    let base_url = spawn_mock_ollama(
+        "{\"entries\":[{\"section\":\"summary\",\"text\":\"编造的事实\",\"fact_refs\":[\"fact:run:ghost\"]}]}",
+    )
+    .await;
+    configure_ollama_profile(&app, &authorization, &base_url).await;
+
+    let (status, body) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/deliverables/reports/ai-draft",
+        Some(json!({
+            "report_id": "report:ai-ghost",
+            "revision": 1,
+            "kind": "daily",
+            "title": "AI 日报",
+            "language": "zh-CN",
+            "timezone": "Asia/Shanghai",
+            "provider_profile_id": "ollama"
+        })),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(
+        body.expect("error")["detail"]
+            .as_str()
+            .expect("detail")
+            .contains("unknown facts")
+    );
+}
+
+#[tokio::test]
+async fn ai_drafted_report_requires_recent_activity() {
+    let (app, authorization, _directory, _database) = paired_app_with_database().await;
+    let base_url = spawn_mock_ollama("{\"entries\":[]}").await;
+    configure_ollama_profile(&app, &authorization, &base_url).await;
+
+    let (status, body) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/deliverables/reports/ai-draft",
+        Some(json!({
+            "report_id": "report:ai-empty",
+            "revision": 1,
+            "kind": "weekly",
+            "title": "AI 周报",
+            "language": "zh-CN",
+            "timezone": "Asia/Shanghai",
+            "provider_profile_id": "ollama"
+        })),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        body.expect("error")["detail"]
+            .as_str()
+            .expect("detail")
+            .contains("no recent activity")
     );
 }

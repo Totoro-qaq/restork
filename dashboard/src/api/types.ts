@@ -845,6 +845,16 @@ export interface ManualReportInputV2 {
   }>;
 }
 
+export interface AiReportDraftInputV2 {
+  report_id: string;
+  revision: number;
+  kind: "daily" | "weekly";
+  title: string;
+  language: string;
+  timezone: string;
+  provider_profile_id: string;
+}
+
 export interface DeckFromReportInputV2 {
   deck_id: string;
   revision: number;
@@ -1326,6 +1336,7 @@ export interface DashboardApi {
   ): Promise<RenderPreviewV2>;
   exportDeliverableRender?(preview: RenderPreviewV2): Promise<RenderDownloadV2>;
   composeManualReport?(input: ManualReportInputV2): Promise<CatalogRecordV2>;
+  composeAiReportDraft?(input: AiReportDraftInputV2): Promise<CatalogRecordV2>;
   composeDeckFromReport?(input: DeckFromReportInputV2): Promise<CatalogRecordV2>;
   createSchedule?(schedule: ScheduleSpecV2): Promise<CatalogRecordV2>;
   changeScheduleState?(
