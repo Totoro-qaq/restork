@@ -52,6 +52,7 @@ import type {
   RenderDownloadV2,
   RenderPreviewV2,
   ManualReportInputV2,
+  AiReportDraftInputV2,
   MailSnapshot,
   DeckFromReportInputV2,
   ScheduleSpecV2,
@@ -428,6 +429,14 @@ export class LocalApiClient implements DashboardApi {
     return this.#request<CatalogRecordV2>(
       "POST",
       "/v1/deliverables/reports/manual",
+      input,
+    );
+  }
+
+  async composeAiReportDraft(input: AiReportDraftInputV2): Promise<CatalogRecordV2> {
+    return this.#request<CatalogRecordV2>(
+      "POST",
+      "/v1/deliverables/reports/ai-draft",
       input,
     );
   }
