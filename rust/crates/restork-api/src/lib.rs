@@ -275,6 +275,10 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
         methods: &["POST"],
     },
     ApiRouteDescription {
+        path: "/v1/study/runs/{run_id}/note/preview",
+        methods: &["POST"],
+    },
+    ApiRouteDescription {
         path: "/v1/work/runs/{run_id}/plan",
         methods: &["POST"],
     },
@@ -1324,6 +1328,10 @@ fn build_router(state: ApiState) -> Router {
         .route(
             "/v1/study/runs/{run_id}/exercises/{exercise_id}/attempt",
             axum::routing::post(submit_study_attempt),
+        )
+        .route(
+            "/v1/study/runs/{run_id}/note/preview",
+            axum::routing::post(preview_study_note),
         )
         .route(
             "/v1/work/runs/{run_id}/plan",
