@@ -29,6 +29,7 @@ const MODULES: &[&str] = &[
     "config_api",
     "daily_api",
     "feature_api",
+    "radar",
     "session_api",
     "vault_api",
 ];

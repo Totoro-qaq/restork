@@ -1256,13 +1256,15 @@ export function tasksView(snapshot: DashboardSnapshot, locale: Locale): string {
 export function radarView(snapshot: DashboardSnapshot, locale: Locale): string {
   const notice = domainNotice(snapshot, "radar", locale);
   if (notice) return `<article class="paper-card full-card"><header><h2>Radar</h2></header>${notice}</article>`;
-  const lanes: Array<[RadarItem["lane"], string]> = [["my_stars", "My Stars"], ["trending", "Trending"], ["hn", "HN"], ["papers", "Papers"]];
+  const lanes: Array<[RadarItem["lane"], string]> = [
+    ["trending", tr(locale, "GitHub AI / Agent", "GitHub AI / Agent")],
+    ["hn", "Hacker News"],
+  ];
   const configForm = `<form id="radar-config-form" class="radar-config">
-    <label for="radar-github-user">${tr(locale, "GitHub username (your starred repos feed My Stars)", "GitHub 用户名（你 star 的仓库进入 My Stars）")}</label>
-    <input id="radar-github-user" name="github_user" maxlength="39" autocomplete="off" spellcheck="false" placeholder="octocat">
-    <label class="radar-config-hn"><input type="checkbox" name="hacker_news" value="1" checked> ${tr(locale, "Include Hacker News top stories", "收录 Hacker News 热门")}</label>
+    <label class="radar-config-source"><input type="checkbox" name="github_discovery" value="1" checked> ${tr(locale, "Discover public AI, Agent and MCP projects on GitHub", "发现 GitHub 上公开的 AI、Agent 与 MCP 项目")}</label>
+    <label class="radar-config-source"><input type="checkbox" name="hacker_news" value="1" checked> ${tr(locale, "Include Hacker News top stories", "收录 Hacker News 热门")}</label>
     <button type="submit">${tr(locale, "SAVE & FETCH", "保存并拉取")}</button>
-    <small>${tr(locale, "All fetching happens in the Core through the outbound gateway; the browser never goes online.", "所有抓取都由 Core 经出站网关完成；浏览器不会自行联网。")}</small>
+    <small>${tr(locale, "GitHub discovery uses fixed public searches, engineering relevance ranking and a 30-minute cache. All fetching happens through the Core; the browser never goes online.", "GitHub 发现使用固定公开搜索、工程相关性排序和 30 分钟缓存。所有抓取都由 Core 完成；浏览器不会自行联网。")}</small>
     <p class="form-hint" id="radar-config-status" role="status"></p>
   </form>`;
   if (!snapshot.radar.configured) {
@@ -1632,11 +1634,11 @@ function musicDiscoveries(discoveries: MusicDiscovery[], locale: Locale): string
 }
 
 function radarItem(item: RadarItem, locale: Locale): string {
-  return `<article class="radar-item">${safeLink(item.url, item.title, 'target="_blank" rel="noreferrer"')}<small>${escapeHtml(item.source)} · ${escapeHtml(item.state)}</small><div><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="research">${tr(locale, "research", "研究")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="read_later">${tr(locale, "read later", "稍后阅读")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="make_task">${tr(locale, "make task", "建任务")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="dismiss">${tr(locale, "dismiss", "忽略")}</button></div></article>`;
+  return `<article class="radar-item">${safeLink(item.url, item.title, 'target="_blank" rel="noreferrer"')}<p>${escapeHtml(item.summary)}</p><small>${escapeHtml(item.source)} · ${escapeHtml(item.state)}</small><div><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="research">${tr(locale, "research", "研究")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="read_later">${tr(locale, "read later", "稍后阅读")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="make_task">${tr(locale, "make task", "建任务")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="dismiss">${tr(locale, "dismiss", "忽略")}</button></div></article>`;
 }
 
 function radarSummary(item: RadarItem): string {
-  return `<p class="radar-row"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.source)} · ${escapeHtml(item.lane)}</small></p>`;
+  return `<p class="radar-row"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.summary)}</span><small>${escapeHtml(item.source)} · ${escapeHtml(item.lane)}</small></p>`;
 }
 
 function memoryRow(record: MemoryRecord, locale: Locale): string {

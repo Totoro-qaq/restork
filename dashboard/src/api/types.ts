@@ -421,13 +421,13 @@ export interface RadarActionResult {
 
 export interface RadarConfigurationInput {
   enabled: boolean;
-  github_user: string | null;
+  github_discovery: boolean;
   hacker_news: boolean;
 }
 
 export interface RadarConfiguration {
   enabled: boolean;
-  github_user: string | null;
+  github_discovery: boolean;
   hacker_news: boolean;
 }
 

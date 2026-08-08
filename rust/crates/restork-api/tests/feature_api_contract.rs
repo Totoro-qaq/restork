@@ -98,6 +98,28 @@ async fn paired_app() -> (Router, String, TestDirectory, PathBuf) {
 }
 
 #[tokio::test]
+async fn radar_configuration_uses_public_github_discovery_without_an_account() {
+    let (app, authorization, _directory, _vault) = paired_app().await;
+    let (status, body) = call(
+        app,
+        Method::PUT,
+        "/v1/radar/config",
+        Some(json!({
+            "enabled": true,
+            "github_discovery": true,
+            "hacker_news": false
+        })),
+        Some(&authorization),
+        Some("radar-public-discovery"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let body = body.expect("Radar configuration");
+    assert_eq!(body["github_discovery"], true);
+    assert!(body.get("github_user").is_none());
+}
+
+#[tokio::test]
 async fn vault_browser_lists_searches_and_previews_only_safe_markdown_notes() {
     let (app, authorization, _directory, vault) = paired_app().await;
     fs::create_dir(vault.join("Projects")).expect("nested Vault folder");

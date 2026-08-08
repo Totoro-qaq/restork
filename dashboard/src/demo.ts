@@ -361,9 +361,9 @@ const snapshot: DashboardSnapshot = {
     items: [
       {
         item_id: "radar-synthetic-star",
-        lane: "my_stars",
+        lane: "trending",
         title: "Typed local agent harness",
-        source: "GitHub · synthetic fixture",
+        source: "GitHub · public AI/Agent fixture",
         url: "https://example.com/restork/synthetic-harness",
         summary: "A public synthetic repository used only for the product demo.",
         score: 0.94,

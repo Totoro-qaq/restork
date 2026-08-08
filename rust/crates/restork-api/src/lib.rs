@@ -21,6 +21,7 @@ mod catalog_api;
 mod config_api;
 mod daily_api;
 mod feature_api;
+mod radar;
 mod session_api;
 mod vault_api;
 

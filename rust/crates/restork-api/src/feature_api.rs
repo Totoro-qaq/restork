@@ -31,6 +31,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
+use super::radar::{NewRadarOwned, RadarConfiguration, github_discovery_urls, github_radar_record};
 use super::{
     ApiState, authorize, authorize_scopes, bounded_usize_query, error_response,
     error_response_owned, idempotency_key, invalid_query, json_digest, now_rfc3339, parse_json,
@@ -128,16 +129,6 @@ struct MarkdownTask {
     fields: BTreeMap<String, String>,
     block_id: Option<String>,
     locator_hash: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RadarConfiguration {
-    enabled: bool,
-    #[serde(default)]
-    github_user: Option<String>,
-    #[serde(default)]
-    hacker_news: bool,
 }
 
 #[derive(Deserialize)]
@@ -1061,25 +1052,17 @@ pub(super) async fn configure_radar(State(state): State<ApiState>, request: Requ
         Ok(payload) => payload,
         Err(response) => return *response,
     };
-    if payload.enabled
-        && payload.github_user.as_deref().is_none_or(|user| {
-            user.len() > 39
-                || user.is_empty()
-                || !user
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-        })
-        && !payload.hacker_news
-    {
+    let github_discovery = payload.github_discovery || payload.github_user.is_some();
+    if payload.enabled && !github_discovery && !payload.hacker_news {
         return error_response(
             StatusCode::UNPROCESSABLE_ENTITY,
-            "enable at least one valid Radar source",
+            "enable at least one Radar source",
         );
     }
     let now = Utc::now().to_rfc3339();
     let config = json!({
         "enabled": payload.enabled,
-        "github_user": payload.github_user,
+        "github_discovery": github_discovery,
         "hacker_news": payload.hacker_news,
     });
     match storage.put_daily_cache("radar-config", &config, &now, "9999-12-31T23:59:59Z", &now) {
@@ -1318,32 +1301,47 @@ pub(super) async fn preview_study_note(
 async fn refresh_radar(storage: &restork_storage::Database, config: &Value) -> Result<(), String> {
     let gateway = PublicWebGateway::new().map_err(|_| "Radar network gateway is unavailable")?;
     let mut records = Vec::new();
-    if let Some(user) = config["github_user"].as_str() {
-        let url = format!("https://api.github.com/users/{user}/starred?per_page=20");
-        let payload = gateway
-            .get_json(&url)
-            .await
-            .map_err(|error| format!("GitHub Radar refresh failed ({})", error.status()))?;
-        if let Some(items) = payload.as_array() {
-            for (index, item) in items.iter().enumerate() {
-                let Some(repository) = item["full_name"].as_str() else {
-                    continue;
-                };
-                records.push(NewRadarOwned {
-                    item_id: format!("github-{}", &sha256_hex(repository.as_bytes())[..24]),
-                    lane: "my_stars".to_owned(),
-                    title: repository.to_owned(),
-                    source: "github".to_owned(),
-                    url: item["html_url"].as_str().unwrap_or_default().to_owned(),
-                    summary: item["description"]
-                        .as_str()
-                        .unwrap_or("No description.")
-                        .to_owned(),
-                    score: f64::from(u32::try_from(100_usize.saturating_sub(index)).unwrap_or(0)),
-                    published_at: item["pushed_at"].as_str().map(ToOwned::to_owned),
-                });
+    let now = Utc::now();
+    let github_discovery = config["github_discovery"].as_bool() == Some(true)
+        // Transparently migrate existing local configurations that used a username.
+        || config["github_user"].as_str().is_some();
+    if github_discovery {
+        let mut candidates = BTreeMap::<String, Value>::new();
+        let mut successful_queries = 0_u8;
+        let mut last_error = None;
+        for url in github_discovery_urls(now) {
+            match gateway.get_json(url.as_str()).await {
+                Ok(payload) => {
+                    successful_queries = successful_queries.saturating_add(1);
+                    for item in payload["items"].as_array().into_iter().flatten() {
+                        if let Some(repository) = item["full_name"].as_str() {
+                            candidates
+                                .entry(repository.to_ascii_lowercase())
+                                .or_insert_with(|| item.clone());
+                        }
+                    }
+                }
+                Err(error) => last_error = Some(error.status()),
             }
         }
+        if successful_queries == 0 {
+            return Err(format!(
+                "GitHub public AI/Agent Radar refresh failed ({})",
+                last_error.unwrap_or("unavailable")
+            ));
+        }
+        let mut github_records = candidates
+            .values()
+            .filter_map(github_radar_record)
+            .collect::<Vec<_>>();
+        github_records.sort_by(|left, right| {
+            right
+                .score
+                .total_cmp(&left.score)
+                .then_with(|| left.title.cmp(&right.title))
+        });
+        github_records.truncate(12);
+        records.extend(github_records);
     }
     if config["hacker_news"].as_bool() == Some(true) {
         let ids = gateway
@@ -1393,8 +1391,20 @@ async fn refresh_radar(storage: &restork_storage::Database, config: &Value) -> R
             });
         }
     }
-    let now = Utc::now();
     let occurred_at = now.to_rfc3339();
+    if github_discovery {
+        storage
+            .delete_radar_lane("my_stars")
+            .map_err(|_| "Legacy personal Stars could not be removed".to_owned())?;
+        storage
+            .delete_new_radar_lane("trending")
+            .map_err(|_| "GitHub Radar cache could not be pruned".to_owned())?;
+    }
+    if config["hacker_news"].as_bool() == Some(true) {
+        storage
+            .delete_new_radar_lane("hn")
+            .map_err(|_| "Hacker News Radar cache could not be pruned".to_owned())?;
+    }
     for item in &records {
         if item.url.starts_with("https://") {
             storage
@@ -1424,17 +1434,6 @@ async fn refresh_radar(storage: &restork_storage::Database, config: &Value) -> R
         )
         .map_err(|_| "Radar TTL cache could not be updated".to_owned())?;
     Ok(())
-}
-
-struct NewRadarOwned {
-    item_id: String,
-    lane: String,
-    title: String,
-    source: String,
-    url: String,
-    summary: String,
-    score: f64,
-    published_at: Option<String>,
 }
 
 fn configured_workspace(state: &ApiState) -> Result<SafeWorkspace, Response> {

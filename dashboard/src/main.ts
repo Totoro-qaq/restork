@@ -229,6 +229,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
       const view = button.dataset.view ?? "overview";
       selectView(root, view);
       if (view === "vault") void openVaultWorkspace(root, api);
+      if (view === "radar") void refreshRadarPanel(root, api, snapshot);
     });
   });
   const nav = root.querySelector<HTMLElement>(".sidebar nav");
@@ -276,7 +277,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   configureMail(root, api, snapshot);
   configureProvider(root, api, snapshot);
   configureRustWorkspace(root, api, snapshot);
-  bindRadarConfig(root, api);
+  bindRadarConfig(root, api, snapshot);
   bindVaultDir(root);
   configureVaultBrowser(root, api);
   // Last, so it overrides any enabled state the feature wiring just set.
@@ -1770,11 +1771,11 @@ function configureWeather(root: HTMLElement, api: DashboardApi): void {
   );
 }
 
-function bindRadarConfig(root: HTMLElement, api: DashboardApi): void {
+function bindRadarConfig(root: HTMLElement, api: DashboardApi, snapshot: DashboardSnapshot): void {
   const form = root.querySelector<HTMLFormElement>("#radar-config-form");
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
-    void saveRadarConfig(root, api, form);
+    void saveRadarConfig(root, api, snapshot, form);
   });
 }
 
@@ -1822,17 +1823,22 @@ function bindVaultDir(root: HTMLElement): void {
   });
 }
 
-async function saveRadarConfig(root: HTMLElement, api: DashboardApi, form: HTMLFormElement): Promise<void> {
+async function saveRadarConfig(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+  form: HTMLFormElement,
+): Promise<void> {
   const data = new FormData(form);
-  const githubUser = String(data.get("github_user") ?? "").trim();
+  const githubDiscovery = data.get("github_discovery") === "1";
   const hackerNews = data.get("hacker_news") === "1";
   const status = form.querySelector<HTMLElement>("#radar-config-status");
-  if (!githubUser && !hackerNews) {
+  if (!githubDiscovery && !hackerNews) {
     if (status) {
       status.textContent = tr(
         localeOf(root),
-        "Enable at least one source: a GitHub username or Hacker News.",
-        "至少启用一个来源：GitHub 用户名或 Hacker News。",
+        "Enable at least one source: public GitHub AI/Agent projects or Hacker News.",
+        "至少启用一个来源：GitHub 公开 AI/Agent 项目或 Hacker News。",
       );
     }
     return;
@@ -1841,13 +1847,41 @@ async function saveRadarConfig(root: HTMLElement, api: DashboardApi, form: HTMLF
   try {
     await api.configureRadar({
       enabled: true,
-      github_user: githubUser || null,
+      github_discovery: githubDiscovery,
       hacker_news: hackerNews,
     });
-    await refresh(root, api, "radar");
+    await refreshRadarPanel(root, api, snapshot);
     announceStatus(root, tr(localeOf(root), "Radar sources saved.", "Radar 来源已保存。"));
   } catch (error) {
     if (status) status.textContent = errorText(error, localeOf(root));
+  }
+}
+
+async function refreshRadarPanel(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+): Promise<void> {
+  if (!api.loadPage) return;
+  const panel = root.querySelector<HTMLElement>('[data-view-panel="radar"]');
+  if (!panel || panel.dataset.loading === "true") return;
+  panel.dataset.loading = "true";
+  panel.setAttribute("aria-busy", "true");
+  try {
+    const page = await api.loadPage("radar", "");
+    if (page.kind !== "radar") return;
+    snapshot.radar = {
+      configured: page.configured,
+      items: page.items,
+    };
+    snapshot.pagination ??= {};
+    snapshot.pagination.radar = page.page;
+    renderListPanel(root, api, snapshot, "radar");
+  } catch (error) {
+    announceError(root, errorText(error, localeOf(root)));
+  } finally {
+    panel.dataset.loading = "false";
+    panel.removeAttribute("aria-busy");
   }
 }
 
@@ -3533,6 +3567,7 @@ function renderListPanel(
   if (!panel) return false;
   panel.innerHTML = markup;
   bindListInteractions(root, api, snapshot, panel);
+  if (kind === "radar") bindRadarConfig(root, api, snapshot);
   return true;
 }
 

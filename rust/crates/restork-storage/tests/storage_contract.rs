@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf, sync::Arc, thread};
 
-use restork_storage::{Database, NewEvent, NewRun};
+use restork_storage::{Database, NewEvent, NewRadarRecord, NewRun};
 use rusqlite::Connection;
 use serde_json::json;
 
@@ -408,4 +408,47 @@ fn persisted_contract_documents_must_be_json_objects() {
             .save_snapshot("run-object-documents", 1, &json!(["not", "an", "object"]))
             .is_err()
     );
+}
+
+#[test]
+fn radar_lane_cleanup_removes_legacy_and_only_prunes_unreviewed_items() {
+    let directory = TestDirectory::new("radar-cleanup");
+    let database = Database::open(directory.database()).expect("open database");
+    for (item_id, lane, state) in [
+        ("legacy-star", "my_stars", "new"),
+        ("old-trending", "trending", "new"),
+        ("saved-trending", "trending", "read_later"),
+    ] {
+        database
+            .upsert_radar(NewRadarRecord {
+                item_id,
+                lane,
+                title: item_id,
+                source: "fixture",
+                url: "https://example.com/radar",
+                summary: "fixture",
+                score: 1.0,
+                published_at: None,
+                state,
+                data_class: "public",
+                occurred_at: "2026-08-08T00:00:00Z",
+            })
+            .expect("store Radar fixture");
+    }
+
+    assert_eq!(
+        database
+            .delete_radar_lane("my_stars")
+            .expect("legacy cleanup"),
+        1
+    );
+    assert_eq!(
+        database
+            .delete_new_radar_lane("trending")
+            .expect("fresh feed cleanup"),
+        1
+    );
+    let remaining = database.radar_items(10, 0).expect("remaining Radar items");
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].item_id, "saved-trending");
 }

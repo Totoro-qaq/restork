@@ -977,16 +977,43 @@ describe("authenticated workspace", () => {
     expect(localStorage).toHaveLength(0);
   });
 
+  it("configures public GitHub AI and Agent discovery without asking for an account", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    api.loadPage = vi.fn(async () => ({
+      kind: "radar" as const,
+      items: [],
+      configured: true,
+      page: { limit: 12, has_more: false, next_cursor: null },
+    }));
+    mountDashboard(root, {
+      api,
+      snapshot: { ...snapshot, radar: { configured: false, items: [] } },
+    });
+    root.querySelector<HTMLButtonElement>('[data-view="radar"]')?.click();
+
+    expect(root.textContent).toContain("public AI, Agent and MCP projects");
+    expect(root.querySelector('[name="github_user"]')).toBeNull();
+    root.querySelector<HTMLFormElement>("#radar-config-form")?.requestSubmit();
+
+    await vi.waitFor(() => expect(api.configureRadar).toHaveBeenCalledWith({
+      enabled: true,
+      github_discovery: true,
+      hacker_news: true,
+    }));
+    expect(api.loadPage).toHaveBeenCalledWith("radar", "");
+  });
+
   it("launches a Radar Research run and renders its write-free preview", async () => {
     const root = document.createElement("main");
     const api = fakeApi();
     const item = {
       item_id: "radar-1",
-      lane: "papers" as const,
+      lane: "trending" as const,
       title: "Synthetic evidence",
       source: "fixture",
       url: "https://example.com/evidence",
-      summary: "",
+      summary: "<img src=x onerror=alert(1)>",
       score: 1,
       published_at: null,
       state: "new",
@@ -1034,6 +1061,7 @@ describe("authenticated workspace", () => {
       snapshot: { ...snapshot, radar: { configured: true, items: [item] } },
     });
     root.querySelector<HTMLButtonElement>('[data-view="radar"]')?.click();
+    expect(root.querySelector("img")).toBeNull();
     root.querySelector<HTMLButtonElement>('[data-radar-action="research"]')?.click();
 
     await vi.waitFor(() => expect(root.textContent).toContain("Safe preview"));
@@ -1047,7 +1075,7 @@ describe("authenticated workspace", () => {
     const api = fakeApi();
     const item = {
       item_id: "radar-wait",
-      lane: "papers" as const,
+      lane: "trending" as const,
       title: "Bounded wait fixture",
       source: "fixture",
       url: "https://example.com/wait",
