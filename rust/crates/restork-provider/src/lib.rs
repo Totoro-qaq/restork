@@ -1529,9 +1529,8 @@ fn encode_openai_messages(
                 // longer carries the original reasoning. Emitting the
                 // placeholder keeps the run resumable instead of failing it
                 // deterministically as `provider_configuration`.
-                None
-                    if profile.reasoning().effort() != ReasoningEffort::Off
-                        && !message.tool_calls.is_empty() =>
+                None if profile.reasoning().effort() != ReasoningEffort::Off
+                    && !message.tool_calls.is_empty() =>
                 {
                     value["reasoning_content"] = Value::String(String::new());
                 }
