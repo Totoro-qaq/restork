@@ -759,6 +759,26 @@ export class LocalApiClient implements DashboardApi {
     );
   }
 
+  async previewResearchNote(runId: string): Promise<TaskMutationPreview> {
+    return this.#request<TaskMutationPreview>(
+      "POST",
+      `/v1/research/${encodeURIComponent(runId)}/note/preview`,
+      {},
+      true,
+      `dashboard-research-note-${crypto.randomUUID()}`,
+    );
+  }
+
+  async previewStudyNote(runId: string): Promise<TaskMutationPreview> {
+    return this.#request<TaskMutationPreview>(
+      "POST",
+      `/v1/study/runs/${encodeURIComponent(runId)}/note/preview`,
+      {},
+      true,
+      `dashboard-study-note-${crypto.randomUUID()}`,
+    );
+  }
+
   async configureWeather(
     input: WeatherConfigurationInput,
   ): Promise<WeatherConfigurationResult> {

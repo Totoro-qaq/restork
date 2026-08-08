@@ -69,6 +69,13 @@ const studyArtifact: StudyArtifact = {
     practice_count: 1,
     related_note_count: 0,
   },
+  note_preview: {
+    action: "create",
+    relative_path: "Restork Study - Durable Agent Checkpoint Loop.md",
+    expected_hash: null,
+    markdown: "# Durable agent checkpoint loop\n\n- Trace one checkpoint: identify durable inputs and the state transition.\n",
+    markdown_hash: "1".repeat(64),
+  },
   sensitivity: "personal",
   created_at: NOW,
   validation: { status: "validated", mechanism: "demo" },
@@ -520,6 +527,8 @@ class DemoApi implements DashboardApi {
   async cancelRun(): Promise<void> {}
   async previewTask(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }
   async captureTask(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }
+  async previewResearchNote(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }
+  async previewStudyNote(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }
   async applyTask(approvalId: string): Promise<TaskApplyResult> {
     return { approval_id: approvalId, task_id: "synthetic", relative_path: "Tasks.md", content_hash: "d".repeat(64), applied: true };
   }

@@ -70,7 +70,7 @@ describe("dashboard route coverage", () => {
   it("serves every route in the rebuilt Study flow", () => {
     const rust = rustRoutes();
     const studyRoutes = dashboardRoutes().filter((route) => route.includes("/study"));
-    expect(studyRoutes).toHaveLength(3);
+    expect(studyRoutes).toHaveLength(4);
     expect(studyRoutes.every((route) => servedByRust(route, rust))).toBe(true);
   });
 });

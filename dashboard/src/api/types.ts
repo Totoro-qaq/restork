@@ -189,6 +189,13 @@ export interface StudyArtifact {
     practice_count: number;
     related_note_count: number;
   };
+  note_preview?: {
+    action: "create" | "append" | "no_change";
+    relative_path: string;
+    expected_hash: string | null;
+    markdown: string;
+    markdown_hash: string;
+  } | null;
   sensitivity: string;
   created_at: string;
   validation: { status: "validated"; mechanism: string };
@@ -1207,6 +1214,8 @@ export interface DashboardApi {
   previewTask(taskId: string, completed: boolean): Promise<TaskMutationPreview>;
   captureTask(text: string, priority: string): Promise<TaskMutationPreview>;
   applyTask(approvalId: string): Promise<TaskApplyResult>;
+  previewResearchNote(runId: string): Promise<TaskMutationPreview>;
+  previewStudyNote(runId: string): Promise<TaskMutationPreview>;
   configureWeather(input: WeatherConfigurationInput): Promise<WeatherConfigurationResult>;
   configureCalendar(input: CalendarConfigurationInput): Promise<DailySnapshot["calendar"]>;
   connectNativeCalendar?(
