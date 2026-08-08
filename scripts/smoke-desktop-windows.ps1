@@ -115,8 +115,12 @@ function Resolve-RestorkExecutable {
     $candidates = [Collections.Generic.List[string]]::new()
     foreach ($entry in @(Get-RestorkRegistryEntries)) {
         if (-not [string]::IsNullOrWhiteSpace([string]$entry.InstallLocation)) {
-            $candidates.Add((Join-Path ([string]$entry.InstallLocation) 'Restork.exe'))
-            $candidates.Add((Join-Path ([string]$entry.InstallLocation) 'restork.exe'))
+            # NSIS may persist InstallLocation with surrounding quotes. Treat
+            # registry values as data and normalize only those boundary quotes
+            # before passing the path to PowerShell's path APIs.
+            $installLocation = ([string]$entry.InstallLocation).Trim().Trim('"')
+            $candidates.Add((Join-Path $installLocation 'Restork.exe'))
+            $candidates.Add((Join-Path $installLocation 'restork.exe'))
         }
         if (-not [string]::IsNullOrWhiteSpace([string]$entry.DisplayIcon)) {
             $iconPath = ([string]$entry.DisplayIcon).Trim('"') -replace ',\d+$', ''
