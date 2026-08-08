@@ -1730,6 +1730,80 @@ describe("Rust conversation workspace", () => {
     expect(root.querySelector('input[type="password"]')).toBeNull();
   });
 
+  it("shows MCP tools separately and requires the reviewed install digest before quarantine", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const state = workspaceSnapshot();
+    state.workspaceV2?.extensions.push({
+      package_id: "mcp.synthetic",
+      package_kind: "mcp",
+      state: "enabled",
+      manifest_hash: "b".repeat(64),
+      manifest: {
+        schema_version: 1,
+        id: "mcp.synthetic",
+        version: "1.0.0",
+        enabled_profiles: ["research-cloud"],
+        requested_permissions: ["network:https://example.com"],
+        transport: { kind: "stdio", command: "/opt/restork/bin/synthetic" },
+        tools: [{
+          id: "paper.search",
+          name: "Search papers",
+          description: "Search one reviewed source.",
+        }],
+      },
+      updated_at: "2026-08-02T12:00:00Z",
+    });
+    const preview = {
+      state: "review_required" as const,
+      installation_started: false as const,
+      preview_digest: "c".repeat(64),
+      preview: {
+        package_kind: "skill",
+        status: { state: "quarantined", reason: "awaiting_install_review" },
+      },
+    };
+    api.previewExtensionInstall = vi.fn(async () => preview);
+    api.installExtension = vi.fn(async () => ({
+      package_id: "skill.reviewed",
+      package_kind: "skill",
+      state: "quarantined",
+      manifest_hash: preview.preview_digest,
+      manifest: { schema_version: 1, id: "skill.reviewed" },
+      updated_at: "2026-08-02T12:01:00Z",
+    }));
+    api.loadDashboard = vi.fn(async () => state);
+    document.body.append(root);
+    mountDashboard(root, { api, snapshot: state });
+
+    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+    expect(root.textContent).toContain("Declared tools");
+    expect(root.textContent).toContain("paper.search");
+    expect(root.textContent).toContain("network:https://example.com");
+
+    const form = root.querySelector<HTMLFormElement>("#extension-install-form");
+    const manifest = form?.elements.namedItem("manifest");
+    if (!form || !(manifest instanceof HTMLTextAreaElement)) throw new Error("extension form");
+    manifest.value = JSON.stringify({ schema_version: 1, id: "skill.reviewed" });
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(api.previewExtensionInstall).toHaveBeenCalledOnce());
+    expect(api.installExtension).not.toHaveBeenCalled();
+    expect(root.textContent).toContain("Nothing has been installed");
+    expect(root.textContent).toContain(preview.preview_digest);
+
+    root.querySelector<HTMLButtonElement>(".extension-install-preview > button")?.click();
+    await vi.waitFor(() => expect(root.querySelector("dialog.confirm-dialog")).not.toBeNull());
+    expect(api.installExtension).not.toHaveBeenCalled();
+    root.querySelector<HTMLButtonElement>(".confirm-primary")?.click();
+    await vi.waitFor(() => expect(api.installExtension).toHaveBeenCalledWith(
+      "skill",
+      { schema_version: 1, id: "skill.reviewed" },
+      preview.preview_digest,
+    ));
+    root.remove();
+  });
+
   it("drafts an AI report from a configured provider through Core", async () => {
     const root = document.createElement("main");
     const api = fakeApi();

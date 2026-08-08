@@ -5,6 +5,7 @@ use axum::{
     body::Body,
     http::{Method, Request, StatusCode},
 };
+use futures_util::StreamExt;
 use http_body_util::BodyExt;
 use restork_core::auth::PairingAuthority;
 use restork_storage::Database;
@@ -94,6 +95,127 @@ async fn paired_app() -> (Router, String, TestDirectory, PathBuf) {
         .expect("access token")
         .to_owned();
     (app, format!("Bearer {token}"), directory, vault)
+}
+
+#[tokio::test]
+async fn vault_browser_lists_searches_and_previews_only_safe_markdown_notes() {
+    let (app, authorization, _directory, vault) = paired_app().await;
+    fs::create_dir(vault.join("Projects")).expect("nested Vault folder");
+    fs::create_dir(vault.join(".obsidian")).expect("Obsidian settings folder");
+    fs::write(
+        vault.join("Projects/Agent Notes.md"),
+        "# Agent Notes\n\nA reviewable local-first workflow.\n",
+    )
+    .expect("Markdown fixture");
+    fs::write(vault.join("ignore.txt"), "local-first").expect("non-Markdown fixture");
+    fs::write(vault.join(".obsidian/private.md"), "local-first").expect("hidden fixture");
+
+    let (status, listed) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/vault/files?limit=20",
+        None,
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let listed = listed.expect("Vault list");
+    assert_eq!(listed["configured"], true);
+    assert_eq!(listed["total"], 1);
+    assert_eq!(
+        listed["items"][0]["relative_path"],
+        "Projects/Agent Notes.md"
+    );
+
+    let (status, searched) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/vault/search?q=reviewable%20workflow&limit=10",
+        None,
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        searched.expect("Vault search")["items"]
+            .as_array()
+            .map(Vec::len),
+        Some(1)
+    );
+
+    let (status, preview) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/vault/note?path=Projects%2FAgent%20Notes.md",
+        None,
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let preview = preview.expect("Vault preview");
+    assert_eq!(preview["relative_path"], "Projects/Agent Notes.md");
+    assert_eq!(preview["output_is_untrusted"], true);
+    assert_eq!(preview["sha256"].as_str().map(str::len), Some(64));
+
+    let (status, _) = call(
+        app,
+        Method::GET,
+        "/v1/vault/note?path=..%2Foutside.md",
+        None,
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn vault_event_stream_reports_external_markdown_changes_without_note_contents() {
+    let (app, authorization, _directory, vault) = paired_app().await;
+    fs::write(vault.join("watched.md"), "before").expect("watched fixture");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/v1/vault/events")
+                .header("authorization", authorization)
+                .header("accept", "text/event-stream")
+                .body(Body::empty())
+                .expect("event request"),
+        )
+        .await
+        .expect("event response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut stream = response.into_body().into_data_stream();
+    let ready = tokio::time::timeout(Duration::from_secs(2), stream.next())
+        .await
+        .expect("ready timeout")
+        .expect("ready frame")
+        .expect("ready bytes");
+    assert!(String::from_utf8_lossy(&ready).contains("event: vault.ready"));
+
+    fs::write(vault.join("watched.md"), "after with private body text")
+        .expect("external Vault edit");
+    let changed = tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            let bytes = stream
+                .next()
+                .await
+                .expect("change frame")
+                .expect("change bytes");
+            let frame = String::from_utf8_lossy(&bytes).into_owned();
+            if frame.contains("event: vault.changed") {
+                break frame;
+            }
+        }
+    })
+    .await
+    .expect("change timeout");
+    assert!(changed.contains("watched.md"));
+    assert!(!changed.contains("private body text"));
 }
 
 #[tokio::test]

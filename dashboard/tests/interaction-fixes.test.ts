@@ -166,6 +166,44 @@ describe("navigation badges count only unseen items", () => {
     expect(badge?.hidden).toBe(false);
     expect(badge?.textContent).toBe("1");
   });
+
+  it("starts each newly selected workspace at the top", () => {
+    const root = mount(1);
+    const workspace = root.querySelector<HTMLElement>(".workspace");
+    expect(workspace).not.toBeNull();
+    if (!workspace) return;
+    workspace.scrollTop = 480;
+
+    root.querySelector<HTMLButtonElement>('[data-view="runs"]')?.click();
+
+    expect(workspace.scrollTop).toBe(0);
+  });
+});
+
+describe("refresh feedback", () => {
+  it("disables repeated refreshes while the current request is pending", async () => {
+    let resolveLoad: ((value: DashboardSnapshot) => void) | undefined;
+    const load = new Promise<DashboardSnapshot>((resolve) => { resolveLoad = resolve; });
+    const client = {
+      pair: vi.fn(async () => undefined),
+      loadDashboard: vi.fn(() => load),
+    } as unknown as DashboardApi;
+    const root = document.createElement("main");
+    document.body.append(root);
+    mountDashboard(root, { api: client, snapshot: snapshot(0) });
+    const button = root.querySelector<HTMLButtonElement>("#refresh");
+    expect(button).not.toBeNull();
+
+    button?.click();
+
+    expect(button?.disabled).toBe(true);
+    expect(button?.getAttribute("aria-busy")).toBe("true");
+    button?.click();
+    expect(client.loadDashboard).toHaveBeenCalledTimes(1);
+
+    resolveLoad?.(snapshot(0));
+    await vi.waitFor(() => expect(root.querySelector("#refresh")).not.toBe(button));
+  });
 });
 
 describe("research run creation keeps the launch context", () => {

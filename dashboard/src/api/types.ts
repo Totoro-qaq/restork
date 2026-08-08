@@ -6,6 +6,46 @@ export interface PageInfo {
   next_cursor: string | null;
 }
 
+export interface VaultNoteMetadataV2 {
+  relative_path: string;
+  byte_count: number;
+  modified_unix_ms: number;
+}
+
+export interface VaultNotePageV2 {
+  configured: boolean;
+  items: VaultNoteMetadataV2[];
+  total: number;
+  page: PageInfo;
+}
+
+export interface VaultSearchHitV2 {
+  relative_path: string;
+  excerpt: string;
+  sha256: string;
+}
+
+export interface VaultNotePreviewV2 {
+  relative_path: string;
+  content: string;
+  sha256: string;
+  byte_count: number;
+  output_is_untrusted: true;
+}
+
+export interface VaultChangeEventV2 {
+  type: "vault.ready" | "vault.changed" | "vault.unavailable";
+  data: {
+    file_count?: number;
+    changed_count?: number;
+    added?: string[];
+    modified?: string[];
+    removed?: string[];
+    paths_truncated?: boolean;
+    detail?: string;
+  };
+}
+
 export type DashboardListKind = "runs" | "approvals" | "tasks" | "radar" | "memory";
 
 export interface RunSummary {
@@ -774,6 +814,13 @@ export interface CatalogRecordV2 {
   next_run_at?: string | null;
 }
 
+export interface ExtensionInstallPreviewV2 {
+  state: "review_required";
+  installation_started: false;
+  preview_digest: string;
+  preview: Record<string, unknown>;
+}
+
 export interface ToolSearchHitV2 {
   tool_id: string;
   name: string;
@@ -1176,6 +1223,13 @@ export interface ContextPreviewRecordV2 {
 export interface DashboardApi {
   pair(code: string): Promise<void>;
   loadDashboard(): Promise<DashboardSnapshot>;
+  listVaultNotes?(cursor?: string): Promise<VaultNotePageV2>;
+  searchVaultNotes?(query: string): Promise<VaultSearchHitV2[]>;
+  readVaultNote?(relativePath: string): Promise<VaultNotePreviewV2>;
+  streamVaultEvents?(
+    onEvent: (event: VaultChangeEventV2) => void,
+    signal: AbortSignal,
+  ): Promise<void>;
   createRun(
     mode: Mode,
     goal: string,
@@ -1313,9 +1367,14 @@ export interface DashboardApi {
   deleteSession?(sessionId: string, expectedVersion: number): Promise<void>;
   exportSession?(sessionId: string): Promise<SessionExportV2>;
   searchSessions?(query: string): Promise<SessionSearchHitV2[]>;
+  previewExtensionInstall?(
+    packageKind: "skill" | "mcp" | "plugin",
+    manifest: Record<string, unknown>,
+  ): Promise<ExtensionInstallPreviewV2>;
   installExtension?(
     packageKind: "skill" | "mcp" | "plugin",
     manifest: Record<string, unknown>,
+    approvedPreviewDigest: string,
   ): Promise<CatalogRecordV2>;
   setExtensionState?(
     packageId: string,

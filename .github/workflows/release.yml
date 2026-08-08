@@ -354,41 +354,33 @@ jobs:
   clean-machine-windows:
     needs: desktop-windows
     runs-on: windows-2025
+    timeout-minutes: 30
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: restork-desktop-windows-signed
           path: candidate
-      - name: Verify, silently install, launch, and preserve user data on uninstall
+      - name: Verify both signed Windows installer lifecycles
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $installer = Get-ChildItem candidate/*-setup.exe | Select-Object -First 1
-          if ((Get-AuthenticodeSignature $installer.FullName).Status -ne 'Valid') { throw 'Downloaded installer signature is invalid' }
-          Start-Process $installer.FullName -ArgumentList '/S' -Wait
-          $application = Join-Path $env:LOCALAPPDATA 'Restork\Restork.exe'
-          $uninstaller = Join-Path $env:LOCALAPPDATA 'Restork\uninstall.exe'
-          if (-not (Test-Path $application) -or -not (Test-Path $uninstaller)) { throw 'Restork was not installed in the per-user location' }
-          $process = Start-Process $application -PassThru
-          $diagnostics = Join-Path $env:LOCALAPPDATA 'io.github.totoro-qaq.restork\logs\desktop-events.jsonl'
-          $ready = $false
-          for ($attempt = 0; $attempt -lt 120; $attempt++) {
-            if ($process.HasExited) { throw 'Restork exited during clean-machine launch' }
-            if ((Test-Path $diagnostics) -and (Select-String -Path $diagnostics -SimpleMatch '"event":"browser_session_stored"' -Quiet)) {
-              $ready = $true
-              break
-            }
-            Start-Sleep -Milliseconds 250
-          }
-          if (-not $ready) { throw 'Restork did not complete Core readiness and browser pairing' }
-          Stop-Process -Id $process.Id -Force
-          Start-Sleep -Seconds 2
-          if (Get-Process restorkd -ErrorAction SilentlyContinue) { throw 'Restork Core survived its desktop owner' }
-          $data = Join-Path $env:APPDATA 'io.github.totoro-qaq.restork'
-          New-Item -ItemType Directory -Force $data | Out-Null
-          Set-Content -Path (Join-Path $data 'clean-machine-sentinel') -Value 'preserve'
-          Start-Process $uninstaller -ArgumentList '/S' -Wait
-          if (-not (Test-Path (Join-Path $data 'clean-machine-sentinel'))) { throw 'Uninstall removed user data without a preservation choice' }
+          $nsis = Get-ChildItem candidate/*-setup.exe | Select-Object -First 1
+          $msi = Get-ChildItem candidate/*.msi | Select-Object -First 1
+          if ($null -eq $nsis -or $null -eq $msi) { throw 'Expected both NSIS and MSI installers' }
+          ./scripts/smoke-desktop-windows.ps1 `
+            -NsisInstaller $nsis.FullName `
+            -MsiInstaller $msi.FullName `
+            -ArtifactDirectory (Join-Path $env:RUNNER_TEMP 'restork-windows-e2e') `
+            -RequireAuthenticode
+      - name: Upload Windows clean-machine diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: restork-desktop-windows-clean-machine-diagnostics
+          path: ${{ runner.temp }}/restork-windows-e2e/
+          if-no-files-found: error
+          retention-days: 30
 
   clean-machine-linux:
     needs: desktop-linux

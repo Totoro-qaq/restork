@@ -16,12 +16,12 @@ fi
 
 find_desktop_pid() {
   /bin/ps -axo pid=,command= | /usr/bin/awk -v target="$main_binary" \
-    '$2 == target && NF == 2 { print $1; exit }'
+    '$2 == target && NF == 2 && !found { print $1; found = 1 }'
 }
 
 find_core_pid() {
   /bin/ps -axo pid=,command= | /usr/bin/awk -v target="$core_binary" \
-    '$2 == target { print $1; exit }'
+    '$2 == target && !found { print $1; found = 1 }'
 }
 
 exact_process_running() {
@@ -66,7 +66,7 @@ wait_for_event() {
   local attempts="$3"
   for (( attempt = 1; attempt <= attempts; attempt++ )); do
     if [[ -f "$diagnostics" ]] && /usr/bin/tail -n "+$((after_line + 1))" "$diagnostics" \
-      | /usr/bin/grep -q "\"event\":\"$event\""; then
+      | /usr/bin/grep "\"event\":\"$event\"" >/dev/null; then
       return 0
     fi
     sleep 0.1

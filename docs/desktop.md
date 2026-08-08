@@ -126,8 +126,9 @@ The protected tag workflow now defines the complete three-platform gate:
 
 - macOS Developer ID signing, notarization, stapling, Gatekeeper assessment, updater signing, and a
   fresh-runner DMG verification;
-- Windows Authenticode plus timestamping for NSIS/MSI, updater signing, and fresh-runner install,
-  launch, uninstall, and user-data-preservation checks;
+- Windows Authenticode plus timestamping for NSIS/MSI, updater signing, and fresh-runner checks for
+  both installer formats: silent install, Core readiness, direct child-process ownership, Job Object
+  cleanup after desktop loss, uninstall, executable removal, and user-data preservation;
 - Linux GPG/AppImage and detached package signatures, updater signing, and fresh-runner install,
   launch, uninstall, and user-data-preservation checks;
 - target-scoped updater metadata, CycloneDX SBOM, SHA-256 ledger, signed checksums, and GitHub build

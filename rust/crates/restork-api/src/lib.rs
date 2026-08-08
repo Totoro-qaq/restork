@@ -22,6 +22,7 @@ mod config_api;
 mod daily_api;
 mod feature_api;
 mod session_api;
+mod vault_api;
 
 use automation_api::*;
 use catalog_api::*;
@@ -404,6 +405,22 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
     },
     ApiRouteDescription {
         path: "/v1/search",
+        methods: &["GET"],
+    },
+    ApiRouteDescription {
+        path: "/v1/vault/files",
+        methods: &["GET"],
+    },
+    ApiRouteDescription {
+        path: "/v1/vault/search",
+        methods: &["GET"],
+    },
+    ApiRouteDescription {
+        path: "/v1/vault/note",
+        methods: &["GET"],
+    },
+    ApiRouteDescription {
+        path: "/v1/vault/events",
         methods: &["GET"],
     },
     ApiRouteDescription {
@@ -1430,6 +1447,10 @@ fn build_router(state: ApiState) -> Router {
         .route("/v1/sessions", get(list_sessions).post(create_session))
         .route("/v1/sessions/search", get(search_sessions))
         .route("/v1/search", get(feature_api::search_workspace))
+        .route("/v1/vault/files", get(vault_api::list_vault_notes))
+        .route("/v1/vault/search", get(vault_api::search_vault_notes))
+        .route("/v1/vault/note", get(vault_api::read_vault_note))
+        .route("/v1/vault/events", get(vault_api::vault_events))
         .route(
             "/v1/sessions/{session_id}/fork",
             axum::routing::post(fork_session),

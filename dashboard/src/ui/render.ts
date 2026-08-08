@@ -1,6 +1,7 @@
 import type {
   ApprovalRequest,
   CalendarEvent,
+  CatalogRecordV2,
   ConversationTurn,
   DashboardSnapshot,
   DomainKey,
@@ -30,6 +31,9 @@ import type {
   SessionMessageV2,
   ToolCallPreviewV2,
   ToolSearchResultV2,
+  VaultNoteMetadataV2,
+  VaultNotePreviewV2,
+  VaultSearchHitV2,
 } from "../api/types";
 import type { Locale } from "../i18n";
 import { alternateLocale, plural, tr } from "../i18n";
@@ -88,6 +92,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
           ${navButton("runs", "›", tr(locale, "Runs", "运行"), false, active.length)}
           ${navButton("approvals", "✓", tr(locale, "Approvals", "审批"), false, pending.length)}
           ${navButton("tasks", "□", tr(locale, "Tasks", "任务"), false, incomplete.length)}
+          ${navButton("vault", "K", tr(locale, "Knowledge", "知识库"), false)}
           ${navButton("radar", "◇", tr(locale, "Radar", "雷达"), false, snapshot.radar.items.length)}
           ${navButton("memory", "M", tr(locale, "Memory", "记忆"), false, memories.length)}
           ${v2 ? navButton("conversation", "C", tr(locale, "Conversation", "对话"), false, v2.sessions.length) : ""}
@@ -174,6 +179,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
         <section class="view" data-view-panel="runs" hidden>${runsView(snapshot, locale)}</section>
         <section class="view" data-view-panel="approvals" hidden>${approvalsView(snapshot, locale)}</section>
         <section class="view" data-view-panel="tasks" hidden>${tasksView(snapshot, locale)}</section>
+        <section class="view" data-view-panel="vault" hidden>${vaultWorkspace(snapshot, locale)}</section>
         <section class="view" data-view-panel="radar" hidden>${radarView(snapshot, locale)}</section>
         <section class="view" data-view-panel="memory" hidden>${memoryView(snapshot, locale)}</section>
         ${v2 ? `<section class="view" data-view-panel="conversation" hidden>${conversationWorkspace(snapshot, locale)}</section>` : ""}
@@ -183,6 +189,110 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
         ${v2 ? `<section class="view" data-view-panel="settings" hidden>${personalSettingsWorkspace(snapshot, locale)}</section>` : ""}
       </main>
     </section>`;
+}
+
+function vaultWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
+  const configured = snapshot.taskBoard.configured;
+  return `<article class="paper-card full-card vault-workspace">
+    <header class="vault-heading">
+      <div><p class="eyebrow">OBSIDIAN VAULT · ${tr(locale, "LOCAL READ-ONLY BROWSER", "本地只读浏览")}</p><h2>${tr(locale, "Knowledge library", "知识库")}</h2></div>
+      <span id="vault-live-badge" class="ribbon ${configured ? "study" : "work"}">${configured ? tr(locale, "CONNECTING", "连接中") : tr(locale, "NOT CONFIGURED", "未配置")}</span>
+    </header>
+    <p class="vault-boundary">${tr(
+      locale,
+      "Search and preview only the Markdown files inside the Vault you explicitly granted. Hidden Obsidian settings, symlinks, absolute paths and oversized notes stay outside this view.",
+      "仅搜索和预览你明确授权的 Vault 内 Markdown 文件；Obsidian 隐藏设置、符号链接、绝对路径和超大笔记不会进入此视图。",
+    )}</p>
+    <form id="vault-search-form" class="vault-search">
+      <label for="vault-search">${tr(locale, "Search note names and contents", "搜索笔记名称与正文")}</label>
+      <div><input id="vault-search" name="query" maxlength="512" autocomplete="off" placeholder="${tr(locale, "e.g. durable agent loop", "例如：持久化 Agent 循环")}" ${configured ? "" : "disabled"}><button type="submit" ${configured ? "" : "disabled"}>${tr(locale, "SEARCH", "搜索")}</button><button type="button" class="quiet-button" data-vault-clear ${configured ? "" : "disabled"}>${tr(locale, "ALL FILES", "全部文件")}</button></div>
+    </form>
+    <div class="vault-live-line"><i aria-hidden="true"></i><span id="vault-live-status" role="status" aria-live="polite">${configured ? tr(locale, "Opening the local Vault…", "正在打开本地 Vault……") : tr(locale, "Choose a Vault in Settings and restart Restork.", "请在设置中选择 Vault 后重启 Restork。")}</span></div>
+    <div class="vault-browser" aria-busy="${configured ? "true" : "false"}">
+      <aside class="vault-files" aria-label="${tr(locale, "Vault files", "Vault 文件")}">
+        <div class="vault-files-heading"><strong>${tr(locale, "NOTES", "笔记")}</strong><span id="vault-file-count">—</span></div>
+        <div id="vault-file-list" class="vault-file-list" data-roving-group>${configured ? `<p class="empty">${tr(locale, "Reading the safe file index…", "正在读取安全文件索引……")}</p>` : `<p class="empty">${tr(locale, "No Vault is connected.", "尚未连接 Vault。")}</p>`}</div>
+      </aside>
+      <section id="vault-preview" class="vault-preview" aria-live="polite">
+        <div class="vault-preview-empty"><span aria-hidden="true">K</span><h3>${tr(locale, "Select a Markdown note", "选择一篇 Markdown 笔记")}</h3><p>${tr(locale, "The preview is read-only and never executes embedded HTML or scripts.", "预览为只读，不会执行笔记内嵌的 HTML 或脚本。")}</p></div>
+      </section>
+    </div>
+  </article>`;
+}
+
+export function vaultFileListMarkup(
+  items: Array<VaultNoteMetadataV2 | VaultSearchHitV2>,
+  total: number,
+  hasMore: boolean,
+  locale: Locale,
+  query = "",
+): string {
+  const label = query
+    ? tr(locale, `${items.length} matches for “${query}”`, `“${query}” 的 ${items.length} 条结果`)
+    : tr(locale, `${total} Markdown notes`, `${total} 篇 Markdown 笔记`);
+  const rows = items.map((item) => {
+    const path = item.relative_path;
+    const segments = path.split("/");
+    const name = segments.pop() ?? path;
+    const folder = segments.join("/") || tr(locale, "Vault root", "Vault 根目录");
+    const detail = "excerpt" in item
+      ? item.excerpt
+      : `${formatBytes(item.byte_count)} · ${formatTimestamp(item.modified_unix_ms, locale)}`;
+    return `<button type="button" class="vault-file" data-vault-path="${escapeHtml(path)}" title="${escapeHtml(path)}"><span aria-hidden="true">¶</span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(folder)}</small><em>${escapeHtml(detail)}</em></button>`;
+  }).join("");
+  return `<div class="vault-result-label">${escapeHtml(label)}</div>${rows || `<p class="empty">${tr(locale, "No matching Markdown notes.", "没有匹配的 Markdown 笔记。")}</p>`}${hasMore && !query ? `<button type="button" class="quiet-button vault-load-more" data-vault-load-more>${tr(locale, "LOAD MORE", "加载更多")}</button>` : ""}`;
+}
+
+export function vaultNotePreviewMarkup(note: VaultNotePreviewV2, locale: Locale): string {
+  const shortHash = note.sha256.slice(0, 12);
+  return `<article class="vault-note" data-vault-preview-path="${escapeHtml(note.relative_path)}">
+    <header><div><p class="eyebrow">${tr(locale, "READ-ONLY PREVIEW", "只读预览")}</p><h3>${escapeHtml(note.relative_path.split("/").pop() ?? note.relative_path)}</h3><small>${escapeHtml(note.relative_path)}</small></div><span>${formatBytes(note.byte_count)} · SHA-256 ${escapeHtml(shortHash)}…</span></header>
+    <div class="vault-untrusted"><b>${tr(locale, "UNTRUSTED NOTE CONTENT", "不受信任的笔记内容")}</b><span>${tr(locale, "Rendered as inert text; embedded HTML and scripts are never executed.", "仅以惰性文本渲染；内嵌 HTML 与脚本永不执行。")}</span></div>
+    <section class="vault-reading-view" aria-label="${tr(locale, "Rendered Markdown preview", "Markdown 阅读预览")}">${safeMarkdownPreview(note.content)}</section>
+    <details class="vault-source"><summary>${tr(locale, "VIEW MARKDOWN SOURCE", "查看 Markdown 源文件")}</summary><pre>${escapeHtml(note.content)}</pre></details>
+  </article>`;
+}
+
+function safeMarkdownPreview(markdown: string): string {
+  let fenced = false;
+  return markdown.split(/\r?\n/).map((line) => {
+    if (/^\s*```/.test(line)) {
+      fenced = !fenced;
+      return `<div class="vault-code-fence" aria-hidden="true">${fenced ? "CODE" : "END"}</div>`;
+    }
+    if (fenced) return `<pre class="vault-code-line"><code>${escapeHtml(line)}</code></pre>`;
+    if (!line.trim()) return `<div class="vault-markdown-space" aria-hidden="true"></div>`;
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      const level = Math.min(6, heading[1].length + 1);
+      return `<h${level}>${safeMarkdownInline(heading[2])}</h${level}>`;
+    }
+    const task = /^\s*[-*]\s+\[([ xX])\]\s+(.+)$/.exec(line);
+    if (task) return `<p class="vault-task"><span aria-hidden="true">${task[1].toLowerCase() === "x" ? "☑" : "☐"}</span>${safeMarkdownInline(task[2])}</p>`;
+    const bullet = /^\s*[-*+]\s+(.+)$/.exec(line);
+    if (bullet) return `<p class="vault-bullet"><span aria-hidden="true">•</span>${safeMarkdownInline(bullet[1])}</p>`;
+    const quote = /^\s*>\s?(.*)$/.exec(line);
+    if (quote) return `<blockquote>${safeMarkdownInline(quote[1])}</blockquote>`;
+    return `<p>${safeMarkdownInline(line)}</p>`;
+  }).join("");
+}
+
+function safeMarkdownInline(value: string): string {
+  return escapeHtml(value)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[\[([^\]]+)\]\]/g, '<span class="vault-wikilink">[[$1]]</span>');
+}
+
+function formatBytes(value: number): string {
+  if (value < 1_024) return `${value} B`;
+  if (value < 1_048_576) return `${(value / 1_024).toFixed(value < 10_240 ? 1 : 0)} KB`;
+  return `${(value / 1_048_576).toFixed(1)} MB`;
+}
+
+function formatTimestamp(value: number, locale: Locale): string {
+  if (!Number.isFinite(value) || value <= 0) return tr(locale, "unknown time", "未知时间");
+  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
 function mailIndicator(snapshot: DashboardSnapshot, locale: Locale): string {
@@ -353,12 +463,147 @@ function conversationWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
 function extensionsWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
   const records = snapshot.workspaceV2?.extensions ?? [];
   const sessions = snapshot.workspaceV2?.sessions.filter((session) => session.status === "active") ?? [];
+  const tools = records.flatMap(extensionTools);
+  const enabled = records.filter((record) => record.state === "enabled").length;
   return `<article class="paper-card full-card catalog-workspace"><header><div><p class="eyebrow">EXTENSION CENTER</p><h2>${tr(locale, "Skills, MCP & plugins", "Skills、MCP 与插件")}</h2></div><span class="ribbon research">${tr(locale, "GOVERNED", "受控")}</span></header>
+    <div class="extension-overview" aria-label="${tr(locale, "Extension status", "扩展状态")}">
+      <article><small>${tr(locale, "Installed", "已安装")}</small><strong>${records.length}</strong><span>${tr(locale, "pinned manifests", "份固定清单")}</span></article>
+      <article><small>${tr(locale, "Enabled", "已启用")}</small><strong>${enabled}</strong><span>${tr(locale, "available to profiles", "可供 Profile 使用")}</span></article>
+      <article><small>${tr(locale, "Visible tools", "可见工具")}</small><strong>${tools.length}</strong><span>${tr(locale, "declared, not automatically granted", "已声明，不会自动授权")}</span></article>
+    </div>
     <div class="catalog-toolbar" role="group" data-roving-group data-roving-orientation="horizontal" aria-label="${tr(locale, "Filter extensions", "筛选扩展")}"><button type="button" class="is-active" aria-pressed="true" data-extension-filter="all">${tr(locale, "All", "全部")}</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="skill">Skills</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="mcp">MCP</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="plugin">Plugins</button></div>
-    <div class="catalog-grid extension-grid">${records.map((record) => `<article data-extension-card-kind="${escapeHtml(record.package_kind ?? "unknown")}"><strong>${escapeHtml(record.package_id ?? "extension")}</strong><span>${escapeHtml(record.package_kind ?? "extension")} · ${escapeHtml(record.state)}</span><small>${escapeHtml(record.manifest_hash?.slice(0, 16) ?? "no hash")}… · ${formatDate(record.updated_at, locale)}</small><details><summary>${tr(locale, "Manifest", "清单")}</summary><pre>${prettyJson(record.manifest)}</pre></details>${record.manifest_hash ? `<div class="record-actions"><button type="button" data-extension-state="${record.state === "enabled" ? "disable" : "enable"}" data-extension-id="${escapeHtml(record.package_id ?? "")}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${record.state === "enabled" ? tr(locale, "DISABLE", "停用") : tr(locale, "REVIEW & ENABLE", "审查并启用")}</button><button type="button" class="quiet-button" data-extension-history data-extension-id="${escapeHtml(record.package_id ?? "")}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${tr(locale, "VERSIONS & ROLLBACK", "版本与回滚")}</button></div><div class="extension-history" data-extension-history-results role="status"></div>` : ""}</article>`).join("") || `<p class="empty">${tr(locale, "No extensions installed. Safe Mode remains blank by default.", "尚未安装扩展；安全模式默认保持空白。")}</p>`}</div>
-    <div class="catalog-compose-grid"><form id="extension-install-form"><h3>${tr(locale, "Install a pinned manifest", "安装已固定版本的清单")}</h3><label>${tr(locale, "Package type", "包类型")}<select name="package_kind"><option value="skill">Skill</option><option value="mcp">MCP</option><option value="plugin">Plugin</option></select></label><label class="wide-label">JSON<textarea name="manifest" rows="12" maxlength="2000000" required spellcheck="false" placeholder='{"schema_version":1}'></textarea></label><button type="submit">${tr(locale, "VALIDATE & QUARANTINE", "验证并隔离")}</button><p id="extension-install-status" role="status"></p></form>
+    <div class="catalog-grid extension-grid">${records.map((record) => extensionCard(record, locale)).join("") || `<p class="empty">${tr(locale, "No extensions installed. Safe Mode remains blank by default.", "尚未安装扩展；安全模式默认保持空白。")}</p>`}</div>
+    <section class="tool-inventory" aria-labelledby="tool-inventory-title">
+      <header><div><small>MCP TOOL CATALOG</small><h3 id="tool-inventory-title">${tr(locale, "Declared tools", "已声明工具")}</h3></div><span>${tools.length}</span></header>
+      <p>${tr(locale, "Like Codex, Restork separates extension installation from the tools a session may actually use. A tool appears here when declared; it runs only after its package is enabled, the Profile grants it, and you approve the exact call.", "与 Codex 类似，Restork 会区分扩展安装和会话真正可用的工具。工具在清单声明后会显示在这里；只有扩展已启用、Profile 已授权且你批准了精确调用后，它才会运行。")}</p>
+      <div class="tool-inventory-grid">${tools.map((tool) => `<article><div><strong>${escapeHtml(tool.name)}</strong><span class="extension-state ${tool.enabled ? "is-enabled" : ""}">${tool.enabled ? tr(locale, "ENABLED PACKAGE", "扩展已启用") : tr(locale, "NOT ENABLED", "尚未启用")}</span></div><code>${escapeHtml(tool.id)}</code><small>${escapeHtml(tool.packageId)} · ${escapeHtml(tool.serverId)}</small><p>${escapeHtml(tool.description || tr(locale, "No description in the manifest.", "清单未提供说明。"))}</p><div class="extension-chips">${tool.profiles.map((profile) => `<span>${tr(locale, "Profile", "Profile")} · ${escapeHtml(profile)}</span>`).join("") || `<span>${tr(locale, "No Profile binding", "未绑定 Profile")}</span>`}${tool.permissions.map((permission) => `<span>${escapeHtml(permission)}</span>`).join("")}</div></article>`).join("") || `<p class="empty">${tr(locale, "No MCP tool is declared by the installed manifests.", "已安装清单尚未声明 MCP 工具。")}</p>`}</div>
+    </section>
+    <div class="catalog-compose-grid"><form id="extension-install-form"><h3>${tr(locale, "Install a pinned manifest", "安装已固定版本的清单")}</h3><label>${tr(locale, "Package type", "包类型")}<select name="package_kind"><option value="skill">Skill</option><option value="mcp">MCP</option><option value="plugin">Plugin</option></select></label><label class="wide-label">JSON<textarea name="manifest" rows="12" maxlength="2000000" required spellcheck="false" placeholder='{"schema_version":1}'></textarea></label><button type="submit">${tr(locale, "VALIDATE & REVIEW", "验证并审查")}</button><div id="extension-install-status" role="status" aria-live="polite"></div></form>
     <form id="extension-tool-search-form"><h3>${tr(locale, "Session tool search", "会话工具搜索")}</h3><label>${tr(locale, "Conversation", "对话")}<select name="session_id">${sessions.map((session) => `<option value="${escapeHtml(session.session_id)}">${escapeHtml(session.title)}</option>`).join("")}</select></label><label>${tr(locale, "Query", "查询")}<input name="query" maxlength="512" required></label><button type="submit" ${sessions.length ? "" : "disabled"}>${tr(locale, "SEARCH FROZEN CATALOG", "搜索冻结目录")}</button><div id="extension-tool-results"></div></form></div>
     <p class="fine">${tr(locale, "Packages begin quarantined. Exact source, license, hash, permissions, secrets, transports, and tools must be reviewed before enablement. Dynamic npx, shell interpolation, and ambient environment inheritance are rejected by Core.", "扩展初始处于隔离状态；启用前必须审查精确来源、许可证、哈希、权限、Secret 引用、传输方式与工具。Core 会拒绝动态 npx、Shell 插值和环境变量继承。")}</p></article>`;
+}
+
+interface ExtensionToolSummary {
+  id: string;
+  name: string;
+  description: string;
+  packageId: string;
+  serverId: string;
+  profiles: string[];
+  permissions: string[];
+  enabled: boolean;
+}
+
+function extensionTools(record: CatalogRecordV2): ExtensionToolSummary[] {
+  const manifest = record.manifest ?? {};
+  const packageId = stringValue(manifest.id) || record.package_id || "extension";
+  const profiles = stringArray(manifest.enabled_profiles);
+  const permissions = stringArray(manifest.requested_permissions);
+  const direct = objectArray(manifest.tools).map((tool) => extensionToolSummary(
+    tool,
+    packageId,
+    packageId,
+    profiles,
+    permissions,
+    record.state === "enabled",
+  ));
+  const nested = objectArray(manifest.mcp_servers).flatMap((server) => {
+    const serverId = stringValue(server.id) || packageId;
+    const serverPermissions = [...permissions, ...stringArray(server.requested_permissions)];
+    return objectArray(server.tools).map((tool) => extensionToolSummary(
+      tool,
+      packageId,
+      serverId,
+      profiles,
+      [...new Set(serverPermissions)],
+      record.state === "enabled",
+    ));
+  });
+  return [...direct, ...nested];
+}
+
+function extensionToolSummary(
+  tool: Record<string, unknown>,
+  packageId: string,
+  serverId: string,
+  profiles: string[],
+  permissions: string[],
+  enabled: boolean,
+): ExtensionToolSummary {
+  const id = stringValue(tool.id) || stringValue(tool.name) || "unnamed-tool";
+  return {
+    id,
+    name: stringValue(tool.name) || id,
+    description: stringValue(tool.description),
+    packageId,
+    serverId,
+    profiles,
+    permissions,
+    enabled,
+  };
+}
+
+function extensionCard(record: CatalogRecordV2, locale: Locale): string {
+  const manifest = record.manifest ?? {};
+  const kind = record.package_kind ?? "unknown";
+  const tools = extensionTools(record);
+  const profiles = stringArray(manifest.enabled_profiles);
+  const permissions = stringArray(manifest.requested_permissions);
+  const version = stringValue(manifest.version) || tr(locale, "unknown version", "未知版本");
+  const procedure = stringValue(manifest.procedure);
+  const transport = transportLabel(manifest.transport);
+  const source = sourceLabel(manifest.provenance);
+  const summary = kind === "skill"
+    ? procedure || tr(locale, "Prompt procedure declared by this Skill.", "此 Skill 声明的 Prompt 流程。")
+    : kind === "mcp"
+      ? `${transport || tr(locale, "No transport", "未声明传输")} · ${tools.length} ${tr(locale, "tools", "个工具")}`
+      : `${objectArray(manifest.skills).length} Skills · ${objectArray(manifest.mcp_servers).length} MCP`;
+  return `<article class="extension-card" data-extension-card-kind="${escapeHtml(kind)}">
+    <header><div><small>${escapeHtml(kind.toUpperCase())} · ${escapeHtml(version)}</small><strong>${escapeHtml(record.package_id ?? "extension")}</strong></div><span class="extension-state ${record.state === "enabled" ? "is-enabled" : ""}">${escapeHtml(record.state)}</span></header>
+    <p>${escapeHtml(summary)}</p>
+    <dl><div><dt>${tr(locale, "Source", "来源")}</dt><dd>${escapeHtml(source || tr(locale, "Not declared", "未声明"))}</dd></div><div><dt>${tr(locale, "Profiles", "Profiles")}</dt><dd>${escapeHtml(profiles.join(", ") || tr(locale, "None", "无"))}</dd></div><div><dt>${tr(locale, "Permissions", "权限")}</dt><dd>${escapeHtml(permissions.join(", ") || tr(locale, "None requested", "未申请"))}</dd></div></dl>
+    ${tools.length ? `<div class="extension-chips">${tools.map((tool) => `<span>${escapeHtml(tool.id)}</span>`).join("")}</div>` : ""}
+    <small>${escapeHtml(record.manifest_hash?.slice(0, 16) ?? "no hash")}… · ${formatDate(record.updated_at, locale)}</small>
+    <details><summary>${tr(locale, "Inspect manifest", "检查清单")}</summary><pre>${prettyJson(record.manifest)}</pre></details>
+    ${record.manifest_hash ? `<div class="record-actions"><button type="button" data-extension-state="${record.state === "enabled" ? "disable" : "enable"}" data-extension-id="${escapeHtml(record.package_id ?? "")}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${record.state === "enabled" ? tr(locale, "DISABLE", "停用") : tr(locale, "REVIEW & ENABLE", "审查并启用")}</button><button type="button" class="quiet-button" data-extension-history data-extension-id="${escapeHtml(record.package_id ?? "")}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${tr(locale, "VERSIONS & ROLLBACK", "版本与回滚")}</button></div><div class="extension-history" data-extension-history-results role="status"></div>` : ""}
+  </article>`;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function objectArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+}
+
+function transportLabel(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const record = value as Record<string, unknown>;
+  const kind = stringValue(record.kind);
+  const command = stringValue(record.command);
+  const url = stringValue(record.url);
+  return [kind, command || url].filter(Boolean).join(" · ");
+}
+
+function sourceLabel(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const provenance = value as Record<string, unknown>;
+  const source = provenance.source;
+  const license = stringValue(provenance.license);
+  if (!source || typeof source !== "object" || Array.isArray(source)) return license;
+  const sourceRecord = source as Record<string, unknown>;
+  return [
+    stringValue(sourceRecord.kind),
+    stringValue(sourceRecord.catalog_id) || stringValue(sourceRecord.path) || stringValue(sourceRecord.url),
+    license,
+  ].filter(Boolean).join(" · ");
 }
 
 function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
@@ -366,9 +611,9 @@ function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
   const reports = records.filter((record) => record.kind === "daily_report" || record.kind === "weekly_report");
   return `<article class="paper-card full-card catalog-workspace"><header><div><p class="eyebrow">DELIVERABLES</p><h2>${tr(locale, "Reports & presentations", "报告与演示文稿")}</h2></div><span class="ribbon work">${tr(locale, "EVIDENCE FIRST", "证据优先")}</span></header>
     <div class="catalog-grid deliverable-grid">${records.map((record) => { const markdown = typeof record.artifact?.markdown === "string" ? record.artifact.markdown : null; const renderActions = record.kind === "deck" ? `<div class="record-actions"><button type="button" data-render-format="pptx" data-render-id="${escapeHtml(record.deliverable_id ?? "")}" data-render-revision="${record.revision ?? 1}">${tr(locale, "REVIEW PPTX", "审查 PPTX")}</button><button type="button" data-render-format="pdf" data-render-id="${escapeHtml(record.deliverable_id ?? "")}" data-render-revision="${record.revision ?? 1}">${tr(locale, "REVIEW PDF", "审查 PDF")}</button></div>` : ""; return `<article><strong>${escapeHtml(record.deliverable_id ?? "deliverable")}</strong><span>${escapeHtml(record.kind ?? "artifact")} · ${escapeHtml(record.state)}</span><small>v${record.revision ?? 1} · ${formatDate(record.updated_at, locale)}</small><details><summary>${markdown ? tr(locale, "Markdown preview", "Markdown 预览") : tr(locale, "DeckSpec preview", "DeckSpec 预览")}</summary><pre class="deliverable-preview">${markdown ? escapeHtml(markdown) : prettyJson(record.artifact)}</pre></details>${renderActions}</article>`; }).join("") || `<p class="empty">${tr(locale, "Create an evidence-labelled report draft to begin.", "先创建一份带证据标签的报告草稿。")}</p>`}</div>
-    <div class="catalog-compose-grid"><form id="manual-report-form"><h3>${tr(locale, "Daily / weekly report draft", "日报 / 周报草稿")}</h3><label>ID<input name="report_id" required maxlength="128" pattern="[A-Za-z0-9:._-]+" value="report-${new Date().toISOString().slice(0, 10)}"></label><label>${tr(locale, "Kind", "类型")}<select name="kind"><option value="daily">${tr(locale, "Daily", "日报")}</option><option value="weekly">${tr(locale, "Weekly", "周报")}</option></select></label><label>${tr(locale, "Title", "标题")}<input name="title" required maxlength="300" value="${tr(locale, "Daily report", "日报")}"></label><label>${tr(locale, "Section", "章节")}<select name="section"><option value="completed">${tr(locale, "Completed", "已完成")}</option><option value="progress">${tr(locale, "Progress", "进展")}</option><option value="decisions">${tr(locale, "Decisions", "决策")}</option><option value="blockers">${tr(locale, "Blockers", "阻塞")}</option><option value="next">${tr(locale, "Next", "下一步")}</option><option value="notes">${tr(locale, "Notes", "备注")}</option></select></label><label class="wide-label">${tr(locale, "One explicit assertion per line", "每行一条明确自述")}<textarea name="entries" rows="8" maxlength="200000" required></textarea></label><button type="submit">${tr(locale, "BUILD REVIEWABLE DRAFT", "生成可审查草稿")}</button><p id="manual-report-status" role="status"></p></form>
+    <div class="catalog-compose-grid"><form id="manual-report-form"><h3>${tr(locale, "Daily / weekly report draft", "日报 / 周报草稿")}</h3><label>ID<input name="report_id" required maxlength="128" pattern="[A-Za-z0-9:._\\-]+" value="report-${new Date().toISOString().slice(0, 10)}"></label><label>${tr(locale, "Kind", "类型")}<select name="kind"><option value="daily">${tr(locale, "Daily", "日报")}</option><option value="weekly">${tr(locale, "Weekly", "周报")}</option></select></label><label>${tr(locale, "Title", "标题")}<input name="title" required maxlength="300" value="${tr(locale, "Daily report", "日报")}"></label><label>${tr(locale, "Section", "章节")}<select name="section"><option value="completed">${tr(locale, "Completed", "已完成")}</option><option value="progress">${tr(locale, "Progress", "进展")}</option><option value="decisions">${tr(locale, "Decisions", "决策")}</option><option value="blockers">${tr(locale, "Blockers", "阻塞")}</option><option value="next">${tr(locale, "Next", "下一步")}</option><option value="notes">${tr(locale, "Notes", "备注")}</option></select></label><label class="wide-label">${tr(locale, "One explicit assertion per line", "每行一条明确自述")}<textarea name="entries" rows="8" maxlength="200000" required></textarea></label><button type="submit">${tr(locale, "BUILD REVIEWABLE DRAFT", "生成可审查草稿")}</button><p id="manual-report-status" role="status"></p></form>
     ${aiReportForm(snapshot, locale)}
-    <form id="deck-from-report-form"><h3>${tr(locale, "Presentation outline", "演示文稿大纲")}</h3><label>ID<input name="deck_id" required maxlength="128" pattern="[A-Za-z0-9:._-]+" value="deck-${new Date().toISOString().slice(0, 10)}"></label><label>${tr(locale, "Source report", "来源报告")}<select name="report">${reports.map((record) => `<option value="${escapeHtml(record.deliverable_id ?? "")}" data-revision="${record.revision ?? 1}">${escapeHtml(record.deliverable_id ?? "report")} · v${record.revision ?? 1}</option>`).join("")}</select></label><label>${tr(locale, "Audience", "受众")}<input name="audience" required maxlength="120" value="team"></label><label>${tr(locale, "Purpose", "目的")}<input name="purpose" required maxlength="300" value="${tr(locale, "Review and decision", "复盘与决策")}"></label><label>${tr(locale, "Expertise", "专业程度")}<input name="expertise" required maxlength="300" value="${tr(locale, "Mixed", "混合")}"></label><button type="submit" ${reports.length ? "" : "disabled"}>${tr(locale, "FREEZE OUTLINE", "冻结大纲")}</button><p id="deck-from-report-status" role="status"></p><p class="fine">${tr(locale, "PPTX/PDF rendering is deterministic and macro-free. Restork shows the exact artifact hash before download approval.", "PPTX/PDF 渲染可复现且不含宏；下载批准前 Restork 会展示精确的产物哈希。")}</p></form></div></article>`;
+    <form id="deck-from-report-form"><h3>${tr(locale, "Presentation outline", "演示文稿大纲")}</h3><label>ID<input name="deck_id" required maxlength="128" pattern="[A-Za-z0-9:._\\-]+" value="deck-${new Date().toISOString().slice(0, 10)}"></label><label>${tr(locale, "Source report", "来源报告")}<select name="report">${reports.map((record) => `<option value="${escapeHtml(record.deliverable_id ?? "")}" data-revision="${record.revision ?? 1}">${escapeHtml(record.deliverable_id ?? "report")} · v${record.revision ?? 1}</option>`).join("")}</select></label><label>${tr(locale, "Audience", "受众")}<input name="audience" required maxlength="120" value="team"></label><label>${tr(locale, "Purpose", "目的")}<input name="purpose" required maxlength="300" value="${tr(locale, "Review and decision", "复盘与决策")}"></label><label>${tr(locale, "Expertise", "专业程度")}<input name="expertise" required maxlength="300" value="${tr(locale, "Mixed", "混合")}"></label><button type="submit" ${reports.length ? "" : "disabled"}>${tr(locale, "FREEZE OUTLINE", "冻结大纲")}</button><p id="deck-from-report-status" role="status"></p><p class="fine">${tr(locale, "PPTX/PDF rendering is deterministic and macro-free. Restork shows the exact artifact hash before download approval.", "PPTX/PDF 渲染可复现且不含宏；下载批准前 Restork 会展示精确的产物哈希。")}</p></form></div></article>`;
 }
 
 function aiReportForm(snapshot: DashboardSnapshot, locale: Locale): string {
@@ -376,7 +621,7 @@ function aiReportForm(snapshot: DashboardSnapshot, locale: Locale): string {
   const options = providers.map((record) => `<option value="${escapeHtml(record.provider.profile_id)}">${escapeHtml(record.provider.display_name)} · ${escapeHtml(record.provider.model)}</option>`).join("");
   const noProvider = providers.length === 0;
   return `<form id="ai-report-form"><h3>${tr(locale, "AI draft from recent runs", "AI 起草近期运行")}</h3>
-    <label>ID<input name="report_id" required maxlength="128" pattern="[A-Za-z0-9:._-]+" value="report-ai-${new Date().toISOString().slice(0, 10)}"></label>
+    <label>ID<input name="report_id" required maxlength="128" pattern="[A-Za-z0-9:._\\-]+" value="report-ai-${new Date().toISOString().slice(0, 10)}"></label>
     <label>${tr(locale, "Kind", "类型")}<select name="kind"><option value="daily">${tr(locale, "Daily", "日报")}</option><option value="weekly">${tr(locale, "Weekly", "周报")}</option></select></label>
     <label>${tr(locale, "Title", "标题")}<input name="title" required maxlength="300" value="${tr(locale, "AI report", "AI 报告")}"></label>
     <label>${tr(locale, "Model provider", "模型供应商")}<select name="provider_profile_id" required>${options}</select></label>
@@ -389,7 +634,7 @@ function automationWorkspace(snapshot: DashboardSnapshot, locale: Locale): strin
   const records = snapshot.workspaceV2?.schedules ?? [];
   return `<article class="paper-card full-card catalog-workspace"><header><div><p class="eyebrow">AUTOMATION & RECOVERY</p><h2>${tr(locale, "Bounded schedules and recovery", "有界调度与恢复")}</h2></div><span class="ribbon work">${tr(locale, "NO SILENT EFFECTS", "无静默副作用")}</span></header>
     <div class="catalog-grid automation-grid">${records.map((record) => `<article><strong>${escapeHtml(record.schedule_id ?? "schedule")}</strong><span>${escapeHtml(record.state)} · v${record.revision ?? 1}</span><small>${record.next_run_at ? `${tr(locale, "Next", "下次")} ${formatDate(record.next_run_at, locale)}` : tr(locale, "Paused", "已暂停")}</small><details><summary>${tr(locale, "Frozen job", "冻结任务")}</summary><pre>${prettyJson(record.schedule)}</pre></details><div class="record-actions"><button type="button" data-schedule-action="run" data-schedule-id="${escapeHtml(record.schedule_id ?? "")}" data-schedule-revision="${record.revision ?? 1}">${tr(locale, "RUN NOW", "立即运行")}</button><button type="button" data-schedule-action="${record.state === "active" ? "pause" : "resume"}" data-schedule-id="${escapeHtml(record.schedule_id ?? "")}" data-schedule-revision="${record.revision ?? 1}">${record.state === "active" ? tr(locale, "PAUSE", "暂停") : tr(locale, "RESUME", "恢复")}</button><button type="button" class="danger-text" data-schedule-action="delete" data-schedule-id="${escapeHtml(record.schedule_id ?? "")}" data-schedule-revision="${record.revision ?? 1}">${tr(locale, "REMOVE", "移除")}</button></div></article>`).join("") || `<p class="empty">${tr(locale, "No schedules. Restork will not start background model work by itself.", "尚无调度；Restork 不会自行启动后台模型任务。")}</p>`}</div>
-    <div class="catalog-compose-grid"><form id="schedule-create-form"><h3>${tr(locale, "New bounded schedule", "新建有界调度")}</h3><label>ID<input name="schedule_id" required maxlength="128" pattern="[A-Za-z0-9:._-]+"></label><label>${tr(locale, "Time", "时间")}<input name="time" type="time" required value="09:00"></label><label>${tr(locale, "Recurrence", "重复")}<select name="recurrence"><option value="daily">${tr(locale, "Daily", "每天")}</option><option value="weekly">${tr(locale, "Weekly", "每周")}</option></select></label><label>${tr(locale, "Weekday", "星期")}<select name="weekday"><option value="0">${tr(locale, "Monday", "周一")}</option><option value="1">${tr(locale, "Tuesday", "周二")}</option><option value="2">${tr(locale, "Wednesday", "周三")}</option><option value="3">${tr(locale, "Thursday", "周四")}</option><option value="4">${tr(locale, "Friday", "周五")}</option><option value="5">${tr(locale, "Saturday", "周六")}</option><option value="6">${tr(locale, "Sunday", "周日")}</option></select></label><label>${tr(locale, "Job", "任务")}<select name="job"><option value="health.check">${tr(locale, "Local health check · no model", "本地健康检查 · 无模型")}</option><option value="daily.refresh">${tr(locale, "Refresh daily cache · no model", "刷新每日缓存 · 无模型")}</option></select></label><button type="submit">${tr(locale, "CREATE SCHEDULE", "创建调度")}</button><p id="schedule-create-status" role="status"></p></form>
+    <div class="catalog-compose-grid"><form id="schedule-create-form"><h3>${tr(locale, "New bounded schedule", "新建有界调度")}</h3><label>ID<input name="schedule_id" required maxlength="128" pattern="[A-Za-z0-9:._\\-]+"></label><label>${tr(locale, "Time", "时间")}<input name="time" type="time" required value="09:00"></label><label>${tr(locale, "Recurrence", "重复")}<select name="recurrence"><option value="daily">${tr(locale, "Daily", "每天")}</option><option value="weekly">${tr(locale, "Weekly", "每周")}</option></select></label><label>${tr(locale, "Weekday", "星期")}<select name="weekday"><option value="0">${tr(locale, "Monday", "周一")}</option><option value="1">${tr(locale, "Tuesday", "周二")}</option><option value="2">${tr(locale, "Wednesday", "周三")}</option><option value="3">${tr(locale, "Thursday", "周四")}</option><option value="4">${tr(locale, "Friday", "周五")}</option><option value="5">${tr(locale, "Saturday", "周六")}</option><option value="6">${tr(locale, "Sunday", "周日")}</option></select></label><label>${tr(locale, "Job", "任务")}<select name="job"><option value="health.check">${tr(locale, "Local health check · no model", "本地健康检查 · 无模型")}</option><option value="daily.refresh">${tr(locale, "Refresh daily cache · no model", "刷新每日缓存 · 无模型")}</option></select></label><button type="submit">${tr(locale, "CREATE SCHEDULE", "创建调度")}</button><p id="schedule-create-status" role="status"></p></form>
     <section class="automation-contracts"><h3>${tr(locale, "Recovery & evaluation contracts", "恢复与评估契约")}</h3><ul><li>${tr(locale, "Checkpoints require explicit relative paths, byte limits, and a pre-rollback checkpoint.", "检查点要求明确的相对路径、字节上限和回滚前检查点。")}</li><li>${tr(locale, "Evaluation manifests freeze model, prompt, Skill, tool, policy, and fixture versions.", "评估清单会冻结模型、Prompt、Skill、工具、Policy 与 fixture 版本。")}</li><li>${tr(locale, "Delegated subtasks receive subset-only sources, tools, and budgets; recursion, approvals, effects, and durable memory are disabled.", "委派子任务只能获得来源、工具和预算的子集；递归、审批、副作用和持久记忆均被禁用。")}</li></ul></section></div></article>`;
 }
 
@@ -453,7 +698,7 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
       <section class="settings-section"><header><div><small>MODEL CENTER</small><h3>${tr(locale, "Providers", "模型供应商")}</h3></div><span>${providers.length}</span></header>
         <div class="settings-records">${providers.map((record) => `<article data-provider-profile-card="${escapeHtml(record.provider.profile_id)}"><strong>${escapeHtml(record.provider.display_name)}</strong><span>${escapeHtml(record.provider.kind)} · ${escapeHtml(record.provider.model)}</span><small>v${record.revision} · ${tr(locale, "reasoning", "思考强度")} ${escapeHtml(record.provider.reasoning?.effort ?? "auto")} · ${record.provider.secret_ref ? tr(locale, "native secret reference", "原生密钥引用") : tr(locale, "no secret", "无需密钥")}</small><div class="provider-record-actions"><button type="button" data-provider-edit="${escapeHtml(record.provider.profile_id)}" data-provider-record="${escapeHtml(JSON.stringify(record))}">${tr(locale, "EDIT", "编辑")}</button><button type="button" data-provider-profile-test="${escapeHtml(record.provider.profile_id)}" data-provider-model="${escapeHtml(record.provider.model)}">${tr(locale, "TEST MODEL", "测试模型")}</button>${record.provider.kind === "deepseek" && record.provider.model === "deepseek-v4-flash" ? `<button type="button" data-provider-profile-test="${escapeHtml(record.provider.profile_id)}" data-provider-model="${escapeHtml(record.provider.model)}" data-provider-web-search="true">${tr(locale, "TEST WEB SEARCH", "测试联网")}</button>` : ""}</div><div data-provider-profile-result role="status" aria-live="polite"></div></article>`).join("") || `<p class="empty">${tr(locale, "Choose a cloud provider, local Ollama, or a generic OpenAI-compatible endpoint.", "选择云端供应商、本地 Ollama 或通用 OpenAI 兼容端点。")}</p>`}</div>
         <form id="provider-profile-form" data-version="0">
-          <label>ID<input name="profile_id" required maxlength="80" pattern="[A-Za-z0-9._-]+" placeholder="deepseek-main"></label>
+          <label>ID<input name="profile_id" required maxlength="80" pattern="[A-Za-z0-9._\\-]+" placeholder="deepseek-main"></label>
           <label>${tr(locale, "Name", "名称")}<input name="display_name" required maxlength="120" placeholder="DeepSeek V4 Pro"></label>
           <label>${tr(locale, "Kind", "类型")}<select name="kind">${providerRegistry.length ? providerRegistry.map((definition) => providerRegistryOption(definition, locale)).join("") : `<option value="deepseek" data-base-url="https://api.deepseek.com" data-auth-kind="bearer" data-reasoning-efforts="high,max" data-reasoning-can-disable="true" data-reasoning-budget="false">DeepSeek</option><option value="glm" data-base-url="https://open.bigmodel.cn/api/paas/v4" data-auth-kind="bearer" data-reasoning-efforts="high,max" data-reasoning-can-disable="true" data-reasoning-budget="false">GLM</option><option value="kimi" data-base-url="https://api.moonshot.cn/v1" data-auth-kind="bearer" data-reasoning-efforts="" data-reasoning-can-disable="true" data-reasoning-budget="false">Kimi</option><option value="qwen" data-base-url="https://dashscope.aliyuncs.com/compatible-mode/v1" data-auth-kind="bearer" data-reasoning-efforts="minimal,low,medium,high,xhigh,max" data-reasoning-can-disable="true" data-reasoning-budget="true">Qwen</option><option value="ollama" data-base-url="http://127.0.0.1:11434" data-auth-kind="none" data-reasoning-efforts="low,medium,high" data-reasoning-can-disable="true" data-reasoning-budget="false">Ollama (${tr(locale, "local", "本地")})</option><option value="openrouter" data-base-url="https://openrouter.ai/api/v1" data-auth-kind="bearer" data-reasoning-efforts="minimal,low,medium,high,xhigh,max" data-reasoning-can-disable="true" data-reasoning-budget="true">OpenRouter</option><option value="open_ai_compatible" data-base-url="https://api.example.invalid/v1" data-auth-kind="bearer" data-reasoning-efforts="" data-reasoning-can-disable="false" data-reasoning-budget="false">OpenAI-compatible</option>`}</select></label>
           <label>${tr(locale, "Base URL", "基础地址")}<input name="base_url" required maxlength="2048" value="https://api.deepseek.com"></label>
@@ -468,7 +713,7 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
       <section class="settings-section"><header><div><small>PROMPT STUDIO</small><h3>${tr(locale, "Versioned instructions", "版本化指令")}</h3></div><span>${prompts.length}</span></header>
         <div class="settings-records prompt-history">${prompts.map((record) => `<article><strong>${escapeHtml(record.prompt.prompt_id)} · v${record.prompt.revision}</strong><span>${escapeHtml(record.prompt.layer)} · ${escapeHtml(record.content_hash.slice(0, 12))}…</span><small>${record.active ? tr(locale, "ACTIVE", "当前启用") : formatDate(record.created_at, locale)}</small>${record.active ? "" : `<button type="button" data-prompt-activate="${record.prompt.revision}" data-prompt-id="${escapeHtml(record.prompt.prompt_id)}" data-active-revision="${activePrompt?.prompt.revision ?? 0}">${tr(locale, "ACTIVATE", "启用")}</button>`}</article>`).join("") || `<p class="empty">${tr(locale, "Create a personal or Skill prompt revision. Core policy cannot be edited here.", "新建个人或 Skill Prompt 修订；Core Policy 不能在这里编辑。")}</p>`}</div>
         <form id="prompt-revision-form" data-version="${prompts[0]?.prompt.revision ?? 0}">
-          <label>Prompt ID<input name="prompt_id" required maxlength="80" pattern="[A-Za-z0-9._-]+" value="personal"></label>
+          <label>Prompt ID<input name="prompt_id" required maxlength="80" pattern="[A-Za-z0-9._\\-]+" value="personal"></label>
           <label>${tr(locale, "Layer", "层级")}<select name="layer"><option value="personal">personal</option><option value="skill">skill</option></select></label>
           <label class="wide-label">${tr(locale, "Instructions", "指令")}<textarea name="content" required maxlength="64000" rows="8" placeholder="${tr(locale, "Describe preferences; permissions still come only from Core policy.", "描述你的偏好；权限仍只来自 Core Policy。")}"></textarea></label>
           <button type="submit">${tr(locale, "SAVE NEW REVISION", "保存新修订")}</button><p id="prompt-revision-status" role="status"></p>
@@ -477,7 +722,7 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
       <section class="settings-section"><header><div><small>PROFILES</small><h3>${tr(locale, "Governed work profiles", "受控工作 Profile")}</h3></div><span>${profiles.length}</span></header>
         <div class="settings-records">${profiles.map((record) => `<article><strong>${escapeHtml(record.profile.name)}</strong><span>${escapeHtml(record.profile.provider_profile_id)} · ${escapeHtml(record.profile.maximum_data_class)}</span><small>v${record.revision}${record.builtin ? ` · ${tr(locale, "built-in", "内置")}` : ""}</small></article>`).join("") || `<p class="empty">${tr(locale, "Profiles freeze a provider, prompt, tools, and data boundary for each run.", "Profile 会为每次运行冻结供应商、Prompt、工具和数据边界。")}</p>`}</div>
         <form id="configuration-profile-form" data-version="0" data-prompt-hash="${escapeHtml(activePrompt?.content_hash ?? "")}">
-          <label>ID<input name="profile_id" required maxlength="80" pattern="[A-Za-z0-9._-]+" placeholder="research-cloud"></label>
+          <label>ID<input name="profile_id" required maxlength="80" pattern="[A-Za-z0-9._\\-]+" placeholder="research-cloud"></label>
           <label>${tr(locale, "Name", "名称")}<input name="name" required maxlength="120" placeholder="Research Cloud"></label>
           <label>${tr(locale, "Provider", "供应商")}<select name="provider_profile_id" required>${providers.map((record) => `<option value="${escapeHtml(record.provider.profile_id)}">${escapeHtml(record.provider.display_name)}</option>`).join("")}</select></label>
           <label>${tr(locale, "Maximum data class", "最高数据等级")}<select name="maximum_data_class"><option value="public">public</option><option value="personal">personal</option><option value="confidential">confidential</option></select></label>
@@ -856,7 +1101,7 @@ function providerSetup(snapshot: DashboardSnapshot, locale: Locale): string {
     : selected
     ? "not_tested"
     : "setup_required";
-  const configuredOptions = configured.map((item) => `<option value="${escapeHtml(item.profileId)}" data-provider-profile-id="${escapeHtml(item.profileId)}" data-provider-kind="${escapeHtml(item.kind)}" data-provider-model="${escapeHtml(item.model)}" data-provider-name="${escapeHtml(item.displayName)}" data-provider-auth-kind="${escapeHtml(item.authKind)}" data-provider-setup-command="${escapeHtml(item.setupCommand)}" data-provider-configured="true" ${item.profileId === selected?.profileId ? "selected" : ""}>${escapeHtml(`${item.displayName} / ${item.model}`)}</option>`).join("");
+  const configuredOptions = configured.map((item) => `<option value="${escapeHtml(item.profileId)}" data-provider-profile-id="${escapeHtml(item.profileId)}" data-provider-kind="${escapeHtml(item.kind)}" data-provider-model="${escapeHtml(item.model)}" data-provider-name="${escapeHtml(item.displayName)}" data-provider-auth-kind="${escapeHtml(item.authKind)}" data-provider-setup-command="${escapeHtml(item.setupCommand)}" data-provider-configured="true" ${item.profileId === selected?.profileId ? "selected" : ""}>${escapeHtml(`${item.displayName} / ${item.model} · ${item.profileId}`)}</option>`).join("");
   const availableOptions = definitions.map((definition) => `<option value="setup:${escapeHtml(definition.kind)}" data-provider-profile-id="" data-provider-kind="${escapeHtml(definition.kind)}" data-provider-model="" data-provider-name="${escapeHtml(definition.display_name)}" data-provider-auth-kind="${escapeHtml(definition.auth_kind)}" data-provider-setup-command="${escapeHtml(definition.setup_command)}" data-provider-configured="false">${escapeHtml(tr(locale, `Add ${definition.display_name}`, `配置 ${definition.display_name}`))}</option>`).join("");
   const setupHelp = selectedKind === "ollama"
     ? tr(locale, "No API key is needed. Restork only connects to the exact local loopback endpoint saved in this profile.", "无需 API Key。Restork 只会连接这个 Profile 中保存的本机 loopback 地址。")

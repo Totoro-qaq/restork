@@ -252,7 +252,7 @@ Measured against the Core that `./scripts/quickstart.sh` starts.
 | **Models** | DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, and generic OpenAI-compatible endpoints; provider-scoped reasoning; native credential storage; versioned prompts and configuration profiles |
 | **Agent runtime** | Durable model/tool loop with separate step, repair, token, cost, and wall-clock bounds; cancellation; approval pauses; event replay; visible context compaction |
 | **Research, Study, Work** | Evidence-led research with reviewable note writes; Vault-grounded learning paths and confidence-aware review; bounded work plans, redacted handoffs, and evidence-based result verification |
-| **Local knowledge** | Four-layer inspectable memory, Markdown task previews with single-use approval, unified search across sessions/Vault/tasks/memory/Radar, and opt-in GitHub/Hacker News Radar ingestion |
+| **Local knowledge** | A paginated Obsidian Vault browser with safe Markdown previews and live file updates, four-layer inspectable memory, approval-bound Markdown tasks, unified search, and opt-in GitHub/Hacker News Radar |
 | **Extensions** | Manifest validation, a permission lattice, immutable revisions with rollback, and sandboxed stdio MCP execution |
 | **Daily context** | Optional weather, system date and month without a permission prompt, one local ICS calendar, macOS unread-mail count, and a daily track from QQ Music, NetEase, Apple Music, or a private playlist file |
 | **Artifacts and recovery** | Deterministic macro-free PPTX and PDF, exact artifact hashes, content-bearing checkpoints, and preview-bound file restore |

@@ -18,7 +18,7 @@ use futures_util::future::join_all;
 use restork_core::{
     auth::{
         APPROVALS_DECIDE, APPROVALS_READ, MEMORY_READ, MEMORY_WRITE, RADAR_READ, RADAR_WRITE,
-        RUNS_READ, RUNS_WRITE, SESSIONS_READ, TASKS_READ, TASKS_WRITE,
+        RUNS_READ, RUNS_WRITE, SESSIONS_READ, TASKS_READ, TASKS_WRITE, VAULT_READ,
     },
     workspace::SafeWorkspace,
 };
@@ -252,12 +252,13 @@ fn default_memory_export_layers() -> Vec<String> {
 }
 
 pub(super) async fn search_workspace(State(state): State<ApiState>, request: Request) -> Response {
-    const SEARCH_SCOPES: [&str; 5] = [
+    const SEARCH_SCOPES: [&str; 6] = [
         SESSIONS_READ,
         MEMORY_READ,
         TASKS_READ,
         RADAR_READ,
         RUNS_READ,
+        VAULT_READ,
     ];
     if let Err(response) = authorize_scopes(&state.authority, request.headers(), &SEARCH_SCOPES) {
         return *response;

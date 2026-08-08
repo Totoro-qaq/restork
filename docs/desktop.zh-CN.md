@@ -113,7 +113,8 @@ Provider 凭据故障区分开。
 受保护 tag 工作流已经定义完整三平台门禁：
 
 - macOS Developer ID、公证、stapling、Gatekeeper、更新签名，以及新 runner 上的 DMG 验证；
-- Windows NSIS/MSI 的 Authenticode 与时间戳、更新签名，以及新 runner 上的安装、启动、卸载与
+- Windows NSIS/MSI 的 Authenticode 与时间戳、更新签名，以及两个安装格式各自在新 runner 上的
+  静默安装、Core 就绪、直属子进程所有权、桌面端退出后的 Job Object 回收、卸载、程序文件移除与
   用户数据保留检查；
 - Linux GPG/AppImage 与独立包签名、更新签名，以及新 runner 上的安装、启动、卸载与数据保留；
 - 发布前统一生成目标范围内的更新元数据、CycloneDX SBOM、SHA-256 清单、签名校验和与 GitHub

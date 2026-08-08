@@ -33,6 +33,9 @@ _PUBLIC_RASTERS = {
     "assets/readme/social-preview.zh-CN.png",
     "desktop/src-tauri/icons/icon.png",
 }
+_PUBLIC_RASTER_PREFIXES = {
+    "assets/promo/wechat/",
+}
 _PLACEHOLDER_USERS = {"demo", "example", "name", "user", "username"}
 _CREDENTIAL = re.compile(
     rb"(?:gh[pous]_[A-Za-z0-9_]{20,}|(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}|"
@@ -87,7 +90,7 @@ def _path_issues(relative: str) -> list[str]:
         if not any(
             relative == public or relative.endswith("/" + public)
             for public in _PUBLIC_RASTERS
-        ):
+        ) and not any(relative.startswith(prefix) for prefix in _PUBLIC_RASTER_PREFIXES):
             issues.append("undocumented raster or screenshot is tracked")
     return issues
 

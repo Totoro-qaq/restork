@@ -93,7 +93,7 @@ jobs:
           | grep -q com.apple.security.automation.apple-events
 
   desktop-windows-linux:
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -136,6 +136,26 @@ jobs:
       - run: npm --prefix desktop test
       - run: npm exec tauri build -- --config ${{ matrix.config }}
         working-directory: desktop
+      - name: Exercise Windows installers on the clean runner
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $nsis = Get-ChildItem desktop/src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $msi = Get-ChildItem desktop/src-tauri/target/release/bundle/msi/*.msi | Select-Object -First 1
+          if ($null -eq $nsis -or $null -eq $msi) { throw 'Expected both NSIS and MSI installers' }
+          ./scripts/smoke-desktop-windows.ps1 `
+            -NsisInstaller $nsis.FullName `
+            -MsiInstaller $msi.FullName `
+            -ArtifactDirectory (Join-Path $env:RUNNER_TEMP 'restork-windows-e2e')
+      - name: Upload Windows clean-machine diagnostics
+        if: ${{ runner.os == 'Windows' && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: restork-desktop-windows-clean-machine-diagnostics
+          path: ${{ runner.temp }}/restork-windows-e2e/
+          if-no-files-found: error
+          retention-days: 7
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: restork-desktop-${{ matrix.platform }}-unsigned-candidate
