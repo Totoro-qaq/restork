@@ -22,6 +22,7 @@ import type {
 import {
   agentWaitMarkup,
   approvalsView,
+  assistantStreamMarkup,
   conversationOperationWaitMarkup,
   errorText,
   eventRow,
@@ -2166,6 +2167,32 @@ function selectView(root: HTMLElement, view: string): void {
     if (active) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
+  syncNavBadges(root);
+}
+
+/**
+ * Nav badges count unseen items. Visiting a view marks its current count as
+ * seen; the badge then shows only what arrived since that visit. Counts live
+ * on the root so a full workspace re-render keeps the seen baseline.
+ */
+const navSeenCounts = new WeakMap<HTMLElement, Map<string, number>>();
+
+function syncNavBadges(root: HTMLElement): void {
+  let seen = navSeenCounts.get(root);
+  if (!seen) {
+    seen = new Map();
+    navSeenCounts.set(root, seen);
+  }
+  root.querySelectorAll<HTMLElement>("[data-view]").forEach((button) => {
+    const badge = button.querySelector<HTMLElement>("[data-nav-count]");
+    if (!badge) return;
+    const view = badge.dataset.navCount ?? "";
+    const raw = Number(badge.dataset.rawCount ?? "0");
+    if (button.classList.contains("is-active")) seen.set(view, raw);
+    const unseen = raw - (seen.get(view) ?? 0);
+    badge.hidden = unseen <= 0;
+    badge.textContent = String(Math.max(unseen, 0));
+  });
 }
 
 function openRunForm(root: HTMLElement, mode: Mode, trigger?: HTMLButtonElement, snapshot?: DashboardSnapshot): void {
@@ -2327,8 +2354,14 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       }
       clearWorkFields(form);
     } else {
-      if (waitHost) waitHost.innerHTML = agentWaitMarkup("complete", localeOf(root));
-      await refresh(root, api, "runs");
+      // Research runs execute in the background. Stay on the current view so
+      // the launch context is not lost; the run is one nav click away.
+      await refresh(root, api);
+      announceStatus(root, tr(
+        localeOf(root),
+        `Created ${run.run_id}. Track progress and the answer in Runs.`,
+        `已创建 ${run.run_id}，可在「运行」页查看进度和回答。`,
+      ));
     }
     if (mode !== "research" && waitHost?.isConnected) {
       waitHost.innerHTML = agentWaitMarkup("complete", localeOf(root));
@@ -2777,7 +2810,7 @@ async function showRun(
         received.push(event);
         // Append one row. Re-rendering the whole run per event made live
         // streaming quadratic and destroyed focus, selection, and scroll.
-        if (!appendRunEvent(detail, event)) render();
+        if (!appendRunEvent(detail, event, localeOf(root))) render();
       });
     }
   } catch (error) {
@@ -2795,7 +2828,7 @@ async function showRun(
  */
 const LIVE_EVENT_DOM_CAP = 400;
 
-function appendRunEvent(detail: HTMLElement, event: RunEvent): boolean {
+function appendRunEvent(detail: HTMLElement, event: RunEvent, locale: Locale): boolean {
   if (!detail.isConnected) return false;
   if (event.type === "assistant.delta") {
     const output = detail.querySelector<HTMLElement>("[data-assistant-stream]");
@@ -2805,6 +2838,16 @@ function appendRunEvent(detail: HTMLElement, event: RunEvent): boolean {
     stream.hidden = false;
     output.append(document.createTextNode(content));
     return true;
+  }
+  if (event.type === "run.completed" || event.type === "run.stopped") {
+    // The run is done streaming: swap the raw stream for the readable
+    // envelope when the final output matches the research JSON contract.
+    const output = detail.querySelector<HTMLElement>("[data-assistant-stream]");
+    const text = output?.textContent ?? "";
+    if (output && text) {
+      const upgraded = assistantStreamMarkup(text, locale);
+      if (!upgraded.startsWith("<pre")) output.outerHTML = upgraded;
+    }
   }
   const list = detail.querySelector<HTMLOListElement>(".event-list");
   if (!list) return false;
@@ -2819,7 +2862,7 @@ function appendRunEvent(detail: HTMLElement, event: RunEvent): boolean {
   const scroller = list.closest<HTMLElement>("[data-conversation-scroll]") ?? list;
   const nearBottom =
     scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 56;
-  list.insertAdjacentHTML("beforeend", eventRow(event));
+  list.insertAdjacentHTML("beforeend", eventRow(event, locale));
   while (list.children.length > LIVE_EVENT_DOM_CAP) list.firstElementChild?.remove();
   if (nearBottom) scroller.scrollTop = scroller.scrollHeight;
   return true;

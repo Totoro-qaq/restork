@@ -1744,7 +1744,7 @@ pub(super) async fn submit_study_path(
             &[
                 restork_provider::ChatMessage::text(
                     "system",
-                    "You are Restork Study. Grade with the configured model, ground claims in the supplied Vault evidence, and never echo the learner's raw answers.",
+                    "You are Restork Study. Grade with the configured model, ground claims in the supplied Vault evidence, and never echo the learner's raw answers. Write all feedback in the same language as the learner's goal and answers.",
                 ),
                 restork_provider::ChatMessage::text("user", prompt),
             ],
@@ -1844,7 +1844,7 @@ pub(super) async fn submit_study_attempt(
             &[
                 restork_provider::ChatMessage::text(
                     "system",
-                    "Grade one Study response against the supplied rubric. Return only JSON with boolean `correct` and concise `feedback`. Never repeat the learner's full answer.",
+                    "Grade one Study response against the supplied rubric. Return only JSON with boolean `correct` and concise `feedback`. Never repeat the learner's full answer. Write `feedback` in the same language as the learner's answer.",
                 ),
                 restork_provider::ChatMessage::text(
                     "user",

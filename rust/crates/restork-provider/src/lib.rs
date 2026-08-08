@@ -39,6 +39,7 @@ pub enum ProviderError {
     Unavailable,
     ModelUnavailable,
     InvalidResponse,
+    Incomplete,
     WebSearchNotExecuted,
     StructuredOutputInvalid,
     SourcesMissing,
@@ -58,6 +59,7 @@ impl ProviderError {
             Self::Unavailable => "provider_unavailable",
             Self::ModelUnavailable => "model_unavailable",
             Self::InvalidResponse => "invalid_response",
+            Self::Incomplete => "incomplete",
             Self::WebSearchNotExecuted => "web_search_not_executed",
             Self::StructuredOutputInvalid => "structured_output_invalid",
             Self::SourcesMissing => "sources_missing",
@@ -794,7 +796,7 @@ impl ProviderClient {
             .map_err(|_| ProviderError::InvalidResponse)?;
         map_status(status, &payload)?;
         if payload["status"].as_str() == Some("incomplete") {
-            return Err(ProviderError::StructuredOutputInvalid);
+            return Err(ProviderError::Incomplete);
         }
         if payload["status"].as_str() != Some("completed") {
             return Err(ProviderError::InvalidResponse);
@@ -1667,12 +1669,52 @@ fn normalize_structured_json(output: &str) -> Option<String> {
             .then(|| serde_json::to_string(&value).ok())
             .flatten();
     }
+    // Models sometimes wrap the requested object in prose despite strict
+    // instructions. Extract the first balanced {...} before giving up.
+    if let Some(extracted) = extract_first_json_object(candidate)
+        && let Ok(value) = serde_json::from_str::<Value>(&extracted)
+        && value.is_object()
+    {
+        return serde_json::to_string(&value).ok();
+    }
     let repaired = repair_json_prose_strings(candidate)?;
     let value = serde_json::from_str::<Value>(&repaired).ok()?;
     value
         .is_object()
         .then(|| serde_json::to_string(&value).ok())
         .flatten()
+}
+
+/** Byte-slice of the first balanced JSON object, strings and escapes aware. */
+fn extract_first_json_object(value: &str) -> Option<String> {
+    let start = value.find('{')?;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (offset, ch) in value[start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(value[start..=start + offset].to_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn structured_json_candidate(value: &str) -> &str {
@@ -2109,6 +2151,9 @@ fn safe_message(error: &ProviderError) -> &'static str {
         ProviderError::Unavailable => "The provider is temporarily unavailable.",
         ProviderError::ModelUnavailable => "The configured model is unavailable.",
         ProviderError::InvalidResponse => "The provider returned an invalid response.",
+        ProviderError::Incomplete => {
+            "V4 Flash hit the bounded output budget before the structured result completed."
+        }
         ProviderError::WebSearchNotExecuted => {
             "V4 Flash responded, but the required server-side web search did not run."
         }
@@ -2447,6 +2492,33 @@ mod tests {
         );
         assert!(normalize_structured_json("[\"not\",\"an\",\"object\"]").is_none());
         assert!(normalize_structured_json("{\"unfinished\":\"value").is_none());
+    }
+
+    #[test]
+    fn structured_output_normalization_extracts_an_object_wrapped_in_prose() {
+        let wrapped = "以下是整理结果：{\"answer\":\"答案\",\"sources\":[{\"title\":\"A\",\"url\":\"https://a.test\"}]} 以上。";
+        let value = normalize_structured_json(wrapped).expect("extracted object");
+        let parsed: Value = serde_json::from_str(&value).expect("canonical JSON");
+        assert_eq!(parsed["answer"], "答案");
+        assert_eq!(parsed["sources"][0]["url"], "https://a.test");
+
+        // Braces and escaped quotes inside strings must not break balancing.
+        let tricky = "note: {\"answer\":\"use {curly} and \\\"quotes\\\" freely\"}";
+        let parsed: Value =
+            serde_json::from_str(&normalize_structured_json(tricky).expect("balanced strings"))
+                .expect("tricky JSON");
+        assert_eq!(parsed["answer"], "use {curly} and \"quotes\" freely");
+
+        assert!(normalize_structured_json("纯散文，没有对象。").is_none());
+    }
+
+    #[test]
+    fn incomplete_has_its_own_status_so_budget_truncation_is_visible() {
+        assert_eq!(ProviderError::Incomplete.status(), "incomplete");
+        assert_eq!(
+            ProviderError::StructuredOutputInvalid.status(),
+            "structured_output_invalid"
+        );
     }
 
     fn tool_options() -> ChatOptions {
