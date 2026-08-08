@@ -116,6 +116,12 @@ function fakeApi(): DashboardApi {
     captureTask: vi.fn(async () => {
       throw new Error("not used");
     }),
+    previewResearchNote: vi.fn(async () => {
+      throw new Error("not used");
+    }),
+    previewStudyNote: vi.fn(async () => {
+      throw new Error("not used");
+    }),
     applyTask: vi.fn(async () => {
       throw new Error("not used");
     }),

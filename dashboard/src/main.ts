@@ -2413,6 +2413,7 @@ async function submitStudyDiagnostic(
     if (host) {
       host.innerHTML = studyArtifactMarkup(artifact, localeOf(root));
       bindStudyPractice(root, api);
+      bindNoteSave(root, api, host);
     }
   } catch (error) {
     if (submit) submit.disabled = false;
@@ -2426,6 +2427,12 @@ function bindStudyPractice(root: HTMLElement, api: DashboardApi): void {
       event.preventDefault();
       void submitStudyPractice(root, api, form);
     });
+  });
+}
+
+function bindNoteSave(root: HTMLElement, api: DashboardApi, host: ParentNode = root): void {
+  host.querySelectorAll<HTMLButtonElement>("[data-note-save]").forEach((button) => {
+    button.addEventListener("click", () => void saveArtifactNote(root, api, button));
   });
 }
 
@@ -2583,9 +2590,12 @@ async function decide(root: HTMLElement, api: DashboardApi, button: HTMLButtonEl
       button.dataset.approvalId ?? "",
       decision,
     );
-    if (decision === "approve" && approval.action_kind === "task_write") {
+    if (
+      decision === "approve" &&
+      (approval.action_kind === "task_write" || approval.action_kind === "vault_write")
+    ) {
       await api.applyTask(approval.approval_id);
-      await refresh(root, api, "tasks");
+      await refresh(root, api, approval.action_kind === "task_write" ? "tasks" : "approvals");
     } else if (decision === "approve" && approval.action_kind === "handoff_export") {
       await api.exportWorkHandoff(approval.run_id, approval.approval_id);
       await refresh(root, api, "runs");
@@ -2613,6 +2623,7 @@ async function actOnRadar(root: HTMLElement, api: DashboardApi, button: HTMLButt
       const resultTarget = root.querySelector<HTMLElement>("#research-result");
       if (resultTarget) {
         resultTarget.innerHTML = researchPreviewMarkup(result.research_artifact, localeOf(root));
+        bindNoteSave(root, api, resultTarget);
       }
     }
   } catch (error) {
@@ -2639,6 +2650,31 @@ async function previewTask(
   } catch (error) {
     input.checked = !input.checked;
     input.disabled = false;
+    announceError(root, errorText(error, localeOf(root)));
+  }
+}
+
+async function saveArtifactNote(
+  root: HTMLElement,
+  api: DashboardApi,
+  button: HTMLButtonElement,
+): Promise<void> {
+  button.disabled = true;
+  const runId = button.dataset.noteRunId ?? "";
+  try {
+    if (button.dataset.noteSave === "research") {
+      await api.previewResearchNote(runId);
+    } else {
+      await api.previewStudyNote(runId);
+    }
+    announceStatus(root, tr(
+      localeOf(root),
+      "Vault note preview ready for approval.",
+      "知识库笔记预览已生成，等待审批。",
+    ));
+    await refresh(root, api, "approvals");
+  } catch (error) {
+    button.disabled = false;
     announceError(root, errorText(error, localeOf(root)));
   }
 }
@@ -2671,7 +2707,7 @@ async function applyApprovedTask(
   button.disabled = true;
   try {
     await api.applyTask(button.dataset.taskApply ?? "");
-    await refresh(root, api, "tasks");
+    await refresh(root, api, button.dataset.actionKind === "vault_write" ? "approvals" : "tasks");
   } catch (error) {
     button.disabled = false;
     announceError(root, errorText(error, localeOf(root)));

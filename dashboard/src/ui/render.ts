@@ -689,6 +689,7 @@ export function researchPreviewMarkup(
     <section><h4>${tr(locale, "Claims", "论断")}</h4><ol>${artifact.claims.map((claim) => `<li><b>${escapeHtml(claim.kind)}</b>${escapeHtml(claim.statement)}<small>${claim.evidence_refs.map(escapeHtml).join(" · ") || escapeHtml(claim.inference_basis ?? tr(locale, "explicit inference", "显式推断"))}</small></li>`).join("")}</ol></section>
     ${artifact.conflicts.length ? `<section><h4>${tr(locale, "Conflicts", "冲突")}</h4><ul>${artifact.conflicts.map((conflict) => `<li>${escapeHtml(conflict.description)}</li>`).join("")}</ul></section>` : ""}
     <section><h4>${tr(locale, "Markdown preview", "Markdown 预览")} · ${escapeHtml(artifact.note_preview.relative_path)}</h4><pre>${escapeHtml(artifact.note_preview.markdown)}</pre></section>
+    <button type="button" data-note-save="research" data-note-run-id="${escapeHtml(artifact.run_id)}">${tr(locale, "SAVE TO VAULT", "存入知识库")}</button>
     <p class="fine">${tr(locale, "Preview only · Core has not written this note.", "仅预览 · Core 尚未写入此笔记。")} ${tr(locale, "Artifact", "产物")} ${escapeHtml(artifact.artifact_id)}</p>
   </article>`;
 }
@@ -729,6 +730,7 @@ export function studyArtifactMarkup(
     <section><h4>${tr(locale, "Learning path", "学习路径")}</h4><ol class="study-path">${artifact.learning_path.map((step) => `<li><b>${step.order}</b><span>${escapeHtml(step.title)}<small>${escapeHtml(step.outcome)}</small></span></li>`).join("")}</ol></section>
     ${artifact.prerequisites.length ? `<section><h4>${tr(locale, "Grounded prerequisites", "有依据的前置知识")}</h4><ul>${artifact.prerequisites.map((item) => `<li>${escapeHtml(item.title)}<small>${escapeHtml(item.relative_path)}</small></li>`).join("")}</ul></section>` : ""}
     <section><h4>${tr(locale, "Active practice · no answer key", "主动练习 · 不展示答案")}</h4><div class="study-exercises">${artifact.exercises.map((exercise) => `<form data-study-practice data-run-id="${escapeHtml(artifact.run_id)}" data-exercise-id="${escapeHtml(exercise.exercise_id)}"><b>${escapeHtml(exercise.kind.replace("_", " "))}</b><p>${escapeHtml(exercise.prompt)}</p><small>${exercise.hints.map(escapeHtml).join(" · ")}</small><label>${tr(locale, "Your response", "你的回答")}<textarea name="answer" required maxlength="8000" rows="3" autocomplete="off"></textarea></label><label>${tr(locale, "Confidence", "信心程度")}<select name="confidence" required><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option></select></label><button type="submit">${tr(locale, "GRADE WITH MODEL", "交给模型评估")}</button><div class="study-attempt" role="status"></div></form>`).join("")}</div></section>
+    ${artifact.note_preview ? `<section><h4>${tr(locale, "Markdown preview", "Markdown 预览")} · ${escapeHtml(artifact.note_preview.relative_path)}</h4><pre>${escapeHtml(artifact.note_preview.markdown)}</pre></section><button type="button" data-note-save="study" data-note-run-id="${escapeHtml(artifact.run_id)}">${tr(locale, "SAVE TO VAULT", "存入知识库")}</button>` : ""}
     <p class="fine">${tr(locale, "Raw answers are neither rendered back nor persisted. Review scheduling uses the verdict and your confidence.", "原始回答不会回显或持久化；复习时间只依据评估结果和你的信心程度。")}</p>
   </article>`;
 }
@@ -1056,12 +1058,14 @@ function runCard(run: RunListEntry, locale: Locale): string {
 
 function approvalCard(approval: ApprovalRequest, locale: Locale): string {
   const pending = approval.decision === "pending";
-  const taskReady = approval.decision === "approved" && approval.action_kind === "task_write";
+  const taskReady =
+    approval.decision === "approved" &&
+    (approval.action_kind === "task_write" || approval.action_kind === "vault_write");
   return `<article class="paper-card approval-card"><header><h2>${tr(locale, "Approval request", "审批请求")}</h2><span class="ribbon approval">${escapeHtml(approval.decision)}</span></header>
     <p class="run-title">${escapeHtml(approval.human_summary)}</p>
     <dl class="metadata compact"><div><dt>${tr(locale, "TARGET", "目标")}</dt><dd>${escapeHtml(approval.canonical_scope)}</dd></div><div><dt>${tr(locale, "POLICY", "策略")}</dt><dd>${escapeHtml(approval.policy_version)}</dd></div><div><dt>${tr(locale, "DIGEST", "摘要")}</dt><dd>${escapeHtml(approval.action_digest.slice(0, 16))}…</dd></div><div><dt>${tr(locale, "EXPIRES", "失效时间")}</dt><dd>${formatDate(approval.expires_at, locale)}</dd></div></dl>
     ${pending ? `<div class="stamps"><button class="stamp approve" type="button" data-approval-id="${escapeHtml(approval.approval_id)}" data-action-kind="${escapeHtml(approval.action_kind)}" data-decision="approve">${tr(locale, "APPROVE", "批准")}</button><button class="stamp reject" type="button" data-approval-id="${escapeHtml(approval.approval_id)}" data-action-kind="${escapeHtml(approval.action_kind)}" data-decision="reject">${tr(locale, "REJECT", "拒绝")}</button></div>` : ""}
-    ${taskReady ? `<div class="stamps"><button class="stamp approve" type="button" data-task-apply="${escapeHtml(approval.approval_id)}">${tr(locale, "APPLY TASK", "应用任务")}</button></div>` : ""}
+    ${taskReady ? `<div class="stamps"><button class="stamp approve" type="button" data-task-apply="${escapeHtml(approval.approval_id)}" data-action-kind="${escapeHtml(approval.action_kind)}">${tr(locale, "APPLY WRITE", "应用写入")}</button></div>` : ""}
   </article>`;
 }
 
