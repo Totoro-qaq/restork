@@ -34,9 +34,16 @@ answer bodies are never persisted: attempts retain only a SHA-256 answer hash, c
 count, review state, and idempotent result.
 
 After at least two attempts, Restork may return a `StudyRecordPreview` summarizing aggregate activity.
-The preview has `apply_available=false`; Study has no vault-write, repository-write, shell, or
-unrestricted-executor capability. Temporary attempts never call the semantic/profile memory service
-and never become curated long-term memory automatically.
+The preview has `apply_available=false`; the practice and review path has no vault-write,
+repository-write, shell, or unrestricted-executor capability. Temporary attempts never call the
+semantic/profile memory service and never become curated long-term memory automatically.
+
+The validated Study artifact is different from practice state: it carries a `note_preview`
+(relative path plus rendered Markdown containing only grounded fields — outcome, success criteria,
+prerequisites, learning path, exercise prompts, and related-note links; never rubrics or answer
+keys). Mirroring that note into the Vault uses the same approval-bound write gate as research
+notes: a preview must be explicitly approved before any bytes land, and the approval is
+single-use.
 
 ## API, CLI, and Dashboard
 
@@ -47,6 +54,7 @@ All Study routes use the authenticated, loopback-only Core API:
 | Prepare diagnostic | `POST /v1/study/runs/{run_id}/diagnostic` |
 | Submit exact answers and build a path | `POST /v1/study/runs/{run_id}/path` |
 | Submit one practice attempt | `POST /v1/study/runs/{run_id}/exercises/{exercise_id}/attempt` |
+| Preview the artifact's Vault note write | `POST /v1/study/runs/{run_id}/note/preview` |
 
 Practice submissions require an `Idempotency-Key`. The API returns safe validation and state
 errors without including submitted answer bodies. The Dashboard keeps the current form only in page
