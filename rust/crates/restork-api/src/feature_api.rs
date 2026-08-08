@@ -1255,6 +1255,65 @@ pub(super) async fn preview_research_note(
     )
 }
 
+pub(super) async fn preview_study_note(
+    State(state): State<ApiState>,
+    Path(run_id): Path<String>,
+    request: Request,
+) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), TASKS_WRITE) {
+        return *response;
+    }
+    let key = match idempotency_key(request.headers()) {
+        Ok(value) => value.to_owned(),
+        Err(response) => return response,
+    };
+    let _ = match parse_json::<BTreeMap<String, Value>>(request, 8 * 1024).await {
+        Ok(value) => value,
+        Err(response) => return *response,
+    };
+    let Some(storage) = state.storage.as_ref() else {
+        return storage_unavailable();
+    };
+    let session = match storage.study_session(&run_id) {
+        Ok(Some(session)) => session,
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "Study session not found"),
+        Err(error) => return storage_error_response(error),
+    };
+    let artifact = &session["artifact"];
+    let Some(path) = artifact["note_preview"]["relative_path"].as_str() else {
+        return error_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Study artifact has no note preview",
+        );
+    };
+    let Some(markdown) = artifact["note_preview"]["markdown"].as_str() else {
+        return error_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Study artifact has no note preview",
+        );
+    };
+    let workspace = match configured_workspace(&state) {
+        Ok(workspace) => workspace,
+        Err(response) => return response,
+    };
+    let (before, expected) = match workspace.read_note(path) {
+        Ok((content, hash)) => (content, hash),
+        Err(_) => (String::new(), sha256_hex(b"")),
+    };
+    create_task_preview(
+        &state,
+        &workspace,
+        &key,
+        artifact["artifact_id"].as_str().unwrap_or("study-artifact"),
+        path,
+        "study_note",
+        &before,
+        markdown,
+        &expected,
+        markdown,
+    )
+}
+
 async fn refresh_radar(storage: &restork_storage::Database, config: &Value) -> Result<(), String> {
     let gateway = PublicWebGateway::new().map_err(|_| "Radar network gateway is unavailable")?;
     let mut records = Vec::new();
@@ -2064,6 +2123,16 @@ fn normalize_study_artifact(
         &sha256_hex(format!("{run_id}\0{objective_id}").as_bytes())[..24]
     );
     let prerequisite_ratio = if prerequisites.is_empty() { 0.0 } else { 1.0 };
+    let note_markdown = study_note_markdown(
+        &outcome,
+        readiness,
+        &parsed["objective"]["success_criteria"],
+        &prerequisites,
+        &path,
+        &exercises,
+        &related_notes,
+    );
+    let note_path = format!("Restork Study - {}.md", study_note_slug(&outcome, run_id));
     let artifact = json!({
         "artifact_id": artifact_id,
         "run_id": run_id,
@@ -2077,6 +2146,13 @@ fn normalize_study_artifact(
         "related_notes": related_notes,
         "learning_path": path,
         "exercises": exercises,
+        "note_preview": {
+            "action": "create",
+            "relative_path": note_path,
+            "expected_hash": null,
+            "markdown_hash": sha256_hex(note_markdown.as_bytes()),
+            "markdown": note_markdown,
+        },
         "metrics": {
             "diagnostic_completed": true,
             "explicit_prerequisite_ratio": prerequisite_ratio,
@@ -2089,6 +2165,119 @@ fn normalize_study_artifact(
         "synthesizer": session["diagnostic"]["synthesizer"],
     });
     Some((artifact, rubrics))
+}
+
+/// Filesystem-safe slug for the Vault note backing a Study artifact. Keeps
+/// letters and digits (including CJK), collapses everything else to single
+/// dashes, and falls back to a run-derived suffix when nothing survives.
+fn study_note_slug(outcome: &str, run_id: &str) -> String {
+    let mut slug = String::new();
+    let mut pending_dash = false;
+    let mut kept = 0_usize;
+    for ch in outcome.chars() {
+        if kept >= 48 {
+            break;
+        }
+        if ch.is_alphanumeric() {
+            if pending_dash && !slug.is_empty() {
+                slug.push('-');
+            }
+            slug.push(ch);
+            kept += 1;
+            pending_dash = false;
+        } else {
+            pending_dash = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        format!("run-{}", &sha256_hex(run_id.as_bytes())[..12])
+    } else {
+        slug
+    }
+}
+
+/// Render the Markdown note that mirrors a validated Study artifact into the
+/// Vault. Only artifact-grounded fields are written; answer keys stay in the
+/// app and are never part of the note.
+fn study_note_markdown(
+    outcome: &str,
+    readiness: &str,
+    success_criteria: &Value,
+    prerequisites: &[Value],
+    path: &[Value],
+    exercises: &[Value],
+    related_notes: &[Value],
+) -> String {
+    let mut note = format!(
+        "# Restork Study: {outcome}\n\n> Generated by Restork Study · Readiness: {readiness}\n"
+    );
+    let criteria = success_criteria
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    if !criteria.is_empty() {
+        note.push_str("\n## Success criteria\n");
+        for criterion in criteria {
+            note.push_str(&format!("- {criterion}\n"));
+        }
+    }
+    if !prerequisites.is_empty() {
+        note.push_str("\n## Prerequisites\n");
+        for item in prerequisites {
+            let title = item["title"].as_str().unwrap_or("Vault note");
+            let relative_path = item["relative_path"].as_str().unwrap_or_default();
+            let rationale = item["rationale"].as_str().unwrap_or_default();
+            note.push_str(&format!(
+                "- [[{title}]] (`{relative_path}`) — {rationale}\n"
+            ));
+        }
+    }
+    note.push_str("\n## Learning path\n");
+    for step in path {
+        let order = step["order"].as_u64().unwrap_or(0);
+        let title = step["title"].as_str().unwrap_or("Step");
+        let step_outcome = step["outcome"].as_str().unwrap_or_default();
+        note.push_str(&format!("{order}. **{title}** — {step_outcome}\n"));
+        let refs = step["note_refs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(|reference| format!("`{reference}`"))
+            .collect::<Vec<_>>();
+        if !refs.is_empty() {
+            note.push_str(&format!("   - Notes: {}\n", refs.join(", ")));
+        }
+    }
+    note.push_str("\n## Exercises\n");
+    for exercise in exercises {
+        let kind = exercise["kind"].as_str().unwrap_or("active_recall");
+        let prompt = exercise["prompt"].as_str().unwrap_or_default();
+        let concept = exercise["concept"].as_str().unwrap_or_default();
+        note.push_str(&format!("- [{kind}] {prompt} — concept: {concept}\n"));
+        for hint in exercise["hints"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            note.push_str(&format!("  - Hint: {hint}\n"));
+        }
+    }
+    if !related_notes.is_empty() {
+        note.push_str("\n## Related notes\n");
+        for item in related_notes {
+            let title = item["title"].as_str().unwrap_or("Vault note");
+            let relative_path = item["relative_path"].as_str().unwrap_or_default();
+            note.push_str(&format!("- [[{title}]] (`{relative_path}`)\n"));
+        }
+    }
+    note
 }
 
 pub(super) async fn plan_work(
@@ -3309,4 +3498,62 @@ pub(super) fn bootstrap_radar(state: &ApiState) -> Result<Option<Value>, ()> {
     }
     let items = storage.radar_items(12, 0).map_err(|_| ())?;
     Ok(Some(json!({"configured": true, "items": items})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn study_note_slug_keeps_cjk_and_collapses_separators() {
+        assert_eq!(
+            study_note_slug("Agent Harness 总览", "run-1"),
+            "Agent-Harness-总览"
+        );
+        assert_eq!(
+            study_note_slug("a/b\\c:d*e?f\"g<h>i|j", "run-1"),
+            "a-b-c-d-e-f-g-h-i-j"
+        );
+    }
+
+    #[test]
+    fn study_note_slug_falls_back_and_caps_length() {
+        assert!(study_note_slug("///...", "run-abc").starts_with("run-"));
+        let long = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz";
+        assert!(study_note_slug(long, "run-1").chars().count() <= 48);
+        assert!(!study_note_slug(long, "run-1").ends_with('-'));
+    }
+
+    #[test]
+    fn study_note_markdown_renders_grounded_sections() {
+        let note = study_note_markdown(
+            "Agent Harness 总览",
+            "ready",
+            &json!(["能说出 harness 的职责"]),
+            &[
+                json!({"title": "学习-Agent Harness 总览", "relative_path": "学习-Agent Harness 总览.md", "rationale": "基础概念"}),
+            ],
+            &[
+                json!({"order": 1, "title": "Harness 是什么", "outcome": "说清控制层", "note_refs": ["学习-Agent Harness 总览.md"]}),
+            ],
+            &[
+                json!({"kind": "active_recall", "prompt": "harness 和 loop 的区别", "concept": "harness", "hints": ["从职责边界想"]}),
+            ],
+            &[
+                json!({"title": "学习-Agent Loop与Loop Engineering", "relative_path": "学习-Agent Loop与Loop Engineering.md"}),
+            ],
+        );
+        assert!(note.starts_with("# Restork Study: Agent Harness 总览\n"));
+        assert!(note.contains("Readiness: ready"));
+        assert!(note.contains("- 能说出 harness 的职责"));
+        assert!(
+            note.contains("[[学习-Agent Harness 总览]] (`学习-Agent Harness 总览.md`) — 基础概念")
+        );
+        assert!(note.contains("1. **Harness 是什么** — 说清控制层"));
+        assert!(note.contains("- [active_recall] harness 和 loop 的区别 — concept: harness"));
+        assert!(note.contains("  - Hint: 从职责边界想"));
+        assert!(note.contains("[[学习-Agent Loop与Loop Engineering]]"));
+        // Answer keys / rubrics must never leak into the note.
+        assert!(!note.contains("grading_rubric"));
+    }
 }
