@@ -1323,7 +1323,9 @@ pub fn build_ollama_chat_request_with_options(
 }
 
 fn validate_chat_request(
-    profile: &ProviderProfile,
+    // Kept for per-vendor validation rules (e.g. the DeepSeek reasoning
+    // contract is handled at encode time, future quirks belong here).
+    _profile: &ProviderProfile,
     messages: &[ChatMessage],
     max_tokens: u32,
     options: &ChatOptions,
@@ -1353,13 +1355,6 @@ fn validate_chat_request(
             "assistant" => {
                 if message.content.is_empty() && message.tool_calls.is_empty() {
                     return Err(ProviderError::PolicyDenied);
-                }
-                if profile.kind() == ProviderKind::DeepSeek
-                    && profile.reasoning().effort() != ReasoningEffort::Off
-                    && !message.tool_calls.is_empty()
-                    && message.reasoning_content.is_none()
-                {
-                    return Err(ProviderError::Configuration);
                 }
             }
             "tool" => {
@@ -1521,10 +1516,26 @@ fn encode_openai_messages(
                     .collect::<Result<Vec<_>, ProviderError>>()?,
             );
         }
-        if profile.kind() == ProviderKind::DeepSeek
-            && let Some(reasoning_content) = &message.reasoning_content
-        {
-            value["reasoning_content"] = Value::String(reasoning_content.clone());
+        if profile.kind() == ProviderKind::DeepSeek {
+            match &message.reasoning_content {
+                Some(reasoning_content) => {
+                    value["reasoning_content"] = Value::String(reasoning_content.clone());
+                }
+                // DeepSeek thinking mode rejects multi-turn tool-call history
+                // whose assistant messages lack the `reasoning_content` field
+                // (HTTP 400); an empty string satisfies the wire contract.
+                // Restork strips reasoning at rest per the retention policy, so
+                // a checkpoint resumed after a pause, retry, or restart no
+                // longer carries the original reasoning. Emitting the
+                // placeholder keeps the run resumable instead of failing it
+                // deterministically as `provider_configuration`.
+                None if profile.reasoning().effort() != ReasoningEffort::Off
+                    && !message.tool_calls.is_empty() =>
+                {
+                    value["reasoning_content"] = Value::String(String::new());
+                }
+                _ => {}
+            }
         }
         encoded.push(value);
     }
@@ -2620,16 +2631,19 @@ mod tests {
             name: "vault.search".to_owned(),
             arguments: json!({"query": "ownership"}),
         });
-        assert_eq!(
-            build_openai_chat_request_with_options(
-                &profile(ProviderKind::DeepSeek),
-                &[assistant.clone()],
-                128,
-                &tool_options(),
-                false,
-            ),
-            Err(ProviderError::Configuration),
-        );
+        // A checkpoint resumed after a pause, retry, or restart no longer
+        // carries reasoning (retention policy strips it at rest). The encoder
+        // emits an empty placeholder so the run stays resumable instead of
+        // dying deterministically as `provider_configuration`.
+        let body = build_openai_chat_request_with_options(
+            &profile(ProviderKind::DeepSeek),
+            &[assistant.clone()],
+            128,
+            &tool_options(),
+            false,
+        )
+        .expect("DeepSeek continuation without persisted reasoning");
+        assert_eq!(body["messages"][0]["reasoning_content"], "");
         assistant.reasoning_content = Some("I should inspect the connected vault.".to_owned());
         let body = build_openai_chat_request_with_options(
             &profile(ProviderKind::DeepSeek),
@@ -2643,6 +2657,25 @@ mod tests {
             body["messages"][0]["reasoning_content"],
             "I should inspect the connected vault."
         );
+    }
+
+    #[test]
+    fn deepseek_reasoning_off_skips_the_placeholder() {
+        let mut assistant = ChatMessage::text("assistant", "");
+        assistant.tool_calls.push(ToolCall {
+            id: "call-1".to_owned(),
+            name: "vault.search".to_owned(),
+            arguments: json!({"query": "ownership"}),
+        });
+        let body = build_openai_chat_request_with_options(
+            &reasoning_profile(ProviderKind::DeepSeek, ReasoningEffort::Off, None),
+            &[assistant],
+            128,
+            &tool_options(),
+            false,
+        )
+        .expect("DeepSeek non-thinking continuation");
+        assert!(body["messages"][0].get("reasoning_content").is_none());
     }
 
     #[test]

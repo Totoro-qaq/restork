@@ -107,8 +107,14 @@ impl AgentBounds {
             // One server-side web search can take 30-60s and tool calls run
             // sequentially; 120s starved any research run that searched twice.
             maximum_wall_time_ms: 300_000,
-            maximum_total_tokens: 64_000,
-            maximum_cost_usd_micros: 100_000,
+            // Thinking-mode providers (e.g. DeepSeek with reasoning effort) bill
+            // reasoning tokens into usage; a single vault-grounded study
+            // diagnostic was observed at ~73k total tokens, so 64k stopped
+            // healthy runs with `token_limit` before any output existed.
+            maximum_total_tokens: 256_000,
+            // Same rationale for cost: one observed diagnostic cost ~$0.032; a
+            // full diagnostic + learning-path flow needs headroom over $0.10.
+            maximum_cost_usd_micros: 500_000,
             maximum_output_tokens_per_request: 8_192,
             maximum_context_tokens: 64_000,
         }
