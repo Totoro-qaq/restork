@@ -35,8 +35,9 @@
         <div class="hero-copy">
           <p class="eyebrow">本地优先 · RUST CORE · MIT</p>
           <h1>让 Agent 碰文件，<br><em>但不必盲目信任它。</em></h1>
-          <p class="lede">跨本地 Markdown 查找并给出带引用的答案；每次写入先预览并绑定具体内容，
-            MCP 工具运行在操作系统级沙箱中。</p>
+          <p class="lede">每次写入都先以精确 diff 给你过目，你点批准它才落盘。工具调用跑在
+            操作系统级沙箱里——不是靠提示词让模型小心。跑一次带引用的研究、生成可审笔记，
+            存回 Vault 前你先看一眼。</p>
           <div class="actions">
             <a class="primary" href="https://github.com/Totoro-qaq/restork/blob/main/README.zh-CN.md#五分钟开始使用">从源码体验</a>
             <a href="https://github.com/Totoro-qaq/restork/releases">macOS 未签名 Alpha</a>
@@ -50,24 +51,32 @@
       </section>
 
       <section id="why" class="paper-section">
-        <header><p class="eyebrow">一个 CORE，三种前进方式</p><h2>适应一天里真正交织的事情。</h2></header>
+        <header><p class="eyebrow">一个受控 CORE，多种前进方式</p><h2>适应一天里真正交织的事情。</h2></header>
         <div class="modes">
-          <article><span class="mode research">R</span><h3>Research</h3><p>比较论断、保留证据，并在保存前审查一份带引用的 Markdown 笔记。</p></article>
-          <article><span class="mode study">S</span><h3>Study</h3><p>梳理前置知识，在没有答案泄漏的情况下练习，再复习真正出错的地方。</p></article>
+          <article><span class="mode research">R</span><h3>Research</h3><p>比较公开来源、保留证据，并在存入 Vault 前审一份带引用的 Markdown 笔记。</p></article>
+          <article><span class="mode study">S</span><h3>Study</h3><p>以你的笔记为前提整理学习路径，练习不漏答案，再回去补真正漏掉的地方。</p></article>
           <article><span class="mode work">W</span><h3>Work</h3><p>把有限目标整理成计划、日报周报、演示文稿或脱敏交接，并保留可恢复产物。</p></article>
+        </div>
+        <div class="modes daily">
+          <article><span class="mode daily">◐</span><h3>每日上下文</h3><p>天气、一个本地 ICS 日历，以及来自 QQ 音乐、网易云、Apple Music 或私有歌单的每日单曲。</p></article>
+          <article><span class="mode radar">◇</span><h3>Radar</h3><p>在你主动开启后发现 GitHub 上公开的 AI/Agent 项目并收录 Hacker News，由 Core 排序和缓存。</p></article>
+          <article><span class="mode mail">✉</span><h3>邮件感知</h3><p>macOS 上看未读邮件的主题与发件人，但账号凭据和邮件正文都不会传给模型。</p></article>
+          <article><span class="mode trace">∿</span><h3>运行轨迹</h3><p>按迭代折叠显示 token、工具成败、重试与审批——看懂一次运行，不用逐条读事件。</p></article>
         </div>
       </section>
 
       <section class="proof">
-        <div><p class="eyebrow">真实产品，不是概念图</p><h2>看看一次受控运行。</h2><p>这段公开演示只使用合成数据，也不会发起真实模型请求。</p></div>
-        <img src="./assets/readme/demo-poster.zh-CN.webp" alt="使用公开合成数据展示运行、审批、每日上下文、任务与记忆的 Restork Dashboard。" width="1600" height="1000" loading="lazy">
+        <div><p class="eyebrow">副作用不是承诺</p><h2>每次写入都先预览。</h2><p>一个会偷偷写文件的 Agent 是没法拿来碰真实笔记的。Restork 把要改什么先精确展示给你，绑定那份具体内容批准它才生效，且只生效一次。</p></div>
+        <img src="./assets/readme/architecture.zh-CN.svg" alt="本地知识与四层记忆先进入受控 Restork Core，再访问获准的模型或工具。" width="1200" height="560" loading="lazy">
       </section>
 
       <section class="promises">
-        <article><strong>01</strong><h3>Markdown 仍是普通文件</h3><p>接入已有 Obsidian Vault，或另选一个目录。Restork 不会把笔记锁进私有数据库。</p></article>
-        <article><strong>02</strong><h3>思考强度是明确设置</h3><p>可选 DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter 或兼容端点；界面只显示支持的档位。</p></article>
-        <article><strong>03</strong><h3>副作用先审查</h3><p>类型化策略、预览哈希、一次性审批、事件记录与文件检查点都在 Prompt 之外。</p></article>
-        <article><strong>04</strong><h3>桌面生命周期由 Rust 管理</h3><p>自动选端口、启动 Core、检查心跳，并在退出时回收完整进程树。</p></article>
+        <article><strong>01</strong><h3>Markdown 仍是普通文件</h3><p>指向你现有的 Obsidian Vault 或另选一个目录。笔记不会被锁进私有数据库，本地文件始终是真正的归宿。</p></article>
+        <article><strong>02</strong><h3>每次写入都先审</h3><p>Research 与 Study 笔记会先以预览呈现，你批准后通过一次性、绑定具体内容的审批写回。没有静默覆盖，没有自动执行。</p></article>
+        <article><strong>03</strong><h3>MCP 跑在真沙箱里</h3><p>工具调用运行在平台原生沙箱后——macOS Seatbelt、Linux bubblewrap、Windows Job Objects——I/O 受限，而不是靠提示词级别的安全。</p></article>
+        <article><strong>04</strong><h3>思考是设置，不是泄漏</h3><p>可选 DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter。界面只显示该模型真正支持的思考档位；私有思维链不展示、不留存。</p></article>
+        <article><strong>05</strong><h3>运行可观测</h3><p>事件持久化、迭代折叠的运行视图、带内容的检查点——一次运行可以被打断、恢复、回看，而不丢工作。</p></article>
+        <article><strong>06</strong><h3>桌面生命周期由 Rust 管理</h3><p>自动选端口、启动 Core、检查心跳，并在退出时回收完整进程树。</p></article>
       </section>
 
       <section id="start" class="start">

@@ -20,6 +20,7 @@ pub const MEMORY_READ: &str = "memory:read";
 pub const MEMORY_WRITE: &str = "memory:write";
 pub const TASKS_READ: &str = "tasks:read";
 pub const TASKS_WRITE: &str = "tasks:write";
+pub const VAULT_READ: &str = "vault:read";
 pub const RADAR_READ: &str = "radar:read";
 pub const RADAR_WRITE: &str = "radar:write";
 pub const DAILY_READ: &str = "daily:read";
@@ -67,6 +68,7 @@ pub const WEB_SCOPES: &[&str] = &[
     MEMORY_WRITE,
     TASKS_READ,
     TASKS_WRITE,
+    VAULT_READ,
     RADAR_READ,
     RADAR_WRITE,
     DAILY_READ,
@@ -119,6 +121,7 @@ pub const CLI_SCOPES: &[&str] = &[
     MEMORY_WRITE,
     TASKS_READ,
     TASKS_WRITE,
+    VAULT_READ,
     RADAR_READ,
     RADAR_WRITE,
     DAILY_READ,

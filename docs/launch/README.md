@@ -11,6 +11,7 @@ after a protected signed alpha exists. Never attach private screenshots or a rea
 | V2EX | [v2ex.md](v2ex.md) | 简体中文 |
 | 知乎 | [zhihu.md](zhihu.md) | 简体中文 |
 | 掘金 | [juejin.md](juejin.md) | 简体中文 |
+| 技术交流微信群 | [wechat.md](wechat.md) | 简体中文 |
 
 Before publishing:
 

@@ -11,6 +11,7 @@ chrono.workspace = true
 chrono-tz.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
+notify.workspace = true
 restork-automation = { path = "../restork-automation", version = "=0.1.0" }
 restork-core = { path = "../restork-core", version = "=0.1.0" }
 restork-daily = { path = "../restork-daily", version = "=0.1.0" }

@@ -29,7 +29,9 @@ const MODULES: &[&str] = &[
     "config_api",
     "daily_api",
     "feature_api",
+    "radar",
     "session_api",
+    "vault_api",
 ];
 
 /// Reads one file from `src/` by name. The name always comes from [`MODULES`] or

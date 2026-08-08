@@ -533,6 +533,29 @@ impl Database {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    pub fn delete_radar_lane(&self, lane: &str) -> Result<usize, StorageError> {
+        if !matches!(lane, "my_stars" | "trending" | "hn" | "papers") {
+            return Err(StorageError::Invalid("invalid Radar lane"));
+        }
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        connection
+            .execute("DELETE FROM radar_items WHERE lane = ?1", [lane])
+            .map_err(Into::into)
+    }
+
+    pub fn delete_new_radar_lane(&self, lane: &str) -> Result<usize, StorageError> {
+        if !matches!(lane, "my_stars" | "trending" | "hn" | "papers") {
+            return Err(StorageError::Invalid("invalid Radar lane"));
+        }
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        connection
+            .execute(
+                "DELETE FROM radar_items WHERE lane = ?1 AND state = 'new'",
+                [lane],
+            )
+            .map_err(Into::into)
+    }
+
     pub fn update_radar_state(
         &self,
         item_id: &str,

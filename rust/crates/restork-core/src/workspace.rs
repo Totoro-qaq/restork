@@ -3,6 +3,7 @@
 use std::{
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
+    time::UNIX_EPOCH,
 };
 
 use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
@@ -38,6 +39,13 @@ pub struct WorkspaceSearchHit {
     pub relative_path: String,
     pub excerpt: String,
     pub sha256: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct WorkspaceNoteMetadata {
+    pub relative_path: String,
+    pub byte_count: u64,
+    pub modified_unix_ms: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -334,6 +342,62 @@ impl SafeWorkspace {
         }
         paths.sort();
         Ok(paths)
+    }
+
+    /// Return a bounded, symlink-free inventory of Markdown notes without
+    /// reading their contents. The modification stamp is used only to detect
+    /// that a client should request a fresh list or preview; it is never used
+    /// as an authorization or conflict token.
+    pub fn markdown_index(
+        &self,
+        maximum: usize,
+    ) -> Result<Vec<WorkspaceNoteMetadata>, WorkspaceError> {
+        if maximum == 0 || maximum > MAX_SEARCH_FILES {
+            return Err(WorkspaceError::InvalidPath);
+        }
+        let mut notes = Vec::new();
+        let mut stack = vec![(self.directory.try_clone()?, PathBuf::new())];
+        while let Some((directory, directory_path)) = stack.pop() {
+            for entry in directory.entries()? {
+                let entry = entry?;
+                let file_type = entry.file_type()?;
+                if file_type.is_symlink() {
+                    continue;
+                }
+                let relative_path = directory_path.join(entry.file_name());
+                if file_type.is_dir() {
+                    let name = entry.file_name();
+                    if !matches!(name.to_str(), Some(".git" | ".obsidian" | ".trash")) {
+                        stack.push((entry.open_dir()?, relative_path));
+                    }
+                    continue;
+                }
+                if relative_path.extension().and_then(|value| value.to_str()) != Some("md") {
+                    continue;
+                }
+                let metadata = entry.metadata()?;
+                if !metadata.is_file() || metadata.len() > MAX_NOTE_BYTES {
+                    continue;
+                }
+                let modified_unix_ms = metadata
+                    .modified()
+                    .ok()
+                    .and_then(|value| value.into_std().duration_since(UNIX_EPOCH).ok())
+                    .map(|value| u64::try_from(value.as_millis()).unwrap_or(u64::MAX))
+                    .unwrap_or_default();
+                notes.push(WorkspaceNoteMetadata {
+                    relative_path: relative_path.to_string_lossy().replace('\\', "/"),
+                    byte_count: metadata.len(),
+                    modified_unix_ms,
+                });
+                if notes.len() >= maximum {
+                    notes.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+                    return Ok(notes);
+                }
+            }
+        }
+        notes.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+        Ok(notes)
     }
 
     pub fn preview_write(

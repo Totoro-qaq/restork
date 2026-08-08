@@ -240,7 +240,7 @@ cargo run --manifest-path rust/Cargo.toml --bin restorkd -- \
 | **模型** | DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter 与通用 OpenAI 兼容端点；供应商范围内思考强度；原生凭据存储；版本化 Prompt 与配置 Profile |
 | **Agent 运行时** | 持久化模型/工具循环，分别约束步骤、修复、Token、费用与总耗时；支持取消、审批暂停、事件重放和可见的上下文压缩 |
 | **Research、Study、Work** | 证据驱动 Research 与可审批笔记；基于 Vault 的学习路径和置信度复习；有界工作计划、脱敏交接与证据化结果校验 |
-| **本地知识** | 可检查的四层记忆、需要单次审批的 Markdown 任务预览、跨会话/Vault/任务/记忆/Radar 的统一搜索，以及可选 GitHub/Hacker News Radar 摄取 |
+| **本地知识** | 带分页、安全 Markdown 预览和文件实时更新的 Obsidian Vault 浏览器，可检查的四层记忆、审批式 Markdown 任务、统一搜索，以及可选的 GitHub 公开 AI/Agent 项目与 Hacker News Radar |
 | **扩展** | 清单校验、权限格、不可变修订与回滚，以及沙箱化的 stdio MCP 执行 |
 | **每日上下文** | 可选天气、无需权限的系统日期与月历、一个本地 ICS 日历、macOS 未读邮件计数，以及来自 QQ 音乐、网易云、Apple Music 或私有歌单文件的每日单曲 |
 | **产物与恢复** | 确定性无宏 PPTX/PDF、精确产物哈希、包含真实内容的检查点、绑定预览的文件恢复 |

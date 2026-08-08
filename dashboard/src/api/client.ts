@@ -36,6 +36,7 @@ import type {
   WeatherConfigurationInput,
   WeatherConfigurationResult,
   CatalogRecordV2,
+  ExtensionInstallPreviewV2,
   PersonalSettingsRecord,
   ProviderProfileRecordV2,
   ConfigurationProfileRecordV2,
@@ -57,6 +58,10 @@ import type {
   DeckFromReportInputV2,
   ScheduleSpecV2,
   ScheduleRunV2,
+  VaultChangeEventV2,
+  VaultNotePageV2,
+  VaultNotePreviewV2,
+  VaultSearchHitV2,
 } from "./types";
 
 export interface LocalSession {
@@ -103,6 +108,92 @@ export class LocalApiClient implements DashboardApi {
       "GET",
       `/v1/bootstrap?timezone=${encodeURIComponent(systemTimeZone())}`,
     );
+  }
+
+  async listVaultNotes(cursor?: string): Promise<VaultNotePageV2> {
+    const query = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+    return this.#request<VaultNotePageV2>("GET", `/v1/vault/files?limit=100${query}`);
+  }
+
+  async searchVaultNotes(query: string): Promise<VaultSearchHitV2[]> {
+    const result = await this.#request<{ items: VaultSearchHitV2[] }>(
+      "GET",
+      `/v1/vault/search?q=${encodeURIComponent(query)}&limit=50`,
+    );
+    return result.items;
+  }
+
+  async readVaultNote(relativePath: string): Promise<VaultNotePreviewV2> {
+    return this.#request<VaultNotePreviewV2>(
+      "GET",
+      `/v1/vault/note?path=${encodeURIComponent(relativePath)}`,
+    );
+  }
+
+  async streamVaultEvents(
+    onEvent: (event: VaultChangeEventV2) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    let retryDelay = 750;
+    while (!signal.aborted) {
+      let response: Response;
+      try {
+        response = await this.#fetch(
+          "/v1/vault/events",
+          {
+            method: "GET",
+            headers: { Accept: "text/event-stream" },
+            signal,
+          },
+          true,
+          true,
+        );
+      } catch {
+        if (signal.aborted) return;
+        await abortableDelay(retryDelay, signal);
+        retryDelay = Math.min(15_000, retryDelay * 2);
+        continue;
+      }
+      if (!response.ok) {
+        if ([408, 425, 429, 500, 502, 503, 504].includes(response.status)) {
+          await abortableDelay(retryDelay, signal);
+          retryDelay = Math.min(15_000, retryDelay * 2);
+          continue;
+        }
+        throw await apiError(response);
+      }
+      if (!response.body) throw new Error("Core returned an unreadable Vault stream");
+      const reader = response.body.getReader();
+      const utf8 = new TextDecoder();
+      const decoder = new EventStreamDecoder();
+      let delivered = false;
+      const accept = (events: RunEvent[]): void => {
+        for (const event of events) {
+          if (!["vault.ready", "vault.changed", "vault.unavailable"].includes(event.type)) continue;
+          delivered = true;
+          onEvent({
+            type: event.type as VaultChangeEventV2["type"],
+            data: event.data as VaultChangeEventV2["data"],
+          });
+        }
+      };
+      try {
+        while (!signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          accept(decoder.push(utf8.decode(value, { stream: true })));
+        }
+        accept(decoder.push(utf8.decode()));
+        accept(decoder.finish());
+      } catch {
+        if (signal.aborted) return;
+      }
+      if (delivered) retryDelay = 750;
+      if (!signal.aborted) {
+        await abortableDelay(retryDelay, signal);
+        retryDelay = Math.min(15_000, retryDelay * 2);
+      }
+    }
   }
 
   async createSession(title: string, profileId: string): Promise<SessionRecordV2> {
@@ -344,13 +435,25 @@ export class LocalApiClient implements DashboardApi {
     return result.items;
   }
 
+  async previewExtensionInstall(
+    packageKind: "skill" | "mcp" | "plugin",
+    manifest: Record<string, unknown>,
+  ): Promise<ExtensionInstallPreviewV2> {
+    return this.#request<ExtensionInstallPreviewV2>("POST", "/v1/extensions", {
+      package_kind: packageKind,
+      manifest,
+    });
+  }
+
   async installExtension(
     packageKind: "skill" | "mcp" | "plugin",
     manifest: Record<string, unknown>,
+    approvedPreviewDigest: string,
   ): Promise<CatalogRecordV2> {
     return this.#request<CatalogRecordV2>("POST", "/v1/extensions", {
       package_kind: packageKind,
       manifest,
+      approved_preview_digest: approvedPreviewDigest,
     });
   }
 

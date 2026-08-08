@@ -133,6 +133,60 @@ describe("LocalApiClient private mail awareness", () => {
   });
 });
 
+describe("LocalApiClient Vault browser", () => {
+  it("uses authenticated relative-path APIs and reconnectable SSE events", async () => {
+    const responses = [
+      jsonResponse({ access_token: "paired-token" }),
+      jsonResponse({
+        configured: true,
+        items: [{ relative_path: "Notes/A B.md", byte_count: 12, modified_unix_ms: 1 }],
+        total: 1,
+        page: { limit: 100, has_more: false, next_cursor: null },
+      }),
+      jsonResponse({
+        items: [{ relative_path: "Notes/A B.md", excerpt: "bounded", sha256: "a".repeat(64) }],
+      }),
+      jsonResponse({
+        relative_path: "Notes/A B.md",
+        content: "# Bounded",
+        sha256: "a".repeat(64),
+        byte_count: 9,
+        output_is_untrusted: true,
+      }),
+      new Response(
+        "id: 1\nevent: vault.changed\ndata: {\"changed_count\":1,\"modified\":[\"Notes/A B.md\"]}\n\n",
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      ),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+    await client.pair("pairing-code");
+
+    await client.listVaultNotes();
+    await client.searchVaultNotes("bounded loop");
+    await client.readVaultNote("Notes/A B.md");
+    const controller = new AbortController();
+    let changed = 0;
+    await client.streamVaultEvents((event) => {
+      changed = event.data.changed_count ?? 0;
+      controller.abort();
+    }, controller.signal);
+
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/vault/files?limit=100");
+    expect(fetchMock.mock.calls[2][0]).toBe("/v1/vault/search?q=bounded%20loop&limit=50");
+    expect(fetchMock.mock.calls[3][0]).toBe("/v1/vault/note?path=Notes%2FA%20B.md");
+    expect(fetchMock.mock.calls[4][0]).toBe("/v1/vault/events");
+    expect(new Headers(fetchMock.mock.calls[4][1]?.headers).get("Authorization"))
+      .toBe("Bearer paired-token");
+    expect(changed).toBe(1);
+  });
+});
+
 describe("LocalApiClient conversation model branches", () => {
   it("sends an explicit bounded fork request without provider credentials", async () => {
     const responses = [
@@ -180,6 +234,55 @@ describe("LocalApiClient conversation model branches", () => {
       copy_limit: 24,
     });
     expect(String(fetchMock.mock.calls[1][1]?.body)).not.toMatch(/api.?key|credential|secret/i);
+  });
+});
+
+describe("LocalApiClient reviewed extension installation", () => {
+  it("keeps preview and installation as two explicit requests bound to one digest", async () => {
+    const digest = "a".repeat(64);
+    const manifest = { schema_version: 1, id: "skill.reviewed", version: "1.0.0" };
+    const responses = [
+      jsonResponse({ access_token: "paired-token" }),
+      jsonResponse({
+        state: "review_required",
+        installation_started: false,
+        preview_digest: digest,
+        preview: { package_kind: "skill", manifest },
+      }),
+      jsonResponse({
+        package_id: "skill.reviewed",
+        package_kind: "skill",
+        state: "quarantined",
+        manifest_hash: digest,
+        manifest,
+        updated_at: "2026-08-05T12:00:00Z",
+      }),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+
+    await client.pair("pairing-code");
+    const preview = await client.previewExtensionInstall("skill", manifest);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
+      package_kind: "skill",
+      manifest,
+    });
+
+    await client.installExtension("skill", manifest, preview.preview_digest);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({
+      package_kind: "skill",
+      manifest,
+      approved_preview_digest: digest,
+    });
+    expect(new Headers(fetchMock.mock.calls[2][1]?.headers).get("Authorization"))
+      .toBe("Bearer paired-token");
   });
 });
 

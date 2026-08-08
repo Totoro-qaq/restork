@@ -39,6 +39,19 @@ English. Use the visible `EN`/`中文` control on either the pairing page or wor
 explicit switch may persist only `restork.locale` with the literal value `en` or `zh-CN`; session
 tokens and Core data remain memory-only.
 
+## Browse an Obsidian Vault
+
+After a Vault is selected, open **Knowledge / 知识库** in the left rail. Restork lists Markdown notes
+in pages of 100, searches names and contents locally, and opens a read-only reading view with an
+optional exact-source inspector. The preview treats note text as untrusted: embedded HTML, scripts,
+images, frames and executable links are never interpreted.
+
+While Knowledge is visible, the Core's platform-native filesystem watcher feeds an authenticated
+loopback SSE stream. Saving, renaming, creating, or deleting a Markdown note in Obsidian refreshes
+the file rail and selected preview after a short coalescing window. The stream contains only relative paths and change
+counts; it never sends the absolute Vault root or note contents. Leaving Knowledge closes the
+stream. No Obsidian plugin, graph database, cloud index, or manual import is required.
+
 ## Model access
 
 The Overview **Model access** card shows local configuration/credential status and the exact secure

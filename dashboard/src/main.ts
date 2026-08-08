@@ -15,6 +15,8 @@ import type {
   ProviderKindV2,
   RunEvent,
   RunSummary,
+  VaultNoteMetadataV2,
+  VaultSearchHitV2,
   WorkDataClass,
   WorkHandoffPreview,
   WorkResultManifest,
@@ -48,6 +50,8 @@ import {
   sessionMessagesMarkup,
   toolCallPreviewMarkup,
   toolSearchMarkup,
+  vaultFileListMarkup,
+  vaultNotePreviewMarkup,
   workspaceMarkup,
 } from "./ui/render";
 import type { AgentWaitStage } from "./ui/render";
@@ -55,6 +59,7 @@ import { startClock } from "./ui/clock";
 import {
   alternateLocale,
   detectLocale,
+  isLocale,
   localeOf,
   persistLocale,
   tr,
@@ -70,6 +75,14 @@ interface MountOptions {
 const coverUrls = new WeakMap<HTMLElement, string>();
 const eventStreams = new WeakMap<HTMLElement, AbortController>();
 const mailStreams = new WeakMap<HTMLElement, AbortController>();
+const vaultStreams = new WeakMap<HTMLElement, AbortController>();
+const vaultStates = new WeakMap<HTMLElement, {
+  items: VaultNoteMetadataV2[];
+  nextCursor: string | null;
+  total: number;
+  selectedPath: string | null;
+  query: string;
+}>();
 const conversationStreams = new WeakMap<HTMLElement, {
   controller: AbortController;
   operationId: string;
@@ -195,6 +208,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   const locale = localeOf(root);
   stopEventStream(root);
   stopMailStream(root);
+  stopVaultStream(root);
   releaseCover(root);
   root.innerHTML = workspaceMarkup(snapshot, locale);
   applyTheme(snapshot.workspaceV2?.personal?.settings.theme);
@@ -207,11 +221,15 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
     const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "overview";
     renderWorkspace(root, api, snapshot);
     selectView(root, view);
+    if (view === "vault") void openVaultWorkspace(root, api);
   });
   root.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => {
     button.addEventListener("click", () => {
       closeRunForm(root, false);
-      selectView(root, button.dataset.view ?? "overview");
+      const view = button.dataset.view ?? "overview";
+      selectView(root, view);
+      if (view === "vault") void openVaultWorkspace(root, api);
+      if (view === "radar") void refreshRadarPanel(root, api, snapshot);
     });
   });
   const nav = root.querySelector<HTMLElement>(".sidebar nav");
@@ -234,9 +252,19 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
     event.preventDefault();
     void createRun(root, api, event.currentTarget as HTMLFormElement, snapshot);
   });
-  root.querySelector<HTMLButtonElement>("#refresh")?.addEventListener("click", () => {
+  root.querySelector<HTMLButtonElement>("#refresh")?.addEventListener("click", (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    if (button.getAttribute("aria-busy") === "true") return;
     const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "overview";
-    void refresh(root, api, view);
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    void refresh(root, api, view).finally(() => {
+      // A successful refresh replaces the whole workspace. Only restore the
+      // original control when the request failed and it is still mounted.
+      if (!root.contains(button)) return;
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    });
   });
   bindListInteractions(root, api, snapshot, root);
   root.querySelector<HTMLFormElement>("#quick-task-form")?.addEventListener("submit", (event) => {
@@ -249,8 +277,9 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   configureMail(root, api, snapshot);
   configureProvider(root, api, snapshot);
   configureRustWorkspace(root, api, snapshot);
-  bindRadarConfig(root, api);
+  bindRadarConfig(root, api, snapshot);
   bindVaultDir(root);
+  configureVaultBrowser(root, api);
   // Last, so it overrides any enabled state the feature wiring just set.
   applyCapabilityGuards(root, api, locale);
   if (snapshot.daily?.music?.recommendation?.cover_available) {
@@ -786,9 +815,19 @@ function configureRustWorkspace(
       applyTheme(settings.theme);
       void api.savePersonalSettings(version || null, settings).then((record) => {
         if (snapshot.workspaceV2) snapshot.workspaceV2.personal = record;
-        form.dataset.version = String(record.version);
+        const savedLocale = record.settings?.locale;
+        if (isLocale(savedLocale)) {
+          persistLocale(savedLocale);
+          applyLocale(root, savedLocale);
+        }
         applyTheme(record.settings?.theme);
-        if (status) status.textContent = tr(localeOf(root), "Saved on this device.", "已保存在本设备。");
+        renderWorkspace(root, api, snapshot);
+        selectView(root, "settings");
+        announceStatus(root, tr(
+          localeOf(root),
+          "Profile, language, and appearance were saved on this device.",
+          "个人资料、语言与外观已保存在本设备。",
+        ));
       }).catch((error) => {
         if (status) status.textContent = errorText(error, localeOf(root));
       });
@@ -1106,7 +1145,8 @@ function configureExtensionCenter(root: HTMLElement, api: DashboardApi): void {
     const form = event.currentTarget as HTMLFormElement;
     const data = new FormData(form);
     const status = form.querySelector<HTMLElement>("#extension-install-status");
-    if (!api.installExtension) return;
+    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (!api.previewExtensionInstall || !api.installExtension || !status) return;
     let manifest: Record<string, unknown>;
     try {
       const parsed = JSON.parse(String(data.get("manifest") ?? "")) as unknown;
@@ -1116,12 +1156,79 @@ function configureExtensionCenter(root: HTMLElement, api: DashboardApi): void {
       if (status) status.textContent = tr(localeOf(root), "Manifest must be one JSON object.", "清单必须是一个 JSON 对象。");
       return;
     }
-    if (status) status.textContent = tr(localeOf(root), "Validating and quarantining…", "正在验证并隔离…");
-    void api.installExtension(
-      String(data.get("package_kind") ?? "skill") as "skill" | "mcp" | "plugin",
-      manifest,
-    ).then(() => reloadWorkspaceView(root, api, "extensions"))
-      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
+    const packageKind = String(data.get("package_kind") ?? "skill") as
+      | "skill"
+      | "mcp"
+      | "plugin";
+    if (submit) submit.disabled = true;
+    status.textContent = tr(
+      localeOf(root),
+      "Validating the manifest without installing it…",
+      "正在验证清单，尚未开始安装…",
+    );
+    void api.previewExtensionInstall(packageKind, manifest).then((preview) => {
+      status.replaceChildren();
+      const card = document.createElement("article");
+      card.className = "extension-install-preview";
+      const title = document.createElement("strong");
+      title.textContent = tr(
+        localeOf(root),
+        "Review the exact install preview",
+        "审查精确安装预览",
+      );
+      const explanation = document.createElement("p");
+      explanation.textContent = tr(
+        localeOf(root),
+        "Nothing has been installed. Confirm this immutable digest to create a quarantined package.",
+        "尚未安装任何内容。确认这份不可变摘要后，才会创建隔离中的扩展。",
+      );
+      const digest = document.createElement("code");
+      digest.textContent = `SHA-256 · ${preview.preview_digest}`;
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = tr(localeOf(root), "Permissions and manifest", "权限与清单");
+      const pre = document.createElement("pre");
+      pre.textContent = JSON.stringify(preview.preview, null, 2);
+      details.append(summary, pre);
+      const approve = document.createElement("button");
+      approve.type = "button";
+      approve.textContent = tr(
+        localeOf(root),
+        "INSTALL REVIEWED VERSION",
+        "安装已审查版本",
+      );
+      approve.addEventListener("click", async () => {
+        const confirmed = await confirmAction(
+          root,
+          tr(
+            localeOf(root),
+            "Install this exact manifest in quarantine? It will remain unable to run until separately enabled.",
+            "按此精确清单安装到隔离区？在另行启用前，它仍无法运行。",
+          ),
+          preview.preview_digest,
+        );
+        if (!confirmed) return;
+        approve.disabled = true;
+        approve.textContent = tr(localeOf(root), "INSTALLING…", "正在安装…");
+        void api.installExtension?.(packageKind, manifest, preview.preview_digest)
+          .then(() => reloadWorkspaceView(root, api, "extensions"))
+          .catch((error) => {
+            approve.disabled = false;
+            approve.textContent = tr(
+              localeOf(root),
+              "INSTALL REVIEWED VERSION",
+              "安装已审查版本",
+            );
+            announceError(root, errorText(error, localeOf(root)));
+          });
+      });
+      card.append(title, explanation, digest, details, approve);
+      status.append(card);
+    }).catch((error) => {
+      status.textContent = errorText(error, localeOf(root));
+    }).finally(() => {
+      if (submit) submit.disabled = false;
+    });
   });
   root.querySelectorAll<HTMLButtonElement>("[data-extension-state]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -1664,11 +1771,11 @@ function configureWeather(root: HTMLElement, api: DashboardApi): void {
   );
 }
 
-function bindRadarConfig(root: HTMLElement, api: DashboardApi): void {
+function bindRadarConfig(root: HTMLElement, api: DashboardApi, snapshot: DashboardSnapshot): void {
   const form = root.querySelector<HTMLFormElement>("#radar-config-form");
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
-    void saveRadarConfig(root, api, form);
+    void saveRadarConfig(root, api, snapshot, form);
   });
 }
 
@@ -1716,17 +1823,22 @@ function bindVaultDir(root: HTMLElement): void {
   });
 }
 
-async function saveRadarConfig(root: HTMLElement, api: DashboardApi, form: HTMLFormElement): Promise<void> {
+async function saveRadarConfig(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+  form: HTMLFormElement,
+): Promise<void> {
   const data = new FormData(form);
-  const githubUser = String(data.get("github_user") ?? "").trim();
+  const githubDiscovery = data.get("github_discovery") === "1";
   const hackerNews = data.get("hacker_news") === "1";
   const status = form.querySelector<HTMLElement>("#radar-config-status");
-  if (!githubUser && !hackerNews) {
+  if (!githubDiscovery && !hackerNews) {
     if (status) {
       status.textContent = tr(
         localeOf(root),
-        "Enable at least one source: a GitHub username or Hacker News.",
-        "至少启用一个来源：GitHub 用户名或 Hacker News。",
+        "Enable at least one source: public GitHub AI/Agent projects or Hacker News.",
+        "至少启用一个来源：GitHub 公开 AI/Agent 项目或 Hacker News。",
       );
     }
     return;
@@ -1735,13 +1847,41 @@ async function saveRadarConfig(root: HTMLElement, api: DashboardApi, form: HTMLF
   try {
     await api.configureRadar({
       enabled: true,
-      github_user: githubUser || null,
+      github_discovery: githubDiscovery,
       hacker_news: hackerNews,
     });
-    await refresh(root, api, "radar");
+    await refreshRadarPanel(root, api, snapshot);
     announceStatus(root, tr(localeOf(root), "Radar sources saved.", "Radar 来源已保存。"));
   } catch (error) {
     if (status) status.textContent = errorText(error, localeOf(root));
+  }
+}
+
+async function refreshRadarPanel(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+): Promise<void> {
+  if (!api.loadPage) return;
+  const panel = root.querySelector<HTMLElement>('[data-view-panel="radar"]');
+  if (!panel || panel.dataset.loading === "true") return;
+  panel.dataset.loading = "true";
+  panel.setAttribute("aria-busy", "true");
+  try {
+    const page = await api.loadPage("radar", "");
+    if (page.kind !== "radar") return;
+    snapshot.radar = {
+      configured: page.configured,
+      items: page.items,
+    };
+    snapshot.pagination ??= {};
+    snapshot.pagination.radar = page.page;
+    renderListPanel(root, api, snapshot, "radar");
+  } catch (error) {
+    announceError(root, errorText(error, localeOf(root)));
+  } finally {
+    panel.dataset.loading = "false";
+    panel.removeAttribute("aria-busy");
   }
 }
 
@@ -1966,6 +2106,266 @@ function stopMailStream(root: HTMLElement): void {
   mailStreams.delete(root);
 }
 
+function configureVaultBrowser(root: HTMLElement, api: DashboardApi): void {
+  const form = root.querySelector<HTMLFormElement>("#vault-search-form");
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const query = String(new FormData(form).get("query") ?? "").trim();
+    if (query) void searchVaultWorkspace(root, api, query);
+  });
+  root.querySelector<HTMLButtonElement>("[data-vault-clear]")?.addEventListener("click", () => {
+    form?.reset();
+    void loadVaultIndex(root, api);
+  });
+}
+
+async function openVaultWorkspace(root: HTMLElement, api: DashboardApi): Promise<void> {
+  if (!api.listVaultNotes || !api.readVaultNote || !api.searchVaultNotes) {
+    setVaultStatus(
+      root,
+      tr(
+        localeOf(root),
+        "This Core predates the Vault browser. Update and restart Restork.",
+        "当前 Core 版本尚未提供 Vault 浏览器，请更新并重启 Restork。",
+      ),
+      "error",
+    );
+    return;
+  }
+  const configured = await loadVaultIndex(root, api);
+  if (configured) startVaultStream(root, api);
+}
+
+async function loadVaultIndex(
+  root: HTMLElement,
+  api: DashboardApi,
+  cursor?: string,
+  append = false,
+): Promise<boolean> {
+  if (!api.listVaultNotes) return false;
+  const browser = root.querySelector<HTMLElement>(".vault-browser");
+  browser?.setAttribute("aria-busy", "true");
+  setVaultStatus(
+    root,
+    append
+      ? tr(localeOf(root), "Loading more local notes…", "正在加载更多本地笔记……")
+      : tr(localeOf(root), "Reading the safe local file index…", "正在读取安全的本地文件索引……"),
+    "loading",
+  );
+  try {
+    const page = await api.listVaultNotes(cursor);
+    const previous = vaultStates.get(root);
+    const items = append ? [...(previous?.items ?? []), ...page.items] : page.items;
+    const state = {
+      items,
+      nextCursor: page.page.next_cursor,
+      total: page.total,
+      selectedPath: previous?.selectedPath ?? null,
+      query: "",
+    };
+    vaultStates.set(root, state);
+    renderVaultFiles(root, api, items, page.total, page.page.has_more, "");
+    const count = root.querySelector<HTMLElement>("#vault-file-count");
+    if (count) count.textContent = String(page.total);
+    browser?.setAttribute("aria-busy", "false");
+    if (!page.configured) {
+      setVaultStatus(
+        root,
+        tr(localeOf(root), "No Vault is configured. Choose one in Settings.", "尚未配置 Vault，请先在设置中选择知识库。"),
+        "off",
+      );
+      return false;
+    }
+    setVaultStatus(
+      root,
+      tr(localeOf(root), `${page.total} notes ready · watching for changes`, `${page.total} 篇笔记已就绪 · 正在监听变化`),
+      "live",
+    );
+    if (state.selectedPath && items.some((item) => item.relative_path === state.selectedPath)) {
+      void readVaultPreview(root, api, state.selectedPath);
+    }
+    return true;
+  } catch (error) {
+    browser?.setAttribute("aria-busy", "false");
+    setVaultStatus(root, errorText(error, localeOf(root)), "error");
+    return false;
+  }
+}
+
+async function searchVaultWorkspace(
+  root: HTMLElement,
+  api: DashboardApi,
+  query: string,
+): Promise<void> {
+  if (!api.searchVaultNotes) return;
+  const browser = root.querySelector<HTMLElement>(".vault-browser");
+  browser?.setAttribute("aria-busy", "true");
+  setVaultStatus(root, tr(localeOf(root), "Searching local Markdown…", "正在搜索本地 Markdown……"), "loading");
+  try {
+    const hits = await api.searchVaultNotes(query);
+    const previous = vaultStates.get(root);
+    vaultStates.set(root, {
+      items: previous?.items ?? [],
+      nextCursor: null,
+      total: hits.length,
+      selectedPath: previous?.selectedPath ?? null,
+      query,
+    });
+    renderVaultFiles(root, api, hits, hits.length, false, query);
+    const count = root.querySelector<HTMLElement>("#vault-file-count");
+    if (count) count.textContent = String(hits.length);
+    browser?.setAttribute("aria-busy", "false");
+    setVaultStatus(
+      root,
+      tr(localeOf(root), `${hits.length} local matches · live updates remain on`, `${hits.length} 条本地结果 · 实时更新仍在运行`),
+      "live",
+    );
+  } catch (error) {
+    browser?.setAttribute("aria-busy", "false");
+    setVaultStatus(root, errorText(error, localeOf(root)), "error");
+  }
+}
+
+function renderVaultFiles(
+  root: HTMLElement,
+  api: DashboardApi,
+  items: Array<VaultNoteMetadataV2 | VaultSearchHitV2>,
+  total: number,
+  hasMore: boolean,
+  query: string,
+): void {
+  const host = root.querySelector<HTMLElement>("#vault-file-list");
+  if (!host) return;
+  host.innerHTML = vaultFileListMarkup(items, total, hasMore, localeOf(root), query);
+  host.querySelectorAll<HTMLButtonElement>("[data-vault-path]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const path = button.dataset.vaultPath;
+      if (path) void readVaultPreview(root, api, path);
+    });
+  });
+  host.querySelector<HTMLButtonElement>("[data-vault-load-more]")?.addEventListener(
+    "click",
+    () => {
+      const state = vaultStates.get(root);
+      if (state?.nextCursor) void loadVaultIndex(root, api, state.nextCursor, true);
+    },
+  );
+  bindRovingFocus(host, "[data-vault-path]");
+}
+
+async function readVaultPreview(
+  root: HTMLElement,
+  api: DashboardApi,
+  relativePath: string,
+): Promise<void> {
+  if (!api.readVaultNote) return;
+  const preview = root.querySelector<HTMLElement>("#vault-preview");
+  if (!preview) return;
+  preview.setAttribute("aria-busy", "true");
+  preview.innerHTML = `<div class="vault-preview-empty">
+    <span class="agent-wait-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    <h3>${tr(localeOf(root), "Reading the local note…", "正在读取本地笔记……")}</h3>
+  </div>`;
+  try {
+    const note = await api.readVaultNote(relativePath);
+    const state = vaultStates.get(root);
+    if (state) state.selectedPath = relativePath;
+    root.querySelectorAll<HTMLElement>("[data-vault-path]").forEach((row) => {
+      row.classList.toggle("is-active", row.dataset.vaultPath === relativePath);
+    });
+    preview.innerHTML = vaultNotePreviewMarkup(note, localeOf(root));
+    preview.setAttribute("aria-busy", "false");
+  } catch (error) {
+    preview.innerHTML = `<div class="vault-preview-empty">
+      <span aria-hidden="true">!</span>
+      <h3>${tr(localeOf(root), "Preview unavailable", "无法预览")}</h3>
+      <p>${escapeMarkup(errorText(error, localeOf(root)))}</p>
+    </div>`;
+    preview.setAttribute("aria-busy", "false");
+  }
+}
+
+function startVaultStream(root: HTMLElement, api: DashboardApi): void {
+  if (!api.streamVaultEvents) {
+    setVaultStatus(
+      root,
+      tr(localeOf(root), "Files are ready · use Refresh after external edits", "文件已就绪 · 外部修改后请手动刷新"),
+      "off",
+    );
+    return;
+  }
+  stopVaultStream(root);
+  const controller = new AbortController();
+  vaultStreams.set(root, controller);
+  void api.streamVaultEvents((event) => {
+    if (controller.signal.aborted || activeView(root) !== "vault") return;
+    if (event.type === "vault.ready") {
+      setVaultStatus(
+        root,
+        tr(localeOf(root), "Live Vault updates connected", "Vault 实时更新已连接"),
+        "live",
+      );
+      return;
+    }
+    if (event.type === "vault.unavailable") {
+      setVaultStatus(
+        root,
+        tr(localeOf(root), "Vault temporarily unavailable · reconnecting", "Vault 暂时不可用 · 正在重连"),
+        "error",
+      );
+      return;
+    }
+    const changed = event.data.changed_count ?? 1;
+    setVaultStatus(
+      root,
+      tr(localeOf(root), `${changed} note changes detected · updating`, `检测到 ${changed} 项笔记变化 · 正在更新`),
+      "loading",
+    );
+    const state = vaultStates.get(root);
+    const selectedPath = state?.selectedPath;
+    void (async () => {
+      if (state?.query) await searchVaultWorkspace(root, api, state.query);
+      else await loadVaultIndex(root, api);
+      if (selectedPath && !(event.data.removed ?? []).includes(selectedPath)) {
+        await readVaultPreview(root, api, selectedPath);
+      }
+    })();
+  }, controller.signal).catch((error: unknown) => {
+    if (controller.signal.aborted) return;
+    setVaultStatus(
+      root,
+      tr(localeOf(root), `Live update stopped: ${errorText(error, localeOf(root))}`, `实时更新已停止：${errorText(error, localeOf(root))}`),
+      "error",
+    );
+  });
+}
+
+function stopVaultStream(root: HTMLElement): void {
+  vaultStreams.get(root)?.abort();
+  vaultStreams.delete(root);
+}
+
+function setVaultStatus(
+  root: HTMLElement,
+  message: string,
+  state: "live" | "loading" | "off" | "error",
+): void {
+  const status = root.querySelector<HTMLElement>("#vault-live-status");
+  if (status) status.textContent = message;
+  const line = root.querySelector<HTMLElement>(".vault-live-line");
+  if (line) line.dataset.state = state;
+  const badge = root.querySelector<HTMLElement>("#vault-live-badge");
+  if (badge) {
+    badge.textContent = state === "live"
+      ? tr(localeOf(root), "LIVE", "实时")
+      : state === "loading"
+        ? tr(localeOf(root), "SYNCING", "同步中")
+        : state === "error"
+          ? tr(localeOf(root), "RETRYING", "重试中")
+          : tr(localeOf(root), "MANUAL", "手动");
+  }
+}
+
 function updateMailUi(root: HTMLElement, mail: MailSnapshot): void {
   const locale = localeOf(root);
   const label = mail.configured && mail.unread_count !== null
@@ -2156,7 +2556,9 @@ function geolocationError(error: unknown, locale: Locale): string {
 function selectView(root: HTMLElement, view: string): void {
   const panels = [...root.querySelectorAll<HTMLElement>("[data-view-panel]")];
   const resolvedView = panels.some((panel) => panel.dataset.viewPanel === view) ? view : "overview";
+  const previousView = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view;
   if (resolvedView !== "runs") stopEventStream(root);
+  if (resolvedView !== "vault") stopVaultStream(root);
   panels.forEach((panel) => {
     panel.hidden = panel.dataset.viewPanel !== resolvedView;
     panel.classList.toggle("is-visible", !panel.hidden);
@@ -2167,6 +2569,10 @@ function selectView(root: HTMLElement, view: string): void {
     if (active) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
+  if (previousView && previousView !== resolvedView) {
+    const workspace = root.querySelector<HTMLElement>(".workspace");
+    if (workspace) workspace.scrollTop = 0;
+  }
   syncNavBadges(root);
 }
 
@@ -2205,6 +2611,8 @@ function openRunForm(root: HTMLElement, mode: Mode, trigger?: HTMLButtonElement,
   }
   const previousMode = field.value;
   panel.hidden = false;
+  const workspace = root.querySelector<HTMLElement>(".workspace");
+  if (workspace) workspace.scrollTop = 0;
   panel.dataset.activeMode = mode;
   field.value = mode;
   root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
@@ -3037,13 +3445,33 @@ function closeModal(dialog: HTMLDialogElement, returnValue: string): void {
  * do nothing at all when pressed. A control the user cannot use MUST say so.
  */
 const CAPABILITY_CONTROLS: ReadonlyArray<[keyof DashboardApi, string]> = [
+  ["listVaultNotes", "[data-vault-clear]"],
+  ["searchVaultNotes", "#vault-search-form button[type=submit]"],
+  ["previewExtensionInstall", "#extension-install-form button[type=submit]"],
   ["installExtension", "#extension-install-form button[type=submit]"],
-  ["createSchedule", "#schedule-form button[type=submit]"],
+  ["setExtensionState", "[data-extension-state]"],
+  ["extensionRevisions", "[data-extension-history]"],
+  ["searchSessionTools", "#extension-tool-search-form button[type=submit], #tool-search-form button[type=submit]"],
+  ["createSchedule", "#schedule-create-form button[type=submit]"],
+  ["changeScheduleState", "[data-schedule-action=pause], [data-schedule-action=resume]"],
+  ["runScheduleNow", "[data-schedule-action=run]"],
+  ["deleteSchedule", "[data-schedule-action=delete]"],
+  ["composeManualReport", "#manual-report-form button[type=submit]"],
+  ["composeAiReportDraft", "#ai-report-form button[type=submit]"],
+  ["composeDeckFromReport", "#deck-from-report-form button[type=submit]"],
+  ["previewDeliverableRender", "[data-render-format]"],
+  ["exportDeliverableRender", "[data-render-format]"],
   ["saveProviderProfile", "#provider-profile-form button[type=submit]"],
   ["createPromptRevision", "#prompt-revision-form button[type=submit]"],
   ["activatePromptRevision", "[data-prompt-activate]"],
   ["savePersonalSettings", "#personal-settings-form button[type=submit]"],
   ["saveConfigurationProfile", "#configuration-profile-form button[type=submit]"],
+  ["searchSessions", "#session-search-form button[type=submit]"],
+  ["exportSession", "[data-session-export]"],
+  ["archiveSession", "[data-session-archive]"],
+  ["deleteSession", "[data-session-delete]"],
+  ["createContextPreview", "#context-preview-form button[type=submit]"],
+  ["createSessionProposal", "#proposal-form button[type=submit]"],
   ["executeSessionToolCall", "[data-tool-execute]"],
   ["previewSessionToolCall", "[data-tool-preview]"],
   ["connectNativeMail", "[data-native-mail-connect]"],
@@ -3091,14 +3519,20 @@ function bindRovingFocus(container: HTMLElement, itemSelector: string): void {
     next.focus();
   };
 
-  const vertical = container.dataset.rovingOrientation !== "horizontal";
-  const forward = vertical ? "ArrowDown" : "ArrowRight";
-  const backward = vertical ? "ArrowUp" : "ArrowLeft";
-
   container.addEventListener("keydown", (event) => {
     const list = items();
     const current = list.indexOf(document.activeElement as HTMLElement);
     if (current < 0) return;
+    const configured = container.dataset.rovingOrientation;
+    const first = list[0]?.getBoundingClientRect();
+    const second = list[1]?.getBoundingClientRect();
+    const visuallyHorizontal = Boolean(first && second
+      && Math.abs(first.top - second.top) < Math.max(2, Math.min(first.height, second.height) / 2)
+      && Math.abs(first.left - second.left) > 2);
+    const vertical = configured === "vertical"
+      || (configured !== "horizontal" && !visuallyHorizontal);
+    const forward = vertical ? "ArrowDown" : "ArrowRight";
+    const backward = vertical ? "ArrowUp" : "ArrowLeft";
     if (event.key === forward) focusAt(current + 1);
     else if (event.key === backward) focusAt(current - 1);
     else if (event.key === "Home") focusAt(0);
@@ -3133,6 +3567,7 @@ function renderListPanel(
   if (!panel) return false;
   panel.innerHTML = markup;
   bindListInteractions(root, api, snapshot, panel);
+  if (kind === "radar") bindRadarConfig(root, api, snapshot);
   return true;
 }
 
