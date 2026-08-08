@@ -100,7 +100,10 @@ function Get-RestorkRegistryEntries {
         }
         $entries += @(
             Get-ItemProperty -Path "$root\*" -ErrorAction SilentlyContinue |
-                Where-Object { $_.DisplayName -eq 'Restork' } |
+                Where-Object {
+                    $displayName = $_.PSObject.Properties['DisplayName']
+                    $null -ne $displayName -and $displayName.Value -eq 'Restork'
+                } |
                 Select-Object DisplayName, DisplayVersion, InstallLocation, DisplayIcon,
                     UninstallString, QuietUninstallString, PSChildName
         )
