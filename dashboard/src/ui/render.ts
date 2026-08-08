@@ -33,6 +33,7 @@ import type {
 } from "../api/types";
 import type { Locale } from "../i18n";
 import { alternateLocale, plural, tr } from "../i18n";
+import { buildRunTrace, traceMarkup } from "./trace";
 
 export type AgentWaitStage =
   | "prepare"
@@ -641,6 +642,7 @@ export function runEventsMarkup(
         <div><dt>${tr(locale, "UPDATED", "更新时间")}</dt><dd>${formatDate(summary.updated_at, locale)}</dd></div>
         <div><dt>TOKENS</dt><dd>${String(run.budget?.usage.tokens ?? 0)}</dd></div>
       </dl>
+      ${traceMarkup(buildRunTrace(events), locale)}
       ${paginationControl("events", page, locale, tr(locale, "LOAD EARLIER EVENTS", "加载更早事件"))}
       <section class="assistant-stream" ${assistantOutput ? "" : "hidden"} aria-live="polite"><small>ASSISTANT · STREAM</small>${assistantStreamMarkup(assistantOutput, locale)}</section>
       <ol class="event-list">${phaseEvents.length ? phaseEvents.map((event) => eventRow(event, locale)).join("") : `<li>${tr(locale, "No new events.", "暂无新事件。")}</li>`}</ol>

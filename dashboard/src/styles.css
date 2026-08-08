@@ -1108,3 +1108,25 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
 .mail-headers li strong { display: block; color: var(--fg); font-size: var(--text-xs); font-weight: 700; line-height: 1.5; }
 .mail-headers li small { display: block; margin-top: 3px; color: var(--fg-muted); font-size: var(--text-2xs); line-height: 1.5; }
 .mail-headers li.empty { border: 0; background: transparent; color: var(--fg-muted); font-size: var(--text-xs); }
+
+/* ---- Run trace panel (durable loop timeline + per-iteration detail) ---- */
+.trace-panel { margin: 14px 0; padding: 14px 16px; background: rgb(var(--surface-alt-rgb) / .6); border: 1px solid var(--border); border-radius: 14px; }
+.trace-panel > header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.trace-panel > header h3 { margin: 0; font-size: var(--text-lg); }
+.trace-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.trace-chip { padding: 2px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 99px; color: var(--fg-secondary); font-size: var(--text-xs); }
+.trace-timeline { display: flex; gap: 2px; height: 10px; margin-bottom: 12px; overflow: hidden; border-radius: 99px; background: var(--surface); border: 1px solid var(--border); }
+.trace-seg { flex: 1 1 0; min-width: 6px; background: linear-gradient(90deg, var(--brand), var(--action-end)); }
+.trace-seg.has-approval { background: linear-gradient(90deg, var(--warning), var(--brand)); }
+.trace-seg.has-failure { background: linear-gradient(90deg, var(--danger), var(--warning)); }
+.trace-seg.has-compaction { border-bottom: 3px solid var(--accent); }
+.trace-iterations { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.trace-iterations details { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 6px 12px; }
+.trace-iterations summary { cursor: pointer; color: var(--fg); font-size: var(--text-sm); line-height: 1.6; }
+.trace-iterations summary small { color: var(--fg-muted); }
+.trace-tools { margin: 8px 0 2px; padding: 0; list-style: none; display: grid; gap: 4px; }
+.trace-tools li { font-size: var(--text-sm); color: var(--fg-secondary); }
+.trace-tools li.ok b { color: var(--success-ink); }
+.trace-tools li.failed b, .trace-tools li.failed small { color: var(--danger-ink); }
+.trace-tools small { color: var(--fg-muted); }
+.trace-empty { margin: 8px 0 2px; color: var(--fg-muted); font-size: var(--text-sm); }
