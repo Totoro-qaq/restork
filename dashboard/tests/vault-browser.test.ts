@@ -68,6 +68,8 @@ describe("Vault browser", () => {
     await vi.waitFor(() => expect(root.querySelector(".vault-note")).not.toBeNull());
 
     const preview = root.querySelector<HTMLElement>("#vault-preview");
+    expect(root.querySelector("#vault-file-list")?.getAttribute("tabindex")).toBe("0");
+    expect(preview?.getAttribute("tabindex")).toBe("0");
     expect(preview?.textContent).toContain("<script>alert(1)</script>");
     expect(preview?.querySelector("script")).toBeNull();
     expect(preview?.querySelector("img, iframe, object")).toBeNull();

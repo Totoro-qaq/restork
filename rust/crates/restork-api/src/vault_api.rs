@@ -52,13 +52,16 @@ pub(super) async fn list_vault_notes(State(state): State<ApiState>, request: Req
         Ok(value) => value,
         Err(response) => return response,
     };
-    let workspace = match SafeWorkspace::open(root.as_path()) {
-        Ok(value) => value,
-        Err(_) => return error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault is unavailable"),
-    };
-    let notes = match workspace.markdown_index(4_000) {
-        Ok(value) => value,
-        Err(_) => return error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault scan failed"),
+    let root = root.clone();
+    let notes = match tokio::task::spawn_blocking(move || {
+        SafeWorkspace::open(root.as_path()).and_then(|workspace| workspace.markdown_index(4_000))
+    })
+    .await
+    {
+        Ok(Ok(value)) => value,
+        Ok(Err(_)) | Err(_) => {
+            return error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault scan failed");
+        }
     };
     let total = notes.len();
     let has_more = total > offset.saturating_add(limit);
@@ -86,13 +89,22 @@ pub(super) async fn search_vault_notes(
         Ok(value) => value,
         Err(response) => return response,
     };
-    let workspace = match configured_workspace(&state) {
-        Ok(value) => value,
-        Err(response) => return response,
+    let Some(root) = state.vault_dir.as_deref().cloned() else {
+        return error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault is not configured");
     };
-    match workspace.search_notes(&query, limit) {
-        Ok(items) => Json(json!({"query": query, "items": items})).into_response(),
-        Err(_) => error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault search failed"),
+    let blocking_query = query.clone();
+    match tokio::task::spawn_blocking(move || {
+        let workspace = SafeWorkspace::open(root.as_path()).map_err(|_| ())?;
+        workspace
+            .search_notes(&blocking_query, limit)
+            .map_err(|_| ())
+    })
+    .await
+    {
+        Ok(Ok(items)) => Json(json!({"query": query, "items": items})).into_response(),
+        Ok(Err(())) | Err(_) => {
+            error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault search failed")
+        }
     }
 }
 
@@ -104,12 +116,17 @@ pub(super) async fn read_vault_note(State(state): State<ApiState>, request: Requ
         Ok(Some(value)) if !value.is_empty() && value.len() <= 4_096 => value,
         _ => return invalid_query(),
     };
-    let workspace = match configured_workspace(&state) {
-        Ok(value) => value,
-        Err(response) => return response,
+    let Some(root) = state.vault_dir.as_deref().cloned() else {
+        return error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault is not configured");
     };
-    match workspace.read_note(&relative_path) {
-        Ok((content, sha256)) => {
+    let blocking_path = relative_path.clone();
+    match tokio::task::spawn_blocking(move || {
+        let workspace = SafeWorkspace::open(root.as_path()).map_err(|_| ())?;
+        workspace.read_note(&blocking_path).map_err(|_| ())
+    })
+    .await
+    {
+        Ok(Ok((content, sha256))) => {
             let byte_count = content.len();
             Json(json!({
                 "relative_path": relative_path,
@@ -120,7 +137,7 @@ pub(super) async fn read_vault_note(State(state): State<ApiState>, request: Requ
             }))
             .into_response()
         }
-        Err(_) => error_response(
+        Ok(Err(())) | Err(_) => error_response(
             StatusCode::NOT_FOUND,
             "Vault note is unavailable, unsafe, or too large",
         ),
@@ -143,15 +160,21 @@ pub(super) async fn vault_events(State(state): State<ApiState>, request: Request
     let Some(configured_root) = state.vault_dir.as_deref() else {
         return error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault is not configured");
     };
-    let root = match configured_root.canonicalize() {
-        Ok(value) => Arc::new(value),
-        Err(_) => return error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault is unavailable"),
-    };
-    let file_count = match SafeWorkspace::open(root.as_path())
-        .and_then(|workspace| workspace.markdown_index(4_000))
+    let configured_root = configured_root.clone();
+    let (root, file_count) = match tokio::task::spawn_blocking(move || {
+        let root = configured_root.canonicalize().map_err(|_| ())?;
+        let file_count = SafeWorkspace::open(root.as_path())
+            .and_then(|workspace| workspace.markdown_index(4_000))
+            .map_err(|_| ())?
+            .len();
+        Ok::<_, ()>((Arc::new(root), file_count))
+    })
+    .await
     {
-        Ok(value) => value.len(),
-        Err(_) => return error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault is unavailable"),
+        Ok(Ok(value)) => value,
+        Ok(Err(())) | Err(_) => {
+            return error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault is unavailable");
+        }
     };
     let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
     let mut watcher = match notify::recommended_watcher(move |event: notify::Result<Event>| {
@@ -266,14 +289,6 @@ pub(super) async fn vault_events(State(state): State<ApiState>, request: Request
         )
         .boxed();
     sse_response(Body::from_stream(updates))
-}
-
-fn configured_workspace(state: &ApiState) -> Result<SafeWorkspace, Response> {
-    let root = state.vault_dir.as_deref().ok_or_else(|| {
-        error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault is not configured")
-    })?;
-    SafeWorkspace::open(root.as_path())
-        .map_err(|_| error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault is unavailable"))
 }
 
 fn offset_query(query: Option<&str>) -> Result<usize, Response> {

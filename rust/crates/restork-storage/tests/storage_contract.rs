@@ -1,6 +1,6 @@
 use std::{fs, path::PathBuf, sync::Arc, thread};
 
-use restork_storage::{Database, NewEvent, NewRadarRecord, NewRun};
+use restork_storage::{Database, NewEvent, NewLocalTodo, NewRadarRecord, NewRun};
 use rusqlite::Connection;
 use serde_json::json;
 
@@ -33,7 +33,7 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
         assert_eq!(mode, 0o600);
     }
 
-    assert_eq!(database.schema_version().expect("schema version"), 11);
+    assert_eq!(database.schema_version().expect("schema version"), 13);
     let history = database.migration_history().expect("migration history");
     assert_eq!(
         history
@@ -52,6 +52,8 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
             (9, "extension_runtime"),
             (10, "artifact_recovery"),
             (11, "mail_awareness"),
+            (12, "radar_star_history"),
+            (13, "local_todos"),
         ]
     );
     assert_ne!(history[0].checksum, history[1].checksum);
@@ -180,7 +182,7 @@ fn migration_creates_a_consistent_backup_and_is_idempotent_on_reopen() {
 
     let reopened = Database::open(&path).expect("reopen migrated database");
     assert!(reopened.migration_backup().is_none());
-    assert_eq!(reopened.migration_history().expect("history").len(), 11);
+    assert_eq!(reopened.migration_history().expect("history").len(), 13);
 }
 
 #[test]
@@ -428,6 +430,7 @@ fn radar_lane_cleanup_removes_legacy_and_only_prunes_unreviewed_items() {
                 url: "https://example.com/radar",
                 summary: "fixture",
                 score: 1.0,
+                stars_total: None,
                 published_at: None,
                 state,
                 data_class: "public",
@@ -451,4 +454,109 @@ fn radar_lane_cleanup_removes_legacy_and_only_prunes_unreviewed_items() {
     let remaining = database.radar_items(10, 0).expect("remaining Radar items");
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].item_id, "saved-trending");
+}
+
+#[test]
+fn radar_star_history_reports_only_real_daily_and_weekly_deltas() {
+    let directory = TestDirectory::new("radar-star-history");
+    let database = Database::open(directory.database()).expect("open database");
+    let store = |stars_total, occurred_at| {
+        database
+            .upsert_radar(NewRadarRecord {
+                item_id: "github-project",
+                lane: "trending",
+                title: "example/project",
+                source: "github",
+                url: "https://github.com/example/project",
+                summary: "fixture",
+                score: stars_total as f64,
+                stars_total: Some(stars_total),
+                published_at: None,
+                state: "new",
+                data_class: "public",
+                occurred_at,
+            })
+            .expect("store Radar snapshot")
+    };
+
+    let first = store(100, "2026-08-01T00:00:00Z");
+    assert_eq!(first.stars_total, Some(100));
+    assert_eq!(first.stars_daily, None);
+    assert_eq!(first.stars_weekly, None);
+
+    let second = store(112, "2026-08-02T00:00:00Z");
+    assert_eq!(second.stars_daily, Some(12));
+    assert_eq!(second.stars_weekly, None);
+
+    let eighth = store(180, "2026-08-08T00:00:00Z");
+    assert_eq!(eighth.stars_daily, None);
+    assert_eq!(eighth.stars_weekly, Some(80));
+}
+
+#[test]
+fn local_todos_are_editable_and_soft_deleted() {
+    let directory = TestDirectory::new("local-todos");
+    let database = Database::open(directory.database()).expect("open database");
+    let created = database
+        .put_local_todo(
+            NewLocalTodo {
+                task_id: "todo-local-1",
+                title: "Review the experiment",
+                details: "Check the two failed cases.",
+                priority: Some("P1"),
+                due_at: Some("2026-08-09T00:00:00Z"),
+                status: "open",
+                origin: "user",
+                occurred_at: "2026-08-08T09:00:00Z",
+            },
+            None,
+        )
+        .expect("create local Todo");
+    assert_eq!(database.local_todo_count().expect("count Todos"), 1);
+    let updated = database
+        .put_local_todo(
+            NewLocalTodo {
+                task_id: &created.task_id,
+                title: "Review the experiment results",
+                details: "Check the two failed cases.",
+                priority: Some("P0"),
+                due_at: created.due_at.as_deref(),
+                status: "completed",
+                origin: &created.origin,
+                occurred_at: "2026-08-08T10:00:00Z",
+            },
+            Some(&created.updated_at),
+        )
+        .expect("edit local Todo");
+    assert_eq!(updated.status, "completed");
+    assert_eq!(updated.priority.as_deref(), Some("P0"));
+
+    database
+        .delete_local_todo(&updated.task_id, &updated.updated_at)
+        .expect("soft delete local Todo");
+    assert_eq!(database.local_todo_count().expect("count Todos"), 0);
+    assert!(database.local_todos(10, 0).expect("list Todos").is_empty());
+    let deleted = database
+        .deleted_local_todos(10, 0)
+        .expect("list deleted Todos");
+    assert_eq!(deleted.len(), 1);
+    assert!(deleted[0].deleted_at.is_some());
+    let connection = Connection::open(directory.database()).expect("inspect database");
+    let deleted_at: Option<String> = connection
+        .query_row(
+            "SELECT deleted_at FROM local_todos WHERE task_id='todo-local-1'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("soft-deleted row remains");
+    assert!(deleted_at.is_some());
+    drop(connection);
+
+    let restored = database
+        .restore_local_todo(&deleted[0].task_id, &deleted[0].updated_at)
+        .expect("restore local Todo");
+    assert_eq!(restored.title, "Review the experiment results");
+    assert!(restored.deleted_at.is_none());
+    assert_eq!(database.local_todo_count().expect("count restored"), 1);
+    assert_eq!(database.local_todos(10, 0).expect("list restored").len(), 1);
 }

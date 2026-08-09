@@ -23,6 +23,7 @@ mod daily_api;
 mod feature_api;
 mod radar;
 mod session_api;
+mod todo_api;
 mod vault_api;
 
 use automation_api::*;
@@ -30,6 +31,7 @@ use catalog_api::*;
 use config_api::*;
 use daily_api::*;
 use session_api::*;
+use todo_api::*;
 
 use feature_api::*;
 
@@ -231,6 +233,22 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
     ApiRouteDescription {
         path: "/v1/tasks",
         methods: &["GET"],
+    },
+    ApiRouteDescription {
+        path: "/v1/tasks/local",
+        methods: &["POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/tasks/local/deleted",
+        methods: &["GET"],
+    },
+    ApiRouteDescription {
+        path: "/v1/tasks/local/{task_id}",
+        methods: &["PATCH", "DELETE"],
+    },
+    ApiRouteDescription {
+        path: "/v1/tasks/local/{task_id}/restore",
+        methods: &["POST"],
     },
     ApiRouteDescription {
         path: "/v1/tasks/{task_id}/preview",
@@ -1312,6 +1330,16 @@ fn build_router(state: ApiState) -> Router {
             axum::routing::post(purge_memory_source),
         )
         .route("/v1/tasks", get(list_tasks))
+        .route("/v1/tasks/local", axum::routing::post(create_local_todo))
+        .route("/v1/tasks/local/deleted", get(list_deleted_local_todos))
+        .route(
+            "/v1/tasks/local/{task_id}",
+            axum::routing::patch(update_local_todo).delete(delete_local_todo),
+        )
+        .route(
+            "/v1/tasks/local/{task_id}/restore",
+            axum::routing::post(restore_local_todo),
+        )
         .route(
             "/v1/tasks/{task_id}/preview",
             axum::routing::post(preview_task_change),
@@ -1892,15 +1920,19 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
             }
         },
     );
-    let (task_board, tasks_status) = match feature_api::bootstrap_task_board(&state) {
-        Ok(Some(value)) => (value, BootstrapDomainStatus::ready()),
-        Ok(None) => (
-            serde_json::json!({"configured": false, "tasks": []}),
-            BootstrapDomainStatus::not_configured(
-                "Start Core with --vault-dir to enable Markdown tasks.",
-            ),
+    // Vault traversal and note parsing are blocking filesystem work. Keep them
+    // off Tokio's request workers so the desktop supervisor can still reach
+    // `/v1/readiness` while a large Obsidian Vault is projected.
+    let task_state = state.clone();
+    let task_projection =
+        tokio::task::spawn_blocking(move || todo_api::bootstrap_task_board(&task_state)).await;
+    let (task_board, tasks_status) = match task_projection {
+        Ok(Ok(Some(value))) => (value, BootstrapDomainStatus::ready()),
+        Ok(Ok(None)) => (
+            serde_json::json!({"configured": false, "vault_configured": false, "tasks": []}),
+            BootstrapDomainStatus::not_configured("Durable local task storage is unavailable."),
         ),
-        Err(()) => (
+        Ok(Err(())) | Err(_) => (
             serde_json::json!({"configured": true, "tasks": []}),
             BootstrapDomainStatus::unavailable(
                 "The configured Vault could not be scanned.",

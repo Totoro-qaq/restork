@@ -43,7 +43,7 @@ pub use workspace::{
     StoredSessionMessage,
 };
 
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 13;
 
 const MIGRATION_LEDGER: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -312,6 +312,8 @@ const INTERACTIVE_CORE: &str = include_str!("../migrations/0008_interactive_core
 const EXTENSION_RUNTIME: &str = include_str!("../migrations/0009_extension_runtime.sql");
 const ARTIFACT_RECOVERY: &str = include_str!("../migrations/0010_artifact_recovery.sql");
 const MAIL_AWARENESS: &str = include_str!("../migrations/0011_mail_awareness.sql");
+const RADAR_STAR_HISTORY: &str = include_str!("../migrations/0012_radar_star_history.sql");
+const LOCAL_TODOS: &str = include_str!("../migrations/0013_local_todos.sql");
 
 #[derive(Clone, Copy)]
 struct Migration {
@@ -320,7 +322,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 11] = [
+const MIGRATIONS: [Migration; 13] = [
     Migration {
         version: 1,
         name: "v1_schema_adoption",
@@ -375,6 +377,16 @@ const MIGRATIONS: [Migration; 11] = [
         version: 11,
         name: "mail_awareness",
         sql: MAIL_AWARENESS,
+    },
+    Migration {
+        version: 12,
+        name: "radar_star_history",
+        sql: RADAR_STAR_HISTORY,
+    },
+    Migration {
+        version: 13,
+        name: "local_todos",
+        sql: LOCAL_TODOS,
     },
 ];
 

@@ -350,6 +350,66 @@ describe("LocalApiClient daily timezone", () => {
   });
 });
 
+describe("LocalApiClient local Todo lifecycle", () => {
+  it("uses paired Core routes for edit, soft delete, restore, and deleted pagination", async () => {
+    const record = {
+      task_id: "todo-1",
+      title: "Review results",
+      details: "",
+      priority: "P1",
+      due_at: null,
+      status: "open",
+      origin: "user",
+      created_at: "2026-08-08T10:00:00Z",
+      updated_at: "2026-08-08T10:00:00Z",
+      deleted_at: null,
+    };
+    const responses = [
+      jsonResponse({ access_token: "paired-token" }),
+      jsonResponse(record),
+      jsonResponse({ ...record, title: "Review final results" }),
+      new Response(null, { status: 204 }),
+      jsonResponse(record),
+      jsonResponse({ tasks: [{ ...record, deleted_at: record.updated_at }], page: { limit: 12, has_more: false, next_cursor: null } }),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+    await client.pair("pairing-code");
+
+    await client.createLocalTodo({
+      title: record.title,
+      details: "",
+      priority: "P1",
+      due_at: null,
+      completed: false,
+      origin: "user",
+    });
+    await client.updateLocalTodo("todo-1", {
+      title: "Review final results",
+      details: "",
+      priority: "P1",
+      due_at: null,
+      completed: false,
+      origin: "user",
+      expected_updated_at: record.updated_at,
+    });
+    await client.deleteLocalTodo("todo-1", record.updated_at);
+    await client.restoreLocalTodo("todo-1", record.updated_at);
+    await client.loadDeletedTodos("12");
+
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/tasks/local");
+    expect(fetchMock.mock.calls[2][0]).toBe("/v1/tasks/local/todo-1");
+    expect(fetchMock.mock.calls[3][1]?.method).toBe("DELETE");
+    expect(fetchMock.mock.calls[4][0]).toBe("/v1/tasks/local/todo-1/restore");
+    expect(fetchMock.mock.calls[5][0]).toBe("/v1/tasks/local/deleted?limit=12&cursor=12");
+  });
+});
+
 describe("LocalApiClient provider diagnostics", () => {
   it("posts explicit per-model diagnostic targets through the paired local Core", async () => {
     const report = {

@@ -977,6 +977,70 @@ describe("authenticated workspace", () => {
     expect(localStorage).toHaveLength(0);
   });
 
+  it("lets local tasks be edited, softly deleted, and restored", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const pending = new Promise<never>(() => undefined);
+    api.updateLocalTodo = vi.fn(() => pending);
+    api.deleteLocalTodo = vi.fn(() => pending);
+    api.restoreLocalTodo = vi.fn(() => pending);
+    const state: DashboardSnapshot = {
+      ...snapshot,
+      taskBoard: {
+        configured: true,
+        tasks: [{
+          task_id: "todo-live",
+          relative_path: null,
+          line_number: null,
+          text: "Review results",
+          details: "Check the failed cases",
+          completed: false,
+          fields: { priority: "P1", due: null },
+          block_id: null,
+          locator_hash: null,
+          origin: "user",
+          editable: true,
+          updated_at: "2026-08-08T10:00:00Z",
+        }],
+        deleted_tasks: [{
+          task_id: "todo-deleted",
+          relative_path: null,
+          line_number: null,
+          text: "Old draft",
+          completed: false,
+          fields: { priority: null, due: null },
+          block_id: null,
+          locator_hash: null,
+          origin: "user",
+          editable: true,
+          updated_at: "2026-08-08T11:00:00Z",
+          deleted_at: "2026-08-08T11:00:00Z",
+        }],
+      },
+    };
+    mountDashboard(root, { api, snapshot: state });
+    root.querySelector<HTMLButtonElement>('[data-view="tasks"]')?.click();
+
+    const edit = root.querySelector<HTMLFormElement>('[data-local-todo-edit=""]');
+    expect(edit).not.toBeNull();
+    edit?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(api.updateLocalTodo).toHaveBeenCalledOnce());
+
+    root.querySelector<HTMLButtonElement>('[data-local-todo-delete]')?.click();
+    await vi.waitFor(() => expect(root.querySelector("dialog.confirm-dialog")).not.toBeNull());
+    root.querySelector<HTMLButtonElement>(".confirm-primary")?.click();
+    await vi.waitFor(() => expect(api.deleteLocalTodo).toHaveBeenCalledWith(
+      "todo-live",
+      "2026-08-08T10:00:00Z",
+    ));
+
+    root.querySelector<HTMLButtonElement>('[data-local-todo-restore]')?.click();
+    await vi.waitFor(() => expect(api.restoreLocalTodo).toHaveBeenCalledWith(
+      "todo-deleted",
+      "2026-08-08T11:00:00Z",
+    ));
+  });
+
   it("configures public GitHub AI and Agent discovery without asking for an account", async () => {
     const root = document.createElement("main");
     const api = fakeApi();
@@ -988,7 +1052,16 @@ describe("authenticated workspace", () => {
     }));
     mountDashboard(root, {
       api,
-      snapshot: { ...snapshot, radar: { configured: false, items: [] } },
+      snapshot: {
+        ...snapshot,
+        radar: { configured: false, items: [] },
+        domains: {
+          radar: {
+            state: "not_configured",
+            detail: "Enable GitHub or Hacker News explicitly in Radar settings.",
+          },
+        },
+      },
     });
     root.querySelector<HTMLButtonElement>('[data-view="radar"]')?.click();
 
@@ -1448,6 +1521,36 @@ describe("Rust conversation workspace", () => {
     },
   });
 
+  it("routes Todo suggestions through an explicit model conversation", () => {
+    const root = document.createElement("main");
+    mountDashboard(root, { api: fakeApi(), snapshot: workspaceSnapshot(), locale: "zh-CN" });
+
+    root.querySelector<HTMLButtonElement>('[data-view="tasks"]')?.click();
+    root.querySelector<HTMLButtonElement>("[data-todo-suggest]")?.click();
+
+    expect(root.querySelector<HTMLElement>('[data-view-panel="conversation"]')?.hidden).toBe(false);
+    expect(root.querySelector<HTMLInputElement>('#session-create-form [name="title"]')?.value)
+      .toBe("安排我的下一步任务");
+    expect(root.textContent).toContain("请选择模型 Profile 并创建对话");
+  });
+
+  it("shows real Core skills and native tools before third-party extensions are installed", () => {
+    const root = document.createElement("main");
+    const state = workspaceSnapshot();
+    mountDashboard(root, { api: fakeApi(), snapshot: state, locale: "zh-CN" });
+
+    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+
+    expect(root.textContent).toContain("Core 内置 Skills");
+    expect(root.textContent).toContain("研究与证据核验");
+    expect(root.textContent).toContain("日报与周报");
+    expect(root.textContent).toContain("vault_search");
+    expect(root.textContent).toContain("source_read");
+    expect(root.textContent).toContain("vault_write");
+    expect(root.textContent).toContain("web_search");
+    expect(root.textContent).toContain("尚未安装第三方扩展");
+  });
+
   it("makes local or cloud selection explicit when a conversation is created", async () => {
     const root = document.createElement("main");
     const api = fakeApi();
@@ -1743,7 +1846,7 @@ describe("Rust conversation workspace", () => {
     root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
     expect(root.querySelector<HTMLElement>('[data-view-panel="extensions"]')?.hidden).toBe(false);
     expect(root.querySelector("#extension-install-form")).not.toBeNull();
-    expect(root.textContent).toContain("安装已固定版本的清单");
+    expect(root.textContent).toContain("添加已审查扩展");
     root.querySelector<HTMLButtonElement>('[data-extension-filter="plugin"]')?.click();
     expect(root.querySelector<HTMLElement>('[data-extension-card-kind="skill"]')?.hidden).toBe(true);
 
@@ -1805,14 +1908,17 @@ describe("Rust conversation workspace", () => {
     mountDashboard(root, { api, snapshot: state });
 
     root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
-    expect(root.textContent).toContain("Declared tools");
+    expect(root.textContent).toContain("Tools Restork can govern");
     expect(root.textContent).toContain("paper.search");
     expect(root.textContent).toContain("network:https://example.com");
 
     const form = root.querySelector<HTMLFormElement>("#extension-install-form");
-    const manifest = form?.elements.namedItem("manifest");
-    if (!form || !(manifest instanceof HTMLTextAreaElement)) throw new Error("extension form");
-    manifest.value = JSON.stringify({ schema_version: 1, id: "skill.reviewed" });
+    const manifest = form?.elements.namedItem("manifest_file");
+    if (!form || !(manifest instanceof HTMLInputElement)) throw new Error("extension form");
+    const body = JSON.stringify({ schema_version: 1, id: "skill.reviewed" });
+    const file = new File([body], "skill.reviewed.json", { type: "application/json" });
+    Object.defineProperty(file, "text", { value: async () => body });
+    Object.defineProperty(manifest, "files", { value: [file] });
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
     await vi.waitFor(() => expect(api.previewExtensionInstall).toHaveBeenCalledOnce());

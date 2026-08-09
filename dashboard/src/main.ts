@@ -267,10 +267,6 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
     });
   });
   bindListInteractions(root, api, snapshot, root);
-  root.querySelector<HTMLFormElement>("#quick-task-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void captureTask(root, api, event.currentTarget as HTMLFormElement);
-  });
   configureMusic(root, api);
   configureWeather(root, api);
   configureCalendar(root, api);
@@ -1140,7 +1136,7 @@ function configureExtensionCenter(root: HTMLElement, api: DashboardApi): void {
       });
     });
   });
-  root.querySelector<HTMLFormElement>("#extension-install-form")?.addEventListener("submit", (event) => {
+  root.querySelector<HTMLFormElement>("#extension-install-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const data = new FormData(form);
@@ -1149,11 +1145,14 @@ function configureExtensionCenter(root: HTMLElement, api: DashboardApi): void {
     if (!api.previewExtensionInstall || !api.installExtension || !status) return;
     let manifest: Record<string, unknown>;
     try {
-      const parsed = JSON.parse(String(data.get("manifest") ?? "")) as unknown;
+      const input = form.elements.namedItem("manifest_file");
+      const file = input instanceof HTMLInputElement ? input.files?.[0] : null;
+      if (!(file instanceof File) || file.size === 0 || file.size > 2_000_000) throw new Error();
+      const parsed = JSON.parse(await file.text()) as unknown;
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
       manifest = parsed as Record<string, unknown>;
     } catch {
-      if (status) status.textContent = tr(localeOf(root), "Manifest must be one JSON object.", "清单必须是一个 JSON 对象。");
+      if (status) status.textContent = tr(localeOf(root), "Choose a valid extension manifest file no larger than 2 MB.", "请选择一个不超过 2 MB 的有效扩展清单文件。");
       return;
     }
     const packageKind = String(data.get("package_kind") ?? "skill") as
@@ -1186,7 +1185,7 @@ function configureExtensionCenter(root: HTMLElement, api: DashboardApi): void {
       digest.textContent = `SHA-256 · ${preview.preview_digest}`;
       const details = document.createElement("details");
       const summary = document.createElement("summary");
-      summary.textContent = tr(localeOf(root), "Permissions and manifest", "权限与清单");
+      summary.textContent = tr(localeOf(root), "Technical details", "技术详情");
       const pre = document.createElement("pre");
       pre.textContent = JSON.stringify(preview.preview, null, 2);
       details.append(summary, pre);
@@ -3107,6 +3106,132 @@ async function captureTask(
   }
 }
 
+function todoDueAt(value: FormDataEntryValue | null): string | null {
+  const date = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const parsed = new Date(`${date}T23:59:59`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+async function createLocalTodo(
+  root: HTMLElement,
+  api: DashboardApi,
+  form: HTMLFormElement,
+): Promise<void> {
+  if (!api.createLocalTodo) return;
+  const data = new FormData(form);
+  const status = form.querySelector<HTMLElement>("#local-todo-status");
+  const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+  if (submit) submit.disabled = true;
+  if (status) status.textContent = tr(localeOf(root), "Adding the task locally…", "正在添加到本地任务…");
+  try {
+    await api.createLocalTodo({
+      title: String(data.get("title") ?? "").trim(),
+      details: String(data.get("details") ?? "").trim(),
+      priority: String(data.get("priority") ?? "").trim() || null,
+      due_at: todoDueAt(data.get("due_date")),
+      completed: false,
+      origin: "user",
+    });
+    await refresh(root, api, "tasks");
+  } catch (error) {
+    if (submit) submit.disabled = false;
+    if (status) status.textContent = errorText(error, localeOf(root));
+  }
+}
+
+async function updateLocalTodo(
+  root: HTMLElement,
+  api: DashboardApi,
+  task: DashboardSnapshot["taskBoard"]["tasks"][number],
+  patch: { completed?: boolean; form?: HTMLFormElement },
+): Promise<void> {
+  if (!api.updateLocalTodo || !task.updated_at) return;
+  const data = patch.form ? new FormData(patch.form) : null;
+  await api.updateLocalTodo(task.task_id, {
+    title: data ? String(data.get("title") ?? "").trim() : task.text,
+    details: data ? String(data.get("details") ?? "").trim() : task.details ?? "",
+    priority: data ? String(data.get("priority") ?? "").trim() || null : task.fields.priority ?? null,
+    due_at: data ? todoDueAt(data.get("due_date")) : task.fields.due ?? null,
+    completed: patch.completed ?? task.completed,
+    origin: task.origin === "model" ? "model" : "user",
+    expected_updated_at: task.updated_at,
+  });
+  await refresh(root, api, "tasks");
+}
+
+async function deleteLocalTodo(
+  root: HTMLElement,
+  api: DashboardApi,
+  taskId: string,
+  expectedUpdatedAt: string,
+): Promise<void> {
+  if (!api.deleteLocalTodo) return;
+  const confirmed = await confirmAction(root, tr(
+    localeOf(root),
+    "Remove this task? It will be kept locally for recovery.",
+    "移除这条任务？数据会保留在本地，便于恢复。",
+  ));
+  if (!confirmed) return;
+  await api.deleteLocalTodo(taskId, expectedUpdatedAt);
+  await refresh(root, api, "tasks");
+}
+
+async function restoreLocalTodo(
+  root: HTMLElement,
+  api: DashboardApi,
+  taskId: string,
+  expectedUpdatedAt: string,
+): Promise<void> {
+  if (!api.restoreLocalTodo) return;
+  await api.restoreLocalTodo(taskId, expectedUpdatedAt);
+  await refresh(root, api, "tasks");
+}
+
+function openTodoSuggestionConversation(
+  root: HTMLElement,
+  snapshot: DashboardSnapshot,
+): void {
+  const locale = localeOf(root);
+  if (!snapshot.workspaceV2) {
+    announceError(root, tr(
+      locale,
+      "Conversations are unavailable in the connected Core.",
+      "当前连接的 Core 尚未提供对话功能。",
+    ));
+    return;
+  }
+  selectView(root, "conversation");
+  const prompt = tr(
+    locale,
+    "Review my current tasks and suggest a short, prioritized Todo list. Explain why each item matters. Do not create or change tasks until I confirm.",
+    "请结合我当前的任务，建议一份简短且有优先级的 Todo 清单，并说明每项为什么重要。在我确认前，不要创建或修改任务。",
+  );
+  const pane = root.querySelector<HTMLElement>(".conversation-pane");
+  const activeSession = pane?.dataset.activeSession ?? "";
+  const activeProfile = pane?.dataset.activeProfile ?? "safe-mode";
+  const composer = root.querySelector<HTMLTextAreaElement>('#session-message-form [name="content"]');
+  if (activeSession && activeProfile !== "safe-mode" && composer) {
+    composer.value = prompt;
+    composer.focus();
+    announceStatus(root, tr(
+      locale,
+      "Suggestion request is ready. Review it, then send when you are comfortable.",
+      "建议请求已经填好；请确认内容后再发送。",
+    ));
+    return;
+  }
+  const title = root.querySelector<HTMLInputElement>('#session-create-form [name="title"]');
+  const profile = root.querySelector<HTMLSelectElement>('#session-create-form [name="profile_id"]');
+  if (title) title.value = tr(locale, "Plan my next tasks", "安排我的下一步任务");
+  profile?.focus();
+  announceStatus(root, tr(
+    locale,
+    "Choose a model profile and create the conversation. Restork will keep the request reviewable before anything changes.",
+    "请选择模型 Profile 并创建对话；在任何任务发生变化前，Restork 都会让你先审阅。",
+  ));
+}
+
 async function applyApprovedTask(
   root: HTMLElement,
   api: DashboardApi,
@@ -3602,8 +3727,72 @@ function bindListInteractions(
   host.querySelectorAll<HTMLButtonElement>("[data-task-apply]").forEach((button) => {
     button.addEventListener("click", () => void applyApprovedTask(root, api, button));
   });
-  host.querySelectorAll<HTMLInputElement>("[data-task-id]").forEach((input) => {
+  host.querySelectorAll<HTMLInputElement>("input[data-task-id]:not([data-local-todo-toggle])").forEach((input) => {
     input.addEventListener("change", () => void previewTask(root, api, input));
+  });
+  host.querySelector<HTMLFormElement>("#quick-task-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void captureTask(root, api, event.currentTarget as HTMLFormElement);
+  });
+  host.querySelector<HTMLFormElement>("#local-todo-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void createLocalTodo(root, api, event.currentTarget as HTMLFormElement);
+  });
+  host.querySelector<HTMLButtonElement>("[data-todo-suggest]")?.addEventListener("click", () => {
+    openTodoSuggestionConversation(root, snapshot);
+  });
+  host.querySelectorAll<HTMLInputElement>("[data-local-todo-toggle]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const task = snapshot.taskBoard.tasks.find((item) => item.task_id === input.dataset.taskId);
+      if (!task) return;
+      input.disabled = true;
+      void updateLocalTodo(root, api, task, { completed: input.checked }).catch((error) => {
+        input.checked = !input.checked;
+        input.disabled = false;
+        announceError(root, errorText(error, localeOf(root)));
+      });
+    });
+  });
+  host.querySelectorAll<HTMLFormElement>("[data-local-todo-edit]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const task = snapshot.taskBoard.tasks.find((item) => item.task_id === form.dataset.taskId);
+      if (!task) return;
+      void updateLocalTodo(root, api, task, { form }).catch((error) => {
+        announceError(root, errorText(error, localeOf(root)));
+      });
+    });
+  });
+  host.querySelectorAll<HTMLButtonElement>("[data-local-todo-delete]").forEach((button) => {
+    button.addEventListener("click", () => {
+      button.disabled = true;
+      void deleteLocalTodo(
+        root,
+        api,
+        button.dataset.taskId ?? "",
+        button.dataset.taskUpdated ?? "",
+      ).catch((error) => {
+        button.disabled = false;
+        announceError(root, errorText(error, localeOf(root)));
+      });
+    });
+  });
+  host.querySelectorAll<HTMLButtonElement>("[data-local-todo-restore]").forEach((button) => {
+    button.addEventListener("click", () => {
+      button.disabled = true;
+      void restoreLocalTodo(
+        root,
+        api,
+        button.dataset.taskId ?? "",
+        button.dataset.taskUpdated ?? "",
+      ).catch((error) => {
+        button.disabled = false;
+        announceError(root, errorText(error, localeOf(root)));
+      });
+    });
+  });
+  host.querySelector<HTMLButtonElement>("[data-deleted-todo-page]")?.addEventListener("click", (event) => {
+    void loadMoreDeletedTodos(root, api, snapshot, event.currentTarget as HTMLButtonElement);
   });
   host.querySelectorAll<HTMLButtonElement>("[data-radar-id]").forEach((button) => {
     button.addEventListener("click", () => void actOnRadar(root, api, button));
@@ -3615,6 +3804,33 @@ function bindListInteractions(
     if (button.dataset.pageKind === "events") return;
     button.addEventListener("click", () => void loadMore(root, api, snapshot, button));
   });
+}
+
+async function loadMoreDeletedTodos(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+  button: HTMLButtonElement,
+): Promise<void> {
+  const cursor = button.dataset.deletedTodoPage ?? "";
+  if (!api.loadDeletedTodos || !cursor) return;
+  button.disabled = true;
+  try {
+    const page = await api.loadDeletedTodos(cursor);
+    snapshot.taskBoard.deleted_tasks = appendUnique(
+      snapshot.taskBoard.deleted_tasks ?? [],
+      page.tasks,
+      (item) => item.task_id,
+    );
+    snapshot.taskBoard.deleted_page = page.page;
+    if (!renderListPanel(root, api, snapshot, "tasks")) {
+      renderWorkspace(root, api, snapshot);
+      selectView(root, "tasks");
+    }
+  } catch (error) {
+    button.disabled = false;
+    announceError(root, errorText(error, localeOf(root)));
+  }
 }
 
 async function loadMore(

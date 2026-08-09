@@ -120,6 +120,111 @@ async fn radar_configuration_uses_public_github_discovery_without_an_account() {
 }
 
 #[tokio::test]
+async fn local_todos_are_editable_paginated_soft_deleted_and_restorable() {
+    let (app, authorization, _directory, _vault) = paired_app().await;
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/tasks/local",
+        Some(json!({
+            "title": "Review the experiment",
+            "details": "Check the two failed cases.",
+            "priority": "P1",
+            "due_at": "2026-08-10T00:00:00Z",
+            "origin": "user"
+        })),
+        Some(&authorization),
+        Some("todo-contract-create"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let created = created.expect("created Todo");
+    let task_id = created["task_id"].as_str().expect("task id").to_owned();
+    let created_at = created["updated_at"]
+        .as_str()
+        .expect("created revision")
+        .to_owned();
+
+    let (status, updated) = call(
+        app.clone(),
+        Method::PATCH,
+        &format!("/v1/tasks/local/{task_id}"),
+        Some(json!({
+            "title": "Review the experiment results",
+            "details": "Check the two failed cases.",
+            "priority": "P0",
+            "due_at": "2026-08-10T00:00:00Z",
+            "completed": true,
+            "expected_updated_at": created_at
+        })),
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let updated = updated.expect("updated Todo");
+    let updated_at = updated["updated_at"]
+        .as_str()
+        .expect("updated revision")
+        .to_owned();
+
+    let (status, _) = call(
+        app.clone(),
+        Method::DELETE,
+        &format!("/v1/tasks/local/{task_id}"),
+        Some(json!({"expected_updated_at": updated_at})),
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, deleted) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/tasks/local/deleted?limit=1",
+        None,
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let deleted = deleted.expect("deleted Todo page");
+    assert_eq!(deleted["tasks"][0]["task_id"], task_id);
+    assert!(deleted["tasks"][0]["deleted_at"].is_string());
+    let deleted_revision = deleted["tasks"][0]["updated_at"]
+        .as_str()
+        .expect("deleted revision")
+        .to_owned();
+
+    let (status, restored) = call(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/tasks/local/{task_id}/restore"),
+        Some(json!({"expected_updated_at": deleted_revision})),
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(restored.expect("restored Todo")["deleted_at"].is_null());
+
+    let (status, page) = call(
+        app,
+        Method::GET,
+        "/v1/tasks?limit=1",
+        None,
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let page = page.expect("Todo page");
+    assert_eq!(page["tasks"][0]["task_id"], task_id);
+    assert_eq!(page["tasks"][0]["text"], "Review the experiment results");
+}
+
+#[tokio::test]
 async fn vault_browser_lists_searches_and_previews_only_safe_markdown_notes() {
     let (app, authorization, _directory, vault) = paired_app().await;
     fs::create_dir(vault.join("Projects")).expect("nested Vault folder");
