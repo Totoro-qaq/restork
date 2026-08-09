@@ -56,6 +56,7 @@ describe("responsive readability", () => {
   });
 
   it("keeps both Vault panes independently scrollable with a visible gutter", () => {
+    expect(stylesheet).toMatch(/\.vault-browser\s*\{[^}]*grid-template-rows:\s*minmax\(0,\s*1fr\)/);
     expect(stylesheet).toMatch(/\.vault-file-list\s*\{[^}]*overflow-y:\s*scroll/);
     expect(stylesheet).toMatch(/\.vault-preview\s*\{[^}]*overflow-y:\s*scroll/);
     expect(stylesheet).toMatch(/\.vault-file-list,\s*\n\.vault-preview\s*\{[^}]*scrollbar-gutter:\s*stable/);
@@ -71,6 +72,17 @@ describe("responsive readability", () => {
     expect(stylesheet).toMatch(/\.lanes h3\s*\{[^}]*position:\s*sticky/);
     expect(stylesheet).toMatch(/\.radar-item-actions\s*\{[^}]*margin-top:\s*12px/);
     expect(stylesheet).toMatch(/\.lanes section\s*\{[^}]*padding-bottom:\s*clamp/);
+  });
+
+  it("keeps each Radar description readable instead of clipping it behind metadata", () => {
+    expect(stylesheet).toMatch(/\.radar-item a\s*\{[^}]*min-width:\s*0[^}]*overflow-wrap:\s*anywhere/);
+    const summaryRule = stylesheet.match(/\.radar-item p\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(summaryRule).not.toContain("-webkit-line-clamp");
+    expect(summaryRule).not.toContain("overflow: hidden");
+    expect(summaryRule).toContain("padding: 0");
+    expect(summaryRule).toContain("border: 0");
+    expect(summaryRule).toContain("overflow-wrap: anywhere");
+    expect(stylesheet).toMatch(/\.radar-item small\s*\{[^}]*display:\s*block[^}]*margin-top:/);
   });
 
   it("keeps compact conversation search controls on one usable row", () => {

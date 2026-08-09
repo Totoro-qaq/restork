@@ -662,11 +662,11 @@ body { min-width: 320px; min-height: 100vh; margin: 0; overflow-x: hidden; backg
 .lanes section::-webkit-scrollbar-track { background: rgb(var(--surface-alt-rgb) / 46%); }
 .lanes section::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 99px; background: rgb(139 92 246 / 58%); background-clip: padding-box; }
 .lanes section::-webkit-scrollbar-thumb:hover { background: var(--brand-strong); background-clip: padding-box; }
-.radar-item { display: grid; gap: 5px; padding: 9px 0; border-top: 1px dashed rgb(var(--line-rgb) / 22%); }
+.radar-item { display: grid; min-width: 0; gap: 5px; padding: 11px 0 14px; border-top: 1px dashed rgb(var(--line-rgb) / 22%); }
 .radar-item:first-of-type { border-top: 0; }
-.radar-item a { color: var(--link); font-size: var(--text-sm); line-height: 1.45; text-decoration-thickness: 1px; text-underline-offset: 2px; }
-.radar-item p { display: -webkit-box; margin: 0; overflow: hidden; color: var(--fg-secondary); font-size: var(--text-xs); line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
-.radar-item small { color: var(--fg-muted); font-size: var(--text-xs); }
+.radar-item a { min-width: 0; overflow-wrap: anywhere; color: var(--link); font-size: var(--text-sm); line-height: 1.45; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.radar-item p { margin: 3px 0 0; border: 0; padding: 0; overflow-wrap: anywhere; color: var(--fg-secondary); font-size: var(--text-xs); line-height: 1.55; }
+.radar-item small { display: block; margin-top: 3px; color: var(--fg-muted); font-size: var(--text-xs); line-height: 1.45; }
 .radar-item button { min-height: 28px; margin: 2px 2px 0 0; border: 1px solid rgb(var(--line-rgb) / 22%); border-radius: 99px; padding: 3px 8px; color: var(--fg-secondary); background: rgb(var(--surface-rgb) / 60%); font-size: var(--text-xs); }
 .radar-item button:hover { color: #fff; background: var(--brand); }
 .radar-item-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
@@ -1472,11 +1472,12 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
 .vault-live-line[data-state="error"] i { background: var(--danger); }
 .vault-browser {
   display: grid; grid-template-columns: minmax(240px, 31%) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-height: 520px; height: clamp(520px, 66vh, 760px); overflow: hidden;
   border: 1px solid rgb(var(--line-rgb) / 20%); border-radius: 13px;
   background: linear-gradient(145deg, rgb(var(--surface-rgb) / 65%), rgb(var(--surface-alt-rgb) / 43%));
 }
-.vault-files { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; border-right: 1px dashed rgb(var(--line-rgb) / 23%); background: rgb(var(--surface-alt-rgb) / 30%); }
+.vault-files { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; border-right: 1px dashed rgb(var(--line-rgb) / 23%); background: rgb(var(--surface-alt-rgb) / 30%); }
 .vault-files-heading {
   display: flex; justify-content: space-between; gap: 8px; align-items: center;
   border-bottom: 1px dashed rgb(var(--line-rgb) / 20%); padding: 11px 12px;

@@ -813,21 +813,14 @@ impl ProviderClient {
         if !searched {
             return Err(ProviderError::WebSearchNotExecuted);
         }
-        let raw_content = output
-            .iter()
-            .filter(|item| item["type"].as_str() == Some("message"))
-            .filter_map(|item| item["content"].as_array())
-            .flatten()
-            .filter(|item| item["type"].as_str() == Some("output_text"))
-            .filter_map(|item| item["text"].as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
+        let raw_content =
+            web_search_output_text(&payload).ok_or(ProviderError::StructuredOutputInvalid)?;
         if raw_content.is_empty() || raw_content.len() > 100_000 {
             return Err(ProviderError::StructuredOutputInvalid);
         }
         let content = normalize_structured_json(&raw_content)
             .ok_or(ProviderError::StructuredOutputInvalid)?;
-        let citations = response_citations(output, &content);
+        let citations = response_citations(output);
         if request.require_sources && citations.is_empty() {
             return Err(ProviderError::SourcesMissing);
         }
@@ -1659,6 +1652,58 @@ fn web_search_response_model(payload: &Value) -> Option<String> {
     .then(|| model.to_owned())
 }
 
+/// Extract only final assistant text from bounded Responses-compatible envelopes.
+///
+/// Some compatible gateways expose the final value as `output_text`, while others
+/// place a string or `{ value }` object inside a message content part. Reasoning and
+/// tool payloads are deliberately ignored; callers still require one JSON object and
+/// run the schema and public-evidence gates afterwards.
+fn web_search_output_text(payload: &Value) -> Option<String> {
+    let mut completed_assistant = None;
+    let mut compatible_statusless = None;
+    if let Some(output) = payload["output"].as_array() {
+        for message in output
+            .iter()
+            .filter(|item| item["type"].as_str() == Some("message"))
+        {
+            let selected = match (message["role"].as_str(), message["status"].as_str()) {
+                (Some("assistant"), Some("completed")) => &mut completed_assistant,
+                (None, None) => &mut compatible_statusless,
+                _ => continue,
+            };
+            let Some(content) = message["content"].as_array() else {
+                continue;
+            };
+            let mut parts = Vec::new();
+            for part in content
+                .iter()
+                .filter(|part| matches!(part["type"].as_str(), Some("output_text" | "text")))
+            {
+                let text = part["text"]
+                    .as_str()
+                    .or_else(|| part["text"]["value"].as_str())
+                    .or_else(|| part["output_text"].as_str());
+                if let Some(text) = text.filter(|text| !text.trim().is_empty()) {
+                    parts.push(text);
+                }
+            }
+            let joined = parts.join("\n");
+            if !joined.is_empty() && joined.len() <= 100_000 {
+                *selected = Some(joined);
+            }
+        }
+    }
+    let mut selected = completed_assistant.or(compatible_statusless);
+    if selected.is_none()
+        && let Some(text) = payload["output_text"]
+            .as_str()
+            .filter(|text| !text.trim().is_empty())
+    {
+        selected = (text.len() <= 100_000).then(|| text.to_owned());
+    }
+    selected
+}
+
 /// Canonicalize the provider's structured text before schema-specific decoding.
 ///
 /// DeepSeek can occasionally emit an otherwise valid strict-schema object with an
@@ -1817,13 +1862,18 @@ fn next_non_whitespace(characters: &[char], start: usize) -> Option<(usize, char
         .find(|(_, character)| !character.is_whitespace())
 }
 
-fn response_citations(output: &[Value], output_text: &str) -> Vec<WebCitation> {
+fn response_citations(output: &[Value]) -> Vec<WebCitation> {
     let mut candidates = Vec::new();
     for item in output {
-        if item["type"].as_str() == Some("web_search_call") {
+        if item["type"].as_str() == Some("web_search_call")
+            && item["status"].as_str() == Some("completed")
+        {
             collect_citation_values(&item["action"], &mut candidates);
         }
-        if item["type"].as_str() != Some("message") {
+        if item["type"].as_str() != Some("message")
+            || item["role"].as_str() != Some("assistant")
+            || item["status"].as_str() != Some("completed")
+        {
             continue;
         }
         let Some(parts) = item["content"].as_array() else {
@@ -1843,22 +1893,9 @@ fn response_citations(output: &[Value], output_text: &str) -> Vec<WebCitation> {
             }
         }
     }
-    // DeepSeek currently reports the completed query in the web-search action,
-    // but may omit output_text annotations. Restork requires a top-level
-    // `sources` array in its response schema, then treats every returned value
-    // as untrusted until the same public-HTTPS gate below accepts it.
-    if let Ok(structured) = serde_json::from_str::<Value>(output_text)
-        && let Some(sources) = structured["sources"].as_array()
-    {
-        for source in sources.iter().take(12) {
-            if let Some(url) = source["url"].as_str() {
-                candidates.push((
-                    source["title"].as_str().unwrap_or_default().to_owned(),
-                    url.to_owned(),
-                ));
-            }
-        }
-    }
+    // Structured output is model-authored and cannot establish its own evidence.
+    // Only URLs observed in the provider's search action or message annotations
+    // are eligible citations; the API later cross-checks draft sources against them.
     let mut seen = BTreeSet::new();
     candidates
         .into_iter()
@@ -1922,6 +1959,15 @@ fn public_https_url(value: &str) -> Option<String> {
         || hostname.ends_with(".localhost")
         || hostname.ends_with(".internal")
         || hostname.ends_with(".home.arpa")
+        || hostname.ends_with(".example")
+        || hostname.ends_with(".invalid")
+        || hostname.ends_with(".test")
+        || hostname == "example.com"
+        || hostname.ends_with(".example.com")
+        || hostname == "example.net"
+        || hostname.ends_with(".example.net")
+        || hostname == "example.org"
+        || hostname.ends_with(".example.org")
         || hostname.parse::<IpAddr>().is_ok()
     {
         return None;
@@ -2453,45 +2499,56 @@ mod tests {
 
     #[test]
     fn responses_citations_keep_only_public_https_sources() {
-        let output = vec![json!({
-            "type": "web_search_call",
-            "status": "completed",
-            "action": {
-                "sources": [
-                    {"title": "Public", "url": "https://docs.example.test/song"},
-                    {"title": "Local", "url": "https://127.0.0.1/private"},
-                    {"title": "Credential", "url": "https://token@example.test/private"}
-                ]
-            }
-        })];
+        let output = vec![
+            json!({
+                "type": "web_search_call",
+                "status": "completed",
+                "action": {
+                    "sources": [
+                        {"title": "Public", "url": "https://musicbrainz.org/release/test"},
+                        {"title": "Reserved", "url": "https://docs.example.test/song"},
+                        {"title": "Reserved subdomain", "url": "https://www.example.com/song"},
+                        {"title": "Local", "url": "https://127.0.0.1/private"},
+                        {"title": "Credential", "url": "https://token@example.test/private"}
+                    ]
+                }
+            }),
+            json!({
+                "type": "web_search_call",
+                "status": "incomplete",
+                "action": {"sources": [{"title": "Incomplete", "url": "https://www.officialcharts.com/songs/example"}]}
+            }),
+        ];
 
         assert_eq!(
-            response_citations(&output, "{}"),
+            response_citations(&output),
             vec![WebCitation {
                 title: "Public".to_owned(),
-                url: "https://docs.example.test/song".to_owned(),
+                url: "https://musicbrainz.org/release/test".to_owned(),
             }]
         );
     }
 
     #[test]
-    fn responses_citations_accept_validated_structured_sources_without_annotations() {
-        let output = vec![json!({
-            "type": "web_search_call",
-            "status": "completed",
-            "action": {"type": "search", "queries": ["fixture"]}
-        })];
+    fn responses_citations_reject_model_authored_sources_without_provider_observation() {
+        let output = vec![
+            json!({
+                "type": "web_search_call",
+                "status": "completed",
+                "action": {"type": "search", "queries": ["fixture"]}
+            }),
+            json!({
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{
+                    "type": "output_text",
+                    "text": "{\"sources\":[{\"title\":\"Self reported\",\"url\":\"https://musicbrainz.org/release/test\"}]}"
+                }]
+            }),
+        ];
 
-        assert_eq!(
-            response_citations(
-                &output,
-                r#"{"sources":[{"title":"Official","url":"https://docs.example.test/song"}]}"#,
-            ),
-            vec![WebCitation {
-                title: "Official".to_owned(),
-                url: "https://docs.example.test/song".to_owned(),
-            }]
-        );
+        assert_eq!(response_citations(&output), Vec::<WebCitation>::new());
     }
 
     #[test]
@@ -2548,6 +2605,56 @@ mod tests {
         assert_eq!(parsed["answer"], "use {curly} and \"quotes\" freely");
 
         assert!(normalize_structured_json("纯散文，没有对象。").is_none());
+    }
+
+    #[test]
+    fn responses_output_text_accepts_bounded_compatible_message_shapes() {
+        let nested_object = json!({
+            "output": [{
+                "type": "message",
+                "content": [{
+                    "type": "text",
+                    "text": {"value": "{\"answer\":\"ok\"}"}
+                }]
+            }]
+        });
+        assert_eq!(
+            web_search_output_text(&nested_object),
+            Some("{\"answer\":\"ok\"}".to_owned())
+        );
+
+        let top_level = json!({
+            "output": [],
+            "output_text": "{\"answer\":\"fallback\"}"
+        });
+        assert_eq!(
+            web_search_output_text(&top_level),
+            Some("{\"answer\":\"fallback\"}".to_owned())
+        );
+
+        let multiple_messages = json!({
+            "output": [
+                {"type": "message", "role": "user", "status": "completed", "content": [{"type": "output_text", "text": "ignore user"}]},
+                {"type": "message", "role": "assistant", "status": "incomplete", "content": [{"type": "output_text", "text": "ignore incomplete"}]},
+                {"type": "message", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "{\"answer\":\"first\"}"}]},
+                {"type": "message", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "{\"answer\":\"final\"}"}]}
+            ]
+        });
+        assert_eq!(
+            web_search_output_text(&multiple_messages),
+            Some("{\"answer\":\"final\"}".to_owned())
+        );
+
+        let completed_beats_later_statusless = json!({
+            "output": [
+                {"type": "message", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "{\"answer\":\"reviewed\"}"}]},
+                {"type": "message", "content": [{"type": "output_text", "text": "{\"answer\":\"ambiguous\"}"}]}
+            ]
+        });
+        assert_eq!(
+            web_search_output_text(&completed_beats_later_statusless),
+            Some("{\"answer\":\"reviewed\"}".to_owned())
+        );
     }
 
     #[test]
