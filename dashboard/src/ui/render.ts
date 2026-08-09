@@ -1071,6 +1071,57 @@ function reasoningEffortOptions(locale: Locale): string {
   return options.map(([value, en, zh]) => `<option value="${value}" data-reasoning-effort="${value}">${tr(locale, en, zh)}</option>`).join("");
 }
 
+function timeZoneOptions(savedTimeZone: string | undefined, locale: Locale): string {
+  let systemTimeZone = "UTC";
+  try {
+    const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (typeof resolved === "string" && resolved.length > 0 && resolved.length <= 128) {
+      systemTimeZone = resolved;
+    }
+  } catch {
+    // UTC remains the deterministic fallback when the runtime cannot expose a zone.
+  }
+  const saved = savedTimeZone?.trim();
+  const selectedTimeZone = saved || systemTimeZone;
+  const followsSystem = !saved;
+  let supportedTimeZones: string[] = [];
+  try {
+    const supportedValuesOf = Reflect.get(Intl, "supportedValuesOf");
+    if (typeof supportedValuesOf === "function") {
+      const values = Reflect.apply(supportedValuesOf, Intl, ["timeZone"]);
+      if (Array.isArray(values)) {
+        supportedTimeZones = values.filter((value): value is string => (
+          typeof value === "string" && value.length > 0 && value.length <= 128
+        ));
+      }
+    }
+  } catch {
+    // Older WebViews use the common bounded fallback below.
+  }
+  const availableTimeZones = [
+    selectedTimeZone,
+    "UTC",
+    "Asia/Shanghai",
+    "Asia/Hong_Kong",
+    "Asia/Singapore",
+    "Asia/Tokyo",
+    "Europe/London",
+    "Europe/Paris",
+    "America/New_York",
+    "America/Los_Angeles",
+    ...supportedTimeZones,
+  ].filter((value, index, values) => values.indexOf(value) === index);
+  const systemLabel = tr(
+    locale,
+    `Follow this device (${systemTimeZone})`,
+    `跟随系统（${systemTimeZone}）`,
+  );
+  return `<option value="" ${followsSystem ? "selected" : ""}>${escapeHtml(systemLabel)}</option>`
+    + availableTimeZones.map((timeZone) => (
+      `<option value="${escapeHtml(timeZone)}" ${timeZone === selectedTimeZone && !followsSystem ? "selected" : ""}>${escapeHtml(timeZone)}</option>`
+    )).join("");
+}
+
 function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
   const record = snapshot.workspaceV2?.personal;
   const settings = record?.settings ?? {};
@@ -1085,7 +1136,7 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
         <form id="personal-settings-form" data-version="${record?.version ?? 0}">
           <label>${tr(locale, "Display name (optional)", "称呼（可选）")}<input name="display_name" maxlength="80" value="${escapeHtml(settings.display_name ?? "")}" autocomplete="nickname"></label>
           <label>${tr(locale, "Language", "语言")}<select name="locale"><option value="en" ${settings.locale === "en" ? "selected" : ""}>English</option><option value="zh-CN" ${settings.locale === "zh-CN" ? "selected" : ""}>简体中文</option></select></label>
-          <label>${tr(locale, "Time zone", "时区")}<input name="timezone" maxlength="128" value="${escapeHtml(settings.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC")}"></label>
+          <label>${tr(locale, "Time zone", "时区")}<select name="timezone">${timeZoneOptions(settings.timezone, locale)}</select></label>
           <label>${tr(locale, "Theme", "主题")}<select name="theme"><option value="system">${tr(locale, "System", "跟随系统")}</option><option value="light" ${settings.theme === "light" ? "selected" : ""}>${tr(locale, "Light", "浅色")}</option><option value="dark" ${settings.theme === "dark" ? "selected" : ""}>${tr(locale, "Dark", "深色")}</option></select></label>
           <button type="submit">${tr(locale, "SAVE LOCALLY", "保存到本地")}</button><p id="personal-settings-status" role="status"></p>
         </form>
@@ -1099,7 +1150,7 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
         <p class="fine">${tr(locale, "The Core grants access to this directory on the next app launch. Without it, Study, Markdown tasks, and vault search stay off. Saving requires the desktop app; a plain browser cannot hold this grant.", "Core 会在下次启动应用时获得该目录的访问授权；未配置时 Study、Markdown 任务与库内检索保持关闭。保存需要桌面应用；纯浏览器无法持有此授权。")}</p>
       </section>
       <section class="settings-section"><header><div><small>MODEL CENTER</small><h3>${tr(locale, "Providers", "模型供应商")}</h3></div><span>${providers.length}</span></header>
-        <div class="settings-records">${providers.map((record) => `<article data-provider-profile-card="${escapeHtml(record.provider.profile_id)}"><strong>${escapeHtml(record.provider.display_name)}</strong><span>${escapeHtml(record.provider.kind)} · ${escapeHtml(record.provider.model)}</span><small>v${record.revision} · ${tr(locale, "reasoning", "思考强度")} ${escapeHtml(record.provider.reasoning?.effort ?? "auto")} · ${record.provider.secret_ref ? tr(locale, "native secret reference", "原生密钥引用") : tr(locale, "no secret", "无需密钥")}</small><div class="provider-record-actions"><button type="button" data-provider-edit="${escapeHtml(record.provider.profile_id)}" data-provider-record="${escapeHtml(JSON.stringify(record))}">${tr(locale, "EDIT", "编辑")}</button><button type="button" data-provider-profile-test="${escapeHtml(record.provider.profile_id)}" data-provider-model="${escapeHtml(record.provider.model)}">${tr(locale, "TEST MODEL", "测试模型")}</button>${record.provider.kind === "deepseek" && record.provider.model === "deepseek-v4-flash" ? `<button type="button" data-provider-profile-test="${escapeHtml(record.provider.profile_id)}" data-provider-model="${escapeHtml(record.provider.model)}" data-provider-web-search="true">${tr(locale, "TEST WEB SEARCH", "测试联网")}</button>` : ""}</div><div data-provider-profile-result role="status" aria-live="polite"></div></article>`).join("") || `<p class="empty">${tr(locale, "Choose a cloud provider, local Ollama, or a generic OpenAI-compatible endpoint.", "选择云端供应商、本地 Ollama 或通用 OpenAI 兼容端点。")}</p>`}</div>
+        <div class="settings-records">${providers.map((record) => `<article data-provider-profile-card="${escapeHtml(record.provider.profile_id)}"><strong>${escapeHtml(record.provider.display_name)}</strong><span>${escapeHtml(record.provider.kind)} · ${escapeHtml(record.provider.model)}</span><small>v${record.revision} · ${tr(locale, "reasoning", "思考强度")} ${escapeHtml(record.provider.reasoning?.effort ?? "auto")} · ${record.provider.secret_ref ? tr(locale, "native secret reference", "原生密钥引用") : tr(locale, "no secret", "无需密钥")}</small><div class="provider-record-actions"><button type="button" data-provider-edit="${escapeHtml(record.provider.profile_id)}" data-provider-record="${escapeHtml(JSON.stringify(record))}">${tr(locale, "EDIT", "编辑")}</button><button type="button" data-provider-profile-test="${escapeHtml(record.provider.profile_id)}" data-provider-model="${escapeHtml(record.provider.model)}">${tr(locale, "TEST MODEL", "测试模型")}</button></div><div data-provider-profile-result role="status" aria-live="polite"></div></article>`).join("") || `<p class="empty">${tr(locale, "Choose a cloud provider, local Ollama, or a generic OpenAI-compatible endpoint.", "选择云端供应商、本地 Ollama 或通用 OpenAI 兼容端点。")}</p>`}</div>
         <form id="provider-profile-form" data-version="0">
           <label>ID<input name="profile_id" required maxlength="80" pattern="[A-Za-z0-9._\\-]+" placeholder="deepseek-main"></label>
           <label>${tr(locale, "Name", "名称")}<input name="display_name" required maxlength="120" placeholder="DeepSeek V4 Pro"></label>
@@ -1542,9 +1593,8 @@ function providerSetup(snapshot: DashboardSnapshot, locale: Locale): string {
     <div class="provider-actions">
       <button type="button" data-provider-diagnostic="connect" ${selected ? "" : "disabled"}>${tr(locale, "CHECK ACCESS", "检查权限")}</button>
       <button type="button" class="quiet-button" data-provider-diagnostic="smoke" ${selected ? "" : "disabled"}>${tr(locale, "TEST MODEL", "测试模型")}</button>
-      <button type="button" class="quiet-button web-search-button" data-provider-diagnostic="web_search" ${selectedKind === "deepseek" ? "" : "hidden"}>${tr(locale, "TEST MUSIC WEB WORKER", "测试歌曲联网模型")}</button>
       <button type="button" class="quiet-button manage-providers-button" data-open-provider-settings>${tr(locale, "MANAGE MODELS", "管理模型")}</button>
-      <small>${tr(locale, "Access checks model discovery when supported. Test model sends one fixed public low-token sentence. The DeepSeek music worker test is separate and may incur a small charge.", "权限检查会在供应商支持时读取模型列表；测试模型只发送固定的公开低 token 短句；DeepSeek 歌曲联网模型单独测试，可能产生少量费用。")}</small>
+      <small>${tr(locale, "Access checks model discovery when supported. Test model sends one fixed public low-token sentence. Song research is started from the Daily track card only.", "权限检查会在供应商支持时读取模型列表；测试模型只发送固定的公开低 token 短句；歌曲联网分析只从“每日一曲”卡片发起。")}</small>
     </div>
     <div id="provider-diagnostic-result" class="provider-diagnostic-host" role="status" aria-live="polite">
       ${reportMarkup}

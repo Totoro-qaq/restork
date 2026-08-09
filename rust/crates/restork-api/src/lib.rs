@@ -2198,6 +2198,15 @@ fn validated_research_url(value: &str) -> Option<String> {
         || hostname.ends_with(".localhost")
         || hostname.ends_with(".internal")
         || hostname.ends_with(".home.arpa")
+        || hostname.ends_with(".example")
+        || hostname.ends_with(".invalid")
+        || hostname.ends_with(".test")
+        || hostname == "example.com"
+        || hostname.ends_with(".example.com")
+        || hostname == "example.net"
+        || hostname.ends_with(".example.net")
+        || hostname == "example.org"
+        || hostname.ends_with(".example.org")
         || hostname.parse::<IpAddr>().is_ok()
     {
         return None;
@@ -3930,9 +3939,13 @@ mod tests {
 
     #[test]
     fn music_web_research_requires_cited_public_sources_and_two_popularity_origins() {
+        let urls = [
+            "https://musicbrainz.org/release/example",
+            "https://www.officialcharts.com/songs/example",
+        ];
         let source = |index: usize| MusicResearchDraftSource {
             title: format!("Source {index}"),
-            url: format!("https://source{index}.example.test/song"),
+            url: urls[index - 1].to_owned(),
             publisher: format!("Publisher {index}"),
             published_on: Some("2026-08-01".to_owned()),
             supports: vec!["analysis".to_owned(), "popularity".to_owned()],
@@ -3948,11 +3961,11 @@ mod tests {
         let citations = vec![
             WebCitation {
                 title: "Source 1".to_owned(),
-                url: "https://source1.example.test/song".to_owned(),
+                url: urls[0].to_owned(),
             },
             WebCitation {
                 title: "Source 2".to_owned(),
-                url: "https://source2.example.test/song".to_owned(),
+                url: urls[1].to_owned(),
             },
         ];
 
@@ -3963,5 +3976,11 @@ mod tests {
         assert_eq!(summary.sources.len(), 2);
         assert!(validated_research_url("https://127.0.0.1/private").is_none());
         assert!(validated_research_url("https://localhost/private").is_none());
+        assert!(validated_research_url("https://replace-me.invalid/source").is_none());
+        assert!(validated_research_url("https://docs.example.test/source").is_none());
+        assert!(validated_research_url("https://example.com/source").is_none());
+        assert!(validated_research_url("https://www.example.com/source").is_none());
+        assert!(validated_research_url("https://example.net/source").is_none());
+        assert!(validated_research_url("https://cdn.example.org/source").is_none());
     }
 }

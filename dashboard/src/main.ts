@@ -1861,8 +1861,6 @@ function overviewProviderCommand(kind: ProviderKindV2): string {
 function setOverviewProviderActionAvailability(root: HTMLElement): void {
   const selected = overviewProviderSelection(root);
   root.querySelectorAll<HTMLButtonElement>("[data-provider-diagnostic]").forEach((button) => {
-    const webSearch = button.dataset.providerDiagnostic === "web_search";
-    button.hidden = webSearch && selected?.kind !== "deepseek";
     button.disabled = !selected?.configured;
   });
 }
@@ -1953,7 +1951,7 @@ function configureProvider(
         root,
         api,
         action !== "connect",
-        action === "web_search" ? "web_search" : "primary",
+        "primary",
       );
     });
   });
@@ -2001,7 +1999,7 @@ async function runProviderProfileDiagnostic(
 ): Promise<void> {
   const profileId = trigger.dataset.providerProfileTest ?? "";
   const model = trigger.dataset.providerModel ?? "";
-  const target = trigger.dataset.providerWebSearch === "true" ? "web_search" : "primary";
+  const target = "primary";
   const card = trigger.closest<HTMLElement>("[data-provider-profile-card]");
   const host = card?.querySelector<HTMLElement>("[data-provider-profile-result]");
   if (!profileId || !model || !card || !host) return;

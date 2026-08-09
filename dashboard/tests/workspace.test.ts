@@ -280,28 +280,14 @@ describe("authenticated workspace", () => {
     expect(root.textContent).not.toContain("RESTORK_OK");
   });
 
-  it("keeps the V4 Flash web-search diagnostic separate from V4 Pro", async () => {
+  it("keeps the song-specific web-search action on the song card instead of the model console", () => {
     const root = document.createElement("main");
     const api = fakeApi();
-    const diagnostic = vi.spyOn(api, "providerDiagnostics").mockResolvedValue({
-      ...(snapshot.provider as ProviderDiagnostic),
-      model: "deepseek-v4-flash",
-      status: "smoke_passed",
-      message: "Synthetic web-search capability passed.",
-      connection_checked: true,
-      connection_ok: true,
-      model_available: true,
-      smoke_checked: true,
-      smoke_ok: true,
-    });
     mountDashboard(root, { api, snapshot });
 
-    root.querySelector<HTMLButtonElement>('[data-provider-diagnostic="web_search"]')?.click();
-
-    await vi.waitFor(() => {
-      expect(diagnostic).toHaveBeenCalledWith(true, "web_search", "deepseek");
-      expect(root.textContent).toContain("deepseek-v4-flash");
-    });
+    expect(root.querySelector('[data-provider-diagnostic="web_search"]')).toBeNull();
+    expect(root.querySelector("[data-provider-web-search]")).toBeNull();
+    expect(root.textContent).not.toContain("TEST MUSIC WEB WORKER");
   });
 
   it("renders a localized safe provider failure without transport details", async () => {
@@ -1570,6 +1556,51 @@ describe("Rust conversation workspace", () => {
     },
   });
 
+  it("uses a system-backed time-zone selector instead of asking people to type an IANA identifier", async () => {
+    const root = document.createElement("main");
+    const state = workspaceSnapshot();
+    if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.personal = {
+      settings: { timezone: "Asia/Shanghai", locale: "zh-CN", theme: "light" },
+      version: 1,
+      updated_at: "2026-08-09T08:00:00Z",
+    };
+    mountDashboard(root, { api: fakeApi(), snapshot: state, locale: "zh-CN" });
+    root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
+
+    const form = root.querySelector<HTMLFormElement>("#personal-settings-form");
+    expect(form?.querySelector('input[name="timezone"]')).toBeNull();
+    const timezone = form?.querySelector<HTMLSelectElement>('select[name="timezone"]');
+    expect(timezone).not.toBeNull();
+    expect(timezone?.textContent).toContain("跟随系统");
+    expect(timezone?.querySelector('option[value=""]')).not.toBeNull();
+    expect(timezone?.value).toBe("Asia/Shanghai");
+
+    const savePersonalSettings = vi.fn(async (_version, settings) => ({
+      settings,
+      version: 2,
+      updated_at: "2026-08-09T08:01:00Z",
+    }));
+    const api = fakeApi();
+    api.savePersonalSettings = savePersonalSettings;
+    root.remove();
+    const submittedRoot = document.createElement("main");
+    mountDashboard(submittedRoot, { api, snapshot: state, locale: "zh-CN" });
+    submittedRoot.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
+    const submittedForm = submittedRoot.querySelector<HTMLFormElement>("#personal-settings-form");
+    const submittedTimeZone = submittedForm?.elements.namedItem("timezone") as HTMLSelectElement | null;
+    const submittedLocale = submittedForm?.elements.namedItem("locale") as HTMLSelectElement | null;
+    if (!submittedForm || !submittedTimeZone || !submittedLocale) throw new Error("personal settings form");
+    submittedTimeZone.value = "";
+    submittedLocale.value = "en";
+    submittedForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(savePersonalSettings).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ timezone: undefined }),
+    ));
+    submittedRoot.remove();
+  });
+
   it("routes Todo suggestions through an explicit model conversation", () => {
     const root = document.createElement("main");
     mountDashboard(root, { api: fakeApi(), snapshot: workspaceSnapshot(), locale: "zh-CN" });
@@ -2315,8 +2346,7 @@ describe("Rust conversation workspace", () => {
     expect(root.querySelector("[data-provider-selected-model]")?.textContent).toContain("qwen-max");
     expect(root.querySelector("[data-provider-command]")?.textContent)
       .toBe("'/Applications/Restork Preview.app/Contents/Resources/core/restorkd' provider configure qwen");
-    expect(root.querySelector<HTMLButtonElement>('[data-provider-diagnostic="web_search"]')?.hidden)
-      .toBe(true);
+    expect(root.querySelector('[data-provider-diagnostic="web_search"]')).toBeNull();
 
     root.querySelector<HTMLButtonElement>('[data-provider-diagnostic="smoke"]')?.click();
     await vi.waitFor(() => expect(diagnostic)
