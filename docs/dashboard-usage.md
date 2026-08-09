@@ -121,11 +121,16 @@ real-tool permission preview and does not execute it.
 as self-asserted. A report can freeze a cited DeckSpec outline. PPTX/PDF rendering is deliberately
 absent until the constrained renderer and final export approval gates pass.
 
-**Automation** creates time-zone-aware daily or weekly schedules. Health and daily-cache refreshes
-are no-model jobs; model-backed schedules create local drafts only. Run-now uses an idempotency key.
-Pause, resume, and remove are optimistic and revision-bound. Checkpoint, evaluation, and delegated
-subtask contracts are visible as alpha capabilities; real file restore and a subtask executor remain
-release-gated.
+**Automation** creates named, time-zone-aware daily or weekly schedules. Health and daily-cache
+refreshes are no-model jobs. A user can also choose an already configured provider and describe the
+focus of a Daily or Weekly report automation in plain language. Model-backed schedules persist only
+a cited local draft; they require explicit network consent, send only run title/state/stop-reason
+facts that were marked `public`, and may incur provider charges. They never write to a Vault, export,
+or publish the draft. Each paid occurrence is claimed locally before the provider call, so a crash is
+left as an inspectable `running` record instead of being retried and charged silently. Run-now uses an
+idempotency key. Edit, pause, resume, soft delete, restore, and run-history pagination are revision-bound.
+Checkpoint, evaluation, and delegated subtask contracts remain visible as alpha capabilities; real
+file restore and a subtask executor remain release-gated.
 
 ## Home and daily context
 

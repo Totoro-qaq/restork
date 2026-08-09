@@ -26,7 +26,8 @@ mod workspace;
 pub use automation::{CheckpointFileBlob, CheckpointRecord, EvaluationRecord, SubtaskRecord};
 pub use catalog::{
     CatalogCursor, DeliverableExportRecord, DeliverablePage, DeliverableRecord, ExtensionPage,
-    ExtensionRecord, ExtensionRevisionRecord, SchedulePage, ScheduleRecord, ScheduleRunRecord,
+    ExtensionRecord, ExtensionRevisionRecord, SchedulePage, ScheduleRecord, ScheduleRunCursor,
+    ScheduleRunPage, ScheduleRunRecord,
 };
 pub use daily::{
     CalendarIntervalRecord, DailyCacheRecord, DailySourceRecord, MusicPreferenceRecord,
@@ -43,7 +44,7 @@ pub use workspace::{
     StoredSessionMessage,
 };
 
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 
 const MIGRATION_LEDGER: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -314,6 +315,7 @@ const ARTIFACT_RECOVERY: &str = include_str!("../migrations/0010_artifact_recove
 const MAIL_AWARENESS: &str = include_str!("../migrations/0011_mail_awareness.sql");
 const RADAR_STAR_HISTORY: &str = include_str!("../migrations/0012_radar_star_history.sql");
 const LOCAL_TODOS: &str = include_str!("../migrations/0013_local_todos.sql");
+const RECOVERABLE_SCHEDULES: &str = include_str!("../migrations/0014_recoverable_schedules.sql");
 
 #[derive(Clone, Copy)]
 struct Migration {
@@ -322,7 +324,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 13] = [
+const MIGRATIONS: [Migration; 14] = [
     Migration {
         version: 1,
         name: "v1_schema_adoption",
@@ -387,6 +389,11 @@ const MIGRATIONS: [Migration; 13] = [
         version: 13,
         name: "local_todos",
         sql: LOCAL_TODOS,
+    },
+    Migration {
+        version: 14,
+        name: "recoverable_schedules",
+        sql: RECOVERABLE_SCHEDULES,
     },
 ];
 

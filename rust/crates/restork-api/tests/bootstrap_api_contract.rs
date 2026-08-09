@@ -223,6 +223,7 @@ async fn durable_agent_runs_are_created_idempotently_and_listed() {
     let created = created.expect("created run");
     assert_eq!(created["replayed"], false);
     assert_eq!(created["started"], false);
+    assert_eq!(created["run"]["task_spec"]["data_class"], "public");
     let run_id = created["run"]["run_id"]
         .as_str()
         .expect("run id")

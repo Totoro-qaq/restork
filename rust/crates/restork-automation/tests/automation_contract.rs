@@ -52,11 +52,28 @@ fn daily_schedule_is_dst_safe_and_period_keys_are_stable() {
 }
 
 #[test]
-fn schedule_jobs_are_deterministic_only() {
+fn model_schedule_jobs_are_draft_only_and_reject_effect_requests() {
+    let draft = serde_json::json!({
+        "kind": "model_draft",
+        "provider_profile_id": "deepseek-main",
+        "report_kind": "weekly_report",
+        "title": "本周复盘",
+        "language": "zh-CN",
+        "focus": "总结完成事项、阻塞和下一步",
+        "network_access_confirmed": true
+    });
+    let job = serde_json::from_value::<ScheduleJob>(draft).expect("bounded model draft");
+    assert!(matches!(job, ScheduleJob::ModelDraft { .. }));
+
     let unsupported = serde_json::json!({
         "kind": "model_draft",
-        "profile_id": "research-cloud",
-        "requested_effect": null,
+        "provider_profile_id": "deepseek-main",
+        "report_kind": "weekly_report",
+        "title": "本周复盘",
+        "language": "zh-CN",
+        "focus": "总结完成事项",
+        "network_access_confirmed": true,
+        "requested_effect": "vault.write"
     });
     assert!(serde_json::from_value::<ScheduleJob>(unsupported).is_err());
 }

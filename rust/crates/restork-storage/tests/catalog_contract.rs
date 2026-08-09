@@ -195,6 +195,196 @@ fn deliverables_keep_revisions_and_schedules_use_optimistic_updates() {
 }
 
 #[test]
+fn schedules_are_soft_deleted_restored_and_keep_paginated_run_history() {
+    let directory = TestDirectory::new();
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
+    let document = json!({
+        "schedule_id": "schedule-recoverable",
+        "name": "Recoverable health check",
+        "timezone": "UTC"
+    });
+    let created = database
+        .put_schedule(
+            "schedule-recoverable",
+            &document,
+            None,
+            "active",
+            Some("2026-08-03T00:00:00Z"),
+            "2026-08-02T00:00:00Z",
+        )
+        .expect("create schedule");
+    for index in 1..=3 {
+        database
+            .record_schedule_run(
+                "schedule-recoverable",
+                &format!("manual:{index}"),
+                None,
+                &json!({"state": "completed", "index": index}),
+                &format!("2026-08-02T00:0{index}:00Z"),
+            )
+            .expect("record run");
+    }
+
+    let deleted = database
+        .soft_delete_schedule(
+            "schedule-recoverable",
+            created.revision,
+            "2026-08-02T00:10:00Z",
+        )
+        .expect("soft delete");
+    assert!(deleted.deleted_at.is_some());
+    assert_eq!(deleted.revision, 2);
+    assert!(
+        database
+            .schedules_page(None, 10)
+            .expect("active schedules")
+            .items
+            .is_empty()
+    );
+    assert!(
+        database
+            .due_schedules("2026-08-04T00:00:00Z", 10)
+            .expect("due schedules")
+            .is_empty()
+    );
+    let trash = database
+        .deleted_schedules_page(None, 10)
+        .expect("schedule trash");
+    assert_eq!(trash.items.len(), 1);
+
+    let first_runs = database
+        .schedule_runs_page("schedule-recoverable", None, 2)
+        .expect("first runs page");
+    assert_eq!(first_runs.items.len(), 2);
+    let second_runs = database
+        .schedule_runs_page("schedule-recoverable", first_runs.next.as_ref(), 2)
+        .expect("second runs page");
+    assert_eq!(second_runs.items.len(), 1);
+
+    let restored = database
+        .restore_schedule(
+            "schedule-recoverable",
+            deleted.revision,
+            Some("2026-08-05T00:00:00Z"),
+            "2026-08-02T00:11:00Z",
+        )
+        .expect("restore");
+    assert!(restored.deleted_at.is_none());
+    assert_eq!(restored.revision, 3);
+    assert_eq!(
+        restored.next_run_at.as_deref(),
+        Some("2026-08-05T00:00:00Z")
+    );
+    assert_eq!(
+        database
+            .schedule_runs_page("schedule-recoverable", None, 10)
+            .expect("preserved history")
+            .items
+            .len(),
+        3
+    );
+}
+
+#[test]
+fn model_schedule_runs_are_claimed_before_work_and_completed_with_compare_and_swap() {
+    let directory = TestDirectory::new();
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
+    database
+        .put_schedule(
+            "schedule-claimed",
+            &json!({"schedule_id": "schedule-claimed", "timezone": "UTC"}),
+            None,
+            "active",
+            Some("2026-08-03T00:00:00Z"),
+            "2026-08-02T00:00:00Z",
+        )
+        .expect("schedule");
+    let claim = json!({"state": "running", "claim_token": "claim-1"});
+    let first = database
+        .claim_schedule_run(
+            "schedule-claimed",
+            "scheduled:fixture",
+            &claim,
+            "2026-08-02T00:01:00Z",
+        )
+        .expect("claim");
+    assert!(!first.replayed);
+    let duplicate = database
+        .claim_schedule_run(
+            "schedule-claimed",
+            "scheduled:fixture",
+            &json!({"state": "running", "claim_token": "claim-2"}),
+            "2026-08-02T00:01:01Z",
+        )
+        .expect("duplicate claim");
+    assert!(duplicate.replayed);
+    assert_eq!(duplicate.result["claim_token"], "claim-1");
+
+    let completed = database
+        .complete_schedule_run(
+            "schedule-claimed",
+            "scheduled:fixture",
+            &claim,
+            &json!({"state": "draft_created", "provider_call": true}),
+        )
+        .expect("complete claim");
+    assert_eq!(completed.result["state"], "draft_created");
+    assert!(
+        database
+            .complete_schedule_run(
+                "schedule-claimed",
+                "scheduled:fixture",
+                &claim,
+                &json!({"state": "failed"}),
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn scheduler_advance_does_not_overwrite_a_newer_pause_or_edit() {
+    let directory = TestDirectory::new();
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
+    let created = database
+        .put_schedule(
+            "schedule-cas",
+            &json!({"schedule_id": "schedule-cas", "timezone": "UTC"}),
+            None,
+            "active",
+            Some("2026-08-03T00:00:00Z"),
+            "2026-08-02T00:00:00Z",
+        )
+        .expect("schedule");
+    database
+        .put_schedule(
+            "schedule-cas",
+            &created.schedule,
+            Some(created.revision),
+            "paused",
+            None,
+            "2026-08-02T00:02:00Z",
+        )
+        .expect("pause");
+
+    let advanced = database
+        .advance_schedule(
+            "schedule-cas",
+            created.revision,
+            created.next_run_at.as_deref(),
+            Some("2026-08-04T00:00:00Z"),
+            "2026-08-02T00:03:00Z",
+        )
+        .expect("bounded advance");
+    assert!(!advanced);
+    let stored = database
+        .schedule("schedule-cas")
+        .expect("lookup")
+        .expect("stored");
+    assert_eq!(stored.state, "paused");
+    assert_eq!(stored.revision, 2);
+}
+
+#[test]
 fn deliverable_exports_are_hash_bound_audited_and_idempotent() {
     let directory = TestDirectory::new();
     let database = Database::open(directory.0.path().join("restork.db")).expect("database");

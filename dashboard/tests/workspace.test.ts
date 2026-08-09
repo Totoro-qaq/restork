@@ -611,6 +611,55 @@ describe("authenticated workspace", () => {
     expect(insights).not.toContain("no current chart evidence");
   });
 
+  it("localizes a bounded music research timeout and keeps retry available", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    api.researchMusic = vi.fn(async () => {
+      throw new Error("song web research failed: timeout; the previous cache remains available");
+    });
+    mountDashboard(root, {
+      api,
+      locale: "zh-CN",
+      snapshot: {
+        ...snapshot,
+        daily: {
+          weather: {
+            configured: false,
+            status: "not_configured",
+            provider: "",
+            location_label: "",
+            condition: "",
+            temperature_c: null,
+            apparent_temperature_c: null,
+            relative_humidity_percent: null,
+            is_day: null,
+            observed_at: null,
+            expires_at: null,
+            attribution: "",
+            message: "",
+          },
+          calendar: { configured: false, status: "not_configured", events: [], message: "" },
+          music: {
+            configured: true,
+            status: "ready",
+            message: "",
+            recommendation: { item_id: "track", title: "爱是永恒", artist: "张学友", album: "不老的传说", tags: [], analysis: "", song_analysis: "旧解读", popularity_reason: "旧证据", cover_available: false },
+            source: null,
+            discoveries: [],
+          },
+        },
+      },
+    });
+
+    const button = root.querySelector<HTMLButtonElement>("[data-music-research]");
+    button?.click();
+    await vi.waitFor(() => expect(api.researchMusic).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(root.querySelector("#music-research-consent")?.textContent)
+      .toContain("联网分析超过 180 秒"));
+    expect(root.textContent).not.toContain("song web research failed");
+    expect(button?.disabled).toBe(false);
+  });
+
   it("localizes backend-authored daily empty states in the Chinese interface", () => {
     const root = document.createElement("main");
     mountDashboard(root, {
@@ -1847,6 +1896,11 @@ describe("Rust conversation workspace", () => {
     expect(root.querySelector<HTMLElement>('[data-view-panel="extensions"]')?.hidden).toBe(false);
     expect(root.querySelector("#extension-install-form")).not.toBeNull();
     expect(root.textContent).toContain("添加已审查扩展");
+    const reportSkill = root.querySelector<HTMLButtonElement>('[data-core-skill-view="deliverables"]');
+    expect(reportSkill?.getAttribute("aria-label")).toContain("日报与周报");
+    reportSkill?.click();
+    expect(root.querySelector<HTMLElement>('[data-view-panel="deliverables"]')?.hidden).toBe(false);
+    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
     root.querySelector<HTMLButtonElement>('[data-extension-filter="plugin"]')?.click();
     expect(root.querySelector<HTMLElement>('[data-extension-card-kind="skill"]')?.hidden).toBe(true);
 
@@ -1857,7 +1911,7 @@ describe("Rust conversation workspace", () => {
 
     root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
     expect(root.querySelector("#schedule-create-form")).not.toBeNull();
-    expect(root.textContent).toContain("恢复与评估契约");
+    expect(root.textContent).toContain("回收站与运行记录");
     expect(root.querySelector('input[type="password"]')).toBeNull();
   });
 

@@ -1,4 +1,12 @@
-use std::{fs, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use axum::{
     Router,
@@ -6,6 +14,9 @@ use axum::{
     http::{Method, Request, StatusCode},
 };
 use http_body_util::BodyExt;
+use restork_automation::{
+    MissedRunPolicy, Recurrence, ScheduleJob, ScheduleSpec, ScheduledReportKind,
+};
 use restork_core::auth::PairingAuthority;
 use restork_storage::{Database, NewRun};
 use serde_json::{Value, json};
@@ -456,6 +467,56 @@ async fn spawn_mock_ollama(content: &str) -> String {
     format!("http://127.0.0.1:{port}")
 }
 
+async fn spawn_delayed_counting_ollama(content: &str) -> (String, Arc<AtomicUsize>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let port = listener.local_addr().expect("address").port();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let payload = json!({
+        "message": {"role": "assistant", "content": content},
+        "done": true,
+        "done_reason": "stop",
+        "prompt_eval_count": 42,
+        "eval_count": 24
+    })
+    .to_string();
+    tokio::spawn(async move {
+        for _ in 0..2 {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            observed.fetch_add(1, Ordering::SeqCst);
+            let payload = payload.clone();
+            tokio::spawn(async move {
+                let mut chunk = [0_u8; 8_192];
+                let mut request = Vec::new();
+                loop {
+                    let read = socket.read(&mut chunk).await.expect("read");
+                    if read == 0 {
+                        return;
+                    }
+                    request.extend_from_slice(&chunk[..read]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n")
+                        || request.len() > 64 * 1024
+                    {
+                        break;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    payload.len(),
+                    payload
+                );
+                socket.write_all(response.as_bytes()).await.expect("write");
+            });
+        }
+    });
+    (format!("http://127.0.0.1:{port}"), calls)
+}
+
 async fn configure_ollama_profile(app: &Router, authorization: &str, base_url: &str) {
     let (status, body) = call(
         app.clone(),
@@ -482,12 +543,22 @@ async fn configure_ollama_profile(app: &Router, authorization: &str, base_url: &
 }
 
 fn seed_run(database: &Database, run_id: &str, state: &str, title: Option<&str>) {
+    seed_run_with_class(database, run_id, state, title, "public");
+}
+
+fn seed_run_with_class(
+    database: &Database,
+    run_id: &str,
+    state: &str,
+    title: Option<&str>,
+    data_class: &str,
+) {
     let occurred_at = OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .expect("timestamp");
     let task_spec = match title {
-        Some(title) => json!({"goal": title}),
-        None => json!({}),
+        Some(title) => json!({"goal": title, "data_class": data_class}),
+        None => json!({"data_class": data_class}),
     };
     database
         .create_run(NewRun {
@@ -541,6 +612,126 @@ async fn ai_drafted_report_freezes_model_entries_with_run_evidence() {
         entries
             .iter()
             .all(|entry| entry["verification"] == "verified")
+    );
+}
+
+#[tokio::test]
+async fn scheduled_model_work_creates_only_an_idempotent_local_draft() {
+    let (app, authorization, _directory, database) = paired_app_with_database().await;
+    seed_run(
+        &database,
+        "run-scheduled",
+        "succeeded",
+        Some("完成自动化回归"),
+    );
+    let base_url = spawn_mock_ollama(
+        "{\"entries\":[{\"section\":\"completed\",\"text\":\"自动化回归已完成\",\"fact_refs\":[\"fact:run:run-scheduled\"]}]}",
+    )
+    .await;
+    configure_ollama_profile(&app, &authorization, &base_url).await;
+    let schedule = ScheduleSpec::new(
+        "schedule-model-report",
+        "Asia/Shanghai",
+        Recurrence::Daily { hour: 9, minute: 0 },
+        MissedRunPolicy::CreateDraft,
+        ScheduleJob::ModelDraft {
+            provider_profile_id: "ollama".to_owned(),
+            report_kind: ScheduledReportKind::DailyReport,
+            title: "AI 日报".to_owned(),
+            language: "zh-CN".to_owned(),
+            focus: "只总结有运行证据的完成事项".to_owned(),
+            network_access_confirmed: true,
+        },
+    )
+    .expect("schedule");
+    let occurrence_key = "scheduled:fixture";
+
+    let first =
+        restork_api::execute_scheduled_model_draft(&database, &schedule, occurrence_key, false)
+            .await;
+    assert_eq!(first["state"], "draft_created");
+    assert_eq!(first["provider_call"], true);
+    assert_eq!(first["network_effect"], true);
+    let deliverable_id = first["deliverable_id"].as_str().expect("deliverable id");
+    let deliverable = database
+        .deliverable(deliverable_id, 1)
+        .expect("lookup")
+        .expect("draft");
+    assert_eq!(deliverable.state, "draft");
+
+    let replay =
+        restork_api::execute_scheduled_model_draft(&database, &schedule, occurrence_key, false)
+            .await;
+    assert_eq!(replay["state"], "draft_created");
+    assert_eq!(replay["replayed"], true);
+}
+
+#[tokio::test]
+async fn concurrent_manual_model_runs_claim_before_the_paid_provider_call() {
+    let (app, authorization, _directory, database) = paired_app_with_database().await;
+    seed_run(
+        &database,
+        "run-concurrent-source",
+        "succeeded",
+        Some("完成并发自动化回归"),
+    );
+    let (base_url, calls) = spawn_delayed_counting_ollama(
+        "{\"entries\":[{\"section\":\"completed\",\"text\":\"并发自动化回归已完成\",\"fact_refs\":[\"fact:run:run-concurrent-source\"]}]}",
+    )
+    .await;
+    configure_ollama_profile(&app, &authorization, &base_url).await;
+    let (status, body) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/schedules",
+        Some(json!({
+            "schedule_id": "schedule-concurrent-model",
+            "name": "并发模型日报",
+            "timezone": "Asia/Shanghai",
+            "recurrence": {"kind": "daily", "hour": 9, "minute": 0},
+            "missed_run_policy": "create_draft",
+            "job": {
+                "kind": "model_draft",
+                "provider_profile_id": "ollama",
+                "report_kind": "daily_report",
+                "title": "AI 日报",
+                "language": "zh-CN",
+                "focus": "只总结有运行证据的完成事项",
+                "network_access_confirmed": true
+            }
+        })),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "schedule: {body:?}");
+
+    let first = call_raw(
+        app.clone(),
+        Method::POST,
+        "/v1/schedules/schedule-concurrent-model/run",
+        json!({}),
+        &authorization,
+        "same-paid-occurrence",
+    );
+    let second = call_raw(
+        app,
+        Method::POST,
+        "/v1/schedules/schedule-concurrent-model/run",
+        json!({}),
+        &authorization,
+        "same-paid-occurrence",
+    );
+    let ((first_status, _, first_body), (second_status, _, second_body)) =
+        tokio::join!(first, second);
+    assert_eq!(first_status, StatusCode::OK);
+    assert_eq!(second_status, StatusCode::OK);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let results = [first_body, second_body]
+        .map(|body| serde_json::from_slice::<Value>(&body).expect("run JSON"));
+    assert!(
+        results
+            .iter()
+            .any(|result| result["result"]["state"] == "draft_created")
     );
 }
 
@@ -639,5 +830,43 @@ async fn ai_drafted_report_requires_recent_activity() {
             .as_str()
             .expect("detail")
             .contains("no recent activity")
+    );
+}
+
+#[tokio::test]
+async fn ai_drafted_report_never_sends_non_public_run_facts() {
+    let (app, authorization, _directory, database) = paired_app_with_database().await;
+    seed_run_with_class(
+        &database,
+        "run-confidential",
+        "succeeded",
+        Some("客户代号与私密交付"),
+        "confidential",
+    );
+    let base_url = spawn_mock_ollama("{\"entries\":[]}").await;
+    configure_ollama_profile(&app, &authorization, &base_url).await;
+
+    let (status, body) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/deliverables/reports/ai-draft",
+        Some(json!({
+            "report_id": "report:ai-private",
+            "revision": 1,
+            "kind": "daily",
+            "title": "AI 日报",
+            "language": "zh-CN",
+            "timezone": "Asia/Shanghai",
+            "provider_profile_id": "ollama"
+        })),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        body.expect("error")["detail"]
+            .as_str()
+            .expect("detail")
+            .contains("marked public")
     );
 }

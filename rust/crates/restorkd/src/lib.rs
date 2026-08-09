@@ -186,7 +186,7 @@ impl BoundServer {
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 interval.tick().await;
-                let _ = run_due_schedules_once(&scheduler_storage, Utc::now());
+                let _ = run_due_schedules_once(&scheduler_storage, Utc::now()).await;
             }
         });
         let router = restork_api::router_with_runtime(
@@ -202,17 +202,28 @@ impl BoundServer {
     }
 }
 
-/// Execute due jobs once. It is synchronous and bounded so restart recovery can
-/// replay an already-recorded period without duplicating work.
-pub fn run_due_schedules_once(
+/// Execute due jobs once. Every job is bounded and uses a stable period key so
+/// restart recovery can replay work without duplicating a draft.
+pub async fn run_due_schedules_once(
     storage: &Database,
     now: DateTime<Utc>,
 ) -> Result<usize, StorageError> {
-    let due = storage.due_schedules(&now.to_rfc3339(), 32)?;
+    let mut due = storage.due_schedules(&now.to_rfc3339(), 32)?;
+    // A provider call can legitimately take two minutes. Local maintenance
+    // must run first, and only one paid model draft may start per scheduler
+    // tick so a backlog cannot multiply latency or spend.
+    due.sort_by_key(|record| record.schedule["job"]["kind"] == "model_draft");
     let mut completed = 0;
+    let mut model_draft_started = false;
     for record in due {
         let Ok(schedule) = serde_json::from_value::<ScheduleSpec>(record.schedule) else {
-            let _ = storage.advance_schedule(&record.schedule_id, None, &now.to_rfc3339());
+            let _ = storage.advance_schedule(
+                &record.schedule_id,
+                record.revision,
+                record.next_run_at.as_deref(),
+                None,
+                &now.to_rfc3339(),
+            );
             continue;
         };
         let Some(scheduled_at) = record
@@ -220,9 +231,23 @@ pub fn run_due_schedules_once(
             .as_deref()
             .and_then(|value| value.parse::<DateTime<Utc>>().ok())
         else {
-            let _ = storage.advance_schedule(&record.schedule_id, None, &now.to_rfc3339());
+            let _ = storage.advance_schedule(
+                &record.schedule_id,
+                record.revision,
+                record.next_run_at.as_deref(),
+                None,
+                &now.to_rfc3339(),
+            );
             continue;
         };
+        if matches!(&schedule.job, ScheduleJob::ModelDraft { .. }) {
+            if model_draft_started {
+                continue;
+            }
+            model_draft_started = true;
+        }
+        let period_key = format!("scheduled:{}", scheduled_at.timestamp());
+        let mut run_was_recorded = false;
         let result = match &schedule.job {
             ScheduleJob::Deterministic { job } if job == "health.check" => serde_json::json!({
                 "state": "completed",
@@ -248,21 +273,62 @@ pub fn run_due_schedules_once(
                     "external_effect": false,
                 })
             }
+            ScheduleJob::ModelDraft { .. } => {
+                let claim = serde_json::json!({
+                    "state": "running",
+                    "claim_token": format!(
+                        "claim:{}:{}",
+                        record.schedule_id,
+                        now.timestamp_nanos_opt().unwrap_or_default(),
+                    ),
+                    "provider_call": false,
+                    "network_effect": false,
+                    "manual": false,
+                });
+                let claimed = storage.claim_schedule_run(
+                    &record.schedule_id,
+                    &period_key,
+                    &claim,
+                    &now.to_rfc3339(),
+                )?;
+                run_was_recorded = true;
+                if claimed.replayed {
+                    claimed.result
+                } else {
+                    let result = restork_api::execute_scheduled_model_draft(
+                        storage,
+                        &schedule,
+                        &period_key,
+                        false,
+                    )
+                    .await;
+                    storage
+                        .complete_schedule_run(&record.schedule_id, &period_key, &claim, &result)?
+                        .result
+                }
+            }
         };
-        let period_key = format!("scheduled:{}", scheduled_at.timestamp());
-        storage.record_schedule_run(
-            &record.schedule_id,
-            &period_key,
-            None,
-            &result,
-            &now.to_rfc3339(),
-        )?;
+        if !run_was_recorded {
+            storage.record_schedule_run(
+                &record.schedule_id,
+                &period_key,
+                None,
+                &result,
+                &now.to_rfc3339(),
+            )?;
+        }
         let next = schedule
             .next_after(now)
             .ok()
             .flatten()
             .map(|occurrence| occurrence.scheduled_at.to_rfc3339());
-        storage.advance_schedule(&record.schedule_id, next.as_deref(), &now.to_rfc3339())?;
+        let _ = storage.advance_schedule(
+            &record.schedule_id,
+            record.revision,
+            record.next_run_at.as_deref(),
+            next.as_deref(),
+            &now.to_rfc3339(),
+        )?;
         completed += 1;
     }
     Ok(completed)

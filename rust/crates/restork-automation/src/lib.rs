@@ -43,13 +43,34 @@ pub enum MissedRunPolicy {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, tag = "kind", rename_all = "snake_case")]
 pub enum ScheduleJob {
-    Deterministic { job: String },
+    Deterministic {
+        job: String,
+    },
+    ModelDraft {
+        provider_profile_id: String,
+        report_kind: ScheduledReportKind,
+        title: String,
+        language: String,
+        focus: String,
+        #[serde(default)]
+        network_access_confirmed: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScheduledReportKind {
+    DailyReport,
+    WeeklyReport,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScheduleSpec {
+    #[serde(default)]
     pub schedule_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub timezone: String,
     pub recurrence: Recurrence,
     pub missed_run_policy: MissedRunPolicy,
@@ -80,10 +101,28 @@ impl ScheduleSpec {
             .parse::<Tz>()
             .map_err(|_| "schedule timezone is invalid")?;
         validate_recurrence(&recurrence)?;
-        let ScheduleJob::Deterministic { job: job_name } = &job;
-        validate_text(job_name, 128)?;
+        match &job {
+            ScheduleJob::Deterministic { job: job_name } => validate_text(job_name, 128)?,
+            ScheduleJob::ModelDraft {
+                provider_profile_id,
+                title,
+                language,
+                focus,
+                network_access_confirmed,
+                ..
+            } => {
+                validate_text(provider_profile_id, 256)?;
+                validate_text(title, 300)?;
+                validate_text(language, 64)?;
+                validate_text(focus, 2_000)?;
+                if !*network_access_confirmed {
+                    return Err("model schedule network access was not confirmed");
+                }
+            }
+        }
         Ok(Self {
             schedule_id,
+            name: None,
             timezone,
             recurrence,
             missed_run_policy,

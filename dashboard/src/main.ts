@@ -13,6 +13,9 @@ import type {
   RadarAction,
   ReasoningEffortV2,
   ProviderKindV2,
+  ScheduleCreateInputV2,
+  ScheduleRecordV2,
+  ScheduleUpdateSpecV2,
   RunEvent,
   RunSummary,
   VaultNoteMetadataV2,
@@ -47,6 +50,8 @@ import {
   workVerificationMarkup,
   runEventsMarkup,
   runProposalMarkup,
+  scheduleCardsMarkup,
+  scheduleRunsMarkup,
   sessionMessagesMarkup,
   toolCallPreviewMarkup,
   toolSearchMarkup,
@@ -76,6 +81,7 @@ const coverUrls = new WeakMap<HTMLElement, string>();
 const eventStreams = new WeakMap<HTMLElement, AbortController>();
 const mailStreams = new WeakMap<HTMLElement, AbortController>();
 const vaultStreams = new WeakMap<HTMLElement, AbortController>();
+const vaultPreviewRequests = new WeakMap<HTMLElement, number>();
 const vaultStates = new WeakMap<HTMLElement, {
   items: VaultNoteMetadataV2[];
   nextCursor: string | null;
@@ -1046,9 +1052,9 @@ function configureRustWorkspace(
     },
   );
 
-  configureExtensionCenter(root, api);
+  configureExtensionCenter(root, api, snapshot);
   configureDeliverables(root, api);
-  configureAutomation(root, api);
+  configureAutomation(root, api, snapshot);
 
   // Restore the user's own selection. Falling back to the first active session is
   // only correct when the user has not chosen one, or their choice is gone.
@@ -1120,7 +1126,32 @@ function escapeMarkup(value: string): string {
     .replaceAll("'", "&#039;");
 }
 
-function configureExtensionCenter(root: HTMLElement, api: DashboardApi): void {
+function configureExtensionCenter(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+): void {
+  root.querySelectorAll<HTMLButtonElement>("[data-core-skill-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const mode = button.dataset.coreSkillMode;
+      if (mode === "research" || mode === "study" || mode === "work") {
+        openRunForm(root, mode, button, snapshot);
+      }
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-core-skill-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const view = button.dataset.coreSkillView;
+      if (view) {
+        selectView(root, view);
+        const heading = root.querySelector<HTMLElement>(`[data-view-panel="${view}"] h2`);
+        if (heading) {
+          heading.tabIndex = -1;
+          heading.focus();
+        }
+      }
+    });
+  });
   root.querySelectorAll<HTMLButtonElement>("[data-extension-filter]").forEach((button) => {
     button.addEventListener("click", () => {
       const kind = button.dataset.extensionFilter ?? "all";
@@ -1424,59 +1455,326 @@ function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
   });
 }
 
-function configureAutomation(root: HTMLElement, api: DashboardApi): void {
-  root.querySelector<HTMLFormElement>("#schedule-create-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const form = event.currentTarget as HTMLFormElement;
-    const data = new FormData(form);
-    const [hour, minute] = String(data.get("time") ?? "09:00").split(":").map(Number);
-    const recurrence = String(data.get("recurrence") ?? "daily");
-    const jobValue = String(data.get("job") ?? "health.check");
-    const status = form.querySelector<HTMLElement>("#schedule-create-status");
-    if (!api.createSchedule) return;
-    const job = {
-      kind: "deterministic" as const,
-      job: jobValue as "health.check" | "daily.refresh",
-    };
-    const scheduleRecurrence = recurrence === "weekly"
+function configureAutomation(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+): void {
+  const panel = root.querySelector<HTMLElement>('[data-view-panel="automation"]');
+  if (!panel) return;
+  const providers = snapshot.workspaceV2?.providers ?? [];
+  panel.querySelectorAll<HTMLFormElement>("#schedule-create-form, [data-schedule-edit-form]")
+    .forEach(syncScheduleModelFields);
+
+  const loadActive = async (cursor?: string, append = false): Promise<void> => {
+    if (!api.listSchedules) return;
+    const page = await api.listSchedules(cursor);
+    updateScheduleList(panel, "active", page.items, page.page.next_cursor, append, localeOf(root), providers);
+  };
+  const loadTrash = async (cursor?: string, append = false): Promise<void> => {
+    if (!api.listDeletedSchedules) return;
+    const page = await api.listDeletedSchedules(cursor);
+    updateScheduleList(panel, "trash", page.items, page.page.next_cursor, append, localeOf(root), providers);
+  };
+  const loadRuns = async (scheduleId: string, cursor?: string, append = false): Promise<void> => {
+    if (!api.listScheduleRuns) return;
+    const page = await api.listScheduleRuns(scheduleId, cursor);
+    updateScheduleRuns(panel, scheduleId, page.items, page.page.next_cursor, append, localeOf(root));
+  };
+
+  root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.addEventListener("click", () => {
+    if (!panel.querySelector("[data-schedule-card]")) {
+      void loadActive().catch((error) => announceError(root, errorText(error, localeOf(root))));
+    }
+  });
+
+  panel.addEventListener("submit", (event) => {
+    const form = event.target as HTMLFormElement;
+    if (!(form instanceof HTMLFormElement)) return;
+    if (form.id === "schedule-create-form") {
+      event.preventDefault();
+      if (!api.createSchedule) return;
+      const status = form.querySelector<HTMLElement>("#schedule-create-status");
+      const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+      if (submit?.disabled) return;
+      if (submit) submit.disabled = true;
+      if (status) status.textContent = tr(localeOf(root), "Saving automation…", "正在保存自动化…");
+      void api.createSchedule(scheduleInputFromForm(form, systemTimeZone(), localeOf(root)))
+        .then(async () => {
+          await reloadWorkspaceView(root, api, "automation");
+          announceStatus(root, tr(localeOf(root), "Schedule saved.", "自动化已保存。"));
+        })
+        .catch((error) => {
+          if (status) status.textContent = errorText(error, localeOf(root));
+          announceError(root, errorText(error, localeOf(root)));
+        })
+        .finally(() => {
+          if (submit && root.contains(submit)) submit.disabled = false;
+        });
+      return;
+    }
+    if (form.matches("[data-schedule-edit-form]")) {
+      event.preventDefault();
+      const scheduleId = form.dataset.scheduleId ?? "";
+      const revision = Number(form.dataset.scheduleRevision ?? "0");
+      if (!api.updateSchedule || !scheduleId || !revision) return;
+      const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+      if (submit?.disabled) return;
+      if (submit) submit.disabled = true;
+      const input = scheduleInputFromForm(
+        form,
+        form.dataset.scheduleTimezone || systemTimeZone(),
+        localeOf(root),
+      );
+      const schedule: ScheduleUpdateSpecV2 = { ...input, schedule_id: scheduleId };
+      void api.updateSchedule(scheduleId, revision, schedule)
+        .then(async () => {
+          await reloadWorkspaceView(root, api, "automation");
+          announceStatus(root, tr(localeOf(root), "Schedule updated.", "自动化已更新。"));
+        })
+        .catch((error) => announceError(root, errorText(error, localeOf(root))))
+        .finally(() => {
+          if (submit && root.contains(submit)) submit.disabled = false;
+        });
+    }
+  });
+
+  panel.addEventListener("change", (event) => {
+    const select = (event.target as Element).closest<HTMLSelectElement>('select[name="job"]');
+    const form = select?.closest<HTMLFormElement>("form");
+    if (form) syncScheduleModelFields(form);
+  });
+
+  panel.addEventListener("click", (event) => {
+    const button = (event.target as Element).closest<HTMLButtonElement>("button");
+    if (!button) return;
+    if (button.matches("[data-schedule-active-load]")) {
+      button.disabled = true;
+      void loadActive().catch((error) => {
+        announceError(root, errorText(error, localeOf(root)));
+      }).finally(() => { if (root.contains(button)) button.disabled = false; });
+      return;
+    }
+    if (button.dataset.scheduleActiveMore) {
+      button.disabled = true;
+      void loadActive(button.dataset.scheduleActiveMore, true).catch((error) => {
+        announceError(root, errorText(error, localeOf(root)));
+      }).finally(() => { if (root.contains(button)) button.disabled = false; });
+      return;
+    }
+    if (button.matches("[data-schedule-trash-load]")) {
+      button.disabled = true;
+      void loadTrash().catch((error) => {
+        announceError(root, errorText(error, localeOf(root)));
+      }).finally(() => { if (root.contains(button)) button.disabled = false; });
+      return;
+    }
+    if (button.dataset.scheduleTrashMore) {
+      button.disabled = true;
+      void loadTrash(button.dataset.scheduleTrashMore, true).catch((error) => {
+        announceError(root, errorText(error, localeOf(root)));
+      }).finally(() => { if (root.contains(button)) button.disabled = false; });
+      return;
+    }
+    if (button.dataset.scheduleRunsMore) {
+      const scheduleId = button.dataset.scheduleId ?? "";
+      if (!scheduleId) return;
+      button.disabled = true;
+      void loadRuns(scheduleId, button.dataset.scheduleRunsMore, true).catch((error) => {
+        announceError(root, errorText(error, localeOf(root)));
+      }).finally(() => { if (root.contains(button)) button.disabled = false; });
+      return;
+    }
+    if (button.matches("[data-schedule-history]")) {
+      const scheduleId = button.dataset.scheduleId ?? "";
+      if (!scheduleId) return;
+      button.disabled = true;
+      void loadRuns(scheduleId).catch((error) => {
+        announceError(root, errorText(error, localeOf(root)));
+      }).finally(() => { if (root.contains(button)) button.disabled = false; });
+      return;
+    }
+    if (button.matches("[data-schedule-edit-cancel]")) {
+      const form = button.closest<HTMLFormElement>("[data-schedule-edit-form]");
+      if (form) form.hidden = true;
+      return;
+    }
+    const action = button.dataset.scheduleAction;
+    if (!action) return;
+    if (action === "edit") {
+      const form = button.closest("[data-schedule-card]")?.querySelector<HTMLFormElement>("[data-schedule-edit-form]");
+      if (form) {
+        form.hidden = !form.hidden;
+        if (!form.hidden) {
+          syncScheduleModelFields(form);
+          form.querySelector<HTMLInputElement>('input[name="name"]')?.focus();
+        }
+      }
+      return;
+    }
+    void handleScheduleAction(root, api, button, action);
+  });
+}
+
+function syncScheduleModelFields(form: HTMLFormElement): void {
+  const job = form.elements.namedItem("job") as HTMLSelectElement | null;
+  const fields = form.querySelector<HTMLElement>("[data-schedule-model-fields]");
+  if (!job || !fields) return;
+  const modelBacked = job.value.startsWith("model.");
+  fields.hidden = !modelBacked;
+  fields.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input, select, textarea")
+    .forEach((control) => {
+      control.disabled = !modelBacked;
+      if (control instanceof HTMLSelectElement && control.name === "provider_profile_id") {
+        control.required = modelBacked;
+      }
+    });
+}
+
+function scheduleInputFromForm(
+  form: HTMLFormElement,
+  timezone: string,
+  locale: Locale,
+): ScheduleCreateInputV2 {
+  const data = new FormData(form);
+  const [hour, minute] = String(data.get("time") ?? "09:00").split(":").map(Number);
+  const recurrenceKind = String(data.get("recurrence") ?? "daily");
+  const recurrence = recurrenceKind === "one_shot" && form.dataset.scheduleOneShotAt
+    ? { kind: "one_shot" as const, at: form.dataset.scheduleOneShotAt }
+    : recurrenceKind === "weekly"
       ? { kind: "weekly" as const, weekday_monday_zero: Number(data.get("weekday") ?? "0"), hour, minute }
       : { kind: "daily" as const, hour, minute };
-    if (status) status.textContent = tr(localeOf(root), "Saving a bounded schedule…", "正在保存有界调度…");
-    void api.createSchedule({
-      schedule_id: String(data.get("schedule_id") ?? "").trim(),
-      timezone: systemTimeZone(),
-      recurrence: scheduleRecurrence,
+  const jobValue = String(data.get("job") ?? "health.check");
+  const name = String(data.get("name") ?? "").trim();
+  if (jobValue === "model.daily_report" || jobValue === "model.weekly_report") {
+    return {
+      name,
+      timezone,
+      recurrence,
       missed_run_policy: "create_draft",
-      job,
-    }).then(() => reloadWorkspaceView(root, api, "automation"))
-      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
-  });
-  root.querySelectorAll<HTMLButtonElement>("[data-schedule-action]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const action = button.dataset.scheduleAction ?? "";
-      const scheduleId = button.dataset.scheduleId ?? "";
-      const revision = Number(button.dataset.scheduleRevision ?? "0");
-      if (!scheduleId || !revision) return;
-      if (action === "delete") {
-        const confirmed = await confirmAction(root, tr(
-          localeOf(root),
-          "Remove this schedule and its local run history?",
-          "移除此调度及其本地运行历史？",
-        ));
-        if (!confirmed) return;
-      }
-      button.disabled = true;
-      const operation = action === "run" && api.runScheduleNow
-        ? api.runScheduleNow(scheduleId).then(() => undefined)
-        : action === "delete" && api.deleteSchedule
-          ? api.deleteSchedule(scheduleId, revision)
-          : (action === "pause" || action === "resume") && api.changeScheduleState
-            ? api.changeScheduleState(scheduleId, action, revision).then(() => undefined)
-            : Promise.resolve();
-      void operation.then(() => reloadWorkspaceView(root, api, "automation"))
-        .catch((error) => { button.disabled = false; announceError(root, errorText(error, localeOf(root))); });
-    });
-  });
+      job: {
+        kind: "model_draft",
+        provider_profile_id: String(data.get("provider_profile_id") ?? "").trim(),
+        report_kind: jobValue === "model.weekly_report" ? "weekly_report" : "daily_report",
+        title: name,
+        language: locale === "zh-CN" ? "zh-CN" : "en-US",
+        focus: String(data.get("focus") ?? "").trim()
+          || tr(locale, "Summarize verified progress, blockers and next steps.", "总结有证据的进展、阻塞和下一步。"),
+        network_access_confirmed: data.get("network_access_confirmed") === "on",
+      },
+    };
+  }
+  return {
+    name,
+    timezone,
+    recurrence,
+    missed_run_policy: "create_draft",
+    job: {
+      kind: "deterministic",
+      job: jobValue === "daily.refresh" ? "daily.refresh" : "health.check",
+    },
+  };
+}
+
+function updateScheduleList(
+  panel: HTMLElement,
+  kind: "active" | "trash",
+  items: ScheduleRecordV2[],
+  nextCursor: string | null,
+  append: boolean,
+  locale: Locale,
+  providers: NonNullable<NonNullable<DashboardSnapshot["workspaceV2"]>["providers"]>,
+): void {
+  const list = panel.querySelector<HTMLElement>(`[data-schedule-${kind}-list]`);
+  const page = panel.querySelector<HTMLElement>(`[data-schedule-${kind}-page]`);
+  if (!list || !page) return;
+  if (!append) list.innerHTML = scheduleCardsMarkup(items, locale, kind === "trash", providers);
+  else if (items.length) {
+    list.querySelector(".empty")?.remove();
+    list.insertAdjacentHTML("beforeend", scheduleCardsMarkup(items, locale, kind === "trash", providers));
+  }
+  const attribute = kind === "active" ? "data-schedule-active-more" : "data-schedule-trash-more";
+  page.innerHTML = nextCursor
+    ? `<button type="button" ${attribute}="${escapeMarkup(nextCursor)}">${tr(locale, "LOAD MORE", "加载更多")}</button>`
+    : "";
+}
+
+function updateScheduleRuns(
+  panel: HTMLElement,
+  scheduleId: string,
+  items: Parameters<typeof scheduleRunsMarkup>[0],
+  nextCursor: string | null,
+  append: boolean,
+  locale: Locale,
+): void {
+  const host = [...panel.querySelectorAll<HTMLElement>("[data-schedule-run-host]")]
+    .find((candidate) => candidate.dataset.scheduleRunHost === scheduleId);
+  if (!host) return;
+  if (!append) host.innerHTML = scheduleRunsMarkup(items, locale);
+  else if (items.length) {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = scheduleRunsMarkup(items, locale);
+    const current = host.querySelector("ol");
+    const incoming = wrapper.querySelector("ol");
+    if (current && incoming) current.append(...incoming.children);
+    else host.insertAdjacentHTML("beforeend", scheduleRunsMarkup(items, locale));
+  }
+  host.querySelector("[data-schedule-runs-more]")?.remove();
+  if (nextCursor) {
+    const cursor = escapeMarkup(nextCursor);
+    const id = escapeMarkup(scheduleId);
+    const label = tr(locale, "LOAD EARLIER RUNS", "加载更早记录");
+    host.insertAdjacentHTML(
+      "beforeend",
+      `<button type="button" data-schedule-runs-more="${cursor}" data-schedule-id="${id}">${label}</button>`,
+    );
+  }
+}
+
+async function handleScheduleAction(
+  root: HTMLElement,
+  api: DashboardApi,
+  button: HTMLButtonElement,
+  action: string,
+): Promise<void> {
+  const scheduleId = button.dataset.scheduleId ?? "";
+  const revision = Number(button.dataset.scheduleRevision ?? "0");
+  if (!scheduleId || !revision) return;
+  if (action === "delete") {
+    const confirmed = await confirmAction(root, tr(
+      localeOf(root),
+      "Move this automation to the local trash? Its run history will be preserved.",
+      "将这条自动化移入本地回收站？运行记录会保留。",
+    ));
+    if (!confirmed) return;
+  }
+  button.disabled = true;
+  try {
+    if (action === "run" && api.runScheduleNow) {
+      await api.runScheduleNow(scheduleId);
+      await reloadWorkspaceView(root, api, "automation");
+      announceStatus(root, tr(localeOf(root), "Manual run recorded.", "手动运行已记录。"));
+    } else if (action === "delete" && api.deleteSchedule) {
+      await api.deleteSchedule(scheduleId, revision);
+      await reloadWorkspaceView(root, api, "automation");
+      announceStatus(root, tr(localeOf(root), "Schedule moved to trash.", "自动化已移入回收站。"));
+    } else if (action === "restore" && api.restoreSchedule) {
+      await api.restoreSchedule(scheduleId, revision);
+      await reloadWorkspaceView(root, api, "automation");
+      announceStatus(root, tr(localeOf(root), "Schedule restored.", "自动化已恢复。"));
+    } else if ((action === "pause" || action === "resume") && api.changeScheduleState) {
+      await api.changeScheduleState(scheduleId, action, revision);
+      await reloadWorkspaceView(root, api, "automation");
+      announceStatus(root, action === "pause"
+        ? tr(localeOf(root), "Schedule paused.", "自动化已暂停。")
+        : tr(localeOf(root), "Schedule resumed.", "自动化已继续。"));
+    } else {
+      button.disabled = false;
+    }
+  } catch (error) {
+    button.disabled = false;
+    announceError(root, errorText(error, localeOf(root)));
+  }
 }
 
 function safeFilename(value: string): string {
@@ -2260,6 +2558,13 @@ async function readVaultPreview(
   if (!api.readVaultNote) return;
   const preview = root.querySelector<HTMLElement>("#vault-preview");
   if (!preview) return;
+  const requestNumber = (vaultPreviewRequests.get(root) ?? 0) + 1;
+  vaultPreviewRequests.set(root, requestNumber);
+  const state = vaultStates.get(root);
+  if (state) state.selectedPath = relativePath;
+  root.querySelectorAll<HTMLElement>("[data-vault-path]").forEach((row) => {
+    row.classList.toggle("is-active", row.dataset.vaultPath === relativePath);
+  });
   preview.setAttribute("aria-busy", "true");
   preview.innerHTML = `<div class="vault-preview-empty">
     <span class="agent-wait-dots" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -2267,14 +2572,11 @@ async function readVaultPreview(
   </div>`;
   try {
     const note = await api.readVaultNote(relativePath);
-    const state = vaultStates.get(root);
-    if (state) state.selectedPath = relativePath;
-    root.querySelectorAll<HTMLElement>("[data-vault-path]").forEach((row) => {
-      row.classList.toggle("is-active", row.dataset.vaultPath === relativePath);
-    });
+    if (vaultPreviewRequests.get(root) !== requestNumber) return;
     preview.innerHTML = vaultNotePreviewMarkup(note, localeOf(root));
     preview.setAttribute("aria-busy", "false");
   } catch (error) {
+    if (vaultPreviewRequests.get(root) !== requestNumber) return;
     preview.innerHTML = `<div class="vault-preview-empty">
       <span aria-hidden="true">!</span>
       <h3>${tr(localeOf(root), "Preview unavailable", "无法预览")}</h3>
@@ -2323,9 +2625,12 @@ function startVaultStream(root: HTMLElement, api: DashboardApi): void {
     const state = vaultStates.get(root);
     const selectedPath = state?.selectedPath;
     void (async () => {
-      if (state?.query) await searchVaultWorkspace(root, api, state.query);
-      else await loadVaultIndex(root, api);
-      if (selectedPath && !(event.data.removed ?? []).includes(selectedPath)) {
+      if (state?.query) {
+        await searchVaultWorkspace(root, api, state.query);
+      } else {
+        await loadVaultIndex(root, api);
+      }
+      if (state?.query && selectedPath && !(event.data.removed ?? []).includes(selectedPath)) {
         await readVaultPreview(root, api, selectedPath);
       }
     })();
@@ -3578,6 +3883,11 @@ const CAPABILITY_CONTROLS: ReadonlyArray<[keyof DashboardApi, string]> = [
   ["extensionRevisions", "[data-extension-history]"],
   ["searchSessionTools", "#extension-tool-search-form button[type=submit], #tool-search-form button[type=submit]"],
   ["createSchedule", "#schedule-create-form button[type=submit]"],
+  ["updateSchedule", "[data-schedule-action=edit]"],
+  ["listSchedules", "[data-schedule-active-load], [data-schedule-active-more]"],
+  ["listDeletedSchedules", "[data-schedule-trash-load], [data-schedule-trash-more]"],
+  ["listScheduleRuns", "[data-schedule-history], [data-schedule-runs-more]"],
+  ["restoreSchedule", "[data-schedule-action=restore]"],
   ["changeScheduleState", "[data-schedule-action=pause], [data-schedule-action=resume]"],
   ["runScheduleNow", "[data-schedule-action=run]"],
   ["deleteSchedule", "[data-schedule-action=delete]"],
@@ -4196,6 +4506,7 @@ async function researchMusic(
       "歌曲联网分析已完成，来源与结果已缓存在本地。",
     ));
   } catch (error) {
+    const message = musicResearchErrorText(error, localeOf(root));
     if (root.contains(button)) {
       button.disabled = false;
       button.classList.remove("is-busy");
@@ -4204,10 +4515,44 @@ async function researchMusic(
     }
     if (status && root.contains(status)) {
       status.classList.remove("is-busy");
-      status.textContent = errorText(error, localeOf(root));
+      status.textContent = message;
     }
-    announceError(root, errorText(error, localeOf(root)));
+    announceError(root, message);
   }
+}
+
+function musicResearchErrorText(error: unknown, locale: Locale): string {
+  const detail = error instanceof Error ? error.message : errorText(error, locale);
+  const match = /song web research failed:\s*([a-z_]+)/i.exec(detail);
+  if (!match) return detail;
+  const messages: Record<string, [string, string]> = {
+    timeout: [
+      "Online analysis exceeded the 180-second limit. The previous result is still shown; retry when ready.",
+      "联网分析超过 180 秒；仍显示上次结果，你可以稍后手动重试。",
+    ],
+    invalid_response: [
+      "The model returned an unreadable result. The previous result is still shown; retry when ready.",
+      "模型返回的结果无法读取；仍显示上次结果，你可以稍后手动重试。",
+    ],
+    provider_unavailable: [
+      "The model service is temporarily unavailable. The previous result is still shown.",
+      "模型服务暂时不可用；仍显示上次结果。",
+    ],
+    sources_missing: [
+      "The search finished without reviewable public sources. The previous result is still shown.",
+      "联网检索没有返回可审查的公开来源；仍显示上次结果。",
+    ],
+    structured_output_invalid: [
+      "The researched result was incomplete. The previous result is still shown.",
+      "联网分析结果不完整；仍显示上次结果。",
+    ],
+  };
+  const copy = messages[match[1].toLowerCase()];
+  return copy ? tr(locale, copy[0], copy[1]) : tr(
+    locale,
+    "Online analysis failed. The previous result is still shown; retry when ready.",
+    "联网分析未完成；仍显示上次结果，你可以稍后手动重试。",
+  );
 }
 
 function setMusicBusy(form: HTMLFormElement, busy: boolean, message: string): void {

@@ -59,7 +59,11 @@ import type {
   AiReportDraftInputV2,
   MailSnapshot,
   DeckFromReportInputV2,
-  ScheduleSpecV2,
+  ScheduleCreateInputV2,
+  SchedulePageV2,
+  ScheduleRecordV2,
+  ScheduleRunPageV2,
+  ScheduleUpdateSpecV2,
   ScheduleRunV2,
   VaultChangeEventV2,
   VaultNotePageV2,
@@ -593,16 +597,59 @@ export class LocalApiClient implements DashboardApi {
     };
   }
 
-  async createSchedule(schedule: ScheduleSpecV2): Promise<CatalogRecordV2> {
-    return this.#request<CatalogRecordV2>("POST", "/v1/schedules", schedule);
+  async createSchedule(schedule: ScheduleCreateInputV2): Promise<ScheduleRecordV2> {
+    return this.#request<ScheduleRecordV2>("POST", "/v1/schedules", schedule);
+  }
+
+  async updateSchedule(
+    scheduleId: string,
+    expectedRevision: number,
+    schedule: ScheduleUpdateSpecV2,
+  ): Promise<ScheduleRecordV2> {
+    return this.#request<ScheduleRecordV2>(
+      "PUT",
+      `/v1/schedules/${encodeURIComponent(scheduleId)}`,
+      { expected_revision: expectedRevision, schedule },
+    );
+  }
+
+  async listSchedules(cursor?: string): Promise<SchedulePageV2> {
+    return this.#request<SchedulePageV2>("GET", schedulePagePath("/v1/schedules", cursor));
+  }
+
+  async listDeletedSchedules(cursor?: string): Promise<SchedulePageV2> {
+    return this.#request<SchedulePageV2>(
+      "GET",
+      schedulePagePath("/v1/schedules/deleted", cursor),
+    );
+  }
+
+  async listScheduleRuns(scheduleId: string, cursor?: string): Promise<ScheduleRunPageV2> {
+    return this.#request<ScheduleRunPageV2>(
+      "GET",
+      schedulePagePath(`/v1/schedules/${encodeURIComponent(scheduleId)}/runs`, cursor),
+    );
+  }
+
+  async restoreSchedule(
+    scheduleId: string,
+    expectedRevision: number,
+  ): Promise<ScheduleRecordV2> {
+    return this.#request<ScheduleRecordV2>(
+      "POST",
+      `/v1/schedules/${encodeURIComponent(scheduleId)}/restore`,
+      { expected_revision: expectedRevision },
+      true,
+      `dashboard-schedule-restore-${crypto.randomUUID()}`,
+    );
   }
 
   async changeScheduleState(
     scheduleId: string,
     action: "pause" | "resume",
     expectedRevision: number,
-  ): Promise<CatalogRecordV2> {
-    return this.#request<CatalogRecordV2>(
+  ): Promise<ScheduleRecordV2> {
+    return this.#request<ScheduleRecordV2>(
       "PATCH",
       `/v1/schedules/${encodeURIComponent(scheduleId)}`,
       { action, expected_revision: expectedRevision },
@@ -686,7 +733,6 @@ export class LocalApiClient implements DashboardApi {
     dataClass: WorkDataClass = "public",
     providerProfileId = "deepseek",
   ): Promise<RunSummary> {
-    void dataClass;
     const identity = crypto.randomUUID();
     const response = await this.#request<{ run: RunSummary }>(
       "POST",
@@ -695,6 +741,7 @@ export class LocalApiClient implements DashboardApi {
         mode,
         goal,
         provider_profile_id: providerProfileId,
+        data_class: dataClass,
         auto_start: mode === "research",
         allowed_tools: [],
       },
@@ -1394,6 +1441,11 @@ export function systemTimeZone(): string {
   } catch {
     return "UTC";
   }
+}
+
+function schedulePagePath(path: string, cursor?: string): string {
+  const suffix = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+  return `${path}?limit=20${suffix}`;
 }
 
 export class ApiError extends Error {
