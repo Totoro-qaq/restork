@@ -42,4 +42,28 @@ describe("responsive readability", () => {
   it("does not render navigation glyphs as white on a light surface", () => {
     expect(stylesheet).toMatch(/\.nav-item \.icon\s*\{[^}]*color:\s*var\(--fg-secondary\)/);
   });
+
+  it("keeps both Vault panes independently scrollable with a visible gutter", () => {
+    expect(stylesheet).toMatch(/\.vault-file-list\s*\{[^}]*overflow-y:\s*scroll/);
+    expect(stylesheet).toMatch(/\.vault-preview\s*\{[^}]*overflow-y:\s*scroll/);
+    expect(stylesheet).toMatch(/\.vault-file-list,\s*\n\.vault-preview\s*\{[^}]*scrollbar-gutter:\s*stable/);
+    expect(stylesheet).toContain(".vault-file-list::-webkit-scrollbar-thumb");
+  });
+
+  it("keeps Radar sources in two independently scrollable bounded lanes", () => {
+    expect(stylesheet).toMatch(/\.lanes\s*\{[^}]*grid-template-columns:\s*repeat\(2,/);
+    expect(stylesheet).toMatch(/\.lanes section\s*\{[^}]*height:\s*clamp\([^;]+;[^}]*overflow-y:\s*scroll/);
+    expect(stylesheet).toContain(".lanes section::-webkit-scrollbar-thumb");
+    expect(stylesheet).toMatch(/\.lanes h3\s*\{[^}]*position:\s*sticky/);
+  });
+
+  it("bounds every persistent collection that can grow over time", () => {
+    expect(stylesheet).toContain(".settings-records,\n.core-skill-grid,");
+    expect(stylesheet).toMatch(/\.settings-records,[\s\S]*?\.automation-grid\s*\{[^}]*max-height:[^}]*overflow-y:\s*auto/);
+    expect(stylesheet).toMatch(/\.extension-history\s*\{[^}]*max-height:[^}]*overflow-y:\s*auto/);
+    expect(stylesheet).toMatch(/\.memory-list\s*\{[^}]*max-height:[^}]*overflow-y:\s*auto/);
+    expect(stylesheet).toMatch(/\.todo-trash-list\s*\{[^}]*max-height:/);
+    expect(stylesheet).toMatch(/\.approval-list\s*\{[^}]*max-height:[^}]*overflow-y:\s*auto/);
+    expect(stylesheet).toMatch(/\.trace-iterations,[\s\S]*?\.study-path\s*\{[^}]*max-height:[^}]*overflow-y:\s*auto/);
+  });
 });

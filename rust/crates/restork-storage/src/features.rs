@@ -2,11 +2,11 @@
 
 use std::collections::BTreeMap;
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{Database, StorageError};
+use super::{Database, StorageError, validate_identifier, validate_text, validate_timestamp};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct MemoryRecord {
@@ -51,6 +51,9 @@ pub struct RadarRecord {
     pub url: String,
     pub summary: String,
     pub score: f64,
+    pub stars_total: Option<i64>,
+    pub stars_daily: Option<i64>,
+    pub stars_weekly: Option<i64>,
     pub published_at: Option<String>,
     pub state: String,
     pub data_class: String,
@@ -67,9 +70,36 @@ pub struct NewRadarRecord<'a> {
     pub url: &'a str,
     pub summary: &'a str,
     pub score: f64,
+    pub stars_total: Option<i64>,
     pub published_at: Option<&'a str>,
     pub state: &'a str,
     pub data_class: &'a str,
+    pub occurred_at: &'a str,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct LocalTodoRecord {
+    pub task_id: String,
+    pub title: String,
+    pub details: String,
+    pub priority: Option<String>,
+    pub due_at: Option<String>,
+    pub status: String,
+    pub origin: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+pub struct NewLocalTodo<'a> {
+    pub task_id: &'a str,
+    pub title: &'a str,
+    pub details: &'a str,
+    pub priority: Option<&'a str>,
+    pub due_at: Option<&'a str>,
+    pub status: &'a str,
+    pub origin: &'a str,
     pub occurred_at: &'a str,
 }
 
@@ -134,6 +164,159 @@ pub struct NewWorkVerification<'a> {
 }
 
 impl Database {
+    pub fn local_todo_count(&self) -> Result<usize, StorageError> {
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let count = connection.query_row(
+            "SELECT COUNT(*) FROM local_todos WHERE deleted_at IS NULL",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        usize::try_from(count).map_err(|_| StorageError::Invalid("invalid local Todo count"))
+    }
+
+    pub fn local_todos(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<LocalTodoRecord>, StorageError> {
+        if !(1..=500).contains(&limit) {
+            return Err(StorageError::Invalid("invalid local Todo page"));
+        }
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT task_id, title, details, priority, due_at, status, origin, created_at, updated_at, deleted_at
+             FROM local_todos WHERE deleted_at IS NULL
+             ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END,
+                      CASE priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 WHEN 'P3' THEN 3 ELSE 4 END,
+                      updated_at DESC, task_id
+             LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows =
+            statement.query_map(params![limit as i64, offset as i64], local_todo_from_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn deleted_local_todos(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<LocalTodoRecord>, StorageError> {
+        if !(1..=101).contains(&limit) {
+            return Err(StorageError::Invalid("invalid deleted Todo page"));
+        }
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT task_id, title, details, priority, due_at, status, origin, created_at, updated_at, deleted_at
+             FROM local_todos WHERE deleted_at IS NOT NULL
+             ORDER BY deleted_at DESC, task_id
+             LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows =
+            statement.query_map(params![limit as i64, offset as i64], local_todo_from_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn local_todo(&self, task_id: &str) -> Result<Option<LocalTodoRecord>, StorageError> {
+        validate_identifier(task_id)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        local_todo_by_id(&connection, task_id)
+    }
+
+    pub fn put_local_todo(
+        &self,
+        todo: NewLocalTodo<'_>,
+        expected_updated_at: Option<&str>,
+    ) -> Result<LocalTodoRecord, StorageError> {
+        validate_local_todo(todo)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let changed = if let Some(expected_updated_at) = expected_updated_at {
+            validate_timestamp(expected_updated_at)?;
+            connection.execute(
+                "UPDATE local_todos SET title=?2, details=?3, priority=?4, due_at=?5,
+                        status=?6, updated_at=?7
+                 WHERE task_id=?1 AND updated_at=?8 AND deleted_at IS NULL",
+                params![
+                    todo.task_id,
+                    todo.title,
+                    todo.details,
+                    todo.priority,
+                    todo.due_at,
+                    todo.status,
+                    todo.occurred_at,
+                    expected_updated_at,
+                ],
+            )?
+        } else {
+            connection.execute(
+                "INSERT INTO local_todos
+                    (task_id, title, details, priority, due_at, status, origin, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+                params![
+                    todo.task_id,
+                    todo.title,
+                    todo.details,
+                    todo.priority,
+                    todo.due_at,
+                    todo.status,
+                    todo.origin,
+                    todo.occurred_at,
+                ],
+            )?
+        };
+        if changed == 0 {
+            return Err(StorageError::Conflict(
+                "local Todo changed; refresh and try again",
+            ));
+        }
+        local_todo_by_id(&connection, todo.task_id)?
+            .ok_or(StorageError::Invalid("local Todo did not persist"))
+    }
+
+    pub fn delete_local_todo(
+        &self,
+        task_id: &str,
+        expected_updated_at: &str,
+    ) -> Result<(), StorageError> {
+        validate_identifier(task_id)?;
+        validate_timestamp(expected_updated_at)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let deleted_at = super::now_rfc3339()?;
+        let changed = connection.execute(
+            "UPDATE local_todos SET deleted_at=?3, updated_at=?3
+             WHERE task_id=?1 AND updated_at=?2 AND deleted_at IS NULL",
+            params![task_id, expected_updated_at, deleted_at],
+        )?;
+        if changed == 0 {
+            return Err(StorageError::Conflict(
+                "local Todo changed; refresh and try again",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn restore_local_todo(
+        &self,
+        task_id: &str,
+        expected_updated_at: &str,
+    ) -> Result<LocalTodoRecord, StorageError> {
+        validate_identifier(task_id)?;
+        validate_timestamp(expected_updated_at)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let restored_at = super::now_rfc3339()?;
+        let changed = connection.execute(
+            "UPDATE local_todos SET deleted_at=NULL, updated_at=?3
+             WHERE task_id=?1 AND updated_at=?2 AND deleted_at IS NOT NULL",
+            params![task_id, expected_updated_at, restored_at],
+        )?;
+        if changed == 0 {
+            return Err(StorageError::Conflict(
+                "local Todo changed; refresh and try again",
+            ));
+        }
+        local_todo_by_id(&connection, task_id)?
+            .ok_or(StorageError::Invalid("local Todo did not restore"))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn save_conversation_turn(
         &self,
@@ -486,16 +669,18 @@ impl Database {
         {
             return Err(StorageError::Invalid("invalid Radar item"));
         }
-        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
-        connection.execute(
+        let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
             "INSERT INTO radar_items (
-                item_id, lane, title, source, url, summary, score, published_at, state,
-                data_class, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+                item_id, lane, title, source, url, summary, score, stars_total, published_at,
+                state, data_class, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)
              ON CONFLICT(item_id) DO UPDATE SET
                 lane=excluded.lane, title=excluded.title, source=excluded.source,
                 url=excluded.url, summary=excluded.summary, score=excluded.score,
-                published_at=excluded.published_at, updated_at=excluded.updated_at",
+                stars_total=excluded.stars_total, published_at=excluded.published_at,
+                updated_at=excluded.updated_at",
             params![
                 item.item_id,
                 item.lane,
@@ -504,12 +689,45 @@ impl Database {
                 item.url,
                 item.summary,
                 item.score,
+                item.stars_total,
                 item.published_at,
                 item.state,
                 item.data_class,
                 item.occurred_at,
             ],
         )?;
+        if let Some(stars_total) = item.stars_total {
+            let observed_on = item
+                .occurred_at
+                .get(..10)
+                .ok_or(StorageError::Invalid("invalid Radar snapshot timestamp"))?;
+            transaction.execute(
+                "INSERT INTO radar_star_snapshots (item_id, observed_on, stars_total, observed_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(item_id, observed_on) DO UPDATE SET
+                    stars_total=excluded.stars_total, observed_at=excluded.observed_at",
+                params![item.item_id, observed_on, stars_total, item.occurred_at],
+            )?;
+            let stars_daily = radar_star_baseline(
+                &transaction,
+                item.item_id,
+                observed_on,
+                stars_total,
+                "-1 day",
+            )?;
+            let stars_weekly = radar_star_baseline(
+                &transaction,
+                item.item_id,
+                observed_on,
+                stars_total,
+                "-7 day",
+            )?;
+            transaction.execute(
+                "UPDATE radar_items SET stars_daily = ?2, stars_weekly = ?3 WHERE item_id = ?1",
+                params![item.item_id, stars_daily, stars_weekly],
+            )?;
+        }
+        transaction.commit()?;
         radar_by_id(&connection, item.item_id)?
             .ok_or(StorageError::Invalid("Radar insert did not persist"))
     }
@@ -524,8 +742,8 @@ impl Database {
         }
         let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
         let mut statement = connection.prepare(
-            "SELECT item_id, lane, title, source, url, summary, score, published_at, state,
-                    data_class, created_at, updated_at
+            "SELECT item_id, lane, title, source, url, summary, score, stars_total,
+                    stars_daily, stars_weekly, published_at, state, data_class, created_at, updated_at
              FROM radar_items WHERE state != 'dismissed'
              ORDER BY score DESC, updated_at DESC, item_id LIMIT ?1 OFFSET ?2",
         )?;
@@ -552,6 +770,24 @@ impl Database {
             .execute(
                 "DELETE FROM radar_items WHERE lane = ?1 AND state = 'new'",
                 [lane],
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn delete_stale_new_radar_lane(
+        &self,
+        lane: &str,
+        refreshed_at: &str,
+    ) -> Result<usize, StorageError> {
+        if !matches!(lane, "my_stars" | "trending" | "hn" | "papers") {
+            return Err(StorageError::Invalid("invalid Radar lane"));
+        }
+        validate_timestamp(refreshed_at)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        connection
+            .execute(
+                "DELETE FROM radar_items WHERE lane = ?1 AND state = 'new' AND updated_at < ?2",
+                params![lane, refreshed_at],
             )
             .map_err(Into::into)
     }
@@ -1141,8 +1377,9 @@ fn radar_by_id(
 ) -> Result<Option<RadarRecord>, StorageError> {
     connection
         .query_row(
-            "SELECT item_id, lane, title, source, url, summary, score, published_at, state,
-                    data_class, created_at, updated_at FROM radar_items WHERE item_id = ?1",
+            "SELECT item_id, lane, title, source, url, summary, score, stars_total,
+                    stars_daily, stars_weekly, published_at, state, data_class, created_at,
+                    updated_at FROM radar_items WHERE item_id = ?1",
             [item_id],
             radar_from_row,
         )
@@ -1159,11 +1396,82 @@ fn radar_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RadarRecord> {
         url: row.get(4)?,
         summary: row.get(5)?,
         score: row.get(6)?,
-        published_at: row.get(7)?,
-        state: row.get(8)?,
-        data_class: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        stars_total: row.get(7)?,
+        stars_daily: row.get(8)?,
+        stars_weekly: row.get(9)?,
+        published_at: row.get(10)?,
+        state: row.get(11)?,
+        data_class: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
+    })
+}
+
+fn radar_star_baseline(
+    transaction: &rusqlite::Transaction<'_>,
+    item_id: &str,
+    observed_on: &str,
+    stars_total: i64,
+    offset: &str,
+) -> Result<Option<i64>, StorageError> {
+    let baseline = transaction
+        .query_row(
+            "SELECT stars_total FROM radar_star_snapshots
+             WHERE item_id = ?1 AND observed_on = date(?2, ?3)",
+            params![item_id, observed_on, offset],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
+    Ok(baseline.map(|baseline| stars_total.saturating_sub(baseline)))
+}
+
+fn validate_local_todo(todo: NewLocalTodo<'_>) -> Result<(), StorageError> {
+    validate_identifier(todo.task_id)?;
+    validate_text(todo.title, 2_000)?;
+    if todo.details.len() > 16_000 || todo.details.contains('\0') {
+        return Err(StorageError::Invalid("local Todo details are invalid"));
+    }
+    if todo
+        .priority
+        .is_some_and(|priority| !matches!(priority, "P0" | "P1" | "P2" | "P3"))
+        || !matches!(todo.status, "open" | "completed")
+        || !matches!(todo.origin, "user" | "model")
+    {
+        return Err(StorageError::Invalid("local Todo fields are invalid"));
+    }
+    if let Some(due_at) = todo.due_at {
+        validate_timestamp(due_at)?;
+    }
+    validate_timestamp(todo.occurred_at)
+}
+
+fn local_todo_by_id(
+    connection: &rusqlite::Connection,
+    task_id: &str,
+) -> Result<Option<LocalTodoRecord>, StorageError> {
+    connection
+        .query_row(
+            "SELECT task_id, title, details, priority, due_at, status, origin, created_at, updated_at, deleted_at
+             FROM local_todos WHERE task_id=?1 AND deleted_at IS NULL",
+            [task_id],
+            local_todo_from_row,
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
+fn local_todo_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalTodoRecord> {
+    Ok(LocalTodoRecord {
+        task_id: row.get(0)?,
+        title: row.get(1)?,
+        details: row.get(2)?,
+        priority: row.get(3)?,
+        due_at: row.get(4)?,
+        status: row.get(5)?,
+        origin: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
+        deleted_at: row.get(9)?,
     })
 }
 

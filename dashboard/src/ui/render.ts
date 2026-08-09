@@ -8,6 +8,7 @@ import type {
   DomainState,
   MemoryRecord,
   MailSnapshot,
+  MarkdownTask,
   MusicDiscovery,
   MusicResearchSummary,
   MusicSourceDefinition,
@@ -169,7 +170,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
           <section class="metrics" aria-label="${tr(locale, "Run overview", "运行概览")}">
             ${metric("research", tr(locale, "Active runs", "进行中运行"), String(active.length), modeCounts(active, locale))}
             ${metric("approval", tr(locale, "Pending approvals", "待审批"), String(pending.length), tr(locale, "Single-use · expires", "单次能力 · 到期失效"))}
-            ${metric("work", tr(locale, "Markdown tasks", "Markdown 任务"), String(incomplete.length), snapshot.taskBoard.configured ? tr(locale, "Markdown is canonical", "Markdown 为准") : tr(locale, "Vault not configured", "尚未配置 Vault"))}
+            ${metric("work", tr(locale, "Tasks", "任务"), String(incomplete.length), snapshot.taskBoard.vault_configured ? tr(locale, "Local Todo + optional Vault sync", "本地 Todo + 可选知识库同步") : tr(locale, "Local Todo is ready", "本地 Todo 可直接使用"))}
             ${metric("study", tr(locale, "Memory records", "记忆记录"), String(memories.length), tr(locale, "Four layers · locally governed", "四层 · 本地可控"))}
           </section>
           ${providerSetup(snapshot, locale)}
@@ -211,9 +212,9 @@ function vaultWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
     <div class="vault-browser" aria-busy="${configured ? "true" : "false"}">
       <aside class="vault-files" aria-label="${tr(locale, "Vault files", "Vault 文件")}">
         <div class="vault-files-heading"><strong>${tr(locale, "NOTES", "笔记")}</strong><span id="vault-file-count">—</span></div>
-        <div id="vault-file-list" class="vault-file-list" data-roving-group>${configured ? `<p class="empty">${tr(locale, "Reading the safe file index…", "正在读取安全文件索引……")}</p>` : `<p class="empty">${tr(locale, "No Vault is connected.", "尚未连接 Vault。")}</p>`}</div>
+        <div id="vault-file-list" class="vault-file-list" data-roving-group tabindex="0">${configured ? `<p class="empty">${tr(locale, "Reading the safe file index…", "正在读取安全文件索引……")}</p>` : `<p class="empty">${tr(locale, "No Vault is connected.", "尚未连接 Vault。")}</p>`}</div>
       </aside>
-      <section id="vault-preview" class="vault-preview" aria-live="polite">
+      <section id="vault-preview" class="vault-preview" tabindex="0" aria-live="polite">
         <div class="vault-preview-empty"><span aria-hidden="true">K</span><h3>${tr(locale, "Select a Markdown note", "选择一篇 Markdown 笔记")}</h3><p>${tr(locale, "The preview is read-only and never executes embedded HTML or scripts.", "预览为只读，不会执行笔记内嵌的 HTML 或脚本。")}</p></div>
       </section>
     </div>
@@ -460,25 +461,108 @@ function conversationWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
   </article>`;
 }
 
+interface CoreSkillSummary {
+  id: string;
+  name: string;
+  description: string;
+  surface: string;
+}
+
+function coreSkills(locale: Locale): CoreSkillSummary[] {
+  return [{
+    id: "core.research",
+    name: tr(locale, "Evidence-backed research", "研究与证据核验"),
+    description: tr(locale, "Builds claim cards from selected sources and keeps citations reviewable.", "基于选定来源生成可审查的论断与证据卡片。"),
+    surface: tr(locale, "Research run", "Research 运行"),
+  }, {
+    id: "core.study",
+    name: tr(locale, "Active study and review", "主动学习与复习"),
+    description: tr(locale, "Creates a Vault-grounded learning path, practice and spaced review.", "基于知识库生成学习路径、练习与间隔复习。"),
+    surface: tr(locale, "Study run", "Study 运行"),
+  }, {
+    id: "core.work",
+    name: tr(locale, "Bounded work planning", "受控工作规划"),
+    description: tr(locale, "Produces a reviewable plan and a hash-bound external handoff package.", "生成可审查计划与哈希绑定的外部交接包。"),
+    surface: tr(locale, "Work run", "Work 运行"),
+  }, {
+    id: "core.reports",
+    name: tr(locale, "Daily and weekly reports", "日报与周报"),
+    description: tr(locale, "Turns a chosen evidence period into editable report drafts.", "把选定证据周期整理为可编辑的日报或周报草稿。"),
+    surface: tr(locale, "Deliverables", "交付物"),
+  }, {
+    id: "core.presentation",
+    name: tr(locale, "Presentation builder", "演示文稿生成"),
+    description: tr(locale, "Builds reviewable decks and deterministic PPTX or PDF exports.", "生成可审查的演示稿，并确定性导出 PPTX 或 PDF。"),
+    surface: tr(locale, "Deliverables", "交付物"),
+  }];
+}
+
+function nativeCoreTools(snapshot: DashboardSnapshot, locale: Locale): ExtensionToolSummary[] {
+  const vaultReady = snapshot.taskBoard.configured;
+  const webReady = Boolean(snapshot.provider?.config_present && snapshot.provider.config_valid);
+  return [{
+    id: "vault_search",
+    name: tr(locale, "Search the selected Vault", "搜索已选择的知识库"),
+    description: tr(locale, "Finds bounded Markdown matches inside the explicitly granted Vault.", "只在明确授权的 Vault 内查找有界的 Markdown 结果。"),
+    packageId: "restork.core",
+    serverId: "native",
+    profiles: [],
+    permissions: ["filesystem:vault:read"],
+    enabled: vaultReady,
+    origin: "core",
+  }, {
+    id: "source_read",
+    name: tr(locale, "Read one reviewed source", "读取一份已审查来源"),
+    description: tr(locale, "Reads one exact local source selected from the Vault search result.", "读取从知识库搜索结果中选定的一份精确本地来源。"),
+    packageId: "restork.core",
+    serverId: "native",
+    profiles: [],
+    permissions: ["filesystem:vault:read"],
+    enabled: vaultReady,
+    origin: "core",
+  }, {
+    id: "vault_write",
+    name: tr(locale, "Write an approved Vault note", "写入已批准的知识库笔记"),
+    description: tr(locale, "Applies only the exact content hash you previewed and approved.", "只写入你已经预览并批准的精确内容哈希。"),
+    packageId: "restork.core",
+    serverId: "native",
+    profiles: [],
+    permissions: ["filesystem:vault:write", "approval:required"],
+    enabled: vaultReady,
+    origin: "core",
+  }, {
+    id: "web_search",
+    name: tr(locale, "Provider web search", "模型联网搜索"),
+    description: tr(locale, "Uses the selected model provider's reviewed web-search path when supported.", "在所选模型供应商支持时使用受控的联网搜索路径。"),
+    packageId: "restork.core",
+    serverId: "provider",
+    profiles: [],
+    permissions: ["network:provider-search"],
+    enabled: webReady,
+    origin: "core",
+  }];
+}
+
 function extensionsWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
   const records = snapshot.workspaceV2?.extensions ?? [];
   const sessions = snapshot.workspaceV2?.sessions.filter((session) => session.status === "active") ?? [];
-  const tools = records.flatMap(extensionTools);
-  const enabled = records.filter((record) => record.state === "enabled").length;
+  const skills = coreSkills(locale);
+  const tools = [...nativeCoreTools(snapshot, locale), ...records.flatMap(extensionTools)];
   return `<article class="paper-card full-card catalog-workspace"><header><div><p class="eyebrow">EXTENSION CENTER</p><h2>${tr(locale, "Skills, MCP & plugins", "Skills、MCP 与插件")}</h2></div><span class="ribbon research">${tr(locale, "GOVERNED", "受控")}</span></header>
     <div class="extension-overview" aria-label="${tr(locale, "Extension status", "扩展状态")}">
       <article><small>${tr(locale, "Installed", "已安装")}</small><strong>${records.length}</strong><span>${tr(locale, "pinned manifests", "份固定清单")}</span></article>
-      <article><small>${tr(locale, "Enabled", "已启用")}</small><strong>${enabled}</strong><span>${tr(locale, "available to profiles", "可供 Profile 使用")}</span></article>
-      <article><small>${tr(locale, "Visible tools", "可见工具")}</small><strong>${tools.length}</strong><span>${tr(locale, "declared, not automatically granted", "已声明，不会自动授权")}</span></article>
+      <article><small>${tr(locale, "Core skills", "内置 Skills")}</small><strong>${skills.length}</strong><span>${tr(locale, "ready without installation", "无需安装即可使用")}</span></article>
+      <article><small>${tr(locale, "Ready tools", "就绪工具")}</small><strong>${tools.filter((tool) => tool.enabled).length}</strong><span>${tr(locale, "still frozen by each Profile", "仍由每个 Profile 冻结授权")}</span></article>
     </div>
+    <section class="core-library" aria-labelledby="core-library-title"><header><div><small>RESTORK CORE</small><h3 id="core-library-title">${tr(locale, "Built-in Skills", "Core 内置 Skills")}</h3></div><span>${skills.length}</span></header><p>${tr(locale, "These are product workflows shipped with Restork, not third-party packages. They stay local-first and use the same approval, memory and audit boundaries.", "这些是随 Restork 交付的产品工作流，不是第三方扩展包；它们同样遵守本地优先、审批、记忆与审计边界。")}</p><div class="core-skill-grid">${skills.map((skill) => `<article data-extension-card-kind="skill"><div><strong>${escapeHtml(skill.name)}</strong><span>CORE</span></div><code>${escapeHtml(skill.id)}</code><p>${escapeHtml(skill.description)}</p><small>${escapeHtml(skill.surface)}</small></article>`).join("")}</div></section>
     <div class="catalog-toolbar" role="group" data-roving-group data-roving-orientation="horizontal" aria-label="${tr(locale, "Filter extensions", "筛选扩展")}"><button type="button" class="is-active" aria-pressed="true" data-extension-filter="all">${tr(locale, "All", "全部")}</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="skill">Skills</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="mcp">MCP</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="plugin">Plugins</button></div>
-    <div class="catalog-grid extension-grid">${records.map((record) => extensionCard(record, locale)).join("") || `<p class="empty">${tr(locale, "No extensions installed. Safe Mode remains blank by default.", "尚未安装扩展；安全模式默认保持空白。")}</p>`}</div>
+    <div class="catalog-grid extension-grid">${records.map((record) => extensionCard(record, locale)).join("") || `<p class="empty">${tr(locale, "No third-party extensions are installed. Core Skills and native tools above remain available; MCP servers are never downloaded or executed without your review.", "尚未安装第三方扩展；上方 Core Skills 与原生工具仍可使用，MCP Server 未经你的审查绝不会被下载或执行。")}</p>`}</div>
     <section class="tool-inventory" aria-labelledby="tool-inventory-title">
-      <header><div><small>MCP TOOL CATALOG</small><h3 id="tool-inventory-title">${tr(locale, "Declared tools", "已声明工具")}</h3></div><span>${tools.length}</span></header>
-      <p>${tr(locale, "Like Codex, Restork separates extension installation from the tools a session may actually use. A tool appears here when declared; it runs only after its package is enabled, the Profile grants it, and you approve the exact call.", "与 Codex 类似，Restork 会区分扩展安装和会话真正可用的工具。工具在清单声明后会显示在这里；只有扩展已启用、Profile 已授权且你批准了精确调用后，它才会运行。")}</p>
-      <div class="tool-inventory-grid">${tools.map((tool) => `<article><div><strong>${escapeHtml(tool.name)}</strong><span class="extension-state ${tool.enabled ? "is-enabled" : ""}">${tool.enabled ? tr(locale, "ENABLED PACKAGE", "扩展已启用") : tr(locale, "NOT ENABLED", "尚未启用")}</span></div><code>${escapeHtml(tool.id)}</code><small>${escapeHtml(tool.packageId)} · ${escapeHtml(tool.serverId)}</small><p>${escapeHtml(tool.description || tr(locale, "No description in the manifest.", "清单未提供说明。"))}</p><div class="extension-chips">${tool.profiles.map((profile) => `<span>${tr(locale, "Profile", "Profile")} · ${escapeHtml(profile)}</span>`).join("") || `<span>${tr(locale, "No Profile binding", "未绑定 Profile")}</span>`}${tool.permissions.map((permission) => `<span>${escapeHtml(permission)}</span>`).join("")}</div></article>`).join("") || `<p class="empty">${tr(locale, "No MCP tool is declared by the installed manifests.", "已安装清单尚未声明 MCP 工具。")}</p>`}</div>
+      <header><div><small>CORE + MCP TOOL CATALOG</small><h3 id="tool-inventory-title">${tr(locale, "Tools Restork can govern", "Restork 可治理的工具")}</h3></div><span>${tools.length}</span></header>
+      <p>${tr(locale, "Core-native tools are visible immediately. Third-party MCP tools appear after their pinned manifest is installed; any tool runs only when its package is enabled, the conversation Profile grants it, and the exact call is approved.", "Core 原生工具会直接显示；第三方 MCP 工具会在固定清单安装后出现。任何工具都只有在扩展启用、对话 Profile 授权并且精确调用获批后才会运行。")}</p>
+      <div class="tool-inventory-grid">${tools.map((tool) => `<article><div><strong>${escapeHtml(tool.name)}</strong><span class="extension-state ${tool.enabled ? "is-enabled" : ""}">${tool.origin === "core" ? (tool.enabled ? tr(locale, "CORE READY", "CORE 就绪") : tr(locale, "NEEDS SETUP", "需要配置")) : (tool.enabled ? tr(locale, "ENABLED PACKAGE", "扩展已启用") : tr(locale, "NOT ENABLED", "尚未启用"))}</span></div><code>${escapeHtml(tool.id)}</code><small>${escapeHtml(tool.packageId)} · ${escapeHtml(tool.serverId)}</small><p>${escapeHtml(tool.description || tr(locale, "No description in the manifest.", "清单未提供说明。"))}</p><div class="extension-chips">${tool.profiles.map((profile) => `<span>${tr(locale, "Profile", "Profile")} · ${escapeHtml(profile)}</span>`).join("") || `<span>${tool.origin === "core" ? tr(locale, "Granted per conversation Profile", "由对话 Profile 单独授权") : tr(locale, "No Profile binding", "未绑定 Profile")}</span>`}${tool.permissions.map((permission) => `<span>${escapeHtml(permission)}</span>`).join("")}</div></article>`).join("")}</div>
     </section>
-    <div class="catalog-compose-grid"><form id="extension-install-form"><h3>${tr(locale, "Install a pinned manifest", "安装已固定版本的清单")}</h3><label>${tr(locale, "Package type", "包类型")}<select name="package_kind"><option value="skill">Skill</option><option value="mcp">MCP</option><option value="plugin">Plugin</option></select></label><label class="wide-label">JSON<textarea name="manifest" rows="12" maxlength="2000000" required spellcheck="false" placeholder='{"schema_version":1}'></textarea></label><button type="submit">${tr(locale, "VALIDATE & REVIEW", "验证并审查")}</button><div id="extension-install-status" role="status" aria-live="polite"></div></form>
+    <div class="catalog-compose-grid"><form id="extension-install-form"><h3>${tr(locale, "Add a reviewed extension", "添加已审查扩展")}</h3><label>${tr(locale, "What are you adding?", "要添加什么？")}<select name="package_kind"><option value="skill">Skill</option><option value="mcp">MCP Server</option><option value="plugin">Plugin</option></select></label><label class="wide-label">${tr(locale, "Choose its signed manifest file", "选择扩展提供的签名清单文件")}<input name="manifest_file" type="file" accept=".json,application/json" required></label><p class="fine wide-label">${tr(locale, "You do not need to edit JSON. Restork reads the selected file locally, then explains its source, permissions and tools before anything is installed.", "你不需要编辑 JSON。Restork 只在本地读取所选文件，并在安装前用可读方式说明来源、权限与工具。")}</p><button type="submit">${tr(locale, "REVIEW EXTENSION", "审查扩展")}</button><div id="extension-install-status" role="status" aria-live="polite"></div></form>
     <form id="extension-tool-search-form"><h3>${tr(locale, "Session tool search", "会话工具搜索")}</h3><label>${tr(locale, "Conversation", "对话")}<select name="session_id">${sessions.map((session) => `<option value="${escapeHtml(session.session_id)}">${escapeHtml(session.title)}</option>`).join("")}</select></label><label>${tr(locale, "Query", "查询")}<input name="query" maxlength="512" required></label><button type="submit" ${sessions.length ? "" : "disabled"}>${tr(locale, "SEARCH FROZEN CATALOG", "搜索冻结目录")}</button><div id="extension-tool-results"></div></form></div>
     <p class="fine">${tr(locale, "Packages begin quarantined. Exact source, license, hash, permissions, secrets, transports, and tools must be reviewed before enablement. Dynamic npx, shell interpolation, and ambient environment inheritance are rejected by Core.", "扩展初始处于隔离状态；启用前必须审查精确来源、许可证、哈希、权限、Secret 引用、传输方式与工具。Core 会拒绝动态 npx、Shell 插值和环境变量继承。")}</p></article>`;
 }
@@ -492,6 +576,7 @@ interface ExtensionToolSummary {
   profiles: string[];
   permissions: string[];
   enabled: boolean;
+  origin?: "core" | "mcp";
 }
 
 function extensionTools(record: CatalogRecordV2): ExtensionToolSummary[] {
@@ -540,6 +625,7 @@ function extensionToolSummary(
     profiles,
     permissions,
     enabled,
+    origin: "mcp",
   };
 }
 
@@ -882,11 +968,12 @@ export function runEventsMarkup(
     <article class="paper-card detail-card">
       <header><h2>${escapeHtml(run.task?.goal ?? summary.task_id)}</h2><span class="ribbon ${escapeHtml(summary.mode)}">${escapeHtml(summary.mode)}</span></header>
       <dl class="metadata">
-        <div><dt>RUN</dt><dd>${escapeHtml(summary.run_id)}</dd></div>
-        <div><dt>STATE</dt><dd>${escapeHtml(summary.state)}</dd></div>
+        <div><dt>${tr(locale, "TYPE", "类型")}</dt><dd>${escapeHtml(modeLabel(summary.mode, locale))}</dd></div>
+        <div><dt>${tr(locale, "STATUS", "状态")}</dt><dd>${escapeHtml(runStateLabel(summary.state, locale))}</dd></div>
         <div><dt>${tr(locale, "UPDATED", "更新时间")}</dt><dd>${formatDate(summary.updated_at, locale)}</dd></div>
-        <div><dt>TOKENS</dt><dd>${String(run.budget?.usage.tokens ?? 0)}</dd></div>
+        <div><dt>${tr(locale, "MODEL USAGE", "模型用量")}</dt><dd>${String(run.budget?.usage.tokens ?? 0)} tokens</dd></div>
       </dl>
+      <details class="technical-details"><summary>${tr(locale, "Technical details", "技术详情")}</summary><code>${tr(locale, "Run reference", "运行标识")} · ${escapeHtml(summary.run_id)}</code></details>
       ${traceMarkup(buildRunTrace(events), locale)}
       ${paginationControl("events", page, locale, tr(locale, "LOAD EARLIER EVENTS", "加载更早事件"))}
       <section class="assistant-stream" ${assistantOutput ? "" : "hidden"} aria-live="polite"><small>ASSISTANT · STREAM</small>${assistantStreamMarkup(assistantOutput, locale)}</section>
@@ -1215,11 +1302,11 @@ function overview(snapshot: DashboardSnapshot, locale: Locale): string {
   return `<div class="board">
     ${run ? runCard(run, locale) : emptyCard(tr(locale, "Runs", "运行"), tr(locale, "No runs yet. Choose Research or Work to begin.", "还没有运行。选择 Research 或 Work 开始。"))}
     ${approval ? approvalCard(approval, locale) : emptyCard(tr(locale, "Approvals", "审批"), tr(locale, "No actions are waiting for approval.", "没有待审批动作。"))}
-    <article class="paper-card"><header><h2>${tr(locale, "Markdown tasks", "Markdown 任务")}</h2><span class="ribbon work">CORE AUTHORITY</span></header>
-      ${tasks.length ? tasks.map((task) => `<p class="task-row"><b>${escapeHtml(task.fields.priority ?? "P–")}</b>${escapeHtml(cleanTaskText(task.text))}<small>${escapeHtml(task.relative_path)} · L${task.line_number}</small></p>`).join("") : `<p class="empty">${snapshot.taskBoard.configured ? tr(locale, "No incomplete tasks.", "没有未完成任务。") : tr(locale, "Configure a Vault to show Markdown tasks.", "配置 Vault 后显示 Markdown 任务。")}</p>`}
+    <article class="paper-card"><header><h2>${tr(locale, "Tasks", "任务")}</h2><span class="ribbon work">LOCAL FIRST</span></header>
+      ${tasks.length ? tasks.map((task) => `<p class="task-row"><b>${escapeHtml(String(task.fields.priority ?? "P–"))}</b>${escapeHtml(cleanTaskText(task.text))}<small>${task.origin === "vault" ? tr(locale, "Synced from Vault", "来自知识库同步") : task.origin === "model" ? tr(locale, "Accepted model suggestion", "已确认的模型建议") : tr(locale, "Added by you", "由你添加")}</small></p>`).join("") : `<p class="empty">${tr(locale, "No incomplete tasks. Add one yourself or ask the model for suggestions.", "没有未完成任务；你可以自己添加，也可以让模型先给出建议。")}</p>`}
     </article>
-    <article class="paper-card radar-summary"><header><h2>${tr(locale, "Today's radar", "今日雷达")}</h2><span class="ribbon radar">VIA CORE</span></header>
-      ${snapshot.radar.items.slice(0, 4).map(radarSummary).join("") || `<p class="empty">${snapshot.radar.configured ? tr(locale, "No Radar items right now.", "暂时没有 Radar 项。") : tr(locale, "Radar sources are not configured.", "Radar 尚未配置来源。")}</p>`}
+    <article class="paper-card radar-summary"><header><h2>${tr(locale, "Radar highlights", "雷达精选")}</h2><span class="ribbon radar">24H · 7D</span></header>
+      ${snapshot.radar.items.slice(0, 4).map((item) => radarSummary(item, locale)).join("") || `<p class="empty">${snapshot.radar.configured ? tr(locale, "The next public refresh will appear here.", "下一次公开来源刷新后会显示在这里。") : tr(locale, "Choose public Radar sources to begin.", "选择公开 Radar 来源后开始。")}</p>`}
     </article>
   </div>`;
 }
@@ -1230,7 +1317,7 @@ export function runsView(snapshot: DashboardSnapshot, locale: Locale): string {
   const notice = domainNotice(snapshot, "runs", locale);
   if (notice) return `<article class="paper-card full-card"><header><h2>${tr(locale, "Runs", "运行")}</h2></header>${notice}</article>`;
   return `<article class="paper-card full-card"><header><h2>${tr(locale, "Runs", "运行")}</h2><span class="ribbon research">CORE STATE</span></header>
-    <div class="split-view"><div><div class="item-list">${runs.map((run) => `<button type="button" class="list-item" data-run-id="${escapeHtml(run.summary.run_id)}"><b>${escapeHtml(run.summary.mode.toUpperCase())}</b><span>${escapeHtml(run.task?.goal ?? run.summary.task_id)}</span><small>${escapeHtml(run.summary.state)} · ${formatDate(run.summary.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "No runs.", "没有运行。")}</p>`}</div>${paginationControl("runs", page, locale)}</div><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its events.", "选择一个运行查看事件。")}</div></div>
+    <div class="split-view"><div><div class="item-list">${runs.map((run) => `<button type="button" class="list-item" data-run-id="${escapeHtml(run.summary.run_id)}"><b>${escapeHtml(modeLabel(run.summary.mode, locale).toUpperCase())}</b><span>${escapeHtml(run.task?.goal ?? run.summary.task_id)}</span><small>${escapeHtml(runStateLabel(run.summary.state, locale))} · ${formatDate(run.summary.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "No runs.", "没有运行。")}</p>`}</div>${paginationControl("runs", page, locale)}</div><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its activity.", "选择一个运行查看执行过程。")}</div></div>
   </article>`;
 }
 
@@ -1239,27 +1326,137 @@ export function approvalsView(snapshot: DashboardSnapshot, locale: Locale): stri
   const page = snapshot.pagination?.approvals;
   const notice = domainNotice(snapshot, "approvals", locale);
   if (notice) return `<article class="paper-card"><header><h2>${tr(locale, "Approvals", "审批")}</h2></header>${notice}</article>`;
-  return `<div class="stack">${approvals.map((approval) => approvalCard(approval, locale)).join("") || emptyCard(tr(locale, "Approvals", "审批"), tr(locale, "No approval records.", "没有审批记录。"))}${paginationControl("approvals", page, locale)}</div>`;
+  const empty = emptyCard(
+    tr(locale, "Approvals", "审批"),
+    tr(locale, "No approval records.", "没有审批记录。"),
+  );
+  return `<div class="stack"><div class="approval-list">
+    ${approvals.map((approval) => approvalCard(approval, locale)).join("") || empty}
+  </div>${paginationControl("approvals", page, locale)}</div>`;
 }
 
 export function tasksView(snapshot: DashboardSnapshot, locale: Locale): string {
   const notice = domainNotice(snapshot, "tasks", locale);
-  if (notice) return `<article class="paper-card full-card"><header><h2>${tr(locale, "Markdown tasks", "Markdown 任务")}</h2></header>${notice}</article>`;
-  if (!snapshot.taskBoard.configured) return emptyCard(tr(locale, "Markdown tasks", "Markdown 任务"), tr(locale, "Configure a private Vault with --vault-dir. The browser receives no authority outside that Vault path.", "使用 --vault-dir 配置私有 Vault。浏览器不会持有 Vault 路径之外的权限。"));
-  return `<article class="paper-card full-card"><header><h2>${tr(locale, "Markdown tasks", "Markdown 任务")}</h2><span class="ribbon work">MARKDOWN TRUTH</span></header>
-    <form id="quick-task-form" class="quick-task-form"><label for="quick-task">${tr(locale, "Quick capture", "快速捕获")}</label><div><input id="quick-task" name="text" required maxlength="500" placeholder="${tr(locale, "One Markdown task", "一行 Markdown 任务")}"><select name="priority" aria-label="${tr(locale, "Priority", "优先级")}"><option value="">P–</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select><button type="submit">${tr(locale, "PREVIEW", "预览")}</button></div></form>
-    <div class="task-list">${snapshot.taskBoard.tasks.map((task) => `<label class="task-row ${task.completed ? "is-complete" : ""}"><input type="checkbox" data-task-id="${escapeHtml(task.task_id)}" ${task.completed ? "checked" : ""}><span>${escapeHtml(cleanTaskText(task.text))}<small>${escapeHtml(task.relative_path)} · L${task.line_number} · ${escapeHtml(task.fields.due ?? tr(locale, "no due date", "无截止日期"))}</small></span></label>`).join("") || `<p class="empty">${tr(locale, "No tasks.", "没有任务。")}</p>`}</div>${paginationControl("tasks", snapshot.pagination?.tasks, locale)}
-    <p class="fine">${tr(locale, "Checking or capturing creates an exact diff only. Core writes Markdown atomically after approval.", "勾选与捕获只生成精确 diff；Markdown 仅在审批后由 Core 原子写入。")}</p>
+  if (notice && snapshot.domains?.tasks?.state !== "not_configured") {
+    return `<article class="paper-card full-card"><header><h2>${tr(locale, "Tasks", "任务")}</h2></header>${notice}</article>`;
+  }
+  const localTasks = snapshot.taskBoard.tasks.filter(
+    (task) => task.origin === "user" || task.origin === "model" || task.editable === true,
+  );
+  const vaultTasks = snapshot.taskBoard.tasks.filter((task) => !localTasks.includes(task));
+  const deletedTasks = snapshot.taskBoard.deleted_tasks ?? [];
+  return `<article class="paper-card full-card">
+    <header><h2>${tr(locale, "Tasks", "任务")}</h2><span class="ribbon work">LOCAL · EDITABLE</span></header>
+    ${notice ?? ""}
+    <form id="local-todo-form" class="todo-create-form">
+      <label>${tr(locale, "What needs doing?", "要做什么？")}<input name="title" required maxlength="2000" placeholder="${tr(locale, "For example: review the experiment results", "例如：复核实验结果")}"></label>
+      <label>${tr(locale, "Priority", "优先级")}<select name="priority">
+        <option value="">${tr(locale, "No priority", "不设优先级")}</option>
+        <option>P0</option><option>P1</option><option>P2</option><option>P3</option>
+      </select></label>
+      <label>${tr(locale, "Due date", "截止日期")}<input name="due_date" type="date"></label>
+      <label class="wide-label">${tr(locale, "Notes (optional)", "补充说明（可选）")}
+        <textarea name="details" rows="2" maxlength="16000"
+          placeholder="${tr(locale, "Add context in your own words", "用自然语言补充背景")}"></textarea>
+      </label>
+      <button type="submit">${tr(locale, "ADD TASK", "添加任务")}</button>
+      <button type="button" class="quiet-button" data-todo-suggest>${tr(locale, "ASK MODEL IN CONVERSATION", "去对话中让模型建议")}</button>
+      <p id="local-todo-status" role="status"></p>
+    </form>
+    <div class="todo-section-heading"><h3>${tr(locale, "My tasks", "我的任务")}</h3><span>${localTasks.length}</span></div>
+    <div class="task-list todo-list">${localTasks.map((task) => localTodoMarkup(task, locale)).join("") || todoEmpty(locale)}</div>
+    ${todoTrashMarkup(deletedTasks, snapshot.taskBoard.deleted_page, locale)}
+    ${vaultTasksMarkup(snapshot, vaultTasks, locale)}
+    ${paginationControl("tasks", snapshot.pagination?.tasks, locale)}
   </article>`;
+}
+
+function todoEmpty(locale: Locale): string {
+  return `<p class="empty">${tr(locale, "Add a task yourself, or ask the model for suggestions.", "你可以自己添加，也可以让模型先给出建议。")}</p>`;
+}
+
+function todoTrashMarkup(tasks: MarkdownTask[], page: PageInfo | undefined, locale: Locale): string {
+  const rows = tasks.map((task) => deletedTodoMarkup(task, locale)).join("");
+  const empty = `<p class="empty">${tr(locale, "Nothing has been deleted.", "暂时没有已删除任务。")}</p>`;
+  return `<details class="todo-trash">
+    <summary>${tr(locale, `Recently deleted · ${tasks.length}`, `最近删除 · ${tasks.length}`)}</summary>
+    <p class="fine">${tr(locale, "Deleted tasks stay on this device and can be restored.", "删除的任务仍保留在本机，可以随时恢复。")}</p>
+    <div class="todo-trash-list">${rows || empty}</div>${deletedTodoPagination(page, locale)}
+  </details>`;
+}
+
+function vaultTasksMarkup(snapshot: DashboardSnapshot, tasks: MarkdownTask[], locale: Locale): string {
+  const empty = `<p class="empty">${tr(locale, "No tasks found in the granted Vault.", "已授权知识库中没有任务。")}</p>`;
+  const disconnected = `<p class="empty">${tr(locale, "Connect an Obsidian Vault only if you want Markdown task sync.", "只有需要同步 Markdown 任务时才连接 Obsidian 知识库。")}</p>`;
+  const vaultConfigured = snapshot.taskBoard.vault_configured ?? tasks.length > 0;
+  const body = vaultConfigured ? `<form id="quick-task-form" class="quick-task-form">
+      <label for="quick-task">${tr(locale, "Add to the Vault task file", "添加到知识库任务文件")}</label>
+      <div><input id="quick-task" name="text" required maxlength="500" placeholder="${tr(locale, "One task to review before writing", "一条写入前可审查的任务")}">
+      <select name="priority" aria-label="${tr(locale, "Priority", "优先级")}"><option value="">P–</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>
+      <button type="submit">${tr(locale, "PREVIEW WRITE", "预览写入")}</button></div></form>
+      <div class="task-list vault-task-list">${tasks.map((task) => vaultTodoMarkup(task, locale)).join("") || empty}</div>
+      <p class="fine">${tr(locale, "Vault changes still produce an exact diff and require approval.", "知识库改动仍会生成精确 diff，并且必须审批。")}</p>` : disconnected;
+  return `<details class="vault-task-source"><summary>${tr(locale, `Obsidian / Markdown sync · ${tasks.length}`, `Obsidian / Markdown 同步 · ${tasks.length}`)}</summary>${body}</details>`;
+}
+
+function localTodoMarkup(task: MarkdownTask, locale: Locale): string {
+  const priority = task.fields.priority || tr(locale, "No priority", "无优先级");
+  const due = task.fields.due ? formatDate(task.fields.due, locale) : tr(locale, "No due date", "无截止日期");
+  const origin = task.origin === "model" ? tr(locale, "Model suggestion · accepted", "模型建议 · 已确认") : tr(locale, "Added by you", "由你添加");
+  const dateValue = typeof task.fields.due === "string" ? task.fields.due.slice(0, 10) : "";
+  const priorityOptions = ["P0", "P1", "P2", "P3"]
+    .map((value) => `<option ${task.fields.priority === value ? "selected" : ""}>${value}</option>`)
+    .join("");
+  return `<article class="todo-row ${task.completed ? "is-complete" : ""}">
+    <label><input type="checkbox" data-local-todo-toggle data-task-id="${escapeHtml(task.task_id)}" data-task-updated="${escapeHtml(task.updated_at ?? "")}" ${task.completed ? "checked" : ""}>
+    <span><strong>${escapeHtml(task.text)}</strong>${task.details ? `<p>${escapeHtml(task.details)}</p>` : ""}
+    <small>${escapeHtml(String(priority))} · ${escapeHtml(due)} · ${escapeHtml(origin)}</small></span></label>
+    <details><summary>${tr(locale, "Edit", "编辑")}</summary>
+      <form data-local-todo-edit data-task-id="${escapeHtml(task.task_id)}" data-task-updated="${escapeHtml(task.updated_at ?? "")}" data-task-completed="${task.completed}">
+        <label>${tr(locale, "Task", "任务")}<input name="title" required maxlength="2000" value="${escapeHtml(task.text)}"></label>
+        <label>${tr(locale, "Notes", "说明")}<textarea name="details" rows="2" maxlength="16000">${escapeHtml(task.details ?? "")}</textarea></label>
+        <label>${tr(locale, "Priority", "优先级")}<select name="priority"><option value="">${tr(locale, "None", "无")}</option>${priorityOptions}</select></label>
+        <label>${tr(locale, "Due date", "截止日期")}<input name="due_date" type="date" value="${escapeHtml(dateValue)}"></label>
+        <div class="record-actions"><button type="submit">${tr(locale, "SAVE", "保存")}</button>
+        <button type="button" class="danger-text" data-local-todo-delete
+          data-task-id="${escapeHtml(task.task_id)}" data-task-updated="${escapeHtml(task.updated_at ?? "")}">
+          ${tr(locale, "MOVE TO DELETED", "移到最近删除")}</button></div>
+      </form>
+    </details>
+  </article>`;
+}
+
+function deletedTodoMarkup(task: MarkdownTask, locale: Locale): string {
+  const deletedAt = task.deleted_at ? formatDate(task.deleted_at, locale) : tr(locale, "Recently", "刚刚");
+  return `<article class="todo-trash-row"><div><strong>${escapeHtml(task.text)}</strong>
+    ${task.details ? `<p>${escapeHtml(task.details)}</p>` : ""}<small>${tr(locale, "Deleted", "已删除")} · ${escapeHtml(deletedAt)}</small></div>
+    <button type="button" data-local-todo-restore data-task-id="${escapeHtml(task.task_id)}"
+      data-task-updated="${escapeHtml(task.updated_at ?? "")}">${tr(locale, "RESTORE", "恢复")}</button></article>`;
+}
+
+function deletedTodoPagination(page: PageInfo | undefined, locale: Locale): string {
+  if (!page?.has_more || !page.next_cursor) return "";
+  return `<div class="pagination"><button type="button" data-deleted-todo-page="${escapeHtml(page.next_cursor)}">
+    ${tr(locale, "LOAD MORE DELETED", "加载更多已删除任务")}</button>
+    <small>${tr(locale, "Deleted tasks are loaded in bounded pages.", "已删除任务会按页加载，不会一次读取全部。")}</small></div>`;
+}
+
+function vaultTodoMarkup(task: MarkdownTask, locale: Locale): string {
+  const source = escapeHtml(task.relative_path ?? tr(locale, "Vault", "知识库"));
+  const line = task.line_number ? ` · L${task.line_number}` : "";
+  const due = escapeHtml(String(task.fields.due ?? tr(locale, "no due date", "无截止日期")));
+  return `<label class="task-row ${task.completed ? "is-complete" : ""}">
+    <input type="checkbox" data-task-id="${escapeHtml(task.task_id)}" ${task.completed ? "checked" : ""}>
+    <span>${escapeHtml(cleanTaskText(task.text))}<small>${source}${line} · ${due}</small></span>
+  </label>`;
 }
 
 export function radarView(snapshot: DashboardSnapshot, locale: Locale): string {
   const notice = domainNotice(snapshot, "radar", locale);
-  if (notice) return `<article class="paper-card full-card"><header><h2>Radar</h2></header>${notice}</article>`;
-  const lanes: Array<[RadarItem["lane"], string]> = [
-    ["trending", tr(locale, "GitHub AI / Agent", "GitHub AI / Agent")],
-    ["hn", "Hacker News"],
-  ];
+  const radarState = snapshot.domains?.radar?.state;
+  if (notice && radarState !== "not_configured") {
+    return `<article class="paper-card full-card"><header><h2>Radar</h2></header>${notice}</article>`;
+  }
   const configForm = `<form id="radar-config-form" class="radar-config">
     <label class="radar-config-source"><input type="checkbox" name="github_discovery" value="1" checked> ${tr(locale, "Discover public AI, Agent and MCP projects on GitHub", "发现 GitHub 上公开的 AI、Agent 与 MCP 项目")}</label>
     <label class="radar-config-source"><input type="checkbox" name="hacker_news" value="1" checked> ${tr(locale, "Include Hacker News top stories", "收录 Hacker News 热门")}</label>
@@ -1269,13 +1466,15 @@ export function radarView(snapshot: DashboardSnapshot, locale: Locale): string {
   </form>`;
   if (!snapshot.radar.configured) {
     return `<article class="paper-card full-card"><header><h2>Radar</h2><span class="ribbon radar">CORE CONNECTORS</span></header>
-      <p class="empty">${tr(locale, "Radar sources are not configured; the browser never fetches them directly.", "Radar 来源尚未配置；浏览器不会自行联网。")}</p>
+      <div class="radar-onboarding"><strong>${tr(locale, "Choose what Restork should watch", "选择 Restork 要关注的公开来源")}</strong><p>${tr(locale, "No account or GitHub username is needed. Restork searches public AI, Agent and MCP projects and can also include Hacker News. The Core fetches and caches them only after you opt in here.", "无需账号或 GitHub 用户名。Restork 会发现公开的 AI、Agent 与 MCP 项目，也可收录 Hacker News；只有你在这里明确启用后，Core 才会联网拉取并缓存。")}</p></div>
       ${configForm}
     </article>`;
   }
+  const githubItems = snapshot.radar.items.filter((item) => item.lane === "trending");
+  const hackerNewsItems = snapshot.radar.items.filter((item) => item.lane === "hn");
   return `<article class="paper-card full-card"><header><h2>Radar</h2><span class="ribbon radar">CORE CONNECTORS</span></header>
     <div id="research-result" class="research-result-host" role="status"></div>
-    <div class="lanes">${lanes.map(([lane, label]) => `<section><h3>${label}</h3>${snapshot.radar.items.filter((item) => item.lane === lane).map((item) => radarItem(item, locale)).join("") || `<p class="empty">${tr(locale, "Empty", "暂无内容")}</p>`}</section>`).join("")}</div>${paginationControl("radar", snapshot.pagination?.radar, locale)}
+    <div class="lanes"><section class="radar-github-lane"><h3>GitHub AI / Agent</h3>${radarGithubPeriods(githubItems, locale)}</section><section><h3>Hacker News</h3>${hackerNewsItems.map((item) => radarItem(item, locale)).join("") || `<p class="empty">${tr(locale, "No public stories in this refresh.", "本次刷新没有公开条目。")}</p>`}</section></div>${paginationControl("radar", snapshot.pagination?.radar, locale)}
     <details class="radar-recheck"><summary>${tr(locale, "Radar sources", "Radar 来源设置")}</summary>${configForm}</details>
   </article>`;
 }
@@ -1633,12 +1832,46 @@ function musicDiscoveries(discoveries: MusicDiscovery[], locale: Locale): string
   }).join("")}</div></details>`;
 }
 
-function radarItem(item: RadarItem, locale: Locale): string {
-  return `<article class="radar-item">${safeLink(item.url, item.title, 'target="_blank" rel="noreferrer"')}<p>${escapeHtml(item.summary)}</p><small>${escapeHtml(item.source)} · ${escapeHtml(item.state)}</small><div><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="research">${tr(locale, "research", "研究")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="read_later">${tr(locale, "read later", "稍后阅读")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="make_task">${tr(locale, "make task", "建任务")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="dismiss">${tr(locale, "dismiss", "忽略")}</button></div></article>`;
+function radarGithubPeriods(items: RadarItem[], locale: Locale): string {
+  if (!items.length) return `<p class="empty">${tr(locale, "No public repositories in this refresh.", "本次刷新没有公开项目。")}</p>`;
+  const daily = [...items].sort((left, right) => radarGrowth(right.stars_daily) - radarGrowth(left.stars_daily) || radarGrowth(right.stars_total) - radarGrowth(left.stars_total));
+  const weekly = [...items].sort((left, right) => radarGrowth(right.stars_weekly) - radarGrowth(left.stars_weekly) || radarGrowth(right.stars_total) - radarGrowth(left.stars_total));
+  return `<div class="radar-periods">
+    <input id="radar-period-daily" name="radar-period" type="radio" checked><label for="radar-period-daily">${tr(locale, "DAILY · 24H", "每日 · 24 小时")}</label>
+    <input id="radar-period-weekly" name="radar-period" type="radio"><label for="radar-period-weekly">${tr(locale, "WEEKLY · 7D", "每周 · 7 天")}</label>
+    <div class="radar-period-panel is-daily"><p class="radar-baseline-note">${tr(locale, "Ranked by verified 24-hour Star growth. A first sync creates the local baseline.", "按真实 24 小时 Star 增长排序；第一次同步会先建立本地基线。")}</p>${daily.map((item) => radarItem(item, locale, "daily")).join("")}</div>
+    <div class="radar-period-panel is-weekly"><p class="radar-baseline-note">${tr(locale, "Ranked by verified 7-day Star growth from daily public snapshots.", "根据每日公开快照，按真实 7 天 Star 增长排序。")}</p>${weekly.map((item) => radarItem(item, locale, "weekly")).join("")}</div>
+  </div>`;
 }
 
-function radarSummary(item: RadarItem): string {
-  return `<p class="radar-row"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.summary)}</span><small>${escapeHtml(item.source)} · ${escapeHtml(item.lane)}</small></p>`;
+function radarGrowth(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+}
+
+function formatRadarStars(value: number | null | undefined, locale: Locale): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? new Intl.NumberFormat(locale === "zh-CN" ? "zh-CN" : "en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value)
+    : "—";
+}
+
+function radarDelta(value: number | null | undefined, period: "daily" | "weekly", locale: Locale): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return tr(locale, `${period === "daily" ? "24h" : "7d"} baseline pending`, `${period === "daily" ? "24 小时" : "7 天"}基线待建立`);
+  }
+  const sign = value > 0 ? "+" : "";
+  return `${period === "daily" ? "24h" : "7d"} ${sign}${formatRadarStars(value, locale)}`;
+}
+
+function radarItem(item: RadarItem, locale: Locale, emphasis?: "daily" | "weekly"): string {
+  const metrics = item.lane === "trending" ? `<div class="radar-star-metrics"><span class="is-total">★ ${formatRadarStars(item.stars_total, locale)}</span><span class="${emphasis === "daily" ? "is-emphasis" : ""}">${escapeHtml(radarDelta(item.stars_daily, "daily", locale))}</span><span class="${emphasis === "weekly" ? "is-emphasis" : ""}">${escapeHtml(radarDelta(item.stars_weekly, "weekly", locale))}</span></div>` : "";
+  return `<article class="radar-item">${safeLink(item.url, item.title, 'target="_blank" rel="noreferrer"')}${metrics}<p>${escapeHtml(item.summary)}</p><small>${escapeHtml(item.source)} · ${escapeHtml(item.state)}</small><div><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="research">${tr(locale, "research", "研究")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="read_later">${tr(locale, "read later", "稍后阅读")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="make_task">${tr(locale, "make task", "建任务")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="dismiss">${tr(locale, "dismiss", "忽略")}</button></div></article>`;
+}
+
+function radarSummary(item: RadarItem, locale: Locale): string {
+  const growth = item.lane === "trending"
+    ? `★ ${formatRadarStars(item.stars_total, locale)} · ${radarDelta(item.stars_daily, "daily", locale)} · ${radarDelta(item.stars_weekly, "weekly", locale)}`
+    : item.source;
+  return `<p class="radar-row"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.summary)}</span><small>${escapeHtml(growth)}</small></p>`;
 }
 
 function memoryRow(record: MemoryRecord, locale: Locale): string {
@@ -1742,12 +1975,51 @@ export function assistantStreamMarkup(output: string, locale: Locale = "en"): st
  */
 export function eventRow(event: RunEvent, locale: Locale = "en"): string {
   const id = escapeHtml(String(event.id));
-  const type = escapeHtml(event.type);
+  const type = escapeHtml(eventLabel(event.type, locale));
   const summary = eventSummary(event, locale);
   const raw = escapeHtml(JSON.stringify(event.data));
   return `<li data-event-id="${id}"><b>${type}</b><span>#${event.id}</span>`
     + `<div class="event-detail"><p>${summary}</p>`
-    + `<details><summary>JSON</summary><code>${raw}</code></details></div></li>`;
+    + `<details><summary>${tr(locale, "Technical details", "技术详情")}</summary><small>${escapeHtml(event.type)}</small><code>${raw}</code></details></div></li>`;
+}
+
+function modeLabel(mode: string, locale: Locale): string {
+  if (mode === "research") return tr(locale, "Research", "研究");
+  if (mode === "study") return tr(locale, "Study", "学习");
+  if (mode === "work") return tr(locale, "Work", "工作");
+  return mode;
+}
+
+function runStateLabel(state: string, locale: Locale): string {
+  const labels: Record<string, [string, string]> = {
+    proposed: ["Ready to start", "等待开始"], queued: ["Queued", "排队中"],
+    running: ["Running", "进行中"], succeeded: ["Completed", "已完成"],
+    completed: ["Completed", "已完成"], failed: ["Needs attention", "需要处理"],
+    blocked: ["Blocked", "受阻"], cancelled: ["Cancelled", "已取消"],
+    canceled: ["Cancelled", "已取消"],
+  };
+  const label = labels[state];
+  return label ? tr(locale, label[0], label[1]) : state.replaceAll("_", " ");
+}
+
+function eventLabel(type: string, locale: Locale): string {
+  const labels: Record<string, [string, string]> = {
+    "run.created": ["Run created", "已创建运行"],
+    "run.started": ["Run started", "运行已开始"],
+    "run.cancelled": ["Run cancelled", "运行已取消"],
+    "run.completed": ["Run completed", "运行已完成"],
+    "run.stopped": ["Run stopped", "运行已停止"],
+    "run.runtime_failed": ["Run needs attention", "运行需要处理"],
+    "model.started": ["Model started", "模型开始处理"],
+    "model.completed": ["Model completed", "模型处理完成"],
+    "tool.completed": ["Tool completed", "工具执行完成"],
+    "tool.failed": ["Tool failed", "工具执行失败"],
+    "approval.requested": ["Waiting for approval", "等待审批"],
+    "retry.scheduled": ["Retry scheduled", "已安排重试"],
+    "context.compacted": ["Context organized", "上下文已整理"],
+  };
+  const label = labels[type];
+  return label ? tr(locale, label[0], label[1]) : type.replaceAll(".", " ").replaceAll("_", " ");
 }
 
 function text(value: unknown): string {

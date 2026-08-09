@@ -27,6 +27,7 @@ pub(super) struct NewRadarOwned {
     pub(super) url: String,
     pub(super) summary: String,
     pub(super) score: f64,
+    pub(super) stars_total: Option<i64>,
     pub(super) published_at: Option<String>,
 }
 
@@ -72,8 +73,9 @@ pub(super) fn github_radar_record(item: &Value) -> Option<NewRadarOwned> {
         title: repository.to_owned(),
         source: "GitHub · public AI/Agent discovery".to_owned(),
         url: url.to_owned(),
-        summary: format!("{description} · ★ {stars} · {language}"),
+        summary: format!("{description} · {language}"),
         score: f64::from(relevance) * 100_000.0 + stars.min(99_999) as f64,
+        stars_total: Some(i64::try_from(stars).unwrap_or(i64::MAX)),
         published_at: item["pushed_at"].as_str().map(ToOwned::to_owned),
     })
 }
@@ -179,7 +181,8 @@ mod tests {
         });
         let record = github_radar_record(&active).expect("relevant repository");
         assert_eq!(record.lane, "trending");
-        assert!(record.summary.contains("★ 4200 · Rust"));
+        assert_eq!(record.stars_total, Some(4200));
+        assert!(record.summary.ends_with("· Rust"));
 
         let mut archived = active;
         archived["archived"] = json!(true);

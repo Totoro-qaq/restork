@@ -124,13 +124,45 @@ export interface TaskApplyResult {
 
 export interface MarkdownTask {
   task_id: string;
-  relative_path: string;
-  line_number: number;
+  relative_path: string | null;
+  line_number: number | null;
   text: string;
+  details?: string;
   completed: boolean;
-  fields: Record<string, string>;
+  fields: Record<string, string | null>;
   block_id: string | null;
-  locator_hash: string;
+  locator_hash: string | null;
+  origin?: "vault" | "user" | "model";
+  editable?: boolean;
+  updated_at?: string | null;
+  deleted_at?: string | null;
+}
+
+export interface LocalTodoInput {
+  title: string;
+  details: string;
+  priority: string | null;
+  due_at: string | null;
+  completed: boolean;
+  origin?: "user" | "model";
+}
+
+export interface LocalTodoRecord {
+  task_id: string;
+  title: string;
+  details: string;
+  priority: string | null;
+  due_at: string | null;
+  status: "open" | "completed";
+  origin: "user" | "model";
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+}
+
+export interface DeletedTodoPage {
+  tasks: MarkdownTask[];
+  page: PageInfo;
 }
 
 export type RadarAction = "dismiss" | "read_later" | "research" | "make_task";
@@ -143,9 +175,14 @@ export interface RadarItem {
   url: string;
   summary: string;
   score: number;
+  stars_total?: number | null;
+  stars_daily?: number | null;
+  stars_weekly?: number | null;
   published_at: string | null;
   state: string;
   data_class: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface ResearchArtifact {
@@ -1105,7 +1142,13 @@ export type DomainStatuses = Partial<Record<DomainKey, DomainStatus>>;
 export interface DashboardSnapshot {
   runs: RunListEntry[];
   approvals: ApprovalRequest[];
-  taskBoard: { configured: boolean; tasks: MarkdownTask[] };
+  taskBoard: {
+    configured: boolean;
+    vault_configured?: boolean;
+    tasks: MarkdownTask[];
+    deleted_tasks?: MarkdownTask[];
+    deleted_page?: PageInfo;
+  };
   radar: { configured: boolean; items: RadarItem[] };
   memory: {
     records: MemoryRecord[];
@@ -1124,7 +1167,7 @@ export interface DashboardSnapshot {
 export type DashboardListPage =
   | { kind: "runs"; items: RunListEntry[]; page: PageInfo }
   | { kind: "approvals"; items: ApprovalRequest[]; page: PageInfo }
-  | { kind: "tasks"; items: MarkdownTask[]; page: PageInfo; configured: boolean }
+  | { kind: "tasks"; items: MarkdownTask[]; page: PageInfo; configured: boolean; vault_configured?: boolean }
   | { kind: "radar"; items: RadarItem[]; page: PageInfo; configured: boolean }
   | {
       kind: "memory";
@@ -1267,6 +1310,14 @@ export interface DashboardApi {
   cancelRun(runId: string): Promise<void>;
   previewTask(taskId: string, completed: boolean): Promise<TaskMutationPreview>;
   captureTask(text: string, priority: string): Promise<TaskMutationPreview>;
+  createLocalTodo?(input: LocalTodoInput): Promise<LocalTodoRecord>;
+  updateLocalTodo?(
+    taskId: string,
+    input: LocalTodoInput & { expected_updated_at: string },
+  ): Promise<LocalTodoRecord>;
+  deleteLocalTodo?(taskId: string, expectedUpdatedAt: string): Promise<void>;
+  restoreLocalTodo?(taskId: string, expectedUpdatedAt: string): Promise<LocalTodoRecord>;
+  loadDeletedTodos?(cursor?: string): Promise<DeletedTodoPage>;
   applyTask(approvalId: string): Promise<TaskApplyResult>;
   previewResearchNote(runId: string): Promise<TaskMutationPreview>;
   previewStudyNote(runId: string): Promise<TaskMutationPreview>;

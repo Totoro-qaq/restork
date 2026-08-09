@@ -120,15 +120,15 @@ struct TaskCapture {
 }
 
 #[derive(Clone, Debug, Serialize)]
-struct MarkdownTask {
-    task_id: String,
-    relative_path: String,
-    line_number: usize,
-    text: String,
-    completed: bool,
-    fields: BTreeMap<String, String>,
-    block_id: Option<String>,
-    locator_hash: String,
+pub(super) struct MarkdownTask {
+    pub(super) task_id: String,
+    pub(super) relative_path: String,
+    pub(super) line_number: usize,
+    pub(super) text: String,
+    pub(super) completed: bool,
+    pub(super) fields: BTreeMap<String, String>,
+    pub(super) block_id: Option<String>,
+    pub(super) locator_hash: String,
 }
 
 #[derive(Deserialize)]
@@ -711,45 +711,6 @@ pub(super) async fn decide_feature_approval(
         }
     }
     Json(record).into_response()
-}
-
-pub(super) async fn list_tasks(State(state): State<ApiState>, request: Request) -> Response {
-    if let Err(response) = authorize(&state.authority, request.headers(), TASKS_READ) {
-        return *response;
-    }
-    let Some(root) = state.vault_dir.as_deref() else {
-        return Json(json!({"configured": false, "tasks": [], "page": page(20, 0, false)}))
-            .into_response();
-    };
-    let limit = match bounded_usize_query(request.uri().query(), "limit", 20, 100) {
-        Ok(value) => value,
-        Err(response) => return response,
-    };
-    let offset = match offset_query(request.uri().query()) {
-        Ok(value) => value,
-        Err(response) => return response,
-    };
-    let workspace = match SafeWorkspace::open(root.as_path()) {
-        Ok(workspace) => workspace,
-        Err(_) => return error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault is unavailable"),
-    };
-    let mut tasks = match scan_tasks(&workspace) {
-        Ok(tasks) => tasks,
-        Err(response) => return response,
-    };
-    tasks.sort_by(|left, right| {
-        left.completed
-            .cmp(&right.completed)
-            .then_with(|| left.relative_path.cmp(&right.relative_path))
-            .then_with(|| left.line_number.cmp(&right.line_number))
-    });
-    let has_more = tasks.len() > offset.saturating_add(limit);
-    Json(json!({
-        "configured": true,
-        "tasks": tasks.into_iter().skip(offset).take(limit).collect::<Vec<_>>(),
-        "page": page(limit, offset, has_more),
-    }))
-    .into_response()
 }
 
 pub(super) async fn preview_task_change(
@@ -1384,6 +1345,7 @@ async fn refresh_radar(storage: &restork_storage::Database, config: &Value) -> R
                     item["descendants"].as_u64().unwrap_or(0)
                 ),
                 score: item["score"].as_f64().unwrap_or(0.0),
+                stars_total: None,
                 published_at: item["time"]
                     .as_i64()
                     .and_then(|timestamp| chrono::DateTime::from_timestamp(timestamp, 0))
@@ -1396,14 +1358,6 @@ async fn refresh_radar(storage: &restork_storage::Database, config: &Value) -> R
         storage
             .delete_radar_lane("my_stars")
             .map_err(|_| "Legacy personal Stars could not be removed".to_owned())?;
-        storage
-            .delete_new_radar_lane("trending")
-            .map_err(|_| "GitHub Radar cache could not be pruned".to_owned())?;
-    }
-    if config["hacker_news"].as_bool() == Some(true) {
-        storage
-            .delete_new_radar_lane("hn")
-            .map_err(|_| "Hacker News Radar cache could not be pruned".to_owned())?;
     }
     for item in &records {
         if item.url.starts_with("https://") {
@@ -1416,6 +1370,7 @@ async fn refresh_radar(storage: &restork_storage::Database, config: &Value) -> R
                     url: &item.url,
                     summary: &item.summary,
                     score: item.score,
+                    stars_total: item.stars_total,
                     published_at: item.published_at.as_deref(),
                     state: "new",
                     data_class: "public",
@@ -1423,6 +1378,16 @@ async fn refresh_radar(storage: &restork_storage::Database, config: &Value) -> R
                 })
                 .map_err(|_| "Radar cache could not be updated".to_owned())?;
         }
+    }
+    if github_discovery {
+        storage
+            .delete_stale_new_radar_lane("trending", &occurred_at)
+            .map_err(|_| "GitHub Radar cache could not be pruned".to_owned())?;
+    }
+    if config["hacker_news"].as_bool() == Some(true) {
+        storage
+            .delete_stale_new_radar_lane("hn", &occurred_at)
+            .map_err(|_| "Hacker News Radar cache could not be pruned".to_owned())?;
     }
     storage
         .put_daily_cache(
@@ -1444,7 +1409,7 @@ fn configured_workspace(state: &ApiState) -> Result<SafeWorkspace, Response> {
         .map_err(|_| error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault is unavailable"))
 }
 
-fn scan_tasks(workspace: &SafeWorkspace) -> Result<Vec<MarkdownTask>, Response> {
+pub(super) fn scan_tasks(workspace: &SafeWorkspace) -> Result<Vec<MarkdownTask>, Response> {
     let paths = workspace
         .markdown_paths(4_000)
         .map_err(|_| error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault scan failed"))?;
@@ -3473,18 +3438,6 @@ fn parse_model_json(output: &str) -> Option<Value> {
     serde_json::from_str::<Value>(trimmed[start..end].trim())
         .ok()
         .filter(Value::is_object)
-}
-
-pub(super) fn bootstrap_task_board(state: &ApiState) -> Result<Option<Value>, ()> {
-    let Some(root) = state.vault_dir.as_deref() else {
-        return Ok(None);
-    };
-    let workspace = SafeWorkspace::open(root.as_path()).map_err(|_| ())?;
-    let tasks = scan_tasks(&workspace).map_err(|_| ())?;
-    Ok(Some(json!({
-        "configured": true,
-        "tasks": tasks.into_iter().take(12).collect::<Vec<_>>(),
-    })))
 }
 
 pub(super) fn bootstrap_radar(state: &ApiState) -> Result<Option<Value>, ()> {

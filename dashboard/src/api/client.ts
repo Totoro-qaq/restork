@@ -19,6 +19,9 @@ import type {
   PracticeAttemptResult,
   TaskApplyResult,
   TaskMutationPreview,
+  LocalTodoInput,
+  LocalTodoRecord,
+  DeletedTodoPage,
   WorkDataClass,
   WorkExportResult,
   WorkHandoffPreview,
@@ -635,7 +638,7 @@ export class LocalApiClient implements DashboardApi {
     }
     if (kind === "tasks") {
       const payload = await this.#request<DashboardSnapshot["taskBoard"] & { page: DashboardListPage["page"] }>("GET", `/v1/tasks?limit=12&cursor=${encoded}`);
-      return { kind, items: payload.tasks, page: payload.page, configured: payload.configured };
+      return { kind, items: payload.tasks, page: payload.page, configured: payload.configured, vault_configured: payload.vault_configured };
     }
     if (kind === "radar") {
       const payload = await this.#request<DashboardSnapshot["radar"] & { page: DashboardListPage["page"] }>("GET", `/v1/radar?limit=12&cursor=${encoded}`);
@@ -849,6 +852,52 @@ export class LocalApiClient implements DashboardApi {
       { text, priority: priority || null },
       true,
       `dashboard-task-capture-${crypto.randomUUID()}`,
+    );
+  }
+
+  async createLocalTodo(input: LocalTodoInput): Promise<LocalTodoRecord> {
+    return this.#request<LocalTodoRecord>(
+      "POST",
+      "/v1/tasks/local",
+      input,
+      true,
+      `dashboard-local-todo-${crypto.randomUUID()}`,
+    );
+  }
+
+  async updateLocalTodo(
+    taskId: string,
+    input: LocalTodoInput & { expected_updated_at: string },
+  ): Promise<LocalTodoRecord> {
+    return this.#request<LocalTodoRecord>(
+      "PATCH",
+      `/v1/tasks/local/${encodeURIComponent(taskId)}`,
+      input,
+    );
+  }
+
+  async deleteLocalTodo(taskId: string, expectedUpdatedAt: string): Promise<void> {
+    await this.#request<Record<string, never>>(
+      "DELETE",
+      `/v1/tasks/local/${encodeURIComponent(taskId)}`,
+      { expected_updated_at: expectedUpdatedAt },
+    );
+  }
+
+  async restoreLocalTodo(taskId: string, expectedUpdatedAt: string): Promise<LocalTodoRecord> {
+    return this.#request<LocalTodoRecord>(
+      "POST",
+      `/v1/tasks/local/${encodeURIComponent(taskId)}/restore`,
+      { expected_updated_at: expectedUpdatedAt },
+      true,
+      `dashboard-local-todo-restore-${crypto.randomUUID()}`,
+    );
+  }
+
+  async loadDeletedTodos(cursor = ""): Promise<DeletedTodoPage> {
+    return this.#request<DeletedTodoPage>(
+      "GET",
+      `/v1/tasks/local/deleted?limit=12&cursor=${encodeURIComponent(cursor)}`,
     );
   }
 
@@ -1160,7 +1209,10 @@ export class LocalApiClient implements DashboardApi {
       retryTransient,
     );
     if (!response.ok) throw await apiError(response);
-    return (await response.json()) as T;
+    if (response.status === 204) return undefined as T;
+    const responseBody = await response.text();
+    if (!responseBody) return undefined as T;
+    return JSON.parse(responseBody) as T;
   }
 
   async #requestNoContent(method: string, path: string): Promise<void> {

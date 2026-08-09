@@ -51,10 +51,12 @@ describe("a broken backend is not an empty workspace", () => {
     expect(panelText(empty, "runs")).not.toContain("Core did not answer");
   });
 
-  it("says a deferred domain is not provided rather than showing it empty", () => {
+  it("turns an unconfigured Radar into a setup path rather than an empty feed", () => {
     const root = mount({ radar: { state: "not_configured", status: 404 } });
 
-    expect(panelText(root, "radar")).toContain("does not provide this yet");
+    expect(panelText(root, "radar")).toContain("Choose what Restork should watch");
+    expect(root.querySelector("#radar-config-form")).not.toBeNull();
+    expect(panelText(root, "radar")).not.toContain("Empty");
   });
 
   it("names a scope problem as a scope problem", () => {
