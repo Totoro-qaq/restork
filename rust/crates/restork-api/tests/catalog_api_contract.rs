@@ -505,7 +505,7 @@ async fn tool_discovery_preview_digest_and_execution_audit_are_frozen_to_the_ses
 }
 
 #[tokio::test]
-async fn schedules_are_dst_aware_optimistic_and_reject_model_jobs() {
+async fn schedules_are_dst_aware_optimistic_and_limit_model_jobs_to_local_drafts() {
     let (app, authorization, _directory) = paired_app().await;
     let safe = json!({
         "schedule_id": "schedule-health",
@@ -527,12 +527,48 @@ async fn schedules_are_dst_aware_optimistic_and_reject_model_jobs() {
     assert_eq!(created["revision"], 1);
     assert_eq!(created["state"], "active");
 
+    let model_draft = json!({
+        "schedule_id": "schedule-report",
+        "name": "每周复盘",
+        "timezone": "Asia/Shanghai",
+        "recurrence": {"kind": "weekly", "weekday_monday_zero": 4, "hour": 18, "minute": 0},
+        "missed_run_policy": "create_draft",
+        "job": {
+            "kind": "model_draft",
+            "provider_profile_id": "deepseek-main",
+            "report_kind": "weekly_report",
+            "title": "本周复盘",
+            "language": "zh-CN",
+            "focus": "总结完成事项、阻塞和下一步",
+            "network_access_confirmed": true
+        }
+    });
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/schedules",
+        Some(model_draft),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created:?}");
+    assert_eq!(created.expect("model schedule")["state"], "active");
+
     let unsafe_model = json!({
         "schedule_id": "schedule-unsafe",
         "timezone": "UTC",
         "recurrence": {"kind": "daily", "hour": 9, "minute": 0},
         "missed_run_policy": "create_draft",
-        "job": {"kind": "model_draft", "profile_id": "research-cloud", "requested_effect": "vault.write"}
+        "job": {
+            "kind": "model_draft",
+            "provider_profile_id": "deepseek-main",
+            "report_kind": "weekly_report",
+            "title": "本周复盘",
+            "language": "zh-CN",
+            "focus": "总结完成事项",
+            "network_access_confirmed": true,
+            "requested_effect": "vault.write"
+        }
     });
     let (status, _) = call(
         app.clone(),
@@ -619,4 +655,170 @@ async fn manual_schedule_runs_are_idempotent_and_removal_is_revision_bound() {
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn schedules_generate_ids_are_editable_recoverable_and_expose_run_history() {
+    let (app, authorization, _directory) = paired_app().await;
+    let create = json!({
+        "name": "Morning health check",
+        "timezone": "UTC",
+        "recurrence": {"kind": "daily", "hour": 9, "minute": 0},
+        "missed_run_policy": "create_draft",
+        "job": {"kind": "deterministic", "job": "health.check"}
+    });
+    let (status, created) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/schedules",
+        Some(create),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let created = created.expect("created schedule");
+    let schedule_id = created["schedule_id"]
+        .as_str()
+        .expect("generated schedule id");
+    assert!(schedule_id.starts_with("schedule-"));
+    assert_eq!(created["schedule"]["name"], "Morning health check");
+
+    let update = json!({
+        "expected_revision": 1,
+        "schedule": {
+            "schedule_id": schedule_id,
+            "name": "Daily health check",
+            "timezone": "UTC",
+            "recurrence": {"kind": "daily", "hour": 10, "minute": 30},
+            "missed_run_policy": "create_draft",
+            "job": {"kind": "deterministic", "job": "health.check"}
+        }
+    });
+    let (status, updated) = call(
+        app.clone(),
+        Method::PUT,
+        &format!("/v1/schedules/{schedule_id}"),
+        Some(update),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let updated = updated.expect("updated schedule");
+    assert_eq!(updated["revision"], 2);
+    assert_eq!(updated["schedule"]["name"], "Daily health check");
+
+    let (status, _) = call_with_idempotency(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/schedules/{schedule_id}/run"),
+        &authorization,
+        "recoverable-schedule-run",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    for key in ["recoverable-schedule-run-2", "recoverable-schedule-run-3"] {
+        let (status, _) = call_with_idempotency(
+            app.clone(),
+            Method::POST,
+            &format!("/v1/schedules/{schedule_id}/run"),
+            &authorization,
+            key,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    let (status, _) = call(
+        app.clone(),
+        Method::DELETE,
+        &format!("/v1/schedules/{schedule_id}?expected_revision=2"),
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = call_with_idempotency(
+        app.clone(),
+        Method::POST,
+        &format!("/v1/schedules/{schedule_id}/run"),
+        &authorization,
+        "deleted-schedule-must-not-run",
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, active) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/schedules?limit=10",
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        active.expect("active page")["items"]
+            .as_array()
+            .expect("items")
+            .is_empty()
+    );
+    let (status, trash) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/schedules/deleted?limit=10",
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let trash = trash.expect("trash page");
+    assert_eq!(trash["items"].as_array().expect("items").len(), 1);
+    assert!(!trash["items"][0]["deleted_at"].is_null());
+
+    let (status, history) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/schedules/{schedule_id}/runs?limit=2"),
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let history = history.expect("history page");
+    assert_eq!(history["items"].as_array().expect("items").len(), 2);
+    assert_eq!(history["page"]["has_more"], true);
+    let cursor = history["page"]["next_cursor"]
+        .as_str()
+        .expect("run history cursor");
+    let encoded_cursor =
+        url::form_urlencoded::byte_serialize(cursor.as_bytes()).collect::<String>();
+    let (status, next_history) = call(
+        app.clone(),
+        Method::GET,
+        &format!("/v1/schedules/{schedule_id}/runs?limit=2&cursor={encoded_cursor}"),
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        next_history.expect("next history page")["items"]
+            .as_array()
+            .expect("items")
+            .len(),
+        1
+    );
+
+    let (status, restored) = call(
+        app,
+        Method::POST,
+        &format!("/v1/schedules/{schedule_id}/restore"),
+        Some(json!({"expected_revision": 3})),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let restored = restored.expect("restored schedule");
+    assert_eq!(restored["revision"], 4);
+    assert!(restored["deleted_at"].is_null());
+    assert!(restored["next_run_at"].as_str().is_some());
 }

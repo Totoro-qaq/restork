@@ -45,7 +45,7 @@ describe("Vault browser", () => {
       }]),
       readVaultNote: vi.fn(async () => ({
         relative_path: "Notes/Unsafe.md",
-        content: "# Safe preview\n\n<script>alert(1)</script>\n\n- [ ] Review",
+        content: "# Safe preview\n\n<script>alert(1)</script>\n\n- **全参数微调：** 更新整个模型，参考 [[学习-LoRA]]\n- [ ] Review `inline-code`",
         sha256: "a".repeat(64),
         byte_count: 57,
         output_is_untrusted: true as const,
@@ -73,6 +73,14 @@ describe("Vault browser", () => {
     expect(preview?.textContent).toContain("<script>alert(1)</script>");
     expect(preview?.querySelector("script")).toBeNull();
     expect(preview?.querySelector("img, iframe, object")).toBeNull();
+    const bullet = preview?.querySelector<HTMLElement>(".vault-bullet");
+    const task = preview?.querySelector<HTMLElement>(".vault-task");
+    expect(bullet?.children).toHaveLength(2);
+    expect(bullet?.querySelector(":scope > .vault-markdown-line")?.textContent)
+      .toContain("全参数微调： 更新整个模型");
+    expect(task?.children).toHaveLength(2);
+    expect(task?.querySelector(":scope > .vault-markdown-line code")?.textContent)
+      .toBe("inline-code");
     expect(root.querySelector("#vault-live-status")?.textContent).toContain("Live");
 
     emit?.({
@@ -82,5 +90,60 @@ describe("Vault browser", () => {
     await vi.waitFor(() => expect(listVaultNotes).toHaveBeenCalledTimes(2));
 
     root.querySelector<HTMLButtonElement>('[data-view="overview"]')?.click();
+  });
+
+  it("keeps the most recently selected preview when reads finish out of order", async () => {
+    const resolvers = new Map<string, (value: {
+      relative_path: string;
+      content: string;
+      sha256: string;
+      byte_count: number;
+      output_is_untrusted: true;
+    }) => void>();
+    const api = {
+      loadDashboard: vi.fn(async () => snapshot),
+      listVaultNotes: vi.fn(async () => ({
+        configured: true,
+        items: ["First.md", "Second.md"].map((relative_path) => ({
+          relative_path,
+          byte_count: 8,
+          modified_unix_ms: Date.parse("2026-08-08T08:00:00Z"),
+        })),
+        total: 2,
+        page: { limit: 100, has_more: false, next_cursor: null },
+      })),
+      searchVaultNotes: vi.fn(async () => []),
+      readVaultNote: vi.fn((relativePath: string) => new Promise((resolve) => {
+        resolvers.set(relativePath, resolve);
+      })),
+    } as unknown as DashboardApi;
+    const root = document.createElement("main");
+    mountDashboard(root, { api, snapshot, locale: "zh-CN" });
+    root.querySelector<HTMLButtonElement>('[data-view="vault"]')?.click();
+    await vi.waitFor(() => expect(root.querySelectorAll("[data-vault-path]")).toHaveLength(2));
+
+    root.querySelector<HTMLButtonElement>('[data-vault-path="First.md"]')?.click();
+    root.querySelector<HTMLButtonElement>('[data-vault-path="Second.md"]')?.click();
+    await vi.waitFor(() => expect(resolvers.size).toBe(2));
+    resolvers.get("Second.md")?.({
+      relative_path: "Second.md",
+      content: "# Second wins",
+      sha256: "b".repeat(64),
+      byte_count: 13,
+      output_is_untrusted: true,
+    });
+    await vi.waitFor(() => expect(root.querySelector("#vault-preview")?.textContent).toContain("Second wins"));
+    resolvers.get("First.md")?.({
+      relative_path: "First.md",
+      content: "# First finished late",
+      sha256: "a".repeat(64),
+      byte_count: 21,
+      output_is_untrusted: true,
+    });
+    await Promise.resolve();
+
+    expect(root.querySelector("#vault-preview")?.textContent).toContain("Second wins");
+    expect(root.querySelector("#vault-preview")?.textContent).not.toContain("First finished late");
+    root.remove();
   });
 });

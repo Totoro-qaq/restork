@@ -11,8 +11,8 @@ impl TestDirectory {
     }
 }
 
-#[test]
-fn due_jobs_are_idempotent_advanced_and_never_gain_an_external_effect() {
+#[tokio::test]
+async fn due_jobs_are_idempotent_advanced_and_never_gain_an_external_effect() {
     let directory = TestDirectory::new();
     let storage = Database::open(directory.0.path().join("restork.db")).expect("database");
     let now = Utc::now();
@@ -37,9 +37,16 @@ fn due_jobs_are_idempotent_advanced_and_never_gain_an_external_effect() {
         )
         .expect("store schedule");
 
-    assert_eq!(run_due_schedules_once(&storage, now).expect("scheduler"), 1);
     assert_eq!(
-        run_due_schedules_once(&storage, now).expect("replay pass"),
+        run_due_schedules_once(&storage, now)
+            .await
+            .expect("scheduler"),
+        1
+    );
+    assert_eq!(
+        run_due_schedules_once(&storage, now)
+            .await
+            .expect("replay pass"),
         0
     );
     let period_key = format!("scheduled:{}", (now - Duration::minutes(1)).timestamp());

@@ -51,8 +51,8 @@ use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, Utc};
 use chrono_tz::Tz;
 use futures_util::{StreamExt, stream};
 use restork_automation::{
-    BudgetGrant, CheckpointFile, CheckpointSpec, EvaluationManifest, RestoreSelection, ScheduleJob,
-    ScheduleSpec, SubtaskSpec,
+    BudgetGrant, CheckpointFile, CheckpointSpec, EvaluationManifest, MissedRunPolicy,
+    RestoreSelection, ScheduleJob, ScheduleSpec, ScheduledReportKind, SubtaskSpec,
 };
 use restork_core::auth::{
     APPROVALS_READ, AccessToken, Audience, AuthError, CHECKPOINTS_READ, CHECKPOINTS_RESTORE,
@@ -105,8 +105,8 @@ use restork_render::{RenderFormat, render_deck};
 use restork_storage::{
     CalendarIntervalRecord, CatalogCursor, CheckpointFileBlob, Database, NewContextPreview,
     NewConversationOperation, NewMcpExecution, NewRun, NewSession, NewSessionFork,
-    NewSessionMessage, OperationEventRecord, ProviderProfileRecord, RunRecord, SessionCursor,
-    SessionForkMessage, SessionRecord, StorageError, StoredEvent,
+    NewSessionMessage, OperationEventRecord, ProviderProfileRecord, RunRecord, ScheduleRunCursor,
+    SessionCursor, SessionForkMessage, SessionRecord, StorageError, StoredEvent,
 };
 use restork_worker::execute_stdio_mcp;
 use rust_embed::RustEmbed;
@@ -523,12 +523,24 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
         methods: &["GET", "POST"],
     },
     ApiRouteDescription {
+        path: "/v1/schedules/deleted",
+        methods: &["GET"],
+    },
+    ApiRouteDescription {
         path: "/v1/schedules/{schedule_id}",
         methods: &["GET", "PUT", "PATCH", "DELETE"],
     },
     ApiRouteDescription {
         path: "/v1/schedules/{schedule_id}/run",
         methods: &["POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/schedules/{schedule_id}/restore",
+        methods: &["POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/schedules/{schedule_id}/runs",
+        methods: &["GET"],
     },
     ApiRouteDescription {
         path: "/v1/deliverables",
@@ -613,6 +625,8 @@ struct AgentRunCreate {
     goal: String,
     mode: String,
     provider_profile_id: String,
+    #[serde(default = "default_public_data_class")]
+    data_class: String,
     bounds: Option<AgentBounds>,
     #[serde(default = "default_true")]
     auto_start: bool,
@@ -637,6 +651,10 @@ struct RunConversationCreate {
 
 const fn default_true() -> bool {
     true
+}
+
+fn default_public_data_class() -> String {
+    "public".to_owned()
 }
 
 #[derive(Serialize)]
@@ -952,6 +970,12 @@ struct ScheduleUpdate {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ScheduleRestore {
+    expected_revision: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PeriodInput {
     start: String,
     end_exclusive: String,
@@ -1036,6 +1060,8 @@ struct AiReportCompose {
     language: String,
     timezone: String,
     provider_profile_id: String,
+    #[serde(default)]
+    focus: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1237,6 +1263,16 @@ struct ApiState {
 #[derive(RustEmbed)]
 #[folder = "web/"]
 struct DashboardAssets;
+
+/// Run one model-backed schedule without granting it Vault or export effects.
+pub async fn execute_scheduled_model_draft(
+    storage: &Database,
+    schedule: &ScheduleSpec,
+    occurrence_key: &str,
+    manual: bool,
+) -> serde_json::Value {
+    catalog_api::execute_scheduled_model_draft(storage, schedule, occurrence_key, manual).await
+}
 
 /// Build the versioned local API surface without durable feature storage.
 ///
@@ -1556,6 +1592,7 @@ fn build_router(state: ApiState) -> Router {
             get(get_tool_execution),
         )
         .route("/v1/schedules", get(list_schedules).post(create_schedule))
+        .route("/v1/schedules/deleted", get(list_deleted_schedules))
         .route(
             "/v1/schedules/{schedule_id}",
             get(get_schedule)
@@ -1567,6 +1604,11 @@ fn build_router(state: ApiState) -> Router {
             "/v1/schedules/{schedule_id}/run",
             axum::routing::post(run_schedule_now),
         )
+        .route(
+            "/v1/schedules/{schedule_id}/restore",
+            axum::routing::post(restore_schedule),
+        )
+        .route("/v1/schedules/{schedule_id}/runs", get(list_schedule_runs))
         .route("/v1/deliverables", get(list_deliverables))
         .route(
             "/v1/deliverables/reports",
@@ -2595,6 +2637,10 @@ async fn create_agent_run(State(state): State<ApiState>, request: Request) -> Re
         || !matches!(payload.mode.as_str(), "research" | "study" | "work")
         || payload.provider_profile_id.is_empty()
         || payload.provider_profile_id.len() > 256
+        || !matches!(
+            payload.data_class.as_str(),
+            "public" | "personal" | "confidential"
+        )
     {
         return error_response(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -2628,6 +2674,7 @@ async fn create_agent_run(State(state): State<ApiState>, request: Request) -> Re
         "goal": payload.goal,
         "mode": payload.mode,
         "provider_profile_id": payload.provider_profile_id,
+        "data_class": payload.data_class,
         "bounds": bounds,
         "allowed_tools": &allowed_tools,
     });
@@ -2656,6 +2703,7 @@ async fn create_agent_run(State(state): State<ApiState>, request: Request) -> Re
         "goal": payload.goal,
         "mode": payload.mode,
         "provider_profile_id": payload.provider_profile_id,
+        "data_class": payload.data_class,
         "bounds": bounds,
         "prompt": {
             "prompt_id": format!("{}-agent", payload.mode),

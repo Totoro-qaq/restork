@@ -256,7 +256,7 @@ Measured against the Core that `./scripts/quickstart.sh` starts.
 | **Extensions** | Manifest validation, a permission lattice, immutable revisions with rollback, and sandboxed stdio MCP execution |
 | **Daily context** | Optional weather, system date and month without a permission prompt, one local ICS calendar, macOS unread-mail count, and a daily track from QQ Music, NetEase, Apple Music, or a private playlist file |
 | **Artifacts and recovery** | Deterministic macro-free PPTX and PDF, exact artifact hashes, content-bearing checkpoints, and preview-bound file restore |
-| **Automation** | DST-aware deterministic health/daily refresh jobs with idempotent period keys |
+| **Automation** | DST-aware local jobs plus provider-selectable Daily/Weekly report drafts; model schedules require explicit network consent, send only `public` run facts, and keep the resulting draft local for review |
 | **Desktop** | Tauri packages `restorkd` and the Dashboard, owns Unix process groups or a Windows Job Object |
 
 ### Deliberate boundaries

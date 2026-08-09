@@ -82,6 +82,7 @@ pub struct ScheduleRecord {
     pub state: String,
     pub next_run_at: Option<String>,
     pub updated_at: String,
+    pub deleted_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -98,6 +99,18 @@ pub struct ScheduleRunRecord {
     pub result: Value,
     pub created_at: String,
     pub replayed: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScheduleRunCursor {
+    pub created_at: String,
+    pub period_key: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScheduleRunPage {
+    pub items: Vec<ScheduleRunRecord>,
+    pub next: Option<ScheduleRunCursor>,
 }
 
 impl Database {
@@ -572,19 +585,23 @@ impl Database {
         let document = serde_json::to_string(schedule)?;
         let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let current: Option<i64> = transaction
+        let current: Option<(i64, Option<String>)> = transaction
             .query_row(
-                "SELECT revision FROM schedules WHERE schedule_id = ?1",
+                "SELECT revision, deleted_at FROM schedules WHERE schedule_id = ?1",
                 [schedule_id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
-        match (current, expected_revision) {
+        match (current.as_ref(), expected_revision) {
             (None, None) => {}
-            (Some(current), Some(expected)) if current == expected => {}
+            (Some((current, None)), Some(expected)) if *current == expected => {}
             _ => return Err(StorageError::Conflict("schedule changed since it was read")),
         }
-        let revision = current.unwrap_or_default() + 1;
+        let revision = current
+            .as_ref()
+            .map(|(revision, _)| *revision)
+            .unwrap_or_default()
+            + 1;
         transaction.execute(
             "INSERT INTO schedules \
              (schedule_id, schedule_json, revision, state, next_run_at, updated_at) \
@@ -609,6 +626,7 @@ impl Database {
             state: state.to_owned(),
             next_run_at: next_run_at.map(str::to_owned),
             updated_at: updated_at.to_owned(),
+            deleted_at: None,
         })
     }
 
@@ -620,8 +638,40 @@ impl Database {
         validate_catalog_cursor(cursor, limit)?;
         let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
         let mut statement = connection.prepare(
-            "SELECT schedule_id, schedule_json, revision, state, next_run_at, updated_at \
-             FROM schedules WHERE (?1 IS NULL OR updated_at < ?1 \
+            "SELECT schedule_id, schedule_json, revision, state, next_run_at, updated_at, deleted_at \
+             FROM schedules WHERE deleted_at IS NULL AND (?1 IS NULL OR updated_at < ?1 \
+                OR (updated_at = ?1 AND schedule_id < ?2)) \
+             ORDER BY updated_at DESC, schedule_id DESC LIMIT ?3",
+        )?;
+        let (updated_at, id) = cursor_parts(cursor);
+        let rows = statement.query_map(
+            params![updated_at, id, (limit + 1) as i64],
+            schedule_from_row,
+        )?;
+        let mut items = rows.collect::<Result<Vec<_>, _>>()?;
+        let has_more = items.len() > limit;
+        items.truncate(limit);
+        let next = has_more
+            .then(|| items.last())
+            .flatten()
+            .map(|last| CatalogCursor {
+                updated_at: last.updated_at.clone(),
+                id: last.schedule_id.clone(),
+                version: last.revision,
+            });
+        Ok(SchedulePage { items, next })
+    }
+
+    pub fn deleted_schedules_page(
+        &self,
+        cursor: Option<&CatalogCursor>,
+        limit: usize,
+    ) -> Result<SchedulePage, StorageError> {
+        validate_catalog_cursor(cursor, limit)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT schedule_id, schedule_json, revision, state, next_run_at, updated_at, deleted_at \
+             FROM schedules WHERE deleted_at IS NOT NULL AND (?1 IS NULL OR updated_at < ?1 \
                 OR (updated_at = ?1 AND schedule_id < ?2)) \
              ORDER BY updated_at DESC, schedule_id DESC LIMIT ?3",
         )?;
@@ -649,7 +699,7 @@ impl Database {
         let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
         connection
             .query_row(
-                "SELECT schedule_id, schedule_json, revision, state, next_run_at, updated_at \
+                "SELECT schedule_id, schedule_json, revision, state, next_run_at, updated_at, deleted_at \
                  FROM schedules WHERE schedule_id = ?1",
                 [schedule_id],
                 schedule_from_row,
@@ -669,8 +719,8 @@ impl Database {
         }
         let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
         let mut statement = connection.prepare(
-            "SELECT schedule_id, schedule_json, revision, state, next_run_at, updated_at \
-             FROM schedules WHERE state = 'active' AND next_run_at IS NOT NULL \
+            "SELECT schedule_id, schedule_json, revision, state, next_run_at, updated_at, deleted_at \
+             FROM schedules WHERE deleted_at IS NULL AND state = 'active' AND next_run_at IS NOT NULL \
              AND next_run_at <= ?1 ORDER BY next_run_at ASC, schedule_id ASC LIMIT ?2",
         )?;
         let rows = statement.query_map(params![through, limit as i64], schedule_from_row)?;
@@ -694,6 +744,14 @@ impl Database {
         validate_timestamp(created_at)?;
         let document = serde_json::to_string(result)?;
         let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let available: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schedules WHERE schedule_id = ?1 AND deleted_at IS NULL)",
+            [schedule_id],
+            |row| row.get(0),
+        )?;
+        if !available {
+            return Err(StorageError::Invalid("schedule is not available"));
+        }
         let changed = connection.execute(
             "INSERT OR IGNORE INTO schedule_runs \
              (schedule_id, period_key, run_id, result_json, created_at) \
@@ -714,6 +772,93 @@ impl Database {
             result: serde_json::from_str(&stored_result)?,
             created_at: stored_at,
             replayed: changed == 0,
+        })
+    }
+
+    /// Atomically reserve a schedule occurrence before any paid provider call.
+    /// An existing row is returned as a replay and must never be executed again
+    /// automatically, including when its state is still `running` after a crash.
+    pub fn claim_schedule_run(
+        &self,
+        schedule_id: &str,
+        period_key: &str,
+        claim: &Value,
+        created_at: &str,
+    ) -> Result<ScheduleRunRecord, StorageError> {
+        validate_identifier(schedule_id)?;
+        validate_text(period_key, 512)?;
+        validate_object(claim, "schedule claim must be a JSON object")?;
+        validate_timestamp(created_at)?;
+        let document = serde_json::to_string(claim)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let available: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM schedules WHERE schedule_id = ?1 AND deleted_at IS NULL)",
+            [schedule_id],
+            |row| row.get(0),
+        )?;
+        if !available {
+            return Err(StorageError::Invalid("schedule is not available"));
+        }
+        let changed = connection.execute(
+            "INSERT OR IGNORE INTO schedule_runs \
+             (schedule_id, period_key, run_id, result_json, created_at) \
+             VALUES (?1, ?2, NULL, ?3, ?4)",
+            params![schedule_id, period_key, document, created_at],
+        )?;
+        let (run_id, result, stored_at): (Option<String>, String, String) = connection.query_row(
+            "SELECT run_id, result_json, created_at FROM schedule_runs \
+             WHERE schedule_id = ?1 AND period_key = ?2",
+            params![schedule_id, period_key],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        Ok(ScheduleRunRecord {
+            schedule_id: schedule_id.to_owned(),
+            period_key: period_key.to_owned(),
+            run_id,
+            result: serde_json::from_str(&result)?,
+            created_at: stored_at,
+            replayed: changed == 0,
+        })
+    }
+
+    /// Finalize only the exact claim created by the caller. A stale worker can
+    /// therefore never overwrite another process's completed or ambiguous row.
+    pub fn complete_schedule_run(
+        &self,
+        schedule_id: &str,
+        period_key: &str,
+        expected_claim: &Value,
+        result: &Value,
+    ) -> Result<ScheduleRunRecord, StorageError> {
+        validate_identifier(schedule_id)?;
+        validate_text(period_key, 512)?;
+        validate_object(expected_claim, "schedule claim must be a JSON object")?;
+        validate_object(result, "schedule result must be a JSON object")?;
+        let expected = serde_json::to_string(expected_claim)?;
+        let document = serde_json::to_string(result)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let changed = connection.execute(
+            "UPDATE schedule_runs SET result_json = ?3 \
+             WHERE schedule_id = ?1 AND period_key = ?2 AND result_json = ?4",
+            params![schedule_id, period_key, document, expected],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::Conflict("schedule run claim changed"));
+        }
+        let (run_id, stored_result, created_at): (Option<String>, String, String) = connection
+            .query_row(
+                "SELECT run_id, result_json, created_at FROM schedule_runs \
+                 WHERE schedule_id = ?1 AND period_key = ?2",
+                params![schedule_id, period_key],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+        Ok(ScheduleRunRecord {
+            schedule_id: schedule_id.to_owned(),
+            period_key: period_key.to_owned(),
+            run_id,
+            result: serde_json::from_str(&stored_result)?,
+            created_at,
+            replayed: false,
         })
     }
 
@@ -749,13 +894,69 @@ impl Database {
             .transpose()
     }
 
+    pub fn schedule_runs_page(
+        &self,
+        schedule_id: &str,
+        cursor: Option<&ScheduleRunCursor>,
+        limit: usize,
+    ) -> Result<ScheduleRunPage, StorageError> {
+        validate_identifier(schedule_id)?;
+        if !(1..=100).contains(&limit) {
+            return Err(StorageError::Invalid(
+                "schedule run page bounds are invalid",
+            ));
+        }
+        if let Some(cursor) = cursor {
+            validate_timestamp(&cursor.created_at)?;
+            validate_text(&cursor.period_key, 512)?;
+        }
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT period_key, run_id, result_json, created_at FROM schedule_runs \
+             WHERE schedule_id = ?1 AND (?2 IS NULL OR created_at < ?2 \
+                OR (created_at = ?2 AND period_key < ?3)) \
+             ORDER BY created_at DESC, period_key DESC LIMIT ?4",
+        )?;
+        let (created_at, period_key) = cursor
+            .map(|cursor| {
+                (
+                    Some(cursor.created_at.as_str()),
+                    Some(cursor.period_key.as_str()),
+                )
+            })
+            .unwrap_or((None, None));
+        let rows = statement.query_map(
+            params![schedule_id, created_at, period_key, (limit + 1) as i64],
+            |row| schedule_run_from_row(schedule_id, row),
+        )?;
+        let mut items = rows.collect::<Result<Vec<_>, _>>()?;
+        let has_more = items.len() > limit;
+        items.truncate(limit);
+        let next = has_more
+            .then(|| items.last())
+            .flatten()
+            .map(|last| ScheduleRunCursor {
+                created_at: last.created_at.clone(),
+                period_key: last.period_key.clone(),
+            });
+        Ok(ScheduleRunPage { items, next })
+    }
+
     pub fn advance_schedule(
         &self,
         schedule_id: &str,
+        expected_revision: i64,
+        expected_next_run_at: Option<&str>,
         next_run_at: Option<&str>,
         updated_at: &str,
-    ) -> Result<ScheduleRecord, StorageError> {
+    ) -> Result<bool, StorageError> {
         validate_identifier(schedule_id)?;
+        if expected_revision < 1 {
+            return Err(StorageError::Invalid("schedule revision is invalid"));
+        }
+        if let Some(expected_next_run_at) = expected_next_run_at {
+            validate_timestamp(expected_next_run_at)?;
+        }
         if let Some(next_run_at) = next_run_at {
             validate_timestamp(next_run_at)?;
         }
@@ -767,49 +968,77 @@ impl Database {
         };
         let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
         let changed = connection.execute(
-            "UPDATE schedules SET state = ?2, next_run_at = ?3, updated_at = ?4 \
-             WHERE schedule_id = ?1",
-            params![schedule_id, state, next_run_at, updated_at],
+            "UPDATE schedules SET state = ?2, next_run_at = ?3, updated_at = ?4, \
+             revision = revision + 1 WHERE schedule_id = ?1 AND deleted_at IS NULL \
+             AND state = 'active' AND revision = ?5 AND next_run_at IS ?6",
+            params![
+                schedule_id,
+                state,
+                next_run_at,
+                updated_at,
+                expected_revision,
+                expected_next_run_at,
+            ],
+        )?;
+        Ok(changed == 1)
+    }
+
+    pub fn soft_delete_schedule(
+        &self,
+        schedule_id: &str,
+        expected_revision: i64,
+        deleted_at: &str,
+    ) -> Result<ScheduleRecord, StorageError> {
+        validate_identifier(schedule_id)?;
+        if expected_revision < 1 {
+            return Err(StorageError::Invalid("schedule revision is invalid"));
+        }
+        validate_timestamp(deleted_at)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let changed = connection.execute(
+            "UPDATE schedules SET revision = revision + 1, next_run_at = NULL, \
+             updated_at = ?3, deleted_at = ?3 WHERE schedule_id = ?1 \
+             AND revision = ?2 AND deleted_at IS NULL",
+            params![schedule_id, expected_revision, deleted_at],
         )?;
         if changed != 1 {
-            return Err(StorageError::Invalid("schedule does not exist"));
+            return Err(StorageError::Conflict("schedule changed since it was read"));
         }
         drop(connection);
         self.schedule(schedule_id)?
             .ok_or(StorageError::Invalid("schedule does not exist"))
     }
 
-    pub fn delete_schedule(
+    pub fn restore_schedule(
         &self,
         schedule_id: &str,
         expected_revision: i64,
-    ) -> Result<(), StorageError> {
+        next_run_at: Option<&str>,
+        updated_at: &str,
+    ) -> Result<ScheduleRecord, StorageError> {
         validate_identifier(schedule_id)?;
         if expected_revision < 1 {
             return Err(StorageError::Invalid("schedule revision is invalid"));
         }
-        let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let current: Option<i64> = transaction
-            .query_row(
-                "SELECT revision FROM schedules WHERE schedule_id = ?1",
-                [schedule_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if current != Some(expected_revision) {
+        if let Some(next_run_at) = next_run_at {
+            validate_timestamp(next_run_at)?;
+        }
+        validate_timestamp(updated_at)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let changed = connection.execute(
+            "UPDATE schedules SET revision = revision + 1, \
+             state = CASE WHEN state = 'active' AND ?3 IS NULL THEN 'paused' ELSE state END, \
+             next_run_at = CASE WHEN state = 'active' THEN ?3 ELSE NULL END, \
+             updated_at = ?4, deleted_at = NULL WHERE schedule_id = ?1 \
+             AND revision = ?2 AND deleted_at IS NOT NULL",
+            params![schedule_id, expected_revision, next_run_at, updated_at],
+        )?;
+        if changed != 1 {
             return Err(StorageError::Conflict("schedule changed since it was read"));
         }
-        transaction.execute(
-            "DELETE FROM schedule_runs WHERE schedule_id = ?1",
-            [schedule_id],
-        )?;
-        transaction.execute(
-            "DELETE FROM schedules WHERE schedule_id = ?1",
-            [schedule_id],
-        )?;
-        transaction.commit()?;
-        Ok(())
+        drop(connection);
+        self.schedule(schedule_id)?
+            .ok_or(StorageError::Invalid("schedule does not exist"))
     }
 }
 
@@ -920,6 +1149,22 @@ fn schedule_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScheduleRecord
         state: row.get(3)?,
         next_run_at: row.get(4)?,
         updated_at: row.get(5)?,
+        deleted_at: row.get(6)?,
+    })
+}
+
+fn schedule_run_from_row(
+    schedule_id: &str,
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<ScheduleRunRecord> {
+    let result: String = row.get(2)?;
+    Ok(ScheduleRunRecord {
+        schedule_id: schedule_id.to_owned(),
+        period_key: row.get(0)?,
+        run_id: row.get(1)?,
+        result: json_from_sql(&result)?,
+        created_at: row.get(3)?,
+        replayed: false,
     })
 }
 

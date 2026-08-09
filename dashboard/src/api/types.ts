@@ -849,6 +849,7 @@ export interface CatalogRecordV2 {
   artifact?: Record<string, unknown>;
   schedule?: Record<string, unknown>;
   next_run_at?: string | null;
+  deleted_at?: string | null;
 }
 
 export interface ExtensionInstallPreviewV2 {
@@ -959,15 +960,59 @@ export interface DeckFromReportInputV2 {
   };
 }
 
-export interface ScheduleSpecV2 {
-  schedule_id: string;
+export type ScheduleRecurrenceV2 =
+  | { kind: "one_shot"; at: string }
+  | { kind: "daily"; hour: number; minute: number }
+  | { kind: "weekly"; weekday_monday_zero: number; hour: number; minute: number };
+
+export type ScheduleJobV2 =
+  | {
+      kind: "deterministic";
+      job: "health.check" | "daily.refresh";
+    }
+  | {
+      kind: "model_draft";
+      provider_profile_id: string;
+      report_kind: "daily_report" | "weekly_report";
+      title: string;
+      language: string;
+      focus: string;
+      network_access_confirmed: boolean;
+    };
+
+export interface ScheduleCreateInputV2 {
+  name: string;
   timezone: string;
-  recurrence:
-    | { kind: "one_shot"; at: string }
-    | { kind: "daily"; hour: number; minute: number }
-    | { kind: "weekly"; weekday_monday_zero: number; hour: number; minute: number };
+  recurrence: ScheduleRecurrenceV2;
   missed_run_policy: "skip" | "create_draft";
-  job: { kind: "deterministic"; job: "health.check" | "daily.refresh" };
+  job: ScheduleJobV2;
+}
+
+export interface ScheduleSpecV2 extends ScheduleCreateInputV2 {
+  schedule_id?: string;
+}
+
+/** Transitional read shape for local catalogs created before schedules had names. */
+export interface ScheduleUpdateSpecV2 extends ScheduleCreateInputV2 {
+  schedule_id: string;
+}
+
+export type StoredScheduleSpecV2 = Omit<ScheduleUpdateSpecV2, "schedule_id" | "name" | "missed_run_policy">
+  & Partial<Pick<ScheduleUpdateSpecV2, "schedule_id" | "name" | "missed_run_policy">>;
+
+export interface ScheduleRecordV2 {
+  schedule_id: string;
+  schedule: StoredScheduleSpecV2;
+  revision: number;
+  state: "active" | "paused";
+  next_run_at: string | null;
+  updated_at: string;
+  deleted_at?: string | null;
+}
+
+export interface SchedulePageV2 {
+  items: ScheduleRecordV2[];
+  page: PageInfo;
 }
 
 export interface ScheduleRunV2 {
@@ -977,6 +1022,11 @@ export interface ScheduleRunV2 {
   result: Record<string, unknown>;
   created_at: string;
   replayed: boolean;
+}
+
+export interface ScheduleRunPageV2 {
+  items: ScheduleRunV2[];
+  page: PageInfo;
 }
 
 export interface ProviderProfileRecordV2 {
@@ -1458,6 +1508,15 @@ export interface DashboardApi {
   composeAiReportDraft?(input: AiReportDraftInputV2): Promise<CatalogRecordV2>;
   composeDeckFromReport?(input: DeckFromReportInputV2): Promise<CatalogRecordV2>;
   createSchedule?(schedule: ScheduleSpecV2): Promise<CatalogRecordV2>;
+  updateSchedule?(
+    scheduleId: string,
+    expectedRevision: number,
+    schedule: ScheduleUpdateSpecV2,
+  ): Promise<ScheduleRecordV2>;
+  listSchedules?(cursor?: string): Promise<SchedulePageV2>;
+  listDeletedSchedules?(cursor?: string): Promise<SchedulePageV2>;
+  listScheduleRuns?(scheduleId: string, cursor?: string): Promise<ScheduleRunPageV2>;
+  restoreSchedule?(scheduleId: string, expectedRevision: number): Promise<ScheduleRecordV2>;
   changeScheduleState?(
     scheduleId: string,
     action: "pause" | "resume",

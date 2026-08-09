@@ -28,6 +28,9 @@ use url::Url;
 
 pub use secrets::{NativeSecretStore, SecretError};
 
+const WEB_SEARCH_RESPONSE_MAX_BYTES: usize = 2 * 1024 * 1024;
+const WEB_SEARCH_TIMEOUT: Duration = Duration::from_secs(180);
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProviderError {
     Configuration,
@@ -338,7 +341,7 @@ impl ProviderClient {
             .map_err(|_| ProviderError::Configuration)?;
         let web_client = Client::builder()
             .connect_timeout(Duration::from_secs(8))
-            .timeout(Duration::from_secs(90))
+            .timeout(WEB_SEARCH_TIMEOUT)
             .redirect(Policy::none())
             .no_proxy()
             .build()
@@ -790,10 +793,7 @@ impl ProviderClient {
             .map_err(map_transport)?;
         let response_request_id = request_id(&response);
         let status = response.status();
-        let payload: Value = response
-            .json()
-            .await
-            .map_err(|_| ProviderError::InvalidResponse)?;
+        let payload = read_bounded_json(response, WEB_SEARCH_RESPONSE_MAX_BYTES).await?;
         map_status(status, &payload)?;
         if payload["status"].as_str() == Some("incomplete") {
             return Err(ProviderError::Incomplete);
@@ -905,10 +905,7 @@ impl ProviderClient {
         let response = send_chat_request(request, options.retry).await?;
         let request_id = request_id(&response);
         let status = response.status();
-        let payload: Value = response
-            .json()
-            .await
-            .map_err(|_| ProviderError::InvalidResponse)?;
+        let payload = read_bounded_json(response, WEB_SEARCH_RESPONSE_MAX_BYTES).await?;
         map_status(status, &payload)?;
         let message = &payload["choices"][0]["message"];
         let content = message["content"].as_str().unwrap_or_default().to_owned();
@@ -958,10 +955,7 @@ impl ProviderClient {
             )?);
         let response = send_chat_request(request, options.retry).await?;
         let status = response.status();
-        let payload: Value = response
-            .json()
-            .await
-            .map_err(|_| ProviderError::InvalidResponse)?;
+        let payload = read_bounded_json(response, WEB_SEARCH_RESPONSE_MAX_BYTES).await?;
         map_status(status, &payload)?;
         let message = &payload["message"];
         let content = message["content"].as_str().unwrap_or_default().to_owned();
@@ -1955,6 +1949,39 @@ fn request_id(response: &reqwest::Response) -> Option<String> {
         .map(str::to_owned)
 }
 
+async fn read_bounded_json(
+    response: reqwest::Response,
+    maximum_bytes: usize,
+) -> Result<Value, ProviderError> {
+    let maximum_length = u64::try_from(maximum_bytes).unwrap_or(u64::MAX);
+    if response
+        .content_length()
+        .is_some_and(|length| length > maximum_length)
+    {
+        return Err(ProviderError::InvalidResponse);
+    }
+    let mut body = Vec::with_capacity(
+        response
+            .content_length()
+            .and_then(|length| usize::try_from(length).ok())
+            .unwrap_or(0)
+            .min(maximum_bytes),
+    );
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(map_transport)?;
+        if body
+            .len()
+            .checked_add(chunk.len())
+            .is_none_or(|length| length > maximum_bytes)
+        {
+            return Err(ProviderError::InvalidResponse);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&body).map_err(|_| ProviderError::InvalidResponse)
+}
+
 fn map_transport(error: reqwest::Error) -> ProviderError {
     if error.is_timeout() {
         ProviderError::Timeout
@@ -2775,6 +2802,99 @@ mod tests {
             .expect("valid chunk");
         assert_eq!(second.content, "lo");
         assert_eq!(second.total_tokens, Some(5));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn bounded_json_reader_preserves_body_timeout_classification() {
+        use axum::{Router, body::Body, routing::get};
+        use std::convert::Infallible;
+
+        let app = Router::new().route(
+            "/slow-json",
+            get(|| async {
+                let chunks = futures_util::stream::unfold(0_u8, |state| async move {
+                    match state {
+                        0 => Some((
+                            Ok::<_, Infallible>(bytes::Bytes::from_static(b"{\"status\":")),
+                            1,
+                        )),
+                        1 => {
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                            Some((Ok(bytes::Bytes::from_static(b"\"completed\"}")), 2))
+                        }
+                        _ => None,
+                    }
+                });
+                Body::from_stream(chunks)
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("mock server");
+        });
+        let client = Client::builder()
+            .timeout(Duration::from_millis(75))
+            .build()
+            .expect("test client");
+        let response = client
+            .get(format!("http://{address}/slow-json"))
+            .send()
+            .await
+            .expect("response headers");
+
+        assert_eq!(
+            read_bounded_json(response, WEB_SEARCH_RESPONSE_MAX_BYTES)
+                .await
+                .expect_err("body deadline must remain a timeout"),
+            ProviderError::Timeout
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn bounded_json_reader_rejects_malformed_and_oversized_bodies() {
+        use axum::{
+            Router, body::Body, http::header::CONTENT_LENGTH, response::Response, routing::get,
+        };
+
+        let app = Router::new()
+            .route("/malformed", get(|| async { "not-json" }))
+            .route(
+                "/oversized",
+                get(|| async {
+                    let body = vec![b'x'; WEB_SEARCH_RESPONSE_MAX_BYTES + 1];
+                    Response::builder()
+                        .header(CONTENT_LENGTH, body.len())
+                        .body(Body::from(body))
+                        .expect("oversized fixture")
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("mock server");
+        });
+        let client = Client::new();
+
+        for path in ["malformed", "oversized"] {
+            let response = client
+                .get(format!("http://{address}/{path}"))
+                .send()
+                .await
+                .expect("fixture response");
+            assert_eq!(
+                read_bounded_json(response, WEB_SEARCH_RESPONSE_MAX_BYTES)
+                    .await
+                    .expect_err("invalid fixture must be rejected"),
+                ProviderError::InvalidResponse
+            );
+        }
         server.abort();
     }
 }
