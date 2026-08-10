@@ -27,8 +27,8 @@ https://github.com/Totoro-qaq/restork
 所以把自己的 Research / Study / Work 工作流做成了一个 Rust-first 桌面 Agent：**Restork**。
 
 它不是把 Obsidian 内容复制进另一套知识库，而是让普通 Markdown 继续留在本地：Vault 查询、
-安全预览和文件变更监听都在用户明确授权的目录边界内。需要产生副作用时，流程是
-“上下文预览 → 内容哈希绑定 → 单次审批 → 受控执行”；MCP 子进程还有网络、写入、输出和超时边界。
+安全预览和文件变更监听都在用户明确授权的目录边界内。需要写文件或调用工具时，流程是
+“先看上下文 → 确认具体改动 → 只批准这一次 → 再执行”；MCP 子进程也会限制网络、写入、输出大小和运行时间。
 
 桌面端用 Tauri/Rust 管 Core 的自动端口、健康检查、心跳和进程回收；模型可以配置 DeepSeek、
 Kimi、Qwen、GLM、Ollama、OpenRouter 或 OpenAI-compatible 端点。项目 MIT 开源，目前 macOS

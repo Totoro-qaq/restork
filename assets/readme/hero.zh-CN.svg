@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="title desc">
   <title id="title">Restork，一个你敢让它碰文件的桌面 Agent</title>
-  <desc id="desc">暖色纸张风格的工作台展示本地 Markdown、写入预览、操作系统级 MCP 沙箱、四层记忆与策略门。</desc>
+  <desc id="desc">暖色纸张风格的工作台展示本地 Markdown、写入预览、操作系统级 MCP 沙箱、四层记忆与发送前确认。</desc>
   <defs>
     <linearGradient id="wordmark" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="#F59E0B"/><stop offset="0.34" stop-color="#EC4899"/>
@@ -49,12 +49,12 @@
       </g>
       <path d="M190 58H218" stroke="#8B5CF6" stroke-width="2"/><path d="M212 52L220 58L212 64" fill="none" stroke="#8B5CF6" stroke-width="2"/>
       <rect x="220" width="232" height="116" rx="14" fill="#3B3126"/>
-      <text x="238" y="25" fill="#F7F0E4" font-family="American Typewriter, Courier New, monospace" font-size="11" font-weight="700" letter-spacing="1.2">策略门</text>
-      <text x="238" y="50" fill="#FFFFFF" font-size="15" font-weight="700">最少必要上下文</text>
-      <text x="238" y="70" fill="#D8CCBB" font-size="11">限定工具 · Token 预算</text>
-      <text x="238" y="85" fill="#D8CCBB" font-size="11">审批 · 审计轨迹</text>
+      <text x="238" y="25" fill="#F7F0E4" font-family="American Typewriter, Courier New, monospace" font-size="11" font-weight="700" letter-spacing="1.2">发送前确认</text>
+      <text x="238" y="50" fill="#FFFFFF" font-size="15" font-weight="700">只带当前需要的内容</text>
+      <text x="238" y="70" fill="#D8CCBB" font-size="11">只开放已选工具 · 限制用量</text>
+      <text x="238" y="85" fill="#D8CCBB" font-size="11">写入先确认 · 全程有记录</text>
       <rect x="238" y="92" width="174" height="17" rx="8.5" fill="#34D399" opacity="0.18"/>
-      <text x="249" y="104" fill="#6EE7B7" font-family="American Typewriter, Courier New, monospace" font-size="8.5" font-weight="700">影响发生前先审阅</text>
+      <text x="249" y="104" fill="#6EE7B7" font-family="American Typewriter, Courier New, monospace" font-size="8.5" font-weight="700">确认后才执行</text>
     </g>
 
     <g transform="translate(24 206)" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">

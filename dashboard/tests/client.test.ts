@@ -566,7 +566,7 @@ describe("LocalApiClient authenticated SSE", () => {
   });
 });
 
-describe("LocalApiClient governed Step 12-17 endpoints", () => {
+describe("LocalApiClient Step 12-17 endpoints", () => {
   it("uses paired Core routes for frozen tools, deliverables, and idempotent schedules", async () => {
     const responses: Response[] = [
       jsonResponse({ access_token: "paired-token" }),

@@ -1451,8 +1451,8 @@ export function runEventsMarkup(
       <ol class="event-list">${phaseEvents.length ? phaseEvents.map((event) => eventRow(event, locale)).join("") : `<li>${tr(locale, "No new events.", "暂无新事件。")}</li>`}</ol>
       <section class="conversation-panel" aria-labelledby="conversation-title">
         <header>
-          <div><p class="eyebrow">RUN-SCOPED · NO TOOLS</p><h3 id="conversation-title">${tr(locale, "Conversation", "多轮对话")}</h3></div>
-          <span>${prompt ? `PROMPT ${escapeHtml(prompt.prompt_version)}` : "BOUNDED CONTEXT"}</span>
+          <div><p class="eyebrow">THIS RUN · CHAT ONLY</p><h3 id="conversation-title">${tr(locale, "Conversation", "多轮对话")}</h3></div>
+          <span>${prompt ? `PROMPT ${escapeHtml(prompt.prompt_version)}` : tr(locale, "RECENT MESSAGES", "最近消息")}</span>
         </header>
         <div class="conversation-history" data-conversation-scroll role="log" aria-live="polite" tabindex="0">
           ${paginationControl("conversation", conversation?.page, locale, tr(locale, "LOAD EARLIER MESSAGES", "加载更早消息"))}
@@ -1463,7 +1463,7 @@ export function runEventsMarkup(
         <form class="conversation-composer" data-conversation-form data-run-id="${escapeHtml(summary.run_id)}">
           <label for="conversation-input">${tr(locale, "Message for this run", "给当前运行发送消息")}</label>
           <textarea id="conversation-input" name="content" rows="3" maxlength="16000" required ${conversation?.enabled && !conversation.busy ? "" : "disabled"} placeholder="${tr(locale, "Ask, compare, explain, or refine…", "提问、比较、解释或继续细化…")}">${escapeHtml(conversation?.draft ?? "")}</textarea>
-          <div><small>${tr(locale, "Sliding context window · no tools · effects still require a separate approval", "滑动上下文窗口 · 无工具权限 · 所有副作用仍需单独审批")}</small><button type="submit" ${conversation?.enabled && !conversation.busy ? "" : "disabled"}>${tr(locale, "SEND", "发送")}</button></div>
+          <div><small>${tr(locale, "Uses recent messages only · tools are off · file and tool actions always ask first", "只参考最近消息 · 不会调用工具 · 写文件或调用工具前会再次询问")}</small><button type="submit" ${conversation?.enabled && !conversation.busy ? "" : "disabled"}>${tr(locale, "SEND", "发送")}</button></div>
         </form>
       </section>
     </article>`;

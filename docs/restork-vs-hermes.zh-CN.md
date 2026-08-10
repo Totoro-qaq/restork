@@ -5,21 +5,21 @@
 # Restork 与 Hermes Agent
 
 Hermes Agent 和 Restork 有交集，但重心不同。Hermes 是通用、终端优先、供应商与插件生态广泛的
-Agent 平台；Restork 是围绕私有 Markdown 知识库、可检查上下文、审批副作用与可恢复
+Agent 平台；Restork 是围绕私有 Markdown 知识库、可检查上下文、写入前确认与失败后恢复
 Research–Study–Work 工作流构建的本地优先桌面工作台。
 
 这不是打分表，而是说明 Restork 学什么、又为什么保留不同边界。
 
 | 方面 | Hermes Agent | Restork |
 |---|---|---|
-| 主要体验 | 终端与 Gateway 驱动的对话 | 中英文桌面工作台，加一套受控对话界面 |
-| 运行时重心 | 扩展性很强的 Python Agent runtime | 单一 Rust Core 拥有策略、生命周期、存储、网络、工具与副作用；当前不分发 Python runtime |
-| 模型选择 | 广泛的 Provider 插件、配置向导与会话内切换 | 版本化 Provider Registry 与对话内可见选择器；切换时创建独立受控的有界分支，原对话继续冻结 |
+| 主要体验 | 终端与 Gateway 驱动的对话 | 中英文桌面工作台；模型、上下文与写入动作都能在界面中确认 |
+| 运行时重心 | 扩展性很强的 Python Agent runtime | 单一 Rust Core 管理权限、启动退出、存储、网络、文件与工具操作；当前不分发 Python runtime |
+| 模型选择 | 广泛的 Provider 插件、配置向导与会话内切换 | 版本化 Provider Registry 与对话内可见选择器；切换后从当前进度创建一个独立分支，原对话保持不变 |
 | 思考强度 | 全局/按模型强度设置与运行时 `/reasoning` 命令 | 只显示供应商声明支持的档位；不支持就失败关闭；不展示或保留私有思维链 |
-| 扩展 | 可插拔的 Provider、Memory、Context、媒体与平台插件 | Skill/MCP/Plugin 先隔离，版本不可变，展示权限差异，显式启用、回滚，并冻结会话目录 |
+| 扩展 | 可插拔的 Provider、Memory、Context、媒体与平台插件 | Skill、MCP 和插件默认不开启；安装前会显示所需权限，也可以停用或退回上一版本 |
 | 知识 | 通用 Agent Memory 与 Context Engine | 普通本地 Markdown/Obsidian 文件仍是长期知识来源 |
-| 副作用 | 通用工具循环 | 预览 → 审批 → 日志/检查点 → 应用；权限不写在 Prompt 里 |
-| 委派 | 可配置 Sub-agent 的供应商与模型 | 深度一的有界执行器；来源、工具、预算必须是父任务子集，子任务不能审批、写文件、写持久记忆或递归 |
+| 文件与工具操作 | 通用工具循环 | 先看改动，再确认执行；每一步都有记录，失败后可以继续或恢复 |
+| 委派 | 可配置 Sub-agent 的供应商与模型 | 子任务只继承父任务允许的来源、工具和预算；不能自行审批、写文件、写长期记忆或继续创建子任务 |
 
 ## Restork 值得向 Hermes 学的地方
 

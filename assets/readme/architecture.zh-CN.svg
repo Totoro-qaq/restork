@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
-  <title id="title">Restork 四层记忆与受控出站架构</title>
-  <desc id="desc">四个本地记忆层在 Restork Core 内选择最少必要上下文；Markdown 与私有画像保持为真相来源，每次云端请求都经过策略门。</desc>
+  <title id="title">Restork 四层记忆与发送前确认架构</title>
+  <desc id="desc">四层本地记忆只选择当前任务需要的内容；Markdown 始终是知识来源，只有你确认的内容才会发给云模型。</desc>
   <defs>
     <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
       <stop stop-color="#FFFDF8"/><stop offset="1" stop-color="#F7F0E4"/>
@@ -13,7 +13,7 @@
   <rect width="1200" height="560" rx="26" fill="url(#rules)"/>
   <path d="M48 36V524" stroke="#C0392F" stroke-opacity="0.18"/>
   <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
-    <text x="72" y="62" fill="#3B3126" font-family="American Typewriter, Courier New, PingFang SC, monospace" font-size="27" font-weight="800" letter-spacing="1.5">四层记忆 · 本地真相，受控上下文</text>
+    <text x="72" y="62" fill="#3B3126" font-family="American Typewriter, Courier New, PingFang SC, monospace" font-size="27" font-weight="800" letter-spacing="1.5">四层记忆 · 本地为准，发送前确认</text>
     <text x="72" y="90" fill="#6B5D4B" font-size="15">记忆负责选择上下文，而不是制造第二份知识真相。</text>
 
     <g transform="translate(72 122)">

@@ -35,7 +35,7 @@ Restork 只记录所选策略、持久阶段、最终回答与汇总用量；不
 2. 选择供应商，填写精确模型 ID，再选择这个供应商支持的思考强度。
 3. 云端模型通过原生凭据流程保存 Key；界面里只填写引用，例如
    `keychain:restork/provider/deepseek`。
-4. 保存 Provider Profile，再把它绑定到一个受控 Work Profile。
+4. 保存 Provider Profile，再选择它可以在哪个 Work Profile 中使用。
 5. 在保存后的 Provider Profile 卡片上运行**测试模型**。它会使用刚才保存的供应商与精确模型；
    只有你选择 DeepSeek Profile 时才会走 DeepSeek。
 
@@ -74,7 +74,7 @@ cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure kimi
 | 用途 | 模型 | API | Dashboard / CLI 测试 |
 |---|---|---|---|
 | 主要对话与综合 | `deepseek-v4-pro` | `/chat/completions` | **测试 V4 Pro** / `restorkd doctor --smoke` |
-| 有界联网研究 | `deepseek-v4-flash` | `/responses`，强制服务端 `web_search` | **测试 V4 Flash 联网** / `restorkd doctor --web-search` |
+| 歌曲联网分析 | `deepseek-v4-flash` | `/responses`，使用服务端 `web_search` | **测试 V4 Flash 联网** / `restorkd doctor --web-search` |
 
 **检查 Key 与模型**（或 `restorkd doctor --connect`）只验证鉴权与模型发现，不生成回答。模型
 短句测试必须单独执行，因为 `/models` 成功不代表推理或联网工具一定可用。诊断不会偷偷切到另一个

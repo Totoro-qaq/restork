@@ -38,7 +38,7 @@ not request a private chain-of-thought for display and does not save one as a tr
 2. Select a provider, enter the exact model id, and choose a supported reasoning intensity.
 3. For cloud providers, create the secret through the native credential flow and paste only its
    reference, such as `keychain:restork/provider/deepseek`.
-4. Save the Provider Profile, then bind it to a governed Work Profile.
+4. Save the Provider Profile, then choose which Work Profile may use it.
 5. On the saved Provider Profile card, run **Test model** before using it with a real task. The test
    uses that exact saved provider and model; it does not route through DeepSeek unless DeepSeek was
    the selected profile.

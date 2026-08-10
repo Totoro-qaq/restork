@@ -139,6 +139,10 @@ jobs:
             ~/.cargo/git
             desktop/src-tauri/target
           key: restork-desktop-${{ runner.os }}-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
+      - name: Prepare the compile-only desktop resource directory
+        run: >-
+          node -e "require('node:fs').mkdirSync('dist/desktop-runtime',
+          { recursive: true })"
       - run: cargo fmt --manifest-path desktop/src-tauri/Cargo.toml -- --check
       - run: cargo clippy --manifest-path desktop/src-tauri/Cargo.toml --locked --all-targets -- -D warnings
       - run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --locked
