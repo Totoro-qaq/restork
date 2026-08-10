@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="./assets/readme/hero.zh-CN.svg" width="100%" alt="Restork——写入前先给你看、MCP 工具关进系统沙箱、Markdown 留在本地的桌面 Agent。">
+  <img src="./assets/readme/hero.zh-CN.svg" width="100%" alt="Restork——围绕本地 Markdown 完成研究、学习与工作，写入前可预览，MCP 工具运行在系统沙箱中。">
 </p>
 
 <p align="center">
@@ -26,9 +26,9 @@
 </p>
 
 <p align="center">
-  <strong>一个你敢让它碰文件的桌面 Agent。</strong><br>
-  让它在本地 Markdown 里查资料、附上出处；需要写回时，先把改动摊开给你看。
-  MCP 工具会被关进操作系统沙箱里。<br>
+  <strong>查资料，学知识，推进工作。</strong><br>
+  Restork 可以检索本地 Markdown 并附上出处；需要写回时，会先把具体改动给你看。
+  MCP 工具运行在操作系统沙箱里。<br>
   <sub>免费、开源，写给研究者、开发者和每天要跟资料打交道的人。</sub>
 </p>
 
@@ -63,7 +63,7 @@
 | 你关心的事 | Restork 会怎么做 |
 |---|---|
 | **你的 Markdown 仍然属于你** | Obsidian 笔记和任务仍是普通本地文件；私人 Vault 不会被复制进本仓库。 |
-| **先看到影响，再决定是否继续** | 写入先生成精确预览；审批只使用一次、会过期，并绑定这一次的具体内容。 |
+| **写入前预览，再决定要不要保存** | Restork 会展示具体内容；一次确认只对应当前版本，并会按时失效。 |
 | **记忆随时可以检查** | Working、Episodic、Semantic、Profile 四层记忆都能查看、纠正、导出和删除；模型猜测不会自动变成你的偏好。 |
 | **所有连接都由你开启** | Restork 启动并不等于启用天气、日历、Vault、歌单或模型 Provider。 |
 | **失败也会留下清楚记录** | 运行、重试、审批和恢复都会成为持久事件，而不是消失在一个一直转动的加载图标后面。 |

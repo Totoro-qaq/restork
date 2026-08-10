@@ -25,7 +25,7 @@ location.
 Coordinates occur in the private Profile and ephemeral Core request to the configured provider. The
 Dashboard receives the display label and weather fields after saving, never the coordinates on
 later reads. City text or approved coordinates travel only from the paired WebView to loopback Core
-and are not retained in Web Storage. Requests use the governed outbound gateway, exact Open-Meteo
+and are not retained in Web Storage. Requests use the outbound gateway, exact Open-Meteo
 forecast/geocoding origins, explicit query-key allowlists, response-size limits, and a 30-minute
 redacted display cache. Weather attribution and parameters follow the
 [official Open-Meteo forecast documentation](https://open-meteo.com/en/docs).

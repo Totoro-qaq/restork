@@ -142,7 +142,7 @@ are read-only local imports. The record rotates only after user interaction and 
 preferences. Empty configuration renders setup states and performs no daily-context request.
 
 Weather can be enabled from its settings dialog by entering a city/place name or by explicitly
-pressing **Use current location**. A city submit performs a governed Open-Meteo geocoding request;
+pressing **Use current location**. A city submit performs one Open-Meteo geocoding request through the outbound gateway;
 the location button calls browser geolocation only after that click and the browser/system consent
 prompt. Restork never infers a location from an IP address, and denying permission leaves city input
 usable. Disabling weather clears its provider and saved location. The browser does not retain the

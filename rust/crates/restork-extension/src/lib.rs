@@ -1,4 +1,4 @@
-//! Pure domain contracts for governed Restork extensions.
+//! Pure domain contracts for Restork extensions with explicit permissions.
 //!
 //! This crate deliberately performs no process creation, secret resolution, file
 //! access, or network I/O. It validates declarative manifests and resolves the

@@ -72,7 +72,7 @@ credential, production trace, or live provider call was used in this review.
 - **Mechanism/layer:** persistence had recovery logic but Core construction did not execute it.
 - **Root cause:** startup wiring omitted the journal reconciliation call.
 - **Fix:** the Markdown task mutator reconciles journals during construction; exact preimage,
-  postimage, and divergent states remain governed by the journal writer.
+  postimage, and divergent states remain serialized by the journal writer.
 - **Evidence:** `src/restork/dashboard/tasks.py:116`, `src/restork/dashboard/tasks.py:131`,
   `tests/recovery/test_writes.py:152`.
 - **Confidence:** 0.98.

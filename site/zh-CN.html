@@ -3,18 +3,18 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="免费、开源的桌面 Agent：写入前先给你看，MCP 工具关进系统沙箱，Markdown 留在本地。">
+    <meta name="description" content="连接本地 Markdown、模型和日常任务的开源桌面应用。写入前可以预览，MCP 工具运行在系统沙箱中。">
     <meta name="theme-color" content="#fbf7ef">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://totoro-qaq.github.io/restork/zh-CN.html">
-    <meta property="og:title" content="Restork——一个你敢让它碰文件的桌面 Agent">
-    <meta property="og:description" content="写入前先看清改动，Markdown 留在本地，MCP 工具运行在系统沙箱里。">
+    <meta property="og:title" content="Restork——查资料，学知识，推进工作">
+    <meta property="og:description" content="每次写入都可以预览，Markdown 留在本地，MCP 工具运行在系统沙箱里。">
     <meta property="og:image" content="https://totoro-qaq.github.io/restork/assets/readme/social-preview.zh-CN.png">
     <meta property="og:image:width" content="1280">
     <meta property="og:image:height" content="640">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="https://totoro-qaq.github.io/restork/assets/readme/social-preview.zh-CN.png">
-    <title>Restork——一个你敢让它碰文件的桌面 Agent</title>
+    <title>Restork——查资料，学知识，推进工作</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./styles.css">
   </head>
@@ -34,10 +34,9 @@
       <section class="hero">
         <div class="hero-copy">
           <p class="eyebrow">本地优先 · RUST CORE · MIT</p>
-          <h1>让 Agent 碰文件，<br><em>但不必盲目信任它。</em></h1>
-          <p class="lede">每次写入都先把精确 diff 给你过目，你点头后才会落盘。MCP 工具被关在
-            操作系统沙箱里，即使模型判断错了，也不能越过那道门。查一个问题、整理一份带出处的
-            笔记，哪些内容值得存回 Vault，由你决定。</p>
+          <h1>查资料，学知识，<em>推进工作。</em></h1>
+          <p class="lede">Restork 可以检索本地 Markdown、查找公开资料、整理带出处的笔记，并在写回前
+            展示具体改动。MCP 工具运行在操作系统沙箱里；哪些内容值得存回 Vault，仍由你决定。</p>
           <div class="actions">
             <a class="primary" href="https://github.com/Totoro-qaq/restork/releases">下载桌面技术预览</a>
             <a href="https://github.com/Totoro-qaq/restork/blob/main/README.zh-CN.md#从源码运行贡献者">从源码构建</a>
@@ -66,13 +65,13 @@
       </section>
 
       <section class="proof">
-        <div><p class="eyebrow">改了什么，先给你看</p><h2>每次写入都先预览。</h2><p>Restork 会先摊开具体改动，再碰你的真实笔记。你的一次确认，只对眼前这个版本有效。</p></div>
+        <div><p class="eyebrow">写入前预览</p><h2>保存前看清具体内容。</h2><p>Restork 会先展示准备写入的内容。你的一次确认只对应当前版本，内容变了就需要重新确认。</p></div>
         <img src="./assets/readme/demo-poster.zh-CN.webp" alt="使用合成数据展示研究、审批、记忆、Radar 与每日上下文的 Restork 中文静态界面。" width="1600" height="1000" loading="lazy">
       </section>
 
       <section class="promises">
         <article><strong>01</strong><h3>Markdown 仍是普通文件</h3><p>指向你现有的 Obsidian Vault 或另选一个目录。笔记不会被锁进私有数据库，本地文件始终是真正的归宿。</p></article>
-        <article><strong>02</strong><h3>每次写入都先看</h3><p>Research 与 Study 笔记会先以预览呈现。你的一次确认只对眼前这份内容有效，不会静默覆盖，也不会自动执行。</p></article>
+        <article><strong>02</strong><h3>保存前确认</h3><p>Research 与 Study 笔记会先以预览呈现。一次确认只对应当前内容，不会静默覆盖，也不会自动执行。</p></article>
         <article><strong>03</strong><h3>MCP 跑在系统沙箱里</h3><p>macOS Seatbelt、Linux bubblewrap 与 Windows Job Objects 会限制工具能访问什么、能运行多久，不靠一段提示词碰运气。</p></article>
         <article><strong>04</strong><h3>思考是设置，不是泄漏</h3><p>可选 DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter。界面只显示该模型真正支持的思考档位；私有思维链不展示、不留存。</p></article>
         <article><strong>05</strong><h3>每一步都有记录</h3><p>模型做了什么、工具是否成功、哪里重试、你批准了什么，都能回头查看。中途停下，也能接着做。</p></article>

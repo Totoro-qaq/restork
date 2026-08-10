@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="title desc">
-  <title id="title">Restork，一个你敢让它碰文件的桌面 Agent</title>
+  <title id="title">Restork，查资料，学知识，推进工作</title>
   <desc id="desc">暖色纸张风格的工作台展示本地 Markdown、写入预览、操作系统级 MCP 沙箱、四层记忆与发送前确认。</desc>
   <defs>
     <linearGradient id="wordmark" x1="0" y1="0" x2="1" y2="0">
@@ -20,15 +20,15 @@
   <path d="M48 48V352" stroke="#C0392F" stroke-opacity="0.20"/>
 
   <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
-    <text x="74" y="72" fill="#A08F78" font-size="13" font-weight="700" letter-spacing="2.4">改动先给你看的桌面 AGENT · MIT</text>
+    <text x="74" y="72" fill="#A08F78" font-size="13" font-weight="700" letter-spacing="2.4">研究 · 学习 · 工作 · MIT</text>
     <text x="70" y="151" fill="url(#wordmark)" font-family="American Typewriter, Courier New, monospace" font-size="76" font-weight="800" letter-spacing="5">RESTORK</text>
-    <text x="74" y="198" fill="#3B3126" font-size="23" font-weight="650">一个你敢让它碰文件的 Agent。</text>
-    <text x="74" y="256" fill="#6B5D4B" font-size="17">你的 Markdown 留在本地。</text>
-    <text x="74" y="284" fill="#8D7C64" font-size="16">写入先预览；MCP 工具进系统沙箱。</text>
+    <text x="74" y="198" fill="#3B3126" font-size="23" font-weight="650">查资料，学知识，推进工作。</text>
+    <text x="74" y="238" fill="#6B5D4B" font-size="17">研究、学习和工作，都在同一个桌面应用里。</text>
+    <text x="74" y="266" fill="#8D7C64" font-size="16">写入先预览；MCP 工具进系统沙箱。</text>
     <g font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="700" letter-spacing="1.2">
-      <rect x="74" y="326" width="126" height="32" rx="16" fill="#8B5CF6" opacity="0.12" stroke="#8B5CF6"/><text x="103" y="347" fill="#6D45D4">RUST CORE</text>
-      <rect x="212" y="326" width="142" height="32" rx="16" fill="#22D3EE" opacity="0.14" stroke="#22AFC6"/><text x="232" y="347" fill="#167C89">LOCAL WEB UI</text>
-      <rect x="366" y="326" width="132" height="32" rx="16" fill="#F59E0B" opacity="0.13" stroke="#D68806"/><text x="388" y="347" fill="#9B5B00">MARKDOWN</text>
+      <rect x="74" y="310" width="126" height="32" rx="16" fill="#8B5CF6" opacity="0.12" stroke="#8B5CF6"/><text x="103" y="331" fill="#6D45D4">RUST CORE</text>
+      <rect x="212" y="310" width="142" height="32" rx="16" fill="#22D3EE" opacity="0.14" stroke="#22AFC6"/><text x="232" y="331" fill="#167C89">LOCAL WEB UI</text>
+      <rect x="366" y="310" width="132" height="32" rx="16" fill="#F59E0B" opacity="0.13" stroke="#D68806"/><text x="388" y="331" fill="#9B5B00">MARKDOWN</text>
     </g>
   </g>
 

@@ -247,6 +247,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   root.innerHTML = workspaceMarkup(snapshot, locale);
   applyTheme(snapshot.workspaceV2?.personal?.settings.theme);
   startClock(root);
+  bindProviderDiagnosticDismiss(root);
   root.querySelector<HTMLButtonElement>("#global-status-dismiss")?.addEventListener("click", () => {
     clearAnnouncement(root);
   });
@@ -1310,7 +1311,7 @@ function configureExtensionCenter(
       approve.textContent = tr(
         localeOf(root),
         "INSTALL REVIEWED VERSION",
-        "安装已审查版本",
+        "安装已核验版本",
       );
       approve.addEventListener("click", async () => {
         const confirmed = await confirmAction(
@@ -1332,7 +1333,7 @@ function configureExtensionCenter(
             approve.textContent = tr(
               localeOf(root),
               "INSTALL REVIEWED VERSION",
-              "安装已审查版本",
+              "安装已核验版本",
             );
             announceError(root, errorText(error, localeOf(root)));
           });
@@ -1354,7 +1355,7 @@ function configureExtensionCenter(
       if (action === "enable") {
         const confirmed = await confirmAction(
           root,
-          tr(localeOf(root), `Enable ${packageId} at this exact reviewed hash?`, `按当前已审查哈希启用 ${packageId}？`),
+          tr(localeOf(root), `Enable the verified version of ${packageId}?`, `启用已经核验的 ${packageId} 版本？`),
           hash,
         );
         if (!confirmed) return;
@@ -1619,6 +1620,33 @@ function overviewProviderCommand(kind: ProviderKindV2): string {
   return kind === "ollama"
     ? "ollama serve"
     : `restorkd provider configure ${kind}`;
+}
+
+function bindProviderDiagnosticDismiss(root: HTMLElement): void {
+  root.querySelectorAll<HTMLElement>(
+    "#provider-diagnostic-result, [data-provider-profile-result]",
+  ).forEach((host) => {
+    host.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const dismiss = target.closest<HTMLButtonElement>("[data-provider-diagnostic-dismiss]");
+      if (!dismiss || !host.contains(dismiss)) return;
+      const profileCard = host.closest<HTMLElement>("[data-provider-profile-card]");
+      const returnFocus = profileCard?.querySelector<HTMLButtonElement>("[data-provider-profile-test]")
+        ?? root.querySelector<HTMLButtonElement>('[data-provider-diagnostic="smoke"]');
+      host.replaceChildren();
+      if (!host.hasAttribute("data-provider-profile-result")) {
+        const placeholder = document.createElement("p");
+        placeholder.textContent = tr(
+          localeOf(root),
+          "Test result closed. Run another check whenever you need it.",
+          "测试结果已关闭，需要时可以重新测试。",
+        );
+        host.append(placeholder);
+      }
+      returnFocus?.focus();
+    });
+  });
 }
 
 function setOverviewProviderActionAvailability(root: HTMLElement): void {
@@ -3022,7 +3050,7 @@ function openTodoSuggestionConversation(
   announceStatus(root, tr(
     locale,
     "Choose a model profile and create the conversation. Restork will show the request before anything changes.",
-    "请选择模型 Profile 并创建对话；真正改动任务前，Restork 会先把请求给你看。",
+    "请选择模型 Profile 并创建对话；实际修改任务前，Restork 会展示准备执行的请求。",
   ));
 }
 

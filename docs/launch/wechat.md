@@ -28,7 +28,7 @@ https://github.com/Totoro-qaq/restork
 
 它不会把 Obsidian 内容复制进另一套知识库，普通 Markdown 还是留在原来的地方。Vault 查询、
 预览和文件变化监听只会发生在用户亲自选中的目录里。需要写文件或调用工具时，流程是
-“先看会用到什么 → 确认具体改动 → 这次同意后再执行”；MCP 子进程也会限制网络、写入、输出大小和运行时间。
+“查看会用到哪些资料 → 预览准备写入的内容 → 确认后执行”；MCP 子进程也会限制网络、写入、输出大小和运行时间。
 
 桌面端用 Tauri/Rust 管 Core 的自动端口、健康检查、心跳和进程回收；模型可以配置 DeepSeek、
 Kimi、Qwen、GLM、Ollama、OpenRouter 或 OpenAI-compatible 端点。项目 MIT 开源，macOS、

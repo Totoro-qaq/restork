@@ -26,9 +26,9 @@
 </p>
 
 <p align="center">
-  <strong>The desktop agent you can trust with your files.</strong><br>
-  Search local Markdown with citations. Before Restork writes a note, you see the exact change and
-  decide whether it lands. MCP tools run in OS-level sandboxes.<br>
+  <strong>Research, learn, and get work done.</strong><br>
+  Restork searches local Markdown with citations. Before it writes a note, you see the exact change
+  and decide whether to save it. MCP tools run in OS-level sandboxes.<br>
   <sub>Free and open source for researchers, developers, and knowledge workers.</sub>
 </p>
 

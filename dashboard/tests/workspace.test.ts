@@ -2362,6 +2362,7 @@ describe("Rust conversation workspace", () => {
 
   it("tests the exact saved provider and model instead of a hard-coded vendor", async () => {
     const root = document.createElement("main");
+    document.body.append(root);
     const api = fakeApi();
     const state = workspaceSnapshot();
     if (!state.workspaceV2) throw new Error("workspace fixture");
@@ -2394,12 +2395,21 @@ describe("Rust conversation workspace", () => {
     mountDashboard(root, { api, snapshot: state });
 
     root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
-    root.querySelector<HTMLButtonElement>('[data-provider-profile-test="qwen-main"]')?.click();
+    const testButton = root.querySelector<HTMLButtonElement>(
+      '[data-provider-profile-test="qwen-main"]',
+    );
+    testButton?.click();
 
     await vi.waitFor(() => {
       expect(diagnostic).toHaveBeenCalledWith(true, "primary", "qwen-main");
       expect(root.textContent).toContain("qwen-max");
     });
+    const result = root.querySelector<HTMLElement>("[data-provider-profile-result]");
+    const dismiss = result?.querySelector<HTMLButtonElement>("[data-provider-diagnostic-dismiss]");
+    expect(dismiss?.getAttribute("aria-label")).toBe("Close test result");
+    dismiss?.click();
+    expect(result?.textContent).toBe("");
+    expect(document.activeElement).toBe(testButton);
   });
 
   it("selects and tests a saved model from the overview while setup commands follow the provider", async () => {
