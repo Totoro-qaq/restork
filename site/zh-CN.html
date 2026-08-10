@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="一个你敢让它碰文件的桌面 Agent：写入先审查，MCP 工具进系统沙箱，Markdown 留在本地。">
+    <meta name="description" content="免费、开源的桌面 Agent：写入前先给你看，MCP 工具关进系统沙箱，Markdown 留在本地。">
     <meta name="theme-color" content="#fbf7ef">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://totoro-qaq.github.io/restork/zh-CN.html">
     <meta property="og:title" content="Restork——一个你敢让它碰文件的桌面 Agent">
-    <meta property="og:description" content="每次写入先看精确改动，每次审批绑定具体内容，MCP 工具运行在操作系统级沙箱中。">
+    <meta property="og:description" content="写入前先看清改动，Markdown 留在本地，MCP 工具运行在系统沙箱里。">
     <meta property="og:image" content="https://totoro-qaq.github.io/restork/assets/readme/social-preview.zh-CN.png">
     <meta property="og:image:width" content="1280">
     <meta property="og:image:height" content="640">
@@ -35,9 +35,9 @@
         <div class="hero-copy">
           <p class="eyebrow">本地优先 · RUST CORE · MIT</p>
           <h1>让 Agent 碰文件，<br><em>但不必盲目信任它。</em></h1>
-          <p class="lede">每次写入都先以精确 diff 给你过目，你点批准它才落盘。工具调用跑在
-            操作系统级沙箱里——不是靠提示词让模型小心。跑一次带引用的研究、生成可审笔记，
-            存回 Vault 前你先看一眼。</p>
+          <p class="lede">每次写入都先把精确 diff 给你过目，你点头后才会落盘。MCP 工具被关在
+            操作系统沙箱里，即使模型判断错了，也不能越过那道门。查一个问题、整理一份带出处的
+            笔记，哪些内容值得存回 Vault，由你决定。</p>
           <div class="actions">
             <a class="primary" href="https://github.com/Totoro-qaq/restork/releases">下载桌面技术预览</a>
             <a href="https://github.com/Totoro-qaq/restork/blob/main/README.zh-CN.md#从源码运行贡献者">从源码构建</a>
@@ -53,30 +53,30 @@
       <section id="why" class="paper-section">
         <header><p class="eyebrow">一个 CORE，串起一天的事情</p><h2>研究、学习和工作，本来就会交织在一起。</h2></header>
         <div class="modes">
-          <article><span class="mode research">R</span><h3>Research</h3><p>比较公开来源、保留证据，并在存入 Vault 前审一份带引用的 Markdown 笔记。</p></article>
+          <article><span class="mode research">R</span><h3>Research</h3><p>比较公开资料、记下出处，再决定要不要把整理好的 Markdown 笔记存进 Vault。</p></article>
           <article><span class="mode study">S</span><h3>Study</h3><p>以你的笔记为前提整理学习路径，练习不漏答案，再回去补真正漏掉的地方。</p></article>
-          <article><span class="mode work">W</span><h3>Work</h3><p>把有限目标整理成计划、日报周报、演示文稿或脱敏交接，并保留可恢复产物。</p></article>
+          <article><span class="mode work">W</span><h3>Work</h3><p>把一个具体目标整理成计划、日报周报、演示文稿或脱敏交接，并留下可以继续修改的文件。</p></article>
         </div>
         <div class="modes daily">
           <article><span class="mode daily">◐</span><h3>每日上下文</h3><p>天气、一个本地 ICS 日历，以及来自 QQ 音乐、网易云、Apple Music 或私有歌单的每日单曲。</p></article>
           <article><span class="mode radar">◇</span><h3>Radar</h3><p>在你主动开启后发现 GitHub 上公开的 AI/Agent 项目并收录 Hacker News，由 Core 排序和缓存。</p></article>
           <article><span class="mode mail">✉</span><h3>邮件感知</h3><p>macOS 上看未读邮件的主题与发件人，但账号凭据和邮件正文都不会传给模型。</p></article>
-          <article><span class="mode trace">∿</span><h3>运行轨迹</h3><p>按迭代折叠显示 token、工具成败、重试与审批——看懂一次运行，不用逐条读事件。</p></article>
+          <article><span class="mode trace">∿</span><h3>运行记录</h3><p>按步骤查看 token、工具成败、重试与确认——想知道刚才发生了什么，不必翻完整日志。</p></article>
         </div>
       </section>
 
       <section class="proof">
-        <div><p class="eyebrow">写入前先问你</p><h2>每次写入都先预览。</h2><p>一个会偷偷写文件的 Agent 是没法拿来碰真实笔记的。Restork 会先把具体改动展示给你；你确认的只会是眼前这一次改动。</p></div>
+        <div><p class="eyebrow">改了什么，先给你看</p><h2>每次写入都先预览。</h2><p>Restork 会先摊开具体改动，再碰你的真实笔记。你的一次确认，只对眼前这个版本有效。</p></div>
         <img src="./assets/readme/demo-poster.zh-CN.webp" alt="使用合成数据展示研究、审批、记忆、Radar 与每日上下文的 Restork 中文静态界面。" width="1600" height="1000" loading="lazy">
       </section>
 
       <section class="promises">
         <article><strong>01</strong><h3>Markdown 仍是普通文件</h3><p>指向你现有的 Obsidian Vault 或另选一个目录。笔记不会被锁进私有数据库，本地文件始终是真正的归宿。</p></article>
-        <article><strong>02</strong><h3>每次写入都先审</h3><p>Research 与 Study 笔记会先以预览呈现，你批准后通过一次性、绑定具体内容的审批写回。没有静默覆盖，没有自动执行。</p></article>
-        <article><strong>03</strong><h3>MCP 跑在真沙箱里</h3><p>工具调用运行在平台原生沙箱后——macOS Seatbelt、Linux bubblewrap、Windows Job Objects——I/O 受限，而不是靠提示词级别的安全。</p></article>
+        <article><strong>02</strong><h3>每次写入都先看</h3><p>Research 与 Study 笔记会先以预览呈现。你的一次确认只对眼前这份内容有效，不会静默覆盖，也不会自动执行。</p></article>
+        <article><strong>03</strong><h3>MCP 跑在系统沙箱里</h3><p>macOS Seatbelt、Linux bubblewrap 与 Windows Job Objects 会限制工具能访问什么、能运行多久，不靠一段提示词碰运气。</p></article>
         <article><strong>04</strong><h3>思考是设置，不是泄漏</h3><p>可选 DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter。界面只显示该模型真正支持的思考档位；私有思维链不展示、不留存。</p></article>
-        <article><strong>05</strong><h3>运行可观测</h3><p>事件持久化、迭代折叠的运行视图、带内容的检查点——一次运行可以被打断、恢复、回看，而不丢工作。</p></article>
-        <article><strong>06</strong><h3>桌面生命周期由 Rust 管理</h3><p>自动选端口、启动 Core、检查心跳，并在退出时回收完整进程树。</p></article>
+        <article><strong>05</strong><h3>每一步都有记录</h3><p>模型做了什么、工具是否成功、哪里重试、你批准了什么，都能回头查看。中途停下，也能接着做。</p></article>
+        <article><strong>06</strong><h3>打开就用，退出不留后台</h3><p>Rust 桌面程序会自动启动并照看 Core；退出 Restork 时，相关进程会一起关闭。</p></article>
       </section>
 
       <section id="start" class="start">
@@ -84,7 +84,8 @@
         <pre><code>macOS   · DMG
 Windows · 安装 EXE 或 MSI
 Linux   · AppImage 或 DEB</code></pre>
-        <p>每个安装包都内置 Rust Core 与 Dashboard。首次清单允许以后再选 Vault 和 Provider；Key 由原生凭据库接收，保存时不会自动发起付费测试。浏览器刷新后，七天内可以恢复本地会话，访问令牌仍不会写入 Web Storage；运行中的事件流中断后，会从上一条已收到的事件继续。Alpha 文件会明确标注未签名，并附校验和、SBOM、来源证明与干净 runner 生命周期证据。</p>
+        <p>每个安装包都带有 Rust Core 与 Dashboard。Vault 和模型都可以以后再连；API Key 存进系统凭据库，保存时不会自己发起付费测试。刷新浏览器或重新打开应用后，Restork 会接回本地会话；运行中断时，也会从上一条收到的事件继续。Alpha 下载会清楚标出未签名，并附校验和与构建记录，方便你核对来源。</p>
+        <p class="fine">Restork 免费、开源，由社区公开维护，希望帮研究者、开发者和每天跟资料打交道的人少走一点弯路。重要的 AI 结果仍需由人复核。请阅读<a href="https://github.com/Totoro-qaq/restork/blob/main/DISCLAIMER.zh-CN.md">为什么做 Restork，以及使用时需要知道的事</a>与<a href="https://github.com/Totoro-qaq/restork/blob/main/SECURITY.zh-CN.md">安全政策</a>。</p>
         <div class="actions">
           <a class="primary" href="https://github.com/Totoro-qaq/restork/releases">选择下载文件</a>
           <a href="https://github.com/Totoro-qaq/restork/blob/main/docs/desktop.zh-CN.md">查看安装与信任说明</a>
@@ -93,6 +94,6 @@ Linux   · AppImage 或 DEB</code></pre>
       </section>
     </main>
 
-    <footer><span>RESTORK · RESEARCH + STUDY + WORK</span><span>MIT · 本地优先 · 开放构建</span></footer>
+    <footer><span>RESTORK · RESEARCH + STUDY + WORK</span><span>免费 · MIT · 本地优先 · 开放构建</span></footer>
   </body>
 </html>

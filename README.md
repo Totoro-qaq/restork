@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="Restork — a desktop agent with reviewable writes, OS-sandboxed MCP tools, and local Markdown.">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Restork — a desktop agent that shows file changes first, sandboxes MCP tools, and keeps Markdown local.">
 </p>
 
 <p align="center">
@@ -27,8 +27,9 @@
 
 <p align="center">
   <strong>The desktop agent you can trust with your files.</strong><br>
-  Ask questions across local Markdown with citations. Before Restork writes a note, you see the
-  exact change; approvals are single-use and content-bound, while MCP tools run in OS-level sandboxes.
+  Search local Markdown with citations. Before Restork writes a note, you see the exact change and
+  decide whether it lands. MCP tools run in OS-level sandboxes.<br>
+  <sub>Free and open source for researchers, developers, and knowledge workers.</sub>
 </p>
 
 ## See Restork in action
@@ -58,9 +59,9 @@ live model request.
 These are three modes inside one Core—not three agents competing for context or permissions. They
 share the same budgets, event history, approvals, memory rules, and local Dashboard.
 
-## Designed to stay understandable
+## What stays in your hands
 
-| Promise | What it means in practice |
+| What matters | What it means in practice |
 |---|---|
 | **Your Markdown stays yours** | Obsidian notes and tasks remain ordinary local files. A private Vault is never copied into this repository. |
 | **You see the effect first** | A write begins as an exact preview. Its approval is single-use, expires, and is tied to that precise content. |
@@ -89,7 +90,7 @@ Restork Core ─ Run policy ─ Preview ─ Approval ─ Event history
 
 Markdown is the durable home for notes and user tasks. SQLite stores operational state such as
 runs, approvals, and events. Rebuildable indexes and link projections can be discarded and created
-again. The Dashboard and CLI never receive the model credential or authority to bypass Core policy.
+again. The Dashboard and CLI never receive the model credential and cannot skip Core's checks.
 
 Restork needs no LangGraph, graph database, KAG, Valkey, Memory MCP, or Obsidian plugin for its base
 workflow. One Rust Core owns policy, storage, tools, recovery, and the embedded Dashboard, with
@@ -108,7 +109,8 @@ package manager.
 | Windows 10/11 x64 | `Windows-x64-UNSIGNED-ALPHA-setup.exe` or `.msi` | The preview is not Authenticode-signed, so SmartScreen may warn. Verify `SHA256SUMS`, then choose to run only if you intentionally downloaded it here. |
 | Desktop Linux x64 | `Linux-x64-UNSIGNED-ALPHA.AppImage` or `.deb` | AppImage: `chmod +x` and open it. Debian/Ubuntu: install the DEB with the system package installer. |
 
-All formats embed the same Rust Core and Dashboard and pass fresh-runner lifecycle checks. These are
+All formats embed the same Rust Core and Dashboard and are tested for install, launch, quit, and
+uninstall on clean runners. These are
 visibly unsigned technical previews, not platform-signed stable releases. The macOS updater archive
 has Restork's independent signature; Windows/Linux preview updates stay disabled until their
 protected signing gates pass. See the [desktop guide](docs/desktop.md) for checksums and exact trust
@@ -154,9 +156,9 @@ Open the Dashboard URL printed by Core and enter its one-time Web pairing code. 
 
 ### One Core, one set of rules
 
-The product has one authoritative runtime: `restorkd`. Dashboard, CLI, desktop lifecycle, API,
-agent loop, memory, tasks, Research, Study, Work, and Radar all cross the same Rust policy and event
-boundary. The retired Python Core and its build path are no longer present.
+Only one program actually carries out work: `restorkd`. The Dashboard, CLI, desktop app, API,
+agent loop, memory, tasks, Research, Study, Work, and Radar all use the same permissions, event
+history, and recovery path. The retired Python Core and its build path are no longer present.
 
 ### Connect only what you want
 
@@ -168,7 +170,7 @@ boundary. The retired Python Core and its build path are no longer present.
 | See weather | Enter a city in Weather settings, or press **Use current location** yourself | The feature stays off until enabled; there is no IP-based location lookup |
 | Add a calendar | Connect the system calendar when available, or select one local ICS file | Read-only access; the device date and time zone work without either |
 | See unread mail | On macOS, open Mail and press **Connect Mail** in the top-bar indicator | Live aggregate count only; no sender, subject, body, account address, or model access |
-| Get a daily track | Choose QQ Music, NetEase, Apple Music, or a private JSON/CSV playlist | Explicit read-only sync; no account passwords/cookies, audio, or lyrics; capabilities and evidence gaps stay visible |
+| Get a daily track | Choose QQ Music, NetEase, Apple Music, or a private JSON/CSV playlist | Explicit read-only sync; no account passwords/cookies, audio, or lyrics; the UI says which sources are available and what could not be verified |
 
 Open **Daily track → Connect playlist**, choose a source, paste its ordinary public playlist link,
 and press **Connect & sync**. QQ Music and NetEase are experimental, credential-free, read-only
@@ -264,25 +266,25 @@ Measured against the Core that `./scripts/quickstart.sh` starts.
 | Area | What you can use now |
 |---|---|
 | **Dashboard and local API** | Bilingual UI, loopback-only `/v1` API, separate Web/CLI pairing, short-lived sessions with rotation |
-| **Conversation** | Run-scoped sessions with fork, search, export, archive, cancellable operations, and SSE replay |
+| **Conversation** | A separate conversation for each run, with fork, search, export, archive, cancellation, and SSE replay |
 | **Models** | DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, and generic OpenAI-compatible endpoints; provider-scoped reasoning; native credential storage; versioned prompts and configuration profiles |
 | **Agent runtime** | Durable model/tool loop with separate step, repair, token, cost, and wall-clock bounds; cancellation; approval pauses; event replay; visible context compaction |
 | **Research, Study, Work** | Research with visible sources and note previews; Vault-based learning paths and active review; clear work plans, redacted handoffs, and result checks |
 | **Local knowledge** | A paginated Obsidian Vault browser with safe Markdown previews and live file updates, four-layer inspectable memory, approval-bound Markdown tasks, unified search, and opt-in public GitHub AI/Agent + Hacker News Radar |
-| **Extensions** | Manifest validation, a permission lattice, immutable revisions with rollback, and sandboxed stdio MCP execution |
+| **Extensions** | Checked manifests, layered permissions, version history with rollback, and sandboxed stdio MCP execution |
 | **Daily context** | Optional weather, system date and month without a permission prompt, one local ICS calendar, macOS unread-mail count, and a daily track from QQ Music, NetEase, Apple Music, or a private playlist file |
-| **Artifacts and recovery** | Deterministic macro-free PPTX and PDF, exact artifact hashes, content-bearing checkpoints, and preview-bound file restore |
+| **Artifacts and recovery** | Repeatable macro-free PPTX and PDF generation, exact file hashes, real-content checkpoints, and restore tied to the preview you approved |
 | **Automation** | DST-aware local jobs plus provider-selectable Daily/Weekly report drafts; model schedules require explicit network consent, send only `public` run facts, and keep the resulting draft local for review |
 | **Desktop** | Tauri packages `restorkd` and the Dashboard, owns Unix process groups or a Windows Job Object |
 
-### Deliberate boundaries
+### What it does not do yet
 
-| Area | Current boundary |
+| Area | What to expect today |
 |---|---|
-| Web search | Public HTTPS research uses the declared outbound gateway; availability depends on the selected provider capability. |
+| Web search | Public HTTPS research goes through one checked network path; availability depends on the selected provider. |
 | MCP | Reviewed stdio MCP executes in the platform sandbox. Remote HTTPS MCP is rejected until its transport policy lands. |
-| Deliverable authoring | Restork assembles validated Markdown, deterministic macro-free PPTX, and PDF from explicit content; it does not silently invent source claims. |
-| Work execution | Work produces a reviewable plan and handoff, then checks a returned manifest. It does not take ownership of an external coding process. |
+| Deliverable authoring | Restork builds checked Markdown, macro-free PPTX, and PDF from the content you provide; it does not quietly invent source claims. |
+| Work execution | Work produces a plan and handoff for you to review, then checks the returned manifest. It does not take over an external coding process. |
 | Native mail | Aggregate unread count is macOS-only; Windows/Linux expose an honest unavailable state. |
 
 The desktop technical preview is intentionally outside Apple/Microsoft/Linux publisher trust; a
@@ -351,4 +353,7 @@ Release history is in
 
 </details>
 
-Restork is released under the [MIT License](LICENSE).
+Restork is free and open source under the [MIT License](LICENSE). Read
+[why Restork exists and what to expect](DISCLAIMER.md), the
+[security policy](SECURITY.md), and [support guide](SUPPORT.md). Official support
+never requires publishing a personal maintainer email.

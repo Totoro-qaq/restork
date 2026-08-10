@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="A desktop agent you can trust with files: review every write, sandbox MCP tools, and keep Markdown local.">
+    <meta name="description" content="A free, open-source desktop agent that shows every file change, sandboxes MCP tools, and keeps Markdown local.">
     <meta name="theme-color" content="#fbf7ef">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://totoro-qaq.github.io/restork/">
     <meta property="og:title" content="Restork — the desktop agent you can trust with your files">
-    <meta property="og:description" content="Review every write, bind each approval to exact content, and run MCP tools in OS-level sandboxes.">
+    <meta property="og:description" content="See every file change before it lands. Keep Markdown local. Run MCP tools inside OS-level sandboxes.">
     <meta property="og:image" content="https://totoro-qaq.github.io/restork/assets/readme/social-preview.png">
     <meta property="og:image:width" content="1280">
     <meta property="og:image:height" content="640">
@@ -35,9 +35,9 @@
         <div class="hero-copy">
           <p class="eyebrow">LOCAL-FIRST · RUST CORE · MIT</p>
           <h1>Let an agent work with your files—<br><em>without giving it blind trust.</em></h1>
-          <p class="lede">Every write is shown to you as an exact diff before it lands. Tool calls
-            run in OS-level sandboxes — not by prompting the model to be careful. Run scoped
-            research, generate cited notes, and review before saving to your Vault.</p>
+          <p class="lede">Every write is shown as an exact diff before it lands. MCP tools run in
+            OS-level sandboxes, so the operating system—not the prompt—limits what they can touch. Research
+            a question, generate a cited note, and decide what belongs in your Vault.</p>
           <div class="actions">
             <a class="primary" href="https://github.com/Totoro-qaq/restork/releases">Download desktop preview</a>
             <a href="https://github.com/Totoro-qaq/restork#build-from-source-contributors">Build from source</a>
@@ -66,7 +66,7 @@
       </section>
 
       <section class="proof">
-        <div><p class="eyebrow">EFFECTS ARE NOT PROMISES</p><h2>Preview before every write.</h2><p>An agent that writes a file without asking is an agent that cannot run on your real notes. Restork shows you exactly what will change, bound to that precise content, and only a single-use approval makes it real.</p></div>
+        <div><p class="eyebrow">YOU SEE THE CHANGE FIRST</p><h2>Preview before every write.</h2><p>Restork lays out the exact change before it touches a real note. Your approval applies once, to that version only.</p></div>
         <img src="./assets/readme/demo-poster.webp" alt="Static Restork Dashboard preview with research, approvals, memory, Radar, and daily context using synthetic data." width="1600" height="1000" loading="lazy">
       </section>
 
@@ -75,8 +75,8 @@
         <article><strong>02</strong><h3>Every write is reviewed</h3><p>Research and Study notes render as a preview you approve, then write through a single-use, content-bound approval. No silent overwrite, no auto-apply.</p></article>
         <article><strong>03</strong><h3>MCP runs in a real sandbox</h3><p>Tool calls run inside platform-native isolation — macOS Seatbelt, Linux bubblewrap, Windows Job Objects — with strict time, network, and output limits.</p></article>
         <article><strong>04</strong><h3>Reasoning is a setting, not a leak</h3><p>Choose DeepSeek, GLM, Kimi, Qwen, Ollama, or OpenRouter. Only supported reasoning levels appear; private chain-of-thought is not displayed or retained.</p></article>
-        <article><strong>05</strong><h3>Runs are observable</h3><p>Durable events, a traceable iteration view, and content-bearing checkpoints mean a run can be understood, interrupted, and recovered without losing work.</p></article>
-        <article><strong>06</strong><h3>Desktop lifecycle is owned</h3><p>The Rust shell selects a port, supervises Core, checks heartbeats, and terminates its complete process tree on exit.</p></article>
+        <article><strong>05</strong><h3>You can see what happened</h3><p>Runs keep a readable history of model steps, tool results, retries, approvals, and checkpoints. Stop one midway and continue without starting from zero.</p></article>
+        <article><strong>06</strong><h3>The app cleans up after itself</h3><p>The Rust desktop shell starts Core, checks that it is healthy, and closes the whole process tree when you quit.</p></article>
       </section>
 
       <section id="start" class="start">
@@ -84,7 +84,8 @@
         <pre><code>macOS   · DMG
 Windows · installer EXE or MSI
 Linux   · AppImage or DEB</code></pre>
-        <p>Every package embeds the Rust Core and Dashboard. The first-run checklist lets you choose a Vault and provider later; saving a key uses native credentials and never triggers a paid test automatically. Browser refreshes recover the local session for up to seven days without storing access tokens in Web Storage, while interrupted run streams resume from the last event received. Alpha files are clearly unsigned and include checksums, SBOM, provenance, and fresh-runner lifecycle evidence.</p>
+        <p>Every package includes the Rust Core and Dashboard. Choose a Vault and model provider when you are ready; saving a key uses your system credential store and never starts a paid test on its own. Refresh the browser or reopen the app and Restork reconnects to the local session. Interrupted runs continue from the last event received. Alpha downloads are clearly marked as unsigned and include checksums and build records you can verify.</p>
+        <p class="fine">Restork is free, open source, and maintained in public for researchers, developers, and knowledge workers. Important AI output still needs human review. Read <a href="https://github.com/Totoro-qaq/restork/blob/main/DISCLAIMER.md">why Restork exists and what to expect</a>, plus the <a href="https://github.com/Totoro-qaq/restork/security/policy">security policy</a>.</p>
         <div class="actions">
           <a class="primary" href="https://github.com/Totoro-qaq/restork/releases">Choose a download</a>
           <a href="https://github.com/Totoro-qaq/restork/blob/main/docs/desktop.md">Read installation and trust notes</a>
@@ -93,6 +94,6 @@ Linux   · AppImage or DEB</code></pre>
       </section>
     </main>
 
-    <footer><span>RESTORK · RESEARCH + STUDY + WORK</span><span>MIT · LOCAL-FIRST · BUILT IN THE OPEN</span></footer>
+    <footer><span>RESTORK · RESEARCH + STUDY + WORK</span><span>FREE · MIT · LOCAL-FIRST · BUILT IN THE OPEN</span></footer>
   </body>
 </html>

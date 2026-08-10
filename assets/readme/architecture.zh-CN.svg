@@ -13,8 +13,8 @@
   <rect width="1200" height="560" rx="26" fill="url(#rules)"/>
   <path d="M48 36V524" stroke="#C0392F" stroke-opacity="0.18"/>
   <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
-    <text x="72" y="62" fill="#3B3126" font-family="American Typewriter, Courier New, PingFang SC, monospace" font-size="27" font-weight="800" letter-spacing="1.5">四层记忆 · 本地为准，发送前确认</text>
-    <text x="72" y="90" fill="#6B5D4B" font-size="15">记忆负责选择上下文，而不是制造第二份知识真相。</text>
+    <text x="72" y="62" fill="#3B3126" font-family="American Typewriter, Courier New, PingFang SC, monospace" font-size="27" font-weight="800" letter-spacing="1.5">四层记忆 · 原文件留在本地，发送前先确认</text>
+    <text x="72" y="90" fill="#6B5D4B" font-size="15">记忆只负责找出当下需要的内容，不会取代你的原文件。</text>
 
     <g transform="translate(72 122)">
       <g>
@@ -31,15 +31,15 @@
         <text x="18" y="69" fill="#3B3126" font-size="17" font-weight="700">运行、决策与摘要</text>
         <text x="18" y="93" fill="#6B5D4B" font-size="13">运行 · 尝试 · 决策</text>
         <text x="18" y="115" fill="#6B5D4B" font-size="13">SQLite 元数据与来源</text>
-        <text x="18" y="132" fill="#A08F78" font-size="11">显式保留</text>
+        <text x="18" y="132" fill="#A08F78" font-size="11">按你的设置保留</text>
       </g>
       <g transform="translate(540)">
         <rect width="246" height="142" rx="16" fill="url(#paper)" stroke="#22AFC6"/><rect width="246" height="8" rx="4" fill="#22D3EE"/>
         <text x="18" y="42" fill="#167C89" font-family="American Typewriter, Courier New, monospace" font-size="13" font-weight="800">L2 · 语义记忆</text>
         <text x="18" y="69" fill="#3B3126" font-size="17" font-weight="700">Markdown 知识与链接</text>
         <text x="18" y="93" fill="#6B5D4B" font-size="13">笔记 · 标题 · Wiki 链接</text>
-        <text x="18" y="115" fill="#6B5D4B" font-size="13">可重建的搜索投影</text>
-        <text x="18" y="132" fill="#A08F78" font-size="11">MARKDOWN 真相</text>
+        <text x="18" y="115" fill="#6B5D4B" font-size="13">可重新生成的搜索索引</text>
+        <text x="18" y="132" fill="#A08F78" font-size="11">以 MARKDOWN 为准</text>
       </g>
       <g transform="translate(810)">
         <rect width="246" height="142" rx="16" fill="url(#paper)" stroke="#D68806"/><rect width="246" height="8" rx="4" fill="#F59E0B"/>
@@ -57,29 +57,29 @@
       <path d="M528 24V48" stroke="#A08F78" stroke-width="2"/><path d="M522 40L528 49L534 40" fill="none" stroke="#A08F78" stroke-width="2"/>
       <rect y="48" width="780" height="108" rx="17" fill="#3B3126"/>
       <text x="22" y="77" fill="#F7F0E4" font-family="American Typewriter, Courier New, PingFang SC, monospace" font-size="13" font-weight="800" letter-spacing="1.2">上下文选择器 · 位于本地 CORE</text>
-      <text x="22" y="106" fill="#FFFFFF" font-size="18" font-weight="700">最近轮次 + 显式画像 + 本地检索</text>
-      <text x="22" y="130" fill="#D8CCBB" font-size="14">确定性 Token 预算 · 已选 ID · 来源引用 · 最高数据级别</text>
+      <text x="22" y="106" fill="#FFFFFF" font-size="18" font-weight="700">最近轮次 + 用户设置 + 本地搜索</text>
+      <text x="22" y="130" fill="#D8CCBB" font-size="14">固定 Token 上限 · 已选记录 · 来源 · 允许发送的数据范围</text>
       <rect x="604" y="69" width="150" height="58" rx="12" fill="#FFFFFF" opacity="0.10" stroke="#D8CCBB"/>
-      <text x="624" y="92" fill="#6EE7B7" font-family="American Typewriter, Courier New, monospace" font-size="11" font-weight="800">清单</text>
-      <text x="624" y="113" fill="#FFFFFF" font-size="12">发送前可审阅</text>
+      <text x="624" y="92" fill="#6EE7B7" font-family="American Typewriter, Courier New, monospace" font-size="11" font-weight="800">发送清单</text>
+      <text x="624" y="113" fill="#FFFFFF" font-size="12">发送前可以查看</text>
 
       <path d="M780 102H826" stroke="#EC4899" stroke-width="3"/><path d="M817 94L829 102L817 110" fill="none" stroke="#EC4899" stroke-width="3"/>
       <rect x="832" y="48" width="224" height="108" rx="17" fill="#FFFDF8" stroke="#EC4899" stroke-width="2"/>
-      <text x="854" y="77" fill="#A62D68" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">出站网关</text>
-      <text x="854" y="103" fill="#3B3126" font-size="15" font-weight="700">精确来源 · 范围 · 大小</text>
-      <text x="854" y="126" fill="#6B5D4B" font-size="12">策略 · 审批 · 审计</text>
+      <text x="854" y="77" fill="#A62D68" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">联网检查</text>
+      <text x="854" y="103" fill="#3B3126" font-size="15" font-weight="700">目标地址 · 发送范围 · 大小</text>
+      <text x="854" y="126" fill="#6B5D4B" font-size="12">规则 · 确认 · 记录</text>
       <text x="854" y="145" fill="#A08F78" font-size="10">仅在允许时访问云端</text>
     </g>
 
     <g transform="translate(72 474)">
       <rect width="1056" height="52" rx="14" fill="#FFFFFF" opacity="0.70" stroke="#D8CCBB"/>
-      <text x="20" y="22" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">真相来源</text>
+      <text x="20" y="22" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">原始资料</text>
       <text x="20" y="41" fill="#6B5D4B" font-size="12">Markdown + 私有画像</text>
       <path d="M242 26H286" stroke="#A08F78" stroke-dasharray="3 3"/>
-      <text x="306" y="22" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">运行状态</text>
+      <text x="306" y="22" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">运行记录</text>
       <text x="306" y="41" fill="#6B5D4B" font-size="12">SQLite 运行 · 审批 · 缓存</text>
       <path d="M572 26H616" stroke="#A08F78" stroke-dasharray="3 3"/>
-      <text x="636" y="22" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">可重建</text>
+      <text x="636" y="22" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">可重新生成</text>
       <text x="636" y="41" fill="#6B5D4B" font-size="12">FTS · 链接 · 可选向量</text>
       <rect x="876" y="11" width="158" height="30" rx="15" fill="#34D399" opacity="0.15" stroke="#2BAE7A"/>
       <text x="903" y="31" fill="#1E8A56" font-family="American Typewriter, Courier New, monospace" font-size="10" font-weight="800">无需图数据库</text>

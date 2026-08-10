@@ -4,18 +4,18 @@
 
 # 桌面端分发
 
-Restork 现在把原生 Rust `restorkd` Core、中英文 Dashboard 与 Tauri 2 Rust supervisor 打包在
+Restork 现在把原生 Rust `restorkd` Core、中英文 Dashboard 与 Tauri 2 桌面程序打包在
 一起。目标电脑无需安装 Python、Node.js、Rust、`uv` 或包管理器。当前版本不包含 Python runtime
-或能力 Worker；未来若增加可选 Worker，必须另行定义协议、沙箱、依赖锁与发布审查。
+或能力 Worker；未来若增加可选 Worker，必须另行定义协议、沙箱、依赖锁与发布检查。
 
-源码已经适配 macOS、Windows 和 Linux。Restork 把分发明确拆成两条：明确提示未受平台保护的
-三平台技术预览，以及仍要求真实平台身份的受保护正式通道；PR 产物继续只是短期候选包。
+源码已经适配 macOS、Windows 和 Linux。目前公开下载的是三平台技术预览，会明确提示尚未完成
+平台签名；正式版仍需使用真实发布者身份完成签名和公证。PR 构建包只用于短期测试。
 
-| 平台 | 公开可用情况 | 信任边界 |
+| 平台 | 公开可用情况 | 下载前需要知道的事 |
 |---|---|---|
-| Apple Silicon macOS 13+ | GitHub Release DMG Alpha | 明确标注 ad-hoc 且未公证；独立更新签名、校验和、SBOM、provenance 与干净机器验证 |
-| Windows 10/11 x64 | GitHub Release NSIS EXE 与 MSI Alpha | 明确未签名；预览版不启用更新；校验和、provenance 与两个安装器生命周期测试 |
-| 桌面 Linux x64 | GitHub Release AppImage 与 DEB Alpha | 明确未签名；预览版不启用更新；校验和、provenance、AppImage 启动与 DEB 安装卸载测试 |
+| Apple Silicon macOS 13+ | GitHub Release DMG Alpha | 清楚标注临时签名且未公证；另附更新签名、校验和、软件物料清单、构建来源与干净机器测试结果 |
+| Windows 10/11 x64 | GitHub Release NSIS EXE 与 MSI Alpha | 清楚标注未签名；预览版不自动更新；另附校验和、构建来源，以及 EXE/MSI 安装卸载测试结果 |
+| 桌面 Linux x64 | GitHub Release AppImage 与 DEB Alpha | 清楚标注未签名；预览版不自动更新；另附校验和、构建来源，以及 AppImage 启动与 DEB 安装卸载测试结果 |
 
 ## 一键使用
 
@@ -42,9 +42,9 @@ Windows 可用 `Get-FileHash .\Restork-*-Windows-x64-UNSIGNED-ALPHA.msi -Algorit
 应用的**打开 / 仍要打开**，不要全局关闭 Gatekeeper；Debian/Ubuntu 可用系统安装器或
 `sudo apt install ./Restork-*-Linux-x64-UNSIGNED-ALPHA.deb`。
 
-这些技术预览都不能建立 Apple、Microsoft 或 Linux 发布者信任。仅在你明确从本仓库下载并愿意
+这些技术预览都还没有 Apple、Microsoft 或 Linux 发布者证书。只在你确认文件来自本仓库、并愿意
 试用时安装。完整中英文说明见[内测版信任与安装提示](unsigned-alpha-release.md)。Intel Mac 或不愿
-接受提示的用户应等待受保护通道，或按贡献者方式构建。
+接受系统提示的用户，可以等待未来的正式签名版，或按贡献者方式自行构建。
 
 ## 构建内测候选包
 
@@ -88,7 +88,7 @@ macOS 还可以验证进程组和重复启动故障恢复：
 1. 原生窗口出现后，Rust 自动选择一个未占用的 `127.0.0.1` 端口。
 2. supervisor 只启动应用内置的 `restorkd`，传入私有状态数据库，并拥有完整进程树：macOS/
    Linux 使用进程组，Windows 使用关闭即终止的 Job Object。
-3. 它校验有界 bootstrap 记录和只含元数据的 readiness 接口；配对信息不会落盘。
+3. 它只接受大小受限、字段固定的启动记录，并检查只含元数据的 readiness 接口；配对信息不会落盘。
 4. WebView 只在内存中获得短期、分 scope 的会话；不使用 Web Storage。
 5. 每两秒一次的心跳允许连续两次失败，第三次才进入恢复页；退出、崩溃、重试和启动失败路径
    都会回收自己拥有的 Core 与 worker。
@@ -103,8 +103,8 @@ Dashboard 不接收也拿不到 API Key。安装包会打开原生安全输入�
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
 ```
 
-Provider Profile 只保存不透明引用。Vault 选择也遵循同一边界：原生目录选择器把绝对路径留在
-Rust，只向 Dashboard 返回不透明 grant 与安全目录名。
+Provider Profile 只保存不含 Key 的系统凭据引用。选择 Vault 时，原生目录选择器会把绝对路径留在
+Rust 进程里，Dashboard 只会收到一个临时授权编号和可显示的目录名。
 
 ## 诊断与恢复
 
@@ -123,13 +123,13 @@ Provider 凭据故障区分开。
 相同版本与降级都会被拒绝。签名验证后的更新包会在安装前存档；设置页最多列出最近两个恢复副本，
 包括版本、目标、路径与 SHA-256。Restork 不会自动执行降级，也不会把用户数据放进应用包。
 
-## 发布契约
+## 发布前必须通过的检查
 
 公开 `v*-alpha.*` 工作流先确认 annotated tag 来自 `main`，再构建三平台预览；只有下载后的各格式
 生命周期测试都通过才发布。macOS 保留独立签名更新包；Windows/Linux 预览版禁用更新产物。一个
-跨平台 manifest、SHA-256 清单、SBOM 与 provenance 描述精确发布内容。
+跨平台发布清单、SHA-256 校验和、软件物料清单与构建来源会写明这次究竟发布了什么。
 
-受保护 tag 工作流已经定义完整三平台门禁：
+正式版 tag 工作流已经列出三平台必须通过的检查：
 
 - macOS Developer ID、公证、stapling、Gatekeeper、更新签名，以及新 runner 上的 DMG 验证；
 - Windows NSIS/MSI 的 Authenticode 与时间戳、更新签名，以及两个安装格式各自在新 runner 上的
@@ -137,8 +137,8 @@ Provider 凭据故障区分开。
   用户数据保留检查；
 - Linux GPG/AppImage 与独立包签名、更新签名，以及新 runner 上的安装、启动、卸载与数据保留；
 - 发布前统一生成目标范围内的更新元数据、CycloneDX SBOM、SHA-256 清单、签名校验和与 GitHub
-  provenance，最后才创建不可变 Release。
+  构建来源记录，全部通过后才创建不可变 Release。
 
-公开 Alpha 不会削弱正式门禁。Developer ID/公证、Authenticode 与完整 Linux 签名矩阵仍是仓库
-所有者控制的发布证据。不能把 Alpha 描述成经过 Apple 签名或公证的版本；只有完整受保护 tag
-工作流与下载后的 attestation 都通过后，才能宣称正式版本已经发布。
+公开 Alpha 不会降低正式版的要求。Developer ID/公证、Authenticode 与完整 Linux 签名矩阵仍由
+仓库所有者掌握。不能把 Alpha 说成经过 Apple 签名或公证的版本；只有正式版 tag 工作流和下载后
+的 attestation 全部通过，才能宣布正式版本已经发布。

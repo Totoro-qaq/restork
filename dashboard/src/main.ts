@@ -542,8 +542,8 @@ function configureRustWorkspace(
       if (status) {
         status.textContent = tr(
           localeOf(root),
-          "Checking data boundaries and creating a conversation branch…",
-          "正在检查数据边界并创建对话分支…",
+          "Checking what the new model may receive and creating a conversation branch…",
+          "正在检查新模型可以接收哪些内容，并创建对话分支…",
         );
       }
       void api.forkSession(sessionId, title, profileId, expectedUpdatedAt, 24).then((fork) => {
@@ -1180,8 +1180,8 @@ function bindToolPreview(
           if (!api.executeSessionToolCall) return;
           const confirmed = await confirmAction(root, tr(
             localeOf(root),
-            `Run ${preview.resolved_call.real_tool_id} with the exact reviewed input?`,
-            `使用刚才审查的精确输入运行 ${preview.resolved_call.real_tool_id}？`,
+            `Run ${preview.resolved_call.real_tool_id} with the input shown above?`,
+            `使用上面显示的输入运行 ${preview.resolved_call.real_tool_id}？`,
           ));
           if (!confirmed) return;
           execute.disabled = true;
@@ -1189,8 +1189,8 @@ function bindToolPreview(
           void api.executeSessionToolCall(sessionId, preview).then((execution) => {
             const untrusted = tr(
               localeOf(root),
-              "Tool output is untrusted data and grants no new authority.",
-              "工具输出是不受信任的数据，不会获得任何新权限。",
+              "Tool output is reference material, not a permission grant.",
+              "工具输出只能作为参考，不会因此获得新权限。",
             );
             host.innerHTML = `<article class="proposal-card"><header>`
               + `<strong>${tr(localeOf(root), "MCP execution", "MCP 执行")}</strong>`
@@ -2542,8 +2542,8 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
         non_goals: lines(data.get("non_goals")),
         completion_criteria: [tr(
           localeOf(root),
-          "produce a reviewable verified artifact",
-          "产出可审阅、可验证的结果",
+          "produce a result the user can inspect and verify",
+          "产出用户能够查看并核对的结果",
         )],
         verification_commands: lines(data.get("verification_commands")),
         context_data_class: dataClass,
@@ -3021,8 +3021,8 @@ function openTodoSuggestionConversation(
   profile?.focus();
   announceStatus(root, tr(
     locale,
-    "Choose a model profile and create the conversation. Restork will keep the request reviewable before anything changes.",
-    "请选择模型 Profile 并创建对话；在任何任务发生变化前，Restork 都会让你先审阅。",
+    "Choose a model profile and create the conversation. Restork will show the request before anything changes.",
+    "请选择模型 Profile 并创建对话；真正改动任务前，Restork 会先把请求给你看。",
   ));
 }
 
@@ -3981,8 +3981,8 @@ function musicResearchErrorText(error: unknown, locale: Locale): string {
       "模型服务暂时不可用；仍显示上次结果。",
     ],
     sources_missing: [
-      "The search finished without reviewable public sources. The previous result is still shown.",
-      "联网检索没有返回可审查的公开来源；仍显示上次结果。",
+      "The search finished without public sources that could be verified. The previous result is still shown.",
+      "联网检索没有找到能够核对的公开来源；仍显示上次结果。",
     ],
     structured_output_invalid: [
       "The researched result was incomplete. The previous result is still shown.",

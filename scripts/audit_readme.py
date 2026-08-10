@@ -45,7 +45,7 @@ README_RULES = {
         "headings": (
             "## See Restork in action",
             "## One workspace for the way a day actually unfolds",
-            "## Designed to stay understandable",
+            "## What stays in your hands",
             "## How it works",
             "## Download the desktop technical preview",
             "## Build from source (contributors)",
@@ -63,7 +63,7 @@ README_RULES = {
         "headings": (
             "## 看看 Restork 怎么工作",
             "## 一天里的研究、学习和工作，本来就会交织在一起",
-            "## 我们希望它始终容易理解",
+            "## 重要的东西，仍由你掌握",
             "## 它是怎么工作的",
             "## 下载桌面技术预览",
             "## 从源码运行（贡献者）",

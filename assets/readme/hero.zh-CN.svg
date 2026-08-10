@@ -20,10 +20,10 @@
   <path d="M48 48V352" stroke="#C0392F" stroke-opacity="0.20"/>
 
   <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
-    <text x="74" y="72" fill="#A08F78" font-size="13" font-weight="700" letter-spacing="2.4">写入可审查的桌面 AGENT · MIT</text>
+    <text x="74" y="72" fill="#A08F78" font-size="13" font-weight="700" letter-spacing="2.4">改动先给你看的桌面 AGENT · MIT</text>
     <text x="70" y="151" fill="url(#wordmark)" font-family="American Typewriter, Courier New, monospace" font-size="76" font-weight="800" letter-spacing="5">RESTORK</text>
     <text x="74" y="198" fill="#3B3126" font-size="23" font-weight="650">一个你敢让它碰文件的 Agent。</text>
-    <text x="74" y="256" fill="#6B5D4B" font-size="17">私有 Markdown 留在本地。</text>
+    <text x="74" y="256" fill="#6B5D4B" font-size="17">你的 Markdown 留在本地。</text>
     <text x="74" y="284" fill="#8D7C64" font-size="16">写入先预览；MCP 工具进系统沙箱。</text>
     <g font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="700" letter-spacing="1.2">
       <rect x="74" y="326" width="126" height="32" rx="16" fill="#8B5CF6" opacity="0.12" stroke="#8B5CF6"/><text x="103" y="347" fill="#6D45D4">RUST CORE</text>
@@ -59,7 +59,7 @@
 
     <g transform="translate(24 206)" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif">
       <path d="M60 44H390" stroke="#A08F78" stroke-width="2" stroke-dasharray="3 4"/><path d="M383 38L393 44L383 50" fill="none" stroke="#A08F78" stroke-width="2"/>
-      <g transform="translate(0 4)"><rect width="124" height="76" rx="13" fill="#8B5CF6" opacity="0.13" stroke="#8B5CF6"/><text x="18" y="31" fill="#6D45D4" font-family="American Typewriter, Courier New, monospace" font-size="24" font-weight="800">R</text><text x="48" y="30" fill="#3B3126" font-size="14" font-weight="700">研究</text><text x="18" y="57" fill="#6B5D4B" font-size="11">论断 + 证据</text></g>
+      <g transform="translate(0 4)"><rect width="124" height="76" rx="13" fill="#8B5CF6" opacity="0.13" stroke="#8B5CF6"/><text x="18" y="31" fill="#6D45D4" font-family="American Typewriter, Courier New, monospace" font-size="24" font-weight="800">R</text><text x="48" y="30" fill="#3B3126" font-size="14" font-weight="700">研究</text><text x="18" y="57" fill="#6B5D4B" font-size="11">说法 + 出处</text></g>
       <g transform="translate(164 4)"><rect width="124" height="76" rx="13" fill="#22D3EE" opacity="0.13" stroke="#22AFC6"/><text x="18" y="31" fill="#167C89" font-family="American Typewriter, Courier New, monospace" font-size="24" font-weight="800">S</text><text x="48" y="30" fill="#3B3126" font-size="14" font-weight="700">学习</text><text x="18" y="57" fill="#6B5D4B" font-size="11">回忆 + 复习</text></g>
       <g transform="translate(328 4)"><rect width="124" height="76" rx="13" fill="#F59E0B" opacity="0.13" stroke="#D68806"/><text x="18" y="31" fill="#9B5B00" font-family="American Typewriter, Courier New, monospace" font-size="24" font-weight="800">W</text><text x="48" y="30" fill="#3B3126" font-size="14" font-weight="700">工作</text><text x="18" y="57" fill="#6B5D4B" font-size="11">计划 + 交接</text></g>
     </g>

@@ -1,20 +1,40 @@
 # Security policy
 
+[简体中文](SECURITY.zh-CN.md)
+
 ## Supported versions
 
 Until the first stable release, security fixes land on `main` and the latest
 pre-release only.
 
+Restork is a free, community-maintained project rather than a managed security
+service. Supported releases receive security review and fixes on a best-effort
+basis; there is no guaranteed response time or promise that unknown defects or
+vulnerable transitive dependencies will be discovered before impact. The
+project's broader boundary is explained in [DISCLAIMER.md](DISCLAIMER.md).
+
 ## Reporting a vulnerability
 
 Do not open a public issue for a suspected vulnerability or exposed secret.
-Use GitHub's private vulnerability reporting for the repository once it is
-published, or contact the maintainer through the private channel stated in the
-repository settings. Include reproduction steps, impact, and any mitigation
-you have already applied.
+Use [GitHub private vulnerability reporting](https://github.com/Totoro-qaq/restork/security/advisories/new).
+No personal maintainer email is required. Include reproduction steps, affected
+versions, likely impact, and any mitigation you have already applied.
 
 Never include a real credential, private note, work artifact, or Vault export
 in a report. Revoke a credential first if it may have been exposed.
+
+## What to expect
+
+Maintainers will try to acknowledge a reproducible report, assess supported
+versions, preserve private details while a fix is prepared, and publish a fix,
+mitigation, or clear warning appropriate to the impact. Complex reports may
+require follow-up questions and coordinated disclosure.
+
+The project cannot provide incident response for a third-party provider,
+extension, operating system, or account. If a credential may have leaked,
+revoke or rotate it with that provider immediately; do not wait for a Restork
+release. The [MIT License](LICENSE) provides the controlling warranty and
+liability terms.
 
 ## Scope
 

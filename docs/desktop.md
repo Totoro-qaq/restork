@@ -4,21 +4,20 @@
 
 # Desktop distribution
 
-Restork now packages the native Rust `restorkd` Core, the bilingual Dashboard, and a Tauri 2 Rust
-supervisor. The app does not need Python, Node.js, Rust, `uv`, or a package manager on the target
+Restork now packages the native Rust `restorkd` Core, the bilingual Dashboard, and a Tauri 2 desktop
+app. The app does not need Python, Node.js, Rust, `uv`, or a package manager on the target
 machine. The current release contains no Python runtime or capability worker; a future optional
 worker would require its own protocol, sandbox, dependency lock, and release review.
 
-The source supports macOS, Windows, and Linux. Restork has two deliberately separate release
-channels: a visibly unprotected cross-platform technical preview for early testing, and a protected
-stable channel that requires real platform identities. Pull-request artifacts remain short-lived
-candidates.
+The source supports macOS, Windows, and Linux. Public downloads are currently unsigned technical
+previews for early testing. A future stable channel still requires real publisher identities,
+platform signing, and notarization. Pull-request builds remain short-lived test files.
 
-| Platform | Public availability | Trust boundary |
+| Platform | Public availability | What to know before downloading |
 |---|---|---|
-| Apple Silicon macOS 13+ | GitHub Release DMG Alpha | visibly ad-hoc signed and not notarized; independent updater signature plus checksum, SBOM, provenance, and clean-machine checks |
-| Windows 10/11 x64 | GitHub Release NSIS EXE and MSI Alpha | visibly unsigned; no preview updater; checksum, provenance, and both installer lifecycle checks |
-| Desktop Linux x64 | GitHub Release AppImage and DEB Alpha | visibly unsigned; no preview updater; checksum, provenance, AppImage launch and DEB install/uninstall checks |
+| Apple Silicon macOS 13+ | GitHub Release DMG Alpha | clearly marked as ad-hoc signed and not notarized; includes an updater signature, checksum, software bill of materials, build record, and clean-machine test results |
+| Windows 10/11 x64 | GitHub Release NSIS EXE and MSI Alpha | clearly marked as unsigned; preview updates stay off; includes checksums, build records, and install/uninstall tests for both formats |
+| Desktop Linux x64 | GitHub Release AppImage and DEB Alpha | clearly marked as unsigned; preview updates stay off; includes checksums, build records, an AppImage launch test, and DEB install/uninstall tests |
 
 ## One-click use
 
@@ -46,10 +45,10 @@ Authenticode-signed. On macOS, use the per-app **Open / Open Anyway** flow and n
 Gatekeeper globally. On Debian/Ubuntu, the DEB can be opened with the system installer or installed
 with `sudo apt install ./Restork-*-Linux-x64-UNSIGNED-ALPHA.deb`.
 
-These technical previews do not create Apple, Microsoft, or Linux publisher trust. Install them only
-when you intentionally downloaded them from this repository. See the bilingual
+These technical previews do not carry Apple, Microsoft, or Linux publisher certificates. Install
+them only when you intentionally downloaded them from this repository. See the bilingual
 [Alpha trust and install notice](unsigned-alpha-release.md). Intel Mac users and anyone who does not
-accept the warning should wait for the protected channel or build as a contributor.
+accept the warning should wait for a signed release or build as a contributor.
 
 ## Build an internal candidate
 
@@ -95,8 +94,8 @@ macOS also has process-group and repeated-launch fault checks:
 2. The supervisor starts only the bundled `restorkd`, passes a private state database, and owns the
    complete process tree: Unix process groups on macOS/Linux and a kill-on-close Job Object on
    Windows.
-3. It validates a bounded bootstrap record and the metadata-only readiness endpoint. Pairing
-   material never touches disk.
+3. It accepts only a size-limited, fixed-shape startup record and checks the metadata-only readiness
+   endpoint. Pairing material never touches disk.
 4. The WebView receives a short-lived scoped session in memory. Web Storage is not used.
 5. A two-second heartbeat tolerates two misses; a third consecutive miss opens the recovery state.
    Quit, crash, retry, and failed-start paths terminate the owned Core and workers.
@@ -112,9 +111,9 @@ paid request. From a source checkout, the CLI remains available:
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
 ```
 
-Only the opaque credential reference is stored in a provider profile. Vault selection follows the
-same boundary: the native picker keeps the absolute path in Rust and returns only an opaque grant and
-safe folder label to the Dashboard.
+The provider profile stores only a system credential reference, never the key. During Vault
+selection, the native picker keeps the absolute path inside Rust and returns only a temporary grant
+ID and safe folder label to the Dashboard.
 
 ## Diagnostics and recovery
 
@@ -125,24 +124,25 @@ locations, ports, PIDs, tokens, pairing codes, or API keys. On macOS the current
 ~/Library/Logs/io.github.totoro-qaq.restork/desktop-events.jsonl
 ```
 
-The log is owner-only and bounded to 1 MB. `core_heartbeat_lost`,
+Only the current OS user can read the log, and it is capped at 1 MB. `core_heartbeat_lost`,
 `core_heartbeat_recovered`, `core_heartbeat_failed`, and `core_exited` distinguish lifecycle trouble
 from provider-credential trouble.
 
 The updater accepts HTTPS endpoints without URL credentials and relies on Tauri's independent
-artifact signature before installation. It rejects wrong-target, replayed, equal-version, and
+update-package signature before installation. It rejects wrong-target, replayed, equal-version, and
 downgrade updates. A verified updater package is archived before install; Settings can list at most
 the two most recent recovery copies with their version, target, path, and SHA-256. Restork never
 executes one as an automatic downgrade and never places user data inside the application bundle.
 
-## Release contract
+## Checks required before release
 
 The public `v*-alpha.*` workflow verifies that an annotated tag belongs to `main`, builds all three
-platform previews, and publishes only after downloaded-package lifecycle checks pass. macOS retains
+platform previews, and publishes only after the downloaded packages pass install, launch, quit, and
+uninstall checks. macOS retains
 its independently signed updater archive. Windows/Linux preview updater artifacts are disabled. One
 cross-platform manifest, checksum ledger, SBOM, and provenance set describe the exact release.
 
-The protected tag workflow now defines the complete three-platform gate:
+The stable tag workflow lists every check required on all three platforms:
 
 - macOS Developer ID signing, notarization, stapling, Gatekeeper assessment, updater signing, and a
   fresh-runner DMG verification;
@@ -154,7 +154,7 @@ The protected tag workflow now defines the complete three-platform gate:
 - target-scoped updater metadata, CycloneDX SBOM, SHA-256 ledger, signed checksums, and GitHub build
   provenance before one immutable Release is created.
 
-The public Alpha does not weaken these stable gates. Developer ID/notarization, Authenticode, and
-the full Linux signature matrix remain owner-controlled proof. Do not describe an Alpha as signed or
-notarized by Apple, and do not claim a protected stable release until the complete tag workflow and
-downloaded attestations pass.
+The public Alpha does not lower the requirements for a stable release. Developer ID/notarization,
+Authenticode, and the full Linux signature matrix remain under the repository owner's control. Do
+not describe an Alpha as signed or notarized by Apple, and do not announce a stable release until
+the complete tag workflow and downloaded attestations pass.

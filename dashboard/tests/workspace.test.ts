@@ -1556,6 +1556,20 @@ describe("Rust conversation workspace", () => {
     },
   });
 
+  it("explains the free community boundary without exposing a personal contact address", () => {
+    const root = document.createElement("main");
+    mountDashboard(root, { api: fakeApi(), snapshot: workspaceSnapshot(), locale: "zh-CN" });
+
+    const section = root.querySelector<HTMLElement>("[data-project-boundary]");
+    expect(section?.textContent).toContain("Restork 免费、开源");
+    expect(section?.textContent).toContain("重要的 AI 结果仍可能出错");
+    expect(section?.querySelector<HTMLAnchorElement>('a[href$="DISCLAIMER.zh-CN.md"]')).not.toBeNull();
+    expect(section?.querySelector<HTMLAnchorElement>('a[href$="SECURITY.zh-CN.md"]')).not.toBeNull();
+    expect(section?.textContent).toContain("不需要公开维护者的个人邮箱");
+    expect(section?.textContent).not.toMatch(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    root.remove();
+  });
+
   it("uses a system-backed time-zone selector instead of asking people to type an IANA identifier", async () => {
     const root = document.createElement("main");
     const state = workspaceSnapshot();
@@ -2043,7 +2057,7 @@ describe("Rust conversation workspace", () => {
     root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
     expect(root.querySelector<HTMLElement>('[data-view-panel="extensions"]')?.hidden).toBe(false);
     expect(root.querySelector("#extension-install-form")).not.toBeNull();
-    expect(root.textContent).toContain("添加已审查扩展");
+    expect(root.textContent).toContain("添加扩展");
     const reportSkill = root.querySelector<HTMLButtonElement>('[data-core-skill-view="deliverables"]');
     expect(reportSkill?.getAttribute("aria-label")).toContain("日报与周报");
     reportSkill?.click();
@@ -2110,7 +2124,7 @@ describe("Rust conversation workspace", () => {
     mountDashboard(root, { api, snapshot: state });
 
     root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
-    expect(root.textContent).toContain("Tools Restork can govern");
+    expect(root.textContent).toContain("Tools Restork can run");
     expect(root.textContent).toContain("paper.search");
     expect(root.textContent).toContain("network:https://example.com");
 

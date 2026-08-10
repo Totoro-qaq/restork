@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="./assets/readme/hero.zh-CN.svg" width="100%" alt="Restork——写入可审查、MCP 工具受系统沙箱约束、Markdown 留在本地的桌面 Agent。">
+  <img src="./assets/readme/hero.zh-CN.svg" width="100%" alt="Restork——写入前先给你看、MCP 工具关进系统沙箱、Markdown 留在本地的桌面 Agent。">
 </p>
 
 <p align="center">
@@ -27,8 +27,9 @@
 
 <p align="center">
   <strong>一个你敢让它碰文件的桌面 Agent。</strong><br>
-  让 Restork 跨本地 Markdown 查找并给出带引用的答案；写回前先看精确改动，每次审批只对这份
-  内容有效，MCP 工具则运行在操作系统级沙箱中。
+  让它在本地 Markdown 里查资料、附上出处；需要写回时，先把改动摊开给你看。
+  MCP 工具会被关进操作系统沙箱里。<br>
+  <sub>免费、开源，写给研究者、开发者和每天要跟资料打交道的人。</sub>
 </p>
 
 ## 看看 Restork 怎么工作
@@ -50,16 +51,16 @@
 
 | 当你想…… | Restork 可以帮你…… |
 |---|---|
-| **研究一个问题** | 收集公开来源、比较论断和冲突，并整理成带引用的 Markdown 笔记；保存前由你审阅。 |
+| **研究一个问题** | 收集公开来源、比较不同说法和矛盾，并整理成带出处的 Markdown 笔记；保存前由你过目。 |
 | **真正学会一个主题** | 从主题或已有笔记出发，梳理前置知识、学习路径、无答案练习，并根据错误安排复习。 |
-| **把工作往前推进** | 把目标和有限范围的仓库快照变成可执行计划与脱敏交接包；当前版本不会替你执行计划。 |
+| **把工作往前推进** | 把目标和你选中的文件整理成可执行计划与脱敏交接包；当前版本不会替你执行计划。 |
 
 它们是同一个 Core 里的三种模式，不是三个争抢上下文和权限的 Agent。三种模式共用预算、
 事件记录、审批、记忆规则和本地 Dashboard。
 
-## 我们希望它始终容易理解
+## 重要的东西，仍由你掌握
 
-| 承诺 | 在产品里意味着什么 |
+| 你关心的事 | Restork 会怎么做 |
 |---|---|
 | **你的 Markdown 仍然属于你** | Obsidian 笔记和任务仍是普通本地文件；私人 Vault 不会被复制进本仓库。 |
 | **先看到影响，再决定是否继续** | 写入先生成精确预览；审批只使用一次、会过期，并绑定这一次的具体内容。 |
@@ -83,7 +84,7 @@
 Restork Core ─ 运行策略 ─ 预览 ─ 审批 ─ 事件记录
         │
         ├── 本地 Dashboard / CLI
-        └── 出站网关 ──► 已选择的模型 / 已批准的公开服务
+        └── 联网检查 ──► 已选择的模型 / 已批准的公开服务
 ```
 
 Markdown 是笔记和用户任务的持久载体；SQLite 保存运行、审批和事件等操作状态。索引与链接投影
@@ -105,9 +106,10 @@ Python 脚本只用于开发辅助，不是产品运行时或可安装包。
 | Windows 10/11 x64 | `Windows-x64-UNSIGNED-ALPHA-setup.exe` 或 `.msi` | 技术预览尚无 Authenticode，SmartScreen 可能提示；校验 `SHA256SUMS` 后，只在确认来自本仓库时运行。 |
 | 桌面 Linux x64 | `Linux-x64-UNSIGNED-ALPHA.AppImage` 或 `.deb` | AppImage 赋予执行权限后打开；Debian/Ubuntu 可用系统安装器安装 DEB。 |
 
-三种平台都内置同一份 Rust Core 与 Dashboard，并通过干净 runner 生命周期测试。它们是明确标注
-的未签名技术预览，不是平台签名正式版。macOS 更新包另有 Restork 独立签名；Windows/Linux 在
-受保护签名门禁通过前不启用预览版自动更新。校验与信任边界见[桌面端指南](docs/desktop.zh-CN.md)。
+三种平台都内置同一份 Rust Core 与 Dashboard，并在干净环境中测试安装、启动、退出和卸载。它们
+是明确标注的未签名技术预览，不是平台签名正式版。macOS 更新包另有 Restork 独立签名；正式签名
+和公证完成前，Windows/Linux 预览版不会开启自动更新。如何校验下载文件、各平台当前的签名状态，
+见[桌面端指南](docs/desktop.zh-CN.md)。
 
 ## 从源码运行（贡献者）
 
@@ -147,9 +149,9 @@ cargo run --manifest-path rust/Cargo.toml --bin restorkd -- \
 
 ### 一个 Core，一套规则
 
-产品只有一个权威运行时：`restorkd`。Dashboard、CLI、桌面生命周期、API、Agent 循环、记忆、
-任务、Research、Study、Work 与 Radar 全部经过同一套 Rust 策略和事件边界。旧 Python Core
-及其构建路径已经移除。
+真正负责执行的只有 `restorkd`。Dashboard、CLI、桌面应用、API、Agent 循环、记忆、任务、
+Research、Study、Work 与 Radar 都使用同一套权限、记录和恢复方式。旧 Python Core 及其构建
+路径已经移除。
 
 ### 只连接你真正需要的东西
 
@@ -161,7 +163,7 @@ cargo run --manifest-path rust/Cargo.toml --bin restorkd -- \
 | 查看天气 | 在天气设置中输入城市，或自己点击**使用当前位置** | 启用前始终关闭；不会通过 IP 猜测位置 |
 | 加入日历 | 可用时连接系统日历，或选择一个本地 ICS 文件 | 只读访问；即使不连接，日期和时区也会跟随设备 |
 | 查看未读邮件 | 在 macOS 中先打开系统邮件，再从顶部邮件入口点击**连接邮件** | 只实时显示未读总数；不读取发件人、主题、正文、账户地址，也不交给模型 |
-| 使用每日一曲 | 选择 QQ 音乐、网易云、Apple Music 或私有 JSON/CSV 歌单 | 显式只读同步；不接收账号密码/Cookie，不下载音频和歌词；来源能力与证据缺口始终可见 |
+| 使用每日一曲 | 选择 QQ 音乐、网易云、Apple Music 或私有 JSON/CSV 歌单 | 只有你点连接才会读取；不接收账号密码/Cookie，不下载音频和歌词；没有足够依据时会直说 |
 
 打开**每日一曲 → 连接歌单**，选择来源，粘贴普通的公开歌单分享链接，再点**连接并同步**。
 QQ 音乐与网易云是无需凭据的实验性只读适配；QQ 音乐可以附上香港榜单证据，网易云没有经过
@@ -200,8 +202,8 @@ Kimi、Qwen、Ollama、OpenRouter 和 OpenAI-compatible 定义。Profile 与具�
 Provider Profile 卡片点击**测试模型**；选择的不是 DeepSeek 时，测试也绝不会绕到内置 DeepSeek
 链路。能力表与端点规则见[模型供应商指南](docs/providers.zh-CN.md)。
 
-在对话中点击**换一个模型继续**会创建新分支，只带上预览里列出的近期上下文；它不会改写原 Profile，也不会
-把私有消息带进数据边界更窄的云端模型。
+在对话中点击**换一个模型继续**会创建新分支，只带上预览里列出的近期上下文；它不会改写原
+Profile，也不会把私有消息交给权限范围不合适的云端模型。
 
 云端 Key 使用按供应商区分的原生凭据流程，不在 Dashboard 放明文 Key 输入框；省略类型时仍默认
 配置内置 DeepSeek：
@@ -250,29 +252,29 @@ cargo run --manifest-path rust/Cargo.toml --bin restorkd -- \
 | 区域 | 当前可以做什么 |
 |---|---|
 | **Dashboard 与本地 API** | 中英文界面、仅监听 loopback 的 `/v1` API、独立 Web/CLI 配对、可轮转的短期会话 |
-| **对话** | 运行范围内的会话，支持分支、搜索、导出、归档、可取消操作与 SSE 重放 |
-| **模型** | DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter 与通用 OpenAI 兼容端点；供应商范围内思考强度；原生凭据存储；版本化 Prompt 与配置 Profile |
+| **对话** | 每次运行都有自己的会话，支持分支、搜索、导出、归档、取消操作与 SSE 续传 |
+| **模型** | DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter 与通用 OpenAI 兼容端点；只显示该模型真正支持的思考强度；原生凭据存储；可追溯的 Prompt 与配置版本 |
 | **Agent 运行时** | 持久化模型/工具循环，分别约束步骤、修复、Token、费用与总耗时；支持取消、审批暂停、事件重放和可见的上下文压缩 |
 | **Research、Study、Work** | 带来源的资料研究与写入前预览；基于 Vault 的学习路径和主动复习；清晰的工作计划、脱敏交接与结果核对 |
 | **本地知识** | 带分页、安全 Markdown 预览和文件实时更新的 Obsidian Vault 浏览器，可检查的四层记忆、审批式 Markdown 任务、统一搜索，以及可选的 GitHub 公开 AI/Agent 项目与 Hacker News Radar |
-| **扩展** | 清单校验、权限格、不可变修订与回滚，以及沙箱化的 stdio MCP 执行 |
+| **扩展** | 安装前检查清单、分层权限、版本回退，以及在沙箱里执行 stdio MCP |
 | **每日上下文** | 可选天气、无需权限的系统日期与月历、一个本地 ICS 日历、macOS 未读邮件计数，以及来自 QQ 音乐、网易云、Apple Music 或私有歌单文件的每日单曲 |
-| **产物与恢复** | 确定性无宏 PPTX/PDF、精确产物哈希、包含真实内容的检查点、绑定预览的文件恢复 |
-| **自动化** | 感知夏令时的本地任务，以及可选择模型的日报/周报草稿；模型自动化需明确同意联网，只发送标记为 `public` 的运行事实，结果留在本地等待审查 |
+| **产物与恢复** | 按固定规则生成无宏 PPTX/PDF、记录文件哈希、保存带真实内容的检查点，并只恢复你预览过的版本 |
+| **自动化** | 感知夏令时的本地任务，以及可选择模型的日报/周报草稿；模型自动化需明确同意联网，只发送标记为 `public` 的运行事实，草稿留在本地等你过目 |
 | **桌面** | Tauri 打包 `restorkd` 与 Dashboard，使用 Unix 进程组或 Windows Job Object 管理生命周期 |
 
-### 刻意保留的边界
+### 现在还不会做的事
 
-| 区域 | 当前边界 |
+| 区域 | 当前情况 |
 |---|---|
-| 联网搜索 | 公开 HTTPS Research 统一经过出站网关；是否可用取决于所选供应商能力。 |
+| 联网搜索 | 公开 HTTPS Research 都从同一个检查入口联网；能否使用取决于所选模型供应商。 |
 | MCP | 已审批的 stdio MCP 在平台沙箱中执行；Remote HTTPS MCP 在传输策略完成前会直接拒绝。 |
-| 交付物创作 | Restork 从显式内容组装经校验的 Markdown、确定性无宏 PPTX 与 PDF，不会暗中编造来源论断。 |
-| Work 执行 | Work 生成可审查的计划与交接包，再核对返回的 manifest；不会接管外部编码进程。 |
+| 交付物创作 | Restork 用你提供的内容生成并检查 Markdown、无宏 PPTX 与 PDF，不会偷偷编造有出处的说法。 |
+| Work 执行 | Work 生成计划和交接包供你过目，再核对返回的结果清单；不会接管外部编码进程。 |
 | 原生邮件 | 未读总数适配仅支持 macOS；Windows/Linux 会如实显示不可用。 |
 
-桌面技术预览明确不在 Apple、Microsoft 或 Linux 发布者信任范围内；受保护正式版仍要求真实
-Developer ID、Authenticode、Linux 签名、公证、签名更新与干净 runner 证据。
+桌面技术预览尚未使用 Apple、Microsoft 或 Linux 发布者证书签名。正式版仍需完成 Developer ID、
+Authenticode、Linux 签名、Apple 公证、更新签名和干净机器安装测试。
 
 ## 使用指南
 
@@ -290,7 +292,7 @@ Developer ID、Authenticode、Linux 签名、公证、签名更新与干净 runn
 <summary><strong>开发与贡献</strong></summary>
 
 ```bash
-# Rust Core 与发布门禁
+# 开发检查与发布准备
 cargo fmt --manifest-path rust/Cargo.toml --all -- --check
 cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets -- -D warnings
 cargo test --manifest-path rust/Cargo.toml --locked
@@ -327,10 +329,13 @@ loopback 延迟，全程不发送 Prompt。
 
 提交改动前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。已实现的产品契约位于
 [`V1 规格`](specs/restork-v1.md)与[Steps 18–22 规格](specs/restork-steps18-22.md)；对话模型分支与公开
-macOS Alpha 的边界冻结在 [Step 26 规格](specs/restork-step26-model-branch-and-public-alpha.md)，
+macOS Alpha 的功能范围见 [Step 26 规格](specs/restork-step26-model-branch-and-public-alpha.md)，
 三平台预览安装与贡献者体验由 [Step 29 规格](specs/restork-step29-install-and-contributor-experience.md)
 约束。发布历史记录在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 </details>
 
-Restork 基于 [MIT License](LICENSE) 发布。
+Restork 是免费、开源的社区项目，基于 [MIT License](LICENSE) 发布。请同时阅读
+[为什么做 Restork，以及使用时需要知道的事](DISCLAIMER.zh-CN.md)、
+[安全政策](SECURITY.zh-CN.md)与[支持说明](SUPPORT.zh-CN.md)；官方支持不要求公开维护者的
+个人邮箱。
