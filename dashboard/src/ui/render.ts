@@ -1228,28 +1228,13 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
   const prompts = snapshot.workspaceV2?.prompts ?? [];
   const providerRegistry = snapshot.workspaceV2?.providerRegistry?.items ?? [];
   const activePrompt = prompts.find((revision) => revision.active);
-  const projectBoundaryUrl = locale === "zh-CN"
-    ? "https://github.com/Totoro-qaq/restork/blob/main/DISCLAIMER.zh-CN.md"
-    : "https://github.com/Totoro-qaq/restork/blob/main/DISCLAIMER.md";
+  const projectBaseUrl = "https://github.com/Totoro-qaq/restork";
+  const projectBoundaryUrl = `${projectBaseUrl}/blob/main/DISCLAIMER${locale === "zh-CN" ? ".zh-CN" : ""}.md`;
   const externalLinkAttributes = 'target="_blank" rel="noopener noreferrer"';
-  const projectBoundaryLink = safeLink(
-    projectBoundaryUrl,
-    tr(locale, "ABOUT & RESPONSIBILITY", "使用与责任"),
-    externalLinkAttributes,
-  );
-  const projectSecurityUrl = locale === "zh-CN"
-    ? "https://github.com/Totoro-qaq/restork/blob/main/SECURITY.zh-CN.md"
-    : "https://github.com/Totoro-qaq/restork/security/policy";
-  const projectSecurityLink = safeLink(
-    projectSecurityUrl,
-    tr(locale, "SECURITY", "安全政策"),
-    externalLinkAttributes,
-  );
-  const projectLicenseLink = safeLink(
-    "https://github.com/Totoro-qaq/restork/blob/main/LICENSE",
-    "MIT LICENSE",
-    externalLinkAttributes,
-  );
+  const projectBoundaryLink = safeLink(projectBoundaryUrl, tr(locale, "ABOUT & RESPONSIBILITY", "使用与责任"), externalLinkAttributes);
+  const projectSecurityUrl = locale === "zh-CN" ? `${projectBaseUrl}/blob/main/SECURITY.zh-CN.md` : `${projectBaseUrl}/security/policy`;
+  const projectSecurityLink = safeLink(projectSecurityUrl, tr(locale, "SECURITY", "安全政策"), externalLinkAttributes);
+  const projectLicenseLink = safeLink(`${projectBaseUrl}/blob/main/LICENSE`, "MIT LICENSE", externalLinkAttributes);
   return `<article class="paper-card full-card settings-workspace"><header><div><p class="eyebrow">LOCAL PROFILE</p><h2>${tr(locale, "Make Restork yours", "让 Restork 更像你的工作台")}</h2></div><span class="ribbon study">PRIVATE</span></header>
     <div class="settings-sections">
       <section class="settings-section"><header><div><small>PERSONAL</small><h3>${tr(locale, "Profile & appearance", "个人资料与外观")}</h3></div></header>
