@@ -20,6 +20,7 @@ use std::{
 };
 
 mod agent_tools;
+mod auth_api;
 mod automation_api;
 mod catalog_api;
 mod config_api;
@@ -34,6 +35,7 @@ mod state;
 mod todo_api;
 mod vault_api;
 
+use auth_api::*;
 use automation_api::*;
 use catalog_api::*;
 use config_api::*;
@@ -125,10 +127,6 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-// Access tokens remain five-minute capabilities. Only the rotation endpoint
-// accepts an otherwise-expired token inside this recovery window so a sleeping
-// desktop WebView can resume without restarting Core.
-const TOKEN_ROTATION_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 #[derive(Serialize)]
 struct Readiness<'a> {
@@ -177,6 +175,10 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
     },
     ApiRouteDescription {
         path: "/v1/token/rotate",
+        methods: &["POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/token/resume",
         methods: &["POST"],
     },
     ApiRouteDescription {
@@ -615,12 +617,6 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PairPayload {
-    code: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct AgentRunCreate {
     goal: String,
     mode: String,
@@ -655,15 +651,6 @@ const fn default_true() -> bool {
 
 fn default_public_data_class() -> String {
     "public".to_owned()
-}
-
-#[derive(Serialize)]
-struct TokenPayload<'a> {
-    access_token: &'a str,
-    token_type: &'static str,
-    audience: &'static str,
-    scope: String,
-    expires_at: String,
 }
 
 #[derive(Deserialize)]
@@ -1731,102 +1718,6 @@ where
                 StatusCode::INTERNAL_SERVER_ERROR,
             ),
         ),
-    }
-}
-
-async fn pair_web(State(state): State<ApiState>, request: Request) -> Response {
-    pair_for_audience(state.authority, request, Audience::Web).await
-}
-
-async fn pair_cli(State(state): State<ApiState>, request: Request) -> Response {
-    pair_for_audience(state.authority, request, Audience::Cli).await
-}
-
-async fn pair_for_audience(
-    authority: PairingAuthority,
-    request: Request,
-    audience: Audience,
-) -> Response {
-    let payload = match parse_pair_payload(request).await {
-        Ok(payload) => payload,
-        Err(response) => return *response,
-    };
-    match authority.pair(&payload.code, audience) {
-        Ok(token) => token_response(&token),
-        Err(AuthError::AuthorityUnavailable | AuthError::EntropyUnavailable) => error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "pairing authority is unavailable",
-        ),
-        Err(error) => error_response_owned(StatusCode::UNAUTHORIZED, error.to_string()),
-    }
-}
-
-async fn parse_pair_payload(request: Request) -> Result<PairPayload, Box<Response>> {
-    let content_type = request
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    if !content_type
-        .split(';')
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .eq_ignore_ascii_case("application/json")
-    {
-        return Err(Box::new(error_response(
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "Content-Type must be application/json",
-        )));
-    }
-    let bytes = to_bytes(request.into_body(), 2048).await.map_err(|_| {
-        Box::new(error_response(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "request body is too large",
-        ))
-    })?;
-    let payload: PairPayload = serde_json::from_slice(&bytes).map_err(|_| {
-        Box::new(error_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "invalid request body",
-        ))
-    })?;
-    if payload.code.is_empty() || payload.code.len() > 256 {
-        return Err(Box::new(error_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "invalid request body",
-        )));
-    }
-    Ok(payload)
-}
-
-async fn rotate_token(State(state): State<ApiState>, headers: HeaderMap) -> Response {
-    let value = match bearer_value(&headers) {
-        Ok(value) => value,
-        Err(response) => return *response,
-    };
-    let audiences = if headers.contains_key(header::ORIGIN) {
-        &[Audience::Web][..]
-    } else {
-        &[Audience::Web, Audience::Cli][..]
-    };
-    match state
-        .authority
-        .rotate_with_grace(value, audiences, TOKEN_ROTATION_GRACE)
-    {
-        Ok(token) => token_response(&token),
-        Err(error) => auth_error_response(error),
-    }
-}
-
-async fn revoke_token(State(state): State<ApiState>, headers: HeaderMap) -> Response {
-    let current = match authorize(&state.authority, &headers, TOKENS_MANAGE) {
-        Ok(token) => token,
-        Err(response) => return *response,
-    };
-    match state.authority.revoke(current.value()) {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => auth_error_response(error),
     }
 }
 
@@ -3365,29 +3256,6 @@ enum RestorePlanError {
     Invalid,
     Conflict,
     Io,
-}
-
-fn token_response(token: &AccessToken) -> Response {
-    let expires_at = OffsetDateTime::from(token.expires_at());
-    let Ok(expires_at) = expires_at.format(&Rfc3339) else {
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "token expiry could not be formatted",
-        );
-    };
-    Json(TokenPayload {
-        access_token: token.value(),
-        token_type: "bearer",
-        audience: token.audience().as_str(),
-        scope: token
-            .scopes()
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .join(" "),
-        expires_at,
-    })
-    .into_response()
 }
 
 #[cfg(test)]

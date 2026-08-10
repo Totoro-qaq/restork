@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LocalApiClient, systemTimeZone } from "../src/api/client";
+import type { RunEvent } from "../src/api/types";
 
 function jsonResponse(payload: object): Response {
   return new Response(JSON.stringify(payload), {
@@ -11,6 +12,59 @@ function jsonResponse(payload: object): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+describe("LocalApiClient session recovery", () => {
+  it("resumes a refreshed loopback page without exposing a token to web storage", async () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({
+      access_token: "resumed-token",
+      expires_at: new Date(Date.now() + 300_000).toISOString(),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+
+    await expect(client.resumeSession()).resolves.toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("/v1/token/resume");
+    expect(fetchMock.mock.calls[0][1]?.credentials).toBe("same-origin");
+    expect(localStorage).toHaveLength(0);
+    expect(sessionStorage).toHaveLength(0);
+  });
+
+  it("rotates an expired desktop token through the bounded recovery route", async () => {
+    const onSession = vi.fn(async () => undefined);
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({
+      access_token: "fresh-token",
+      expires_at: new Date(Date.now() + 300_000).toISOString(),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient({ onSession });
+
+    await expect(client.resumeSession({
+      accessToken: "sleep-expired-token",
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    })).resolves.toBe(true);
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/v1/token/rotate");
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("Authorization"))
+      .toBe("Bearer sleep-expired-token");
+    expect(fetchMock.mock.calls[0][1]?.credentials).toBe("same-origin");
+    expect(onSession).toHaveBeenCalledWith(expect.objectContaining({ accessToken: "fresh-token" }));
+  });
+
+  it("falls back to pairing when no protected browser resume exists", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => new Response(
+      JSON.stringify({ detail: "local session is unavailable" }),
+      { status: 401, headers: { "Content-Type": "application/json" } },
+    )));
+    const client = new LocalApiClient();
+
+    await expect(client.resumeSession()).resolves.toBe(false);
+  });
 });
 
 describe("LocalApiClient weather configuration", () => {
@@ -563,6 +617,118 @@ describe("LocalApiClient authenticated SSE", () => {
     const streamHeaders = new Headers(fetchMock.mock.calls[1][1]?.headers);
     expect(streamHeaders.get("Authorization")).toBe("Bearer paired-token");
     expect(streamHeaders.get("Last-Event-ID")).toBe("4");
+  });
+
+  it("rotates auth independently and resumes one run from its last durable event", async () => {
+    vi.useFakeTimers();
+    let now = Date.parse("2026-08-10T05:00:00Z");
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const streamBody = (text: string): Response => new Response(text, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+    const first = [
+      "id: 5",
+      "event: model.started",
+      'data: {"label":"working"}',
+      "",
+      "",
+    ].join("\n");
+    const resumed = [
+      "id: 5",
+      "event: model.started",
+      'data: {"label":"duplicate"}',
+      "",
+      "id: 6",
+      "event: run.completed",
+      'data: {"state":"completed"}',
+      "",
+      "",
+    ].join("\n");
+    let streamAttempt = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (path) => {
+      if (path === "/v1/pair") {
+        return jsonResponse({
+          access_token: "before-sleep-token",
+          expires_at: new Date(now + 300_000).toISOString(),
+        });
+      }
+      if (path === "/v1/token/rotate") {
+        return jsonResponse({
+          access_token: "after-sleep-token",
+          expires_at: new Date(now + 300_000).toISOString(),
+        });
+      }
+      streamAttempt += 1;
+      if (streamAttempt === 1) {
+        now += 400_000;
+        return streamBody(first);
+      }
+      return streamBody(resumed);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+    const delivered: Array<{ id: number; type: string }> = [];
+
+    await client.pair("pairing-code");
+    const streaming = client.streamEvents(
+      "run-stable",
+      4,
+      (event) => delivered.push({ id: event.id, type: event.type }),
+      new AbortController().signal,
+    );
+    await vi.advanceTimersByTimeAsync(750);
+    await streaming;
+
+    expect(delivered).toEqual([
+      { id: 5, type: "model.started" },
+      { id: 6, type: "run.completed" },
+    ]);
+    const streamCalls = fetchMock.mock.calls.filter(([path]) =>
+      String(path).includes("/v1/runs/run-stable/events"));
+    expect(streamCalls).toHaveLength(2);
+    expect(new Headers(streamCalls[0][1]?.headers).get("Last-Event-ID")).toBe("4");
+    expect(new Headers(streamCalls[0][1]?.headers).get("Authorization"))
+      .toBe("Bearer before-sleep-token");
+    expect(new Headers(streamCalls[1][1]?.headers).get("Last-Event-ID")).toBe("5");
+    expect(new Headers(streamCalls[1][1]?.headers).get("Authorization"))
+      .toBe("Bearer after-sleep-token");
+    expect(streamCalls[0][0]).toBe(streamCalls[1][0]);
+  });
+
+  it("reconnects a dropped SSE transport without changing the run identity", async () => {
+    vi.useFakeTimers();
+    let streamAttempts = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (path) => {
+      if (path === "/v1/pair") return jsonResponse({ access_token: "paired-token" });
+      streamAttempts += 1;
+      if (streamAttempts === 1) throw new TypeError("socket dropped");
+      return new Response([
+        "id: 1",
+        "event: run.completed",
+        'data: {"state":"completed"}',
+        "",
+        "",
+      ].join("\n"), { status: 200, headers: { "Content-Type": "text/event-stream" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+    const delivered: RunEvent[] = [];
+
+    await client.pair("pairing-code");
+    const streaming = client.streamEvents(
+      "run-one-identity",
+      0,
+      (event) => delivered.push(event),
+      new AbortController().signal,
+    );
+    await vi.advanceTimersByTimeAsync(750);
+    await streaming;
+
+    expect(streamAttempts).toBe(2);
+    expect(delivered.map((event) => event.id)).toEqual([1]);
+    expect(fetchMock.mock.calls[1][0]).toBe(fetchMock.mock.calls[2][0]);
+    expect(new Headers(fetchMock.mock.calls[2][1]?.headers).get("Last-Event-ID")).toBe("0");
   });
 });
 

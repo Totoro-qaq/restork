@@ -24,6 +24,7 @@ const MODULE_MAXIMUM_LINES: usize = 3_600;
 /// `every_module_is_accounted_for` fails until a new file appears here.
 const MODULES: &[&str] = &[
     "agent_tools",
+    "auth_api",
     "automation_api",
     "catalog_api",
     "config_api",

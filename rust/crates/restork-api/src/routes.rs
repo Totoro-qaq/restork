@@ -34,6 +34,7 @@ fn system_routes() -> Router<ApiState> {
         .route("/v1/pair", axum::routing::post(pair_web))
         .route("/v1/cli/pair", axum::routing::post(pair_cli))
         .route("/v1/token/rotate", axum::routing::post(rotate_token))
+        .route("/v1/token/resume", axum::routing::post(resume_web_token))
         .route("/v1/token/revoke", axum::routing::post(revoke_token))
 }
 

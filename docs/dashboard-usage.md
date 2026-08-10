@@ -20,8 +20,10 @@ model, weather, calendar, or music configuration. To connect an existing Vault e
 ```
 
 Open `http://127.0.0.1:7337`, enter the Web pairing code printed in the foreground terminal, and keep
-that Core process running. A remote URL, hosted Dashboard, browser extension, or cloud database is not
-part of V1.
+that Core process running. Refreshing the page or waking the device renews the local browser session
+without another pairing code for up to seven days. The access token remains in memory; a host-only,
+JavaScript-inaccessible resume cookie is used only by Core's token endpoint. A remote URL, hosted
+Dashboard, browser extension, or cloud database is not part of V1.
 
 To open the Rust-first Step 12–17 alpha instead:
 
@@ -37,7 +39,7 @@ and shutdown automatically.
 The Dashboard detects `zh-*` browser locales as Simplified Chinese and defaults every other locale to
 English. Use the visible `EN`/`中文` control on either the pairing page or workspace to switch. An
 explicit switch may persist only `restork.locale` with the literal value `en` or `zh-CN`; session
-tokens and Core data remain memory-only.
+tokens and Core data are never placed in Web Storage.
 
 ## Browse an Obsidian Vault
 

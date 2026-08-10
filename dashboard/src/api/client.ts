@@ -1,4 +1,5 @@
 import { EventCursor, EventStreamDecoder } from "./events";
+import { streamDurableEvents } from "./reconnectable-stream";
 import type {
   ApprovalRequest,
   DashboardApi,
@@ -101,6 +102,42 @@ export class LocalApiClient implements DashboardApi {
       false,
     );
     await this.#acceptSession(response.access_token, response.expires_at);
+  }
+
+  async resumeSession(session?: LocalSession): Promise<boolean> {
+    if (session) {
+      const normalized = normalizeSession(session.accessToken, session.expiresAt, true);
+      this.#token = normalized.accessToken;
+      this.#expiresAt = Date.parse(normalized.expiresAt);
+      try {
+        if (this.#expiresAt <= Date.now() + 120_000) await this.#rotateSession();
+        else this.#scheduleRotation();
+        return true;
+      } catch {
+        this.#clearSession();
+        return false;
+      }
+    }
+
+    const response = await fetchWithTransientRetry("/v1/token/resume", {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      credentials: "same-origin",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+    }, true);
+    if (response.status === 401) return false;
+    if (!response.ok) throw await apiError(response);
+    const payload = (await response.json()) as {
+      access_token?: unknown;
+      expires_at?: unknown;
+    };
+    if (typeof payload.access_token !== "string" || typeof payload.expires_at !== "string") {
+      throw new Error("Core returned an invalid local session response");
+    }
+    await this.#acceptSession(payload.access_token, payload.expires_at);
+    return true;
   }
 
   restoreSession(session: LocalSession): void {
@@ -300,46 +337,28 @@ export class LocalApiClient implements DashboardApi {
   ): Promise<void> {
     const cursor = this.#operationCursors.get(operationId) ?? new EventCursor();
     this.#operationCursors.set(operationId, cursor);
-    let terminal = false;
-    while (!signal.aborted && !terminal) {
-      const response = await this.#fetch(
+    await streamDurableEvents({
+      after,
+      cursor,
+      open: (lastEventId) => this.#fetch(
         `/v1/operations/${encodeURIComponent(operationId)}/events?follow=true`,
         {
           method: "GET",
-          headers: {
-            Accept: "text/event-stream",
-            "Last-Event-ID": String(Math.max(after, cursor.cursor)),
-          },
+          headers: { Accept: "text/event-stream", "Last-Event-ID": String(lastEventId) },
           signal,
         },
         true,
-      );
-      if (!response.ok) throw await apiError(response);
-      if (!response.body) throw new Error("Core returned an unreadable operation stream");
-      const reader = response.body.getReader();
-      const utf8 = new TextDecoder();
-      const stream = new EventStreamDecoder();
-      const deliver = (events: RunEvent[]): void => {
-        for (const event of cursor.acceptEvents(events)) {
-          onEvent(event);
-          if ([
-            "conversation.completed",
-            "conversation.failed",
-            "conversation.cancelled",
-          ].includes(event.type)) {
-            terminal = true;
-          }
-        }
-      };
-      while (!signal.aborted && !terminal) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        deliver(stream.push(utf8.decode(value, { stream: true })));
-      }
-      deliver(stream.push(utf8.decode()));
-      deliver(stream.finish());
-      if (!signal.aborted && !terminal) await abortableDelay(500, signal);
-    }
+      ),
+      onEvent,
+      terminalTypes: new Set([
+        "conversation.completed",
+        "conversation.failed",
+        "conversation.cancelled",
+      ]),
+      signal,
+      responseError: apiError,
+      initialRetryMs: 500,
+    });
   }
 
   async createSessionProposal(
@@ -1200,42 +1219,23 @@ export class LocalApiClient implements DashboardApi {
   ): Promise<void> {
     const cursor = this.#eventCursors.get(runId) ?? new EventCursor();
     this.#eventCursors.set(runId, cursor);
-    let terminal = false;
-    while (!signal.aborted && !terminal) {
-      const response = await this.#fetch(
+    await streamDurableEvents({
+      after,
+      cursor,
+      open: (lastEventId) => this.#fetch(
         `/v1/runs/${encodeURIComponent(runId)}/events?follow=true`,
         {
           method: "GET",
-          headers: {
-            Accept: "text/event-stream",
-            "Last-Event-ID": String(Math.max(after, cursor.cursor)),
-          },
+          headers: { Accept: "text/event-stream", "Last-Event-ID": String(lastEventId) },
           signal,
         },
         true,
-      );
-      if (!response.ok) throw await apiError(response);
-      if (!response.body) throw new Error("Core returned an unreadable event stream");
-      const reader = response.body.getReader();
-      const utf8 = new TextDecoder();
-      const stream = new EventStreamDecoder();
-      const deliver = (events: RunEvent[]): void => {
-        for (const event of cursor.acceptEvents(events)) {
-          onEvent(event);
-          if (["run.completed", "run.failed", "run.cancelled"].includes(event.type)) {
-            terminal = true;
-          }
-        }
-      };
-      while (!signal.aborted && !terminal) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        deliver(stream.push(utf8.decode(value, { stream: true })));
-      }
-      deliver(stream.push(utf8.decode()));
-      deliver(stream.finish());
-      if (!signal.aborted && !terminal) await abortableDelay(750, signal);
-    }
+      ),
+      onEvent,
+      terminalTypes: new Set(["run.completed", "run.failed", "run.cancelled"]),
+      signal,
+      responseError: apiError,
+    });
   }
 
   async #request<T>(
@@ -1287,7 +1287,7 @@ export class LocalApiClient implements DashboardApi {
       ...init,
       headers,
       cache: "no-store",
-      credentials: "omit",
+      credentials: sessionCredentialPath(path) ? "same-origin" : "omit",
       redirect: "error",
       referrerPolicy: "no-referrer",
     }, retryTransient);
@@ -1315,7 +1315,7 @@ export class LocalApiClient implements DashboardApi {
         Authorization: `Bearer ${token}`,
       },
       cache: "no-store",
-      credentials: "omit",
+      credentials: "same-origin",
       redirect: "error",
       referrerPolicy: "no-referrer",
     }, true)
@@ -1351,20 +1351,35 @@ export class LocalApiClient implements DashboardApi {
       });
     }, delay);
   }
+
+  #clearSession(): void {
+    if (this.#rotationTimer !== null) window.clearTimeout(this.#rotationTimer);
+    this.#rotationTimer = null;
+    this.#token = null;
+    this.#expiresAt = 0;
+  }
 }
 
-function normalizeSession(accessToken: string, expiresAt: string): LocalSession {
+function normalizeSession(
+  accessToken: string,
+  expiresAt: string,
+  allowExpired = false,
+): LocalSession {
   const expiry = Date.parse(expiresAt);
   if (
     !accessToken
     || accessToken.length > 512
     || /\s/.test(accessToken)
     || !Number.isFinite(expiry)
-    || expiry <= Date.now()
+    || (!allowExpired && expiry <= Date.now())
   ) {
     throw new Error("Core returned an invalid local session");
   }
   return { accessToken, expiresAt: new Date(expiry).toISOString() };
+}
+
+function sessionCredentialPath(path: string): boolean {
+  return ["/v1/pair", "/v1/token/rotate", "/v1/token/revoke"].includes(path);
 }
 
 function mailSnapshot(value: Record<string, unknown>): MailSnapshot | null {

@@ -336,3 +336,124 @@ async fn rotation_recovers_a_suspended_web_session_without_reopening_other_route
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn browser_resume_cookie_survives_refresh_and_rotates_only_the_local_web_session() {
+    let clock = Arc::new(TestClock::new(SystemTime::UNIX_EPOCH));
+    let authority =
+        PairingAuthority::with_clock(Duration::from_secs(60), clock.clone()).expect("authority");
+    let code = authority.initial_pairing_code();
+    let app = restork_api::router(authority);
+
+    let (status, headers, paired) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/pair",
+        Some(json!({"code": code})),
+        &[
+            ("content-type", "application/json"),
+            ("origin", "http://127.0.0.1:7337"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let set_cookie = headers
+        .get(header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .expect("web pairing sets a protected resume cookie");
+    assert!(set_cookie.starts_with("restork_loopback_session="));
+    assert!(set_cookie.contains("HttpOnly"));
+    assert!(set_cookie.contains("SameSite=Strict"));
+    assert!(set_cookie.contains("Path=/v1/token"));
+    assert!(set_cookie.contains("Max-Age=604800"));
+    assert!(!set_cookie.contains("Domain="));
+    let cookie = set_cookie
+        .split(';')
+        .next()
+        .expect("cookie pair")
+        .to_owned();
+    let expired = paired.expect("paired token")["access_token"]
+        .as_str()
+        .expect("access token")
+        .to_owned();
+
+    let (status, _, _) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/health",
+        None,
+        &[("cookie", &cookie), ("origin", "http://127.0.0.1:7337")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (status, _, _) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/token/resume",
+        None,
+        &[("cookie", &cookie)],
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    clock.advance(Duration::from_secs(61));
+    let (status, headers, resumed) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/token/resume",
+        None,
+        &[("cookie", &cookie), ("origin", "http://127.0.0.1:7337")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers.get(header::SET_COOKIE).is_some());
+    let recovered = resumed.expect("resumed token")["access_token"]
+        .as_str()
+        .expect("access token")
+        .to_owned();
+    assert_ne!(recovered, expired);
+
+    let authorization = format!("Bearer {recovered}");
+    let (status, _, _) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/health",
+        None,
+        &[
+            ("authorization", &authorization),
+            ("origin", "http://127.0.0.1:7337"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, headers, _) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/token/revoke",
+        None,
+        &[
+            ("authorization", &authorization),
+            ("origin", "http://127.0.0.1:7337"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(
+        headers
+            .get(header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("Max-Age=0"))
+    );
+
+    let (status, _, _) = call(
+        app,
+        Method::POST,
+        "/v1/token/resume",
+        None,
+        &[("origin", "http://127.0.0.1:7337")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}

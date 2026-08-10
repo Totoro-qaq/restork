@@ -179,6 +179,41 @@ export function mountDashboard(root: HTMLElement, options: MountOptions = {}): v
   renderPairing(root, api);
 }
 
+export async function mountBrowserDashboard(
+  root: HTMLElement,
+  api = new LocalApiClient(),
+): Promise<void> {
+  applyLocale(root, detectLocale());
+  renderSessionRecovery(root);
+  try {
+    if (await api.resumeSession()) {
+      renderWorkspace(root, api, await api.loadDashboard());
+      return;
+    }
+    renderPairing(root, api);
+  } catch {
+    renderPairing(root, api);
+    const status = root.querySelector<HTMLElement>("#pair-status");
+    if (status) {
+      status.textContent = tr(
+        localeOf(root),
+        "The saved local session could not be renewed. Enter the current pairing code once.",
+        "已保存的本地会话未能续期，请输入当前配对码一次。",
+      );
+    }
+  }
+}
+
+function renderSessionRecovery(root: HTMLElement): void {
+  root.innerHTML = `
+    <main class="desktop-bootstrap" aria-labelledby="session-recovery-title">
+      <p class="kicker">RESTORK · LOCAL SESSION</p>
+      <h1 id="session-recovery-title">${tr(localeOf(root), "Opening your local workspace", "正在打开本地工作台")}</h1>
+      <p role="status">${tr(localeOf(root), "Renewing the protected loopback session…", "正在续期受保护的本地会话……")}</p>
+      <span class="agent-wait-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    </main>`;
+}
+
 function renderPairing(root: HTMLElement, api: DashboardApi): void {
   const locale = localeOf(root);
   root.innerHTML = pairingMarkup(locale);
@@ -4059,7 +4094,7 @@ if (app) void mountDetectedDashboard(app);
 async function mountDetectedDashboard(root: HTMLElement): Promise<void> {
   const bridge = detectDesktopBridge();
   if (!bridge) {
-    mountDashboard(root);
+    await mountBrowserDashboard(root);
     return;
   }
   const api = new LocalApiClient({ onSession: (session) => bridge.store(session) });
@@ -4085,18 +4120,19 @@ async function mountDesktopDashboard(
     if (session.kind === "pairing") {
       await api.pair(session.pairing_code);
     } else {
-      api.restoreSession({
+      const recovered = await api.resumeSession({
         accessToken: session.access_token,
         expiresAt: session.expires_at,
       });
+      if (!recovered) throw new Error("desktop_session_recovery_failed");
     }
     renderWorkspace(root, api, await api.loadDashboard());
   } catch {
     if (status) {
       status.textContent = `${desktopSessionError(localeOf(root))} ${tr(
         localeOf(root),
-        "Restart Restork to create a fresh local session.",
-        "请重启 Restork 以创建新的本地会话。",
+        "Reopen Restork only if the session has been offline for more than seven days.",
+        "仅当 Restork 已离线超过七天时，才需要重新打开应用。",
       )}`;
     }
   }

@@ -136,7 +136,9 @@ Set-Location restork
 
 Restork asks the operating system for a free loopback port and prints the exact local URL plus
 separate one-time Web and CLI pairing codes. Open the URL, enter the Web code, and you are in. You
-can inspect the local workspace without an API key; model-backed conversations and runs require a
+stay paired across refresh, sleep, and a transient disconnect through a protected local recovery
+session; access tokens are never placed in Web Storage. You can inspect the local workspace without
+an API key; model-backed conversations and runs require a
 provider you explicitly configure. Restork does not select a Vault or enable weather, location, or
 any other optional connection for you.
 

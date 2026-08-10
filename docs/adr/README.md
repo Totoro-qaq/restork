@@ -13,6 +13,7 @@ why the architecture changed.
 | [0005](0005-protected-release-trust.md) | Keep signed stable releases behind protected credentials and clean-machine gates | Accepted | 2026-08-03 | Amended by 0006 and 0007 |
 | [0006](0006-public-macos-alpha.md) | Allow a visibly ad-hoc-signed macOS Alpha without claiming Apple trust | Accepted | 2026-08-05 | Amends 0005; extended by 0007 |
 | [0007](0007-cross-platform-technical-preview.md) | Allow visibly unsigned Windows/Linux previews while keeping updates and stable trust gated | Accepted | 2026-08-10 | Amends 0005 and 0006 |
+| [0008](0008-loopback-session-recovery-and-sse-replay.md) | Separate loopback session recovery from durable SSE replay | Accepted | 2026-08-10 | Extends 0002 |
 
 ## Adding an ADR
 

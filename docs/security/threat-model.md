@@ -18,7 +18,7 @@ artifacts, and configured repository paths remain outside this Git repository.
 | System prompts | Versioned source registry | Stable ID/version/hash, no rendered prompt logging |
 | Retrieved/user content | Untrusted data | Cannot change mode, tools, data class, approvals, or outbound policy |
 | Run conversation | Authenticated local API | Tool-free, idempotent, paginated, bounded context, no hidden reasoning UI |
-| Desktop session bridge | Tauri command ACL plus Rust runtime check | Split loader/Dashboard capabilities, exact loopback origin, process-memory-only session |
+| Desktop and browser session recovery | Tauri command ACL plus loopback token boundary | Short access token in memory, path-scoped HttpOnly resume cookie, exact Origin, bearer-only data/SSE endpoints |
 | Desktop Core lifecycle | Retained native child/process group plus kernel parent lease | Packaged executable only, three-miss heartbeat, bounded TERM/KILL/reap, parent-loss EOF cleanup |
 | Desktop updates | Protected release workflow | Developer ID/notarization on macOS plus independently signed Tauri updater artifacts |
 

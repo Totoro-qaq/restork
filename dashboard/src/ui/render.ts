@@ -65,7 +65,7 @@ export function pairingMarkup(locale: Locale = "en"): string {
         <label for="pair-code">${tr(locale, "Enter the one-time Web pairing code shown in the terminal", "输入终端显示的一次性 Web 配对码")}</label>
         <div><input id="pair-code" name="code" required autocomplete="off" spellcheck="false"><button type="submit">PAIR</button></div>
       </form>
-      <p id="pair-status" class="status" role="status">${tr(locale, "The token stays in this page's memory only.", "Token 仅保存在当前页面内存中。")}</p>
+      <p id="pair-status" class="status" role="status">${tr(locale, "The access token stays in memory. A protected, JavaScript-inaccessible local session keeps this browser paired for up to seven days.", "访问 Token 只留在内存中；浏览器无法读取的本地恢复会话可让配对保持最多七天。")}</p>
     </section>`;
 }
 

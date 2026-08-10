@@ -131,7 +131,8 @@ Set-Location restork
 
 Restork 会让系统自动选择一个空闲 loopback 端口，并打印准确的本地 URL，以及彼此独立的一次性
 Web/CLI 配对码。打开 URL，输入 Web 配对码就能进入本地工作台；查看界面不需要 API Key，真正的
-模型对话和运行则需要你明确配置 Provider。Restork 不会擅自选择 Vault，也不会自动开启天气、
+刷新页面、设备休眠或短暂断线后，本地恢复会话会自动续期，访问 Token 不会写进 Web Storage。
+模型对话和运行需要你明确配置 Provider。Restork 不会擅自选择 Vault，也不会自动开启天气、
 定位或其他可选连接。
 
 ### 直接运行 Core
