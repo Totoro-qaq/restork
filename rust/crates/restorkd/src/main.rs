@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use restork_daily::{apple_developer_token_reference, apple_music_user_token_reference};
 use restork_personal::{FallbackPolicy, ProviderKind, ProviderProfile};
 use restork_provider::{NativeSecretStore, ProviderClient};
+use restork_storage::Database;
 use restorkd::{HELP, ServerConfig, bind, desktop::DesktopRuntime};
 
 #[tokio::main]
@@ -78,6 +79,13 @@ async fn main() {
     {
         std::process::exit(run_doctor(true, true, true).await);
     }
+    if let [desktop, invalidate, state_flag, state_path] = arguments.as_slice()
+        && desktop == "desktop"
+        && invalidate == "invalidate-vault-authority"
+        && state_flag == "--state-db"
+    {
+        std::process::exit(invalidate_vault_authority(state_path));
+    }
 
     let config = match ServerConfig::parse(arguments) {
         Ok(config) => config,
@@ -128,6 +136,23 @@ async fn main() {
     if let Err(error) = server.serve_until(shutdown_signal(desktop)).await {
         eprintln!("restorkd: server stopped unexpectedly: {error}");
         std::process::exit(1);
+    }
+}
+
+fn invalidate_vault_authority(path: &std::ffi::OsStr) -> i32 {
+    let database = match Database::open(path) {
+        Ok(database) => database,
+        Err(_) => {
+            eprintln!("restorkd: unable to open desktop state for Vault switch");
+            return 1;
+        }
+    };
+    match database.invalidate_vault_bound_authority() {
+        Ok(_) => 0,
+        Err(_) => {
+            eprintln!("restorkd: unable to invalidate prior Vault authority");
+            1
+        }
     }
 }
 

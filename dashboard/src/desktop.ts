@@ -12,6 +12,36 @@ export interface DesktopRecoveryArtifact {
   verified_at_unix: number;
 }
 
+export interface DesktopVaultConfig {
+  status: "configured" | "unconfigured" | "environment";
+  grantId?: string;
+  label?: string;
+  mutable: boolean;
+}
+
+export type DesktopVaultCandidate =
+  | { status: "cancelled" }
+  | {
+      status: "selected";
+      candidateId: string;
+      label: string;
+      sameAsActive: boolean;
+    };
+
+export interface DesktopVaultApplyResult {
+  status: "switching" | "unchanged";
+  label: string;
+}
+
+export type DesktopSecretResult =
+  | { status: "cancelled" }
+  | { status: "saved"; secretRef: string };
+
+export interface DesktopOnboardingState {
+  version: 1;
+  dismissed: boolean;
+}
+
 type NativeInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
 declare global {
@@ -28,8 +58,12 @@ export interface DesktopBridge {
   session(): Promise<DesktopSession>;
   store(session: LocalSession): Promise<void>;
   recovery(): Promise<DesktopRecoveryArtifact[]>;
-  vaultDir(): Promise<string | null>;
-  setVaultDir(path: string): Promise<string>;
+  vaultConfig(): Promise<DesktopVaultConfig>;
+  chooseVault(): Promise<DesktopVaultCandidate>;
+  applyVault(candidateId: string): Promise<DesktopVaultApplyResult>;
+  configureProviderSecret(providerKind: string): Promise<DesktopSecretResult>;
+  onboardingState(): Promise<DesktopOnboardingState>;
+  setOnboardingDismissed(dismissed: boolean): Promise<DesktopOnboardingState>;
 }
 
 export function detectDesktopBridge(
@@ -82,22 +116,140 @@ export function detectDesktopBridge(
       }
       return value;
     },
-    async vaultDir(): Promise<string | null> {
-      const value = await invoke<unknown>("desktop_vault_dir");
-      if (value === null) return null;
-      if (typeof value === "string" && value.length > 0 && value.length <= 4096) {
-        return value;
-      }
-      throw new Error("The native vault bridge returned an invalid response");
-    },
-    async setVaultDir(path: string): Promise<string> {
-      const value = await invoke<unknown>("desktop_set_vault_dir", { path });
-      if (typeof value !== "string" || value.length === 0 || value.length > 4096) {
+    async vaultConfig(): Promise<DesktopVaultConfig> {
+      const value = await invoke<unknown>("desktop_vault_config");
+      if (!isVaultConfig(value)) {
         throw new Error("The native vault bridge returned an invalid response");
+      }
+      return {
+        status: value.status,
+        grantId: value.grant_id,
+        label: value.label,
+        mutable: value.mutable,
+      };
+    },
+    async chooseVault(): Promise<DesktopVaultCandidate> {
+      const value = await invoke<unknown>("desktop_choose_vault");
+      if (!isVaultCandidate(value)) {
+        throw new Error("The native vault bridge returned an invalid response");
+      }
+      if (value.status === "cancelled") return value;
+      return {
+        status: "selected",
+        candidateId: value.candidate_id,
+        label: value.label,
+        sameAsActive: value.same_as_active,
+      };
+    },
+    async applyVault(candidateId: string): Promise<DesktopVaultApplyResult> {
+      const value = await invoke<unknown>("desktop_apply_vault", { candidateId });
+      if (!isVaultApplyResult(value)) {
+        throw new Error("The native vault bridge returned an invalid response");
+      }
+      return { status: value.status, label: value.label };
+    },
+    async configureProviderSecret(providerKind: string): Promise<DesktopSecretResult> {
+      const value = await invoke<unknown>("desktop_configure_provider_secret", { providerKind });
+      if (!isSecretResult(value)) {
+        throw new Error("The native credential bridge returned an invalid response");
+      }
+      if (value.status === "cancelled") return value;
+      return { status: "saved", secretRef: value.secret_ref };
+    },
+    async onboardingState(): Promise<DesktopOnboardingState> {
+      const value = await invoke<unknown>("desktop_onboarding_state");
+      if (!isOnboardingState(value)) {
+        throw new Error("The native onboarding bridge returned an invalid response");
+      }
+      return value;
+    },
+    async setOnboardingDismissed(dismissed: boolean): Promise<DesktopOnboardingState> {
+      const value = await invoke<unknown>("desktop_set_onboarding_dismissed", { dismissed });
+      if (!isOnboardingState(value)) {
+        throw new Error("The native onboarding bridge returned an invalid response");
       }
       return value;
     },
   };
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).every((key) => keys.includes(key));
+}
+
+function isVaultConfig(value: unknown): value is {
+  status: DesktopVaultConfig["status"];
+  grant_id?: string;
+  label?: string;
+  mutable: boolean;
+} {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["status", "grant_id", "label", "mutable"])) {
+    return false;
+  }
+  if (!(["configured", "unconfigured", "environment"] as unknown[]).includes(value.status)) {
+    return false;
+  }
+  if (typeof value.mutable !== "boolean") return false;
+  if (value.status === "unconfigured") {
+    return value.grant_id === undefined && value.label === undefined;
+  }
+  return typeof value.grant_id === "string"
+    && value.grant_id.length > 0
+    && value.grant_id.length <= 128
+    && typeof value.label === "string"
+    && value.label.length > 0
+    && value.label.length <= 256;
+}
+
+type VaultCandidateWire =
+  | { status: "cancelled" }
+  | { status: "selected"; candidate_id: string; label: string; same_as_active: boolean };
+
+function isVaultCandidate(value: unknown): value is VaultCandidateWire {
+  if (!isRecord(value)) return false;
+  if (value.status === "cancelled") return hasOnlyKeys(value, ["status"]);
+  return value.status === "selected"
+    && hasOnlyKeys(value, ["status", "candidate_id", "label", "same_as_active"])
+    && typeof value.candidate_id === "string"
+    && value.candidate_id.length > 0
+    && value.candidate_id.length <= 128
+    && typeof value.label === "string"
+    && value.label.length > 0
+    && value.label.length <= 256
+    && typeof value.same_as_active === "boolean";
+}
+
+function isVaultApplyResult(value: unknown): value is {
+  status: DesktopVaultApplyResult["status"];
+  label: string;
+} {
+  return isRecord(value)
+    && hasOnlyKeys(value, ["status", "label"])
+    && (value.status === "switching" || value.status === "unchanged")
+    && typeof value.label === "string"
+    && value.label.length > 0
+    && value.label.length <= 256;
+}
+
+type SecretResultWire =
+  | { status: "cancelled" }
+  | { status: "saved"; secret_ref: string };
+
+function isSecretResult(value: unknown): value is SecretResultWire {
+  if (!isRecord(value)) return false;
+  if (value.status === "cancelled") return hasOnlyKeys(value, ["status"]);
+  return value.status === "saved"
+    && hasOnlyKeys(value, ["status", "secret_ref"])
+    && typeof value.secret_ref === "string"
+    && /^(keychain|credential-manager|secret-service):[A-Za-z0-9._\-/]+$/.test(value.secret_ref)
+    && value.secret_ref.length <= 256;
+}
+
+function isOnboardingState(value: unknown): value is DesktopOnboardingState {
+  return isRecord(value)
+    && hasOnlyKeys(value, ["version", "dismissed"])
+    && value.version === 1
+    && typeof value.dismissed === "boolean";
 }
 
 function isRecoveryArtifact(value: unknown): value is DesktopRecoveryArtifact {

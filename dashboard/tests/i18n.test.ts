@@ -44,7 +44,8 @@ describe("Dashboard locales", () => {
     expect(root.textContent).toContain("Dashboard");
     expect(root.textContent).toContain("New run");
     expect(root.textContent).toContain("What will you research, study, or finish today?");
-    expect(root.textContent).toContain("Add or replace the API key in Terminal");
+    expect(root.textContent).toContain("SAVE API KEY SECURELY");
+    expect(root.textContent).toContain("The native prompt stores the key in system credentials");
     expect(root.textContent).not.toContain("仪表盘");
     expect(document.documentElement.lang).toBe("en");
     expect(document.title).toBe("Restork · Local Agent Workspace");
@@ -59,7 +60,8 @@ describe("Dashboard locales", () => {
 
     expect(root.textContent).toContain("仪表盘");
     expect(root.textContent).toContain("新建运行");
-    expect(root.textContent).toContain("请在终端添加或替换 API Key");
+    expect(root.textContent).toContain("安全保存 API Key");
+    expect(root.textContent).toContain("原生弹窗会把 Key 存入系统凭据库");
     expect(document.documentElement.lang).toBe("zh-CN");
     expect(document.title).toBe("Restork · 本地智能工作台");
     expect(localStorage).toHaveLength(1);

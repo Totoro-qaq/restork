@@ -6,6 +6,10 @@ import { describe, expect, it } from "vitest";
 import { errorText } from "../src/ui/render";
 
 const stylesheet = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
+const desktopConfig = JSON.parse(readFileSync(
+  resolve(import.meta.dirname, "../../desktop/src-tauri/tauri.conf.json"),
+  "utf8",
+)) as { app: { windows: Array<Record<string, unknown>> } };
 
 describe("high-frequency interaction polish", () => {
   it("does not leak raw English backend errors into the Chinese interface", () => {
@@ -41,6 +45,20 @@ describe("high-frequency interaction polish", () => {
 });
 
 describe("responsive readability", () => {
+  it("fills the available desktop height instead of stopping at a fixed 920px canvas", () => {
+    const bodyRule = stylesheet.match(/body\s*\{([^}]*)\}/)?.[1] ?? "";
+    const shellRule = stylesheet.match(/\.dashboard\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(bodyRule).toContain("height: 100dvh");
+    expect(bodyRule).toContain("overflow: hidden");
+    expect(shellRule).toContain("height: calc(100dvh - clamp(");
+    expect(shellRule).not.toContain("920px");
+  });
+
+  it("keeps the shared desktop window resizable on macOS, Windows and Linux", () => {
+    const mainWindow = desktopConfig.app.windows.find((window) => window.label === "main");
+    expect(mainWindow).toMatchObject({ resizable: true, minWidth: 900, minHeight: 680 });
+  });
+
   it("keeps mobile navigation to one horizontally scrollable row", () => {
     const responsive = stylesheet.slice(stylesheet.indexOf("@media (max-width: 1000px)"));
     expect(responsive).toMatch(/\.sidebar nav\s*\{[^}]*display:\s*flex/);
@@ -88,6 +106,12 @@ describe("responsive readability", () => {
   it("keeps compact conversation search controls on one usable row", () => {
     expect(stylesheet).toMatch(/\.compact-search\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
     expect(stylesheet).toMatch(/\.compact-search button\s*\{[^}]*white-space:\s*nowrap/);
+  });
+
+  it("keeps provider setup actions inside their own responsive columns", () => {
+    expect(stylesheet).toMatch(/\.provider-instructions,\s*\.provider-actions\s*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%[^}]*overflow:\s*hidden/);
+    expect(stylesheet).toMatch(/\.provider-instructions > button\s*\{[^}]*width:\s*100%[^}]*max-width:\s*100%/);
+    expect(stylesheet).toMatch(/\.provider-instructions \.source-build-fallback\s*\{[^}]*min-width:\s*0[^}]*overflow:\s*hidden/);
   });
 
   it("bounds every persistent collection that can grow over time", () => {

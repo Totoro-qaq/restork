@@ -16,6 +16,9 @@
   <a href="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <a href="https://github.com/Totoro-qaq/restork/releases"><img src="https://img.shields.io/github/v/release/Totoro-qaq/restork?display_name=tag&amp;sort=semver" alt="Latest GitHub release"></a>
   <a href="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml/badge.svg" alt="Release provenance status"></a>
+  <a href="./rust-toolchain.toml"><img src="https://img.shields.io/badge/MSRV-1.97.1-dea584.svg" alt="Minimum supported Rust version 1.97.1"></a>
+  <a href="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Totoro-qaq/restork/ci.yml?branch=main&amp;label=CI%20%2F%20Dashboard" alt="Dashboard test status"></a>
+  <a href="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Totoro-qaq/restork/ci.yml?branch=main&amp;label=CI%20%2F%20cargo--deny" alt="cargo-deny policy status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0ea5e9.svg" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/Rust-1.97-dea584.svg" alt="Rust 1.97 runtime foundation">
   <img src="https://img.shields.io/badge/UI-TypeScript-06b6d4.svg" alt="TypeScript Dashboard">
@@ -32,7 +35,10 @@
 
 <p align="center">
   <a href="./assets/readme/demo-poster.webp">
-    <img src="./assets/readme/demo-hd.gif" width="100%" alt="Restork Dashboard showing research runs, approvals, Markdown tasks, Radar, memory, and daily context with synthetic data.">
+    <picture>
+      <source media="(prefers-reduced-motion: no-preference)" srcset="./assets/readme/demo-hd.gif" type="image/gif">
+      <img src="./assets/readme/demo-poster.webp" width="100%" alt="Restork Dashboard showing research runs, approvals, Markdown tasks, Radar, memory, and daily context with synthetic data.">
+    </picture>
   </a>
 </p>
 
@@ -47,7 +53,7 @@ live model request.
 |---|---|
 | **Research a question** | Gather public sources, compare claims and conflicts, and prepare a cited Markdown note you can review before saving. |
 | **Learn something properly** | Turn a topic or existing note into prerequisites, a learning path, answer-free practice, and review based on your mistakes. |
-| **Move work forward** | Turn a goal and a bounded repository snapshot into a practical plan and a redacted handoff package. Restork does not execute the plan for you today. |
+| **Move work forward** | Turn a goal and the files you choose into a practical plan and a redacted handoff package. Restork does not execute the plan for you today. |
 
 These are three modes inside one Core—not three agents competing for context or permissions. They
 share the same budgets, event history, approvals, memory rules, and local Dashboard.
@@ -65,7 +71,7 @@ share the same budgets, event history, approvals, memory rules, and local Dashbo
 ## How it works
 
 <p align="center">
-  <img src="./assets/readme/architecture.svg" width="100%" alt="Restork keeps local memory and knowledge behind a governed Core, while approved cloud requests cross one outbound policy gateway.">
+  <img src="./assets/readme/architecture.svg" width="100%" alt="Restork keeps memory and knowledge local; only content you approve is shared with cloud models.">
 </p>
 
 ```text
@@ -86,24 +92,46 @@ runs, approvals, and events. Rebuildable indexes and link projections can be dis
 again. The Dashboard and CLI never receive the model credential or authority to bypass Core policy.
 
 Restork needs no LangGraph, graph database, KAG, Valkey, Memory MCP, or Obsidian plugin for its base
-workflow. One bounded Rust Core owns policy, storage, tools, recovery, and the embedded Dashboard.
+workflow. One Rust Core owns policy, storage, tools, recovery, and the embedded Dashboard, with
+explicit limits on time, data, and side effects.
 Small Python scripts in this repository are development helpers, not a product runtime or package.
 
-## Try it in five minutes
+## Download the desktop technical preview
 
-One command builds the Dashboard and the native Core, then starts it. You need a
-[Rust toolchain](https://rustup.rs) and Node.js.
+Open [GitHub Releases](https://github.com/Totoro-qaq/restork/releases) and download one prebuilt
+package. The target machine needs no Python, Node.js, Rust, MinGW, GTK development package, or
+package manager.
 
+| Platform | Download | First launch |
+|---|---|---|
+| Apple Silicon macOS 13+ | `macOS-arm64-UNSIGNED-ALPHA.dmg` | Drag to Applications, then use the per-app **Open / Open Anyway** flow. Never disable Gatekeeper globally. |
+| Windows 10/11 x64 | `Windows-x64-UNSIGNED-ALPHA-setup.exe` or `.msi` | The preview is not Authenticode-signed, so SmartScreen may warn. Verify `SHA256SUMS`, then choose to run only if you intentionally downloaded it here. |
+| Desktop Linux x64 | `Linux-x64-UNSIGNED-ALPHA.AppImage` or `.deb` | AppImage: `chmod +x` and open it. Debian/Ubuntu: install the DEB with the system package installer. |
+
+All formats embed the same Rust Core and Dashboard and pass fresh-runner lifecycle checks. These are
+visibly unsigned technical previews, not platform-signed stable releases. The macOS updater archive
+has Restork's independent signature; Windows/Linux preview updates stay disabled until their
+protected signing gates pass. See the [desktop guide](docs/desktop.md) for checksums and exact trust
+boundaries.
+
+## Build from source (contributors)
+
+Use this path only when changing Restork. Install Node.js 22 and the pinned Rust toolchain. Windows
+uses `x86_64-pc-windows-msvc`; Restork deliberately rejects GNU/MinGW before compilation, so you
+never need `as.exe` or `dlltool`.
+
+macOS / Linux:
 ```bash
 git clone https://github.com/Totoro-qaq/restork.git
 cd restork
 ./scripts/quickstart.sh
 ```
 
-Already cloned?
-
-```bash
-./scripts/quickstart.sh
+Windows PowerShell:
+```powershell
+git clone https://github.com/Totoro-qaq/restork.git
+Set-Location restork
+./scripts/quickstart.ps1
 ```
 
 Restork asks the operating system for a free loopback port and prints the exact local URL plus
@@ -127,20 +155,6 @@ Open the Dashboard URL printed by Core and enter its one-time Web pairing code. 
 The product has one authoritative runtime: `restorkd`. Dashboard, CLI, desktop lifecycle, API,
 agent loop, memory, tasks, Research, Study, Work, and Radar all cross the same Rust policy and event
 boundary. The retired Python Core and its build path are no longer present.
-
-### Desktop installers
-
-The [Releases page](https://github.com/Totoro-qaq/restork/releases) now supports a public Apple
-Silicon macOS Alpha. Download the DMG visibly labeled `UNSIGNED-ALPHA`; the target Mac needs no
-Python, Node.js, Rust, `uv`, or package manager. This early build is ad-hoc signed and has a
-separately signed updater, checksums, SBOM, provenance, and clean-machine lifecycle tests, but it is
-**not Apple Developer-ID-signed or notarized**. Follow the per-app **Open** / **Open Anyway** steps;
-never disable Gatekeeper globally.
-
-The protected stable workflow remains separate: macOS Developer ID/notarization, Windows
-Authenticode, Linux package signatures, and their complete clean-machine matrix must all pass before
-those platforms are called stable. See the [desktop guide](docs/desktop.md) for the exact trust
-boundary, install steps, and contributor builds.
 
 ### Connect only what you want
 
@@ -191,12 +205,12 @@ RESTORK_PORT=7444 ./scripts/quickstart.sh
 
 Open **Settings → Providers** to choose an exact model and its supported reasoning intensity. Restork
 ships definitions for DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, and OpenAI-compatible endpoints.
-Profiles are model-specific, so you can use a quicker model for a bounded child task and a stronger
+Profiles are model-specific, so you can use a quicker model for a small delegated task and a stronger
 one for synthesis without a silent fallback. After saving, use **Test model** on that exact Provider
 Profile card; non-DeepSeek selections are never tested through the built-in DeepSeek route. See the
 [provider guide](docs/providers.md) for the capability table and endpoint rules.
 
-Inside a conversation, **Use another model** creates a checked branch with bounded recent context;
+Inside a conversation, **Use another model** creates a checked branch with only the recent context shown in the preview;
 it never rewrites the original Profile or moves private messages into a narrower cloud boundary.
 
 For a cloud key, use the provider-scoped native credential flow rather than a secret field in the
@@ -251,7 +265,7 @@ Measured against the Core that `./scripts/quickstart.sh` starts.
 | **Conversation** | Run-scoped sessions with fork, search, export, archive, cancellable operations, and SSE replay |
 | **Models** | DeepSeek, GLM, Kimi, Qwen, Ollama, OpenRouter, and generic OpenAI-compatible endpoints; provider-scoped reasoning; native credential storage; versioned prompts and configuration profiles |
 | **Agent runtime** | Durable model/tool loop with separate step, repair, token, cost, and wall-clock bounds; cancellation; approval pauses; event replay; visible context compaction |
-| **Research, Study, Work** | Evidence-led research with reviewable note writes; Vault-grounded learning paths and confidence-aware review; bounded work plans, redacted handoffs, and evidence-based result verification |
+| **Research, Study, Work** | Research with visible sources and note previews; Vault-based learning paths and active review; clear work plans, redacted handoffs, and result checks |
 | **Local knowledge** | A paginated Obsidian Vault browser with safe Markdown previews and live file updates, four-layer inspectable memory, approval-bound Markdown tasks, unified search, and opt-in public GitHub AI/Agent + Hacker News Radar |
 | **Extensions** | Manifest validation, a permission lattice, immutable revisions with rollback, and sandboxed stdio MCP execution |
 | **Daily context** | Optional weather, system date and month without a permission prompt, one local ICS calendar, macOS unread-mail count, and a daily track from QQ Music, NetEase, Apple Music, or a private playlist file |
@@ -266,11 +280,12 @@ Measured against the Core that `./scripts/quickstart.sh` starts.
 | Web search | Public HTTPS research uses the declared outbound gateway; availability depends on the selected provider capability. |
 | MCP | Reviewed stdio MCP executes in the platform sandbox. Remote HTTPS MCP is rejected until its transport policy lands. |
 | Deliverable authoring | Restork assembles validated Markdown, deterministic macro-free PPTX, and PDF from explicit content; it does not silently invent source claims. |
-| Work execution | Work produces a bounded plan and handoff, then verifies a returned manifest. It does not take ownership of an external coding process. |
+| Work execution | Work produces a reviewable plan and handoff, then checks a returned manifest. It does not take ownership of an external coding process. |
 | Native mail | Aggregate unread count is macOS-only; Windows/Linux expose an honest unavailable state. |
 
-The public macOS Alpha is intentionally outside Apple Developer ID trust; a protected stable release
-still requires real Developer ID, Authenticode, Linux GPG, notarization, and clean-runner evidence.
+The desktop technical preview is intentionally outside Apple/Microsoft/Linux publisher trust; a
+protected stable release still requires real Developer ID, Authenticode, Linux signatures,
+notarization, signed updates, and clean-runner evidence.
 
 ## Guides
 
@@ -327,6 +342,8 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. The implemented
 live in the [V1 specification](specs/restork-v1.md) and
 [Steps 18–22 specification](specs/restork-steps18-22.md); the conversation model-branch and public
 macOS Alpha boundary is frozen in the [Step 26 specification](specs/restork-step26-model-branch-and-public-alpha.md).
+Cross-platform preview installation and contributor experience are specified in the
+[Step 29 specification](specs/restork-step29-install-and-contributor-experience.md).
 Release history is in
 [CHANGELOG.md](CHANGELOG.md).
 

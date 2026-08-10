@@ -1,4 +1,8 @@
-//! Loopback API compatibility layer for the Rust-first Restork runtime.
+//! Authenticated loopback API for the Restork Core.
+//!
+//! `routes` owns the HTTP inventory and `http_middleware` owns local-browser
+//! origin, CORS, and response hardening. Feature modules translate HTTP input
+//! into typed domain/storage operations; provider secrets never cross this API.
 
 // Axum's concrete response is intentionally the error type for route helpers so
 // every rejection preserves status, JSON shape, and headers at the boundary.
@@ -20,9 +24,13 @@ mod automation_api;
 mod catalog_api;
 mod config_api;
 mod daily_api;
+mod error;
 mod feature_api;
+mod http_middleware;
 mod radar;
+mod routes;
 mod session_api;
+mod state;
 mod todo_api;
 mod vault_api;
 
@@ -30,7 +38,9 @@ use automation_api::*;
 use catalog_api::*;
 use config_api::*;
 use daily_api::*;
+use error::{error_response, error_response_owned};
 use session_api::*;
+use state::ApiState;
 use todo_api::*;
 
 use feature_api::*;
@@ -42,8 +52,7 @@ use axum::{
     Json, Router,
     body::{Body, Bytes, to_bytes},
     extract::{Path, Request, State},
-    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
-    middleware::{self, Next},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -116,10 +125,6 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-use url::{Host, Url};
-
-const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
-const FORBIDDEN_QUERY_KEYS: [&str; 3] = ["access_token", "authorization", "token"];
 // Access tokens remain five-minute capabilities. Only the rotation endpoint
 // accepts an otherwise-expired token inside this recovery window so a sleeping
 // desktop WebView can resume without restarting Core.
@@ -607,11 +612,6 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
         methods: &["POST"],
     },
 ];
-
-#[derive(Serialize)]
-struct ErrorBody<'a> {
-    detail: &'a str,
-}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1248,18 +1248,6 @@ struct SearchResults<T> {
     items: T,
 }
 
-#[derive(Clone)]
-struct ApiState {
-    authority: PairingAuthority,
-    storage: Option<Arc<Database>>,
-    provider: Option<Arc<ProviderClient>>,
-    daily: Option<Arc<DailyClient>>,
-    operation_cancellations: Arc<Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>,
-    run_cancellations: Arc<Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>,
-    subtask_slots: Arc<tokio::sync::Semaphore>,
-    vault_dir: Option<Arc<PathBuf>>,
-}
-
 #[derive(RustEmbed)]
 #[folder = "web/"]
 struct DashboardAssets;
@@ -1325,340 +1313,7 @@ pub fn router_with_runtime(
 }
 
 fn build_router(state: ApiState) -> Router {
-    Router::new()
-        .route("/v1/readiness", get(readiness))
-        .route("/v1/schema", get(api_schema))
-        .route("/v1/health", get(health))
-        .route("/v1/bootstrap", get(bootstrap_workspace))
-        .route("/v1/pair", axum::routing::post(pair_web))
-        .route("/v1/cli/pair", axum::routing::post(pair_cli))
-        .route("/v1/token/rotate", axum::routing::post(rotate_token))
-        .route("/v1/token/revoke", axum::routing::post(revoke_token))
-        .route("/v1/runs", get(list_agent_runs).post(create_agent_run))
-        .route("/v1/runs/{run_id}", get(get_agent_run))
-        .route(
-            "/v1/runs/{run_id}/advance",
-            axum::routing::post(advance_agent_run),
-        )
-        .route(
-            "/v1/runs/{run_id}/cancel",
-            axum::routing::post(cancel_agent_run),
-        )
-        .route("/v1/runs/{run_id}/events", get(run_events))
-        .route("/v1/runs/{run_id}/event-page", get(agent_event_page))
-        .route(
-            "/v1/runs/{run_id}/conversation",
-            get(agent_conversation_page).post(create_agent_conversation),
-        )
-        .route("/v1/approvals", get(list_feature_approvals))
-        .route(
-            "/v1/approvals/{approval_id}",
-            axum::routing::post(decide_feature_approval),
-        )
-        .route("/v1/memory", get(list_memory).post(create_memory))
-        .route(
-            "/v1/memory/{memory_id}",
-            axum::routing::patch(correct_memory).delete(delete_memory),
-        )
-        .route("/v1/memory/export", axum::routing::post(export_memory))
-        .route(
-            "/v1/memory/purge-source",
-            axum::routing::post(purge_memory_source),
-        )
-        .route("/v1/tasks", get(list_tasks))
-        .route("/v1/tasks/local", axum::routing::post(create_local_todo))
-        .route("/v1/tasks/local/deleted", get(list_deleted_local_todos))
-        .route(
-            "/v1/tasks/local/{task_id}",
-            axum::routing::patch(update_local_todo).delete(delete_local_todo),
-        )
-        .route(
-            "/v1/tasks/local/{task_id}/restore",
-            axum::routing::post(restore_local_todo),
-        )
-        .route(
-            "/v1/tasks/{task_id}/preview",
-            axum::routing::post(preview_task_change),
-        )
-        .route(
-            "/v1/tasks/quick-capture/preview",
-            axum::routing::post(preview_task_capture),
-        )
-        .route(
-            "/v1/tasks/approvals/{approval_id}/apply",
-            axum::routing::post(apply_task_change),
-        )
-        .route("/v1/radar", get(list_radar))
-        .route("/v1/radar/config", axum::routing::put(configure_radar))
-        .route(
-            "/v1/radar/{item_id}/action",
-            axum::routing::post(radar_action),
-        )
-        .route("/v1/research/{run_id}", get(get_research_artifact))
-        .route(
-            "/v1/research/{run_id}/note/preview",
-            axum::routing::post(preview_research_note),
-        )
-        .route(
-            "/v1/study/runs/{run_id}/diagnostic",
-            axum::routing::post(prepare_study),
-        )
-        .route(
-            "/v1/study/runs/{run_id}/path",
-            axum::routing::post(submit_study_path),
-        )
-        .route(
-            "/v1/study/runs/{run_id}/exercises/{exercise_id}/attempt",
-            axum::routing::post(submit_study_attempt),
-        )
-        .route(
-            "/v1/study/runs/{run_id}/note/preview",
-            axum::routing::post(preview_study_note),
-        )
-        .route(
-            "/v1/work/runs/{run_id}/plan",
-            axum::routing::post(plan_work),
-        )
-        .route(
-            "/v1/work/runs/{run_id}/handoff/preview",
-            axum::routing::post(preview_work_handoff),
-        )
-        .route(
-            "/v1/work/runs/{run_id}/handoff/export",
-            axum::routing::post(export_work_handoff),
-        )
-        .route(
-            "/v1/work/runs/{run_id}/verify",
-            axum::routing::post(verify_work),
-        )
-        .route(
-            "/v1/settings/personal",
-            get(get_personal_settings)
-                .put(put_personal_settings)
-                .delete(delete_personal_settings),
-        )
-        .route("/v1/daily/context", get(daily_context))
-        .route("/v1/daily", get(read_daily_snapshot))
-        .route(
-            "/v1/daily/weather",
-            axum::routing::post(configure_daily_weather),
-        )
-        .route(
-            "/v1/daily/calendar",
-            axum::routing::post(configure_daily_calendar),
-        )
-        .route(
-            "/v1/daily/calendar/native",
-            get(get_native_calendar_capability).delete(disconnect_native_calendar),
-        )
-        .route(
-            "/v1/daily/calendar/native/connect",
-            axum::routing::post(connect_daily_native_calendar),
-        )
-        .route(
-            "/v1/daily/mail/native",
-            get(get_native_mail_capability).delete(disconnect_native_mail),
-        )
-        .route(
-            "/v1/daily/mail/native/connect",
-            axum::routing::post(connect_daily_native_mail),
-        )
-        .route("/v1/daily/mail/events", get(daily_mail_events))
-        .route(
-            "/v1/daily/music",
-            axum::routing::post(configure_daily_music),
-        )
-        .route("/v1/daily/music/sources", get(list_music_sources))
-        .route(
-            "/v1/daily/music/refresh",
-            axum::routing::post(refresh_daily_music),
-        )
-        .route(
-            "/v1/daily/music/research",
-            axum::routing::post(research_daily_music),
-        )
-        .route("/v1/daily/music/cover", get(daily_music_cover))
-        .route("/v1/providers", get(list_provider_registry))
-        .route("/v1/provider-profiles", get(list_provider_profiles))
-        .route(
-            "/v1/provider-profiles/{provider_id}",
-            axum::routing::put(put_provider_profile),
-        )
-        .route("/v1/providers/{provider_id}", get(get_provider_status))
-        .route(
-            "/v1/providers/{provider_id}/models",
-            get(list_provider_models),
-        )
-        .route(
-            "/v1/providers/{provider_id}/diagnostics",
-            axum::routing::post(run_provider_diagnostic),
-        )
-        .route(
-            "/v1/configuration-profiles",
-            get(list_configuration_profiles),
-        )
-        .route(
-            "/v1/configuration-profiles/{profile_id}",
-            axum::routing::put(put_configuration_profile),
-        )
-        .route(
-            "/v1/prompts/{prompt_id}",
-            get(list_prompt_revisions).post(create_prompt_revision),
-        )
-        .route(
-            "/v1/prompts/{prompt_id}/active",
-            axum::routing::patch(activate_prompt_revision),
-        )
-        .route("/v1/sessions", get(list_sessions).post(create_session))
-        .route("/v1/sessions/search", get(search_sessions))
-        .route("/v1/search", get(feature_api::search_workspace))
-        .route("/v1/vault/files", get(vault_api::list_vault_notes))
-        .route("/v1/vault/search", get(vault_api::search_vault_notes))
-        .route("/v1/vault/note", get(vault_api::read_vault_note))
-        .route("/v1/vault/events", get(vault_api::vault_events))
-        .route(
-            "/v1/sessions/{session_id}/fork",
-            axum::routing::post(fork_session),
-        )
-        .route(
-            "/v1/sessions/{session_id}",
-            get(get_session)
-                .patch(archive_session)
-                .delete(delete_session),
-        )
-        .route(
-            "/v1/sessions/{session_id}/messages",
-            get(list_session_messages).post(create_session_message),
-        )
-        .route(
-            "/v1/sessions/{session_id}/turns",
-            axum::routing::post(create_conversation_turn),
-        )
-        .route(
-            "/v1/sessions/{session_id}/context-preview",
-            axum::routing::post(create_context_preview),
-        )
-        .route(
-            "/v1/operations/{operation_id}",
-            get(get_conversation_operation),
-        )
-        .route(
-            "/v1/operations/{operation_id}/events",
-            get(conversation_operation_events),
-        )
-        .route(
-            "/v1/operations/{operation_id}/cancel",
-            axum::routing::post(cancel_conversation_operation),
-        )
-        .route("/v1/sessions/{session_id}/export", get(export_session))
-        .route(
-            "/v1/sessions/{session_id}/proposals",
-            axum::routing::post(create_run_proposal),
-        )
-        .route(
-            "/v1/extensions",
-            get(list_extensions).post(install_extension),
-        )
-        .route(
-            "/v1/extensions/{package_id}",
-            get(get_extension).patch(change_extension_state),
-        )
-        .route(
-            "/v1/extensions/{package_id}/revisions",
-            get(list_extension_revisions),
-        )
-        .route(
-            "/v1/extensions/{package_id}/rollback",
-            axum::routing::post(rollback_extension),
-        )
-        .route(
-            "/v1/sessions/{session_id}/tools/search",
-            get(search_session_tools),
-        )
-        .route(
-            "/v1/sessions/{session_id}/tools/{tool_id}",
-            get(describe_session_tool),
-        )
-        .route(
-            "/v1/sessions/{session_id}/tool-call-preview",
-            axum::routing::post(preview_session_tool_call),
-        )
-        .route(
-            "/v1/sessions/{session_id}/tool-calls",
-            axum::routing::post(execute_session_tool_call),
-        )
-        .route(
-            "/v1/tool-executions/{execution_id}",
-            get(get_tool_execution),
-        )
-        .route("/v1/schedules", get(list_schedules).post(create_schedule))
-        .route("/v1/schedules/deleted", get(list_deleted_schedules))
-        .route(
-            "/v1/schedules/{schedule_id}",
-            get(get_schedule)
-                .put(update_schedule)
-                .patch(change_schedule_state)
-                .delete(delete_schedule),
-        )
-        .route(
-            "/v1/schedules/{schedule_id}/run",
-            axum::routing::post(run_schedule_now),
-        )
-        .route(
-            "/v1/schedules/{schedule_id}/restore",
-            axum::routing::post(restore_schedule),
-        )
-        .route("/v1/schedules/{schedule_id}/runs", get(list_schedule_runs))
-        .route("/v1/deliverables", get(list_deliverables))
-        .route(
-            "/v1/deliverables/reports",
-            axum::routing::post(compose_report),
-        )
-        .route(
-            "/v1/deliverables/reports/manual",
-            axum::routing::post(compose_manual_report),
-        )
-        .route(
-            "/v1/deliverables/reports/ai-draft",
-            axum::routing::post(compose_ai_report),
-        )
-        .route("/v1/deliverables/decks", axum::routing::post(compose_deck))
-        .route(
-            "/v1/deliverables/decks/from-report",
-            axum::routing::post(compose_deck_from_report),
-        )
-        .route(
-            "/v1/deliverables/{deliverable_id}/{revision}/render-preview",
-            axum::routing::post(preview_deliverable_render),
-        )
-        .route(
-            "/v1/deliverables/{deliverable_id}/{revision}/render",
-            axum::routing::post(export_deliverable_render),
-        )
-        .route("/v1/checkpoints", axum::routing::post(create_checkpoint))
-        .route("/v1/checkpoints/{checkpoint_id}", get(get_checkpoint))
-        .route(
-            "/v1/checkpoints/{checkpoint_id}/restore-preview",
-            axum::routing::post(preview_restore),
-        )
-        .route(
-            "/v1/checkpoints/{checkpoint_id}/restore",
-            axum::routing::post(restore_checkpoint_files),
-        )
-        .route("/v1/evaluations", axum::routing::post(create_evaluation))
-        .route("/v1/subtasks", axum::routing::post(create_subtask))
-        .route(
-            "/v1/subtasks/{subtask_id}",
-            axum::routing::delete(cancel_subtask),
-        )
-        .route(
-            "/v1/subtasks/{subtask_id}/execute",
-            axum::routing::post(execute_subtask),
-        )
-        .route("/", get(dashboard_index))
-        .route("/{*path}", get(dashboard_asset))
-        .layer(middleware::from_fn(local_browser_boundary))
-        .with_state(state)
+    routes::build_router(state)
 }
 
 async fn dashboard_index() -> Response {
@@ -3733,181 +3388,6 @@ fn token_response(token: &AccessToken) -> Response {
         expires_at,
     })
     .into_response()
-}
-
-async fn local_browser_boundary(request: Request, next: Next) -> Response {
-    if query_contains_credentials(request.uri().query()) {
-        return error_response(
-            StatusCode::BAD_REQUEST,
-            "credentials are forbidden in query parameters",
-        );
-    }
-
-    let origin = request.headers().get(header::ORIGIN).cloned();
-    if let Some(value) = origin.as_ref() {
-        let Ok(origin_text) = value.to_str() else {
-            return error_response(StatusCode::FORBIDDEN, "cross-origin request denied");
-        };
-        if !is_loopback_browser_origin(origin_text) {
-            return error_response(StatusCode::FORBIDDEN, "cross-origin request denied");
-        }
-        if request.uri().path().starts_with("/v1/cli/") {
-            return error_response(StatusCode::FORBIDDEN, "CLI pairing rejects browser origins");
-        }
-    }
-
-    if request.method() == Method::OPTIONS
-        && let Some(origin) = origin.as_ref()
-    {
-        return preflight_response(request.uri().path(), request.headers(), origin);
-    }
-
-    let mut response = next.run(request).await;
-    let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(CONTENT_SECURITY_POLICY),
-    );
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
-    headers.insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("no-referrer"),
-    );
-    if let Some(origin) = origin {
-        headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
-        headers.insert(header::VARY, HeaderValue::from_static("Origin"));
-    }
-    response
-}
-
-fn query_contains_credentials(query: Option<&str>) -> bool {
-    query.is_some_and(|query| {
-        url::form_urlencoded::parse(query.as_bytes())
-            .any(|(key, _)| FORBIDDEN_QUERY_KEYS.contains(&key.as_ref()))
-    })
-}
-
-fn is_loopback_browser_origin(origin: &str) -> bool {
-    let Ok(parsed) = Url::parse(origin) else {
-        return false;
-    };
-    let host_is_loopback = match parsed.host() {
-        Some(Host::Domain(host)) => host == "localhost",
-        Some(Host::Ipv4(host)) => host.is_loopback() && host.octets() == [127, 0, 0, 1],
-        Some(Host::Ipv6(host)) => host.is_loopback(),
-        None => false,
-    };
-    let authority = origin
-        .as_bytes()
-        .get(..7)
-        .filter(|prefix| prefix.eq_ignore_ascii_case(b"http://"))
-        .and_then(|_| origin.get(7..));
-    let authority_only = authority.is_some_and(|value| !value.contains(['/', '?', '#']));
-    let explicit_port = authority.is_some_and(|value| {
-        value
-            .rsplit_once(':')
-            .is_some_and(|(_, port)| port.parse::<u16>().is_ok())
-    });
-    parsed.scheme() == "http"
-        && host_is_loopback
-        && explicit_port
-        && parsed.username().is_empty()
-        && parsed.password().is_none()
-        && authority_only
-}
-
-fn preflight_response(path: &str, headers: &HeaderMap, origin: &HeaderValue) -> Response {
-    let mut allowed_methods = BTreeSet::from(["GET", "POST"]);
-    if path.starts_with("/v1/memory/")
-        || path.starts_with("/v1/sessions/")
-        || path.starts_with("/v1/extensions/")
-        || path.starts_with("/v1/schedules/")
-        || path.starts_with("/v1/prompts/")
-    {
-        allowed_methods.extend(["PATCH", "DELETE"]);
-    }
-    if path == "/v1/settings/personal"
-        || path.starts_with("/v1/provider-profiles/")
-        || path.starts_with("/v1/configuration-profiles/")
-    {
-        allowed_methods.extend(["PUT", "DELETE"]);
-    }
-
-    let requested_method = headers
-        .get(header::ACCESS_CONTROL_REQUEST_METHOD)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    if !allowed_methods.contains(requested_method) {
-        return error_response(StatusCode::METHOD_NOT_ALLOWED, "CORS method is not allowed");
-    }
-
-    let allowed_headers = BTreeSet::from([
-        "authorization",
-        "content-type",
-        "idempotency-key",
-        "last-event-id",
-    ]);
-    let requested_headers = match headers.get(header::ACCESS_CONTROL_REQUEST_HEADERS) {
-        Some(value) => match value.to_str() {
-            Ok(value) => value,
-            Err(_) => {
-                return error_response(StatusCode::BAD_REQUEST, "CORS header is not allowed");
-            }
-        },
-        None => "",
-    }
-    .split(',')
-    .map(str::trim)
-    .filter(|value| !value.is_empty())
-    .map(str::to_ascii_lowercase)
-    .collect::<BTreeSet<_>>();
-    if !requested_headers
-        .iter()
-        .all(|requested| allowed_headers.contains(requested.as_str()))
-    {
-        return error_response(StatusCode::BAD_REQUEST, "CORS header is not allowed");
-    }
-
-    let allow_methods = allowed_methods
-        .into_iter()
-        .chain(["OPTIONS"])
-        .collect::<Vec<_>>()
-        .join(", ");
-    let mut response = StatusCode::NO_CONTENT.into_response();
-    let response_headers = response.headers_mut();
-    response_headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin.clone());
-    response_headers.insert(
-        header::ACCESS_CONTROL_ALLOW_HEADERS,
-        HeaderValue::from_static("Authorization, Content-Type, Idempotency-Key, Last-Event-ID"),
-    );
-    let allow_methods = match HeaderValue::from_str(&allow_methods) {
-        Ok(value) => value,
-        Err(_) => {
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "CORS method policy is unavailable",
-            );
-        }
-    };
-    response_headers.insert(header::ACCESS_CONTROL_ALLOW_METHODS, allow_methods);
-    response_headers.insert(header::VARY, HeaderValue::from_static("Origin"));
-    response
-}
-
-fn error_response(status: StatusCode, detail: &'static str) -> Response {
-    (status, Json(ErrorBody { detail })).into_response()
-}
-
-fn error_response_owned(status: StatusCode, detail: String) -> Response {
-    #[derive(Serialize)]
-    struct OwnedErrorBody {
-        detail: String,
-    }
-
-    (status, Json(OwnedErrorBody { detail })).into_response()
 }
 
 #[cfg(test)]

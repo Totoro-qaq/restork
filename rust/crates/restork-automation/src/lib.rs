@@ -1,4 +1,8 @@
 //! Recovery, scheduling, evaluation, and bounded-delegation contracts.
+//!
+//! Recurrences are timezone-aware, missed-run behavior is explicit, and model
+//! schedules create reviewable drafts rather than applying effects. File
+//! restoration and subtasks remain bounded by frozen manifests and budgets.
 
 use std::{
     collections::BTreeSet,

@@ -1,11 +1,11 @@
-name: Public unsigned macOS Alpha
+name: Public desktop technical preview
 
 on:
   push:
     tags: ["v*-alpha.*"]
 
 concurrency:
-  group: public-macos-alpha-${{ github.ref }}
+  group: public-desktop-alpha-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -88,7 +88,7 @@ jobs:
           grep -q "^Signature=adhoc$" "$RUNNER_TEMP/restork-codesign.txt"
           ! grep -q "^Authority=Developer ID Application:" "$RUNNER_TEMP/restork-codesign.txt"
           codesign --display --entitlements :- "$app" 2>&1 | grep -q com.apple.security.automation.apple-events
-      - name: Stage visibly labeled Alpha assets, SBOM, and updater metadata
+      - name: Stage visibly labeled macOS Alpha assets
         shell: bash
         run: |
           set -euo pipefail
@@ -100,8 +100,6 @@ jobs:
           cp "$dmg" "dist/macos-alpha/Restork-${version}-macOS-arm64-UNSIGNED-ALPHA.dmg"
           cp "$archive" "dist/macos-alpha/Restork-${version}-macOS-arm64.app.tar.gz"
           cp "$archive.sig" "dist/macos-alpha/Restork-${version}-macOS-arm64.app.tar.gz.sig"
-          python3 scripts/generate_sbom.py --root . --output dist/macos-alpha/restork.cdx.json
-          python3 scripts/desktop_release.py manifest --directory dist/macos-alpha --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --version "$version" --commit "$GITHUB_SHA" --channel alpha --trust ad-hoc
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: dist/macos-alpha/*
@@ -109,6 +107,118 @@ jobs:
         with:
           name: restork-public-macos-alpha
           path: dist/macos-alpha/
+          if-no-files-found: error
+          retention-days: 30
+
+  build-windows-alpha:
+    needs: validate-alpha-ref
+    runs-on: windows-2025
+    timeout-minutes: 60
+    environment: release-windows
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            dashboard/package-lock.json
+            desktop/package-lock.json
+      - run: rustup toolchain install 1.97.1-x86_64-pc-windows-msvc --profile minimal
+      - run: rustup default 1.97.1-x86_64-pc-windows-msvc
+      - name: Reject GNU and MinGW before dependency installation
+        run: node scripts/windows-toolchain.mjs
+      - run: node --test scripts/tests/windows-toolchain.test.mjs
+      - run: npm --prefix dashboard ci
+      - run: npm --prefix desktop ci
+      - name: Build unsigned Windows MSI and EXE with no updater claim
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          python scripts/desktop_release.py config --platform windows --version $version --signing-mode unsigned --output build/desktop-alpha-config.json
+          npm --prefix desktop exec tauri build -- --config ../build/desktop-alpha-config.json
+      - name: Stage visibly labeled Windows technical-preview installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          New-Item -ItemType Directory -Force dist/windows-alpha | Out-Null
+          $nsis = Get-ChildItem desktop/src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $msi = Get-ChildItem desktop/src-tauri/target/release/bundle/msi/*.msi | Select-Object -First 1
+          if ($null -eq $nsis -or $null -eq $msi) { throw 'Expected both NSIS and MSI installers' }
+          Copy-Item $nsis.FullName "dist/windows-alpha/Restork-$version-Windows-x64-UNSIGNED-ALPHA-setup.exe"
+          Copy-Item $msi.FullName "dist/windows-alpha/Restork-$version-Windows-x64-UNSIGNED-ALPHA.msi"
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: dist/windows-alpha/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: restork-public-windows-alpha
+          path: dist/windows-alpha/
+          if-no-files-found: error
+          retention-days: 30
+
+  build-linux-alpha:
+    needs: validate-alpha-ref
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: release-linux
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install Linux packaging dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            dashboard/package-lock.json
+            desktop/package-lock.json
+      - run: rustup toolchain install 1.97.1 --profile minimal
+      - run: rustup default 1.97.1
+      - run: npm --prefix dashboard ci
+      - run: npm --prefix desktop ci
+      - name: Build unsigned Linux AppImage and DEB with no updater claim
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          python3 scripts/desktop_release.py config --platform linux --version "$version" --signing-mode unsigned --output build/desktop-alpha-config.json
+          npm --prefix desktop exec tauri build -- --config ../build/desktop-alpha-config.json
+      - name: Stage visibly labeled Linux technical-preview packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/linux-alpha
+          appimage="$(find desktop/src-tauri/target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)"
+          deb="$(find desktop/src-tauri/target/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)"
+          test -f "$appimage" && test -f "$deb"
+          cp "$appimage" "dist/linux-alpha/Restork-${version}-Linux-x64-UNSIGNED-ALPHA.AppImage"
+          cp "$deb" "dist/linux-alpha/Restork-${version}-Linux-x64-UNSIGNED-ALPHA.deb"
+          chmod +x "dist/linux-alpha/Restork-${version}-Linux-x64-UNSIGNED-ALPHA.AppImage"
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: dist/linux-alpha/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: restork-public-linux-alpha
+          path: dist/linux-alpha/
           if-no-files-found: error
           retention-days: 30
 
@@ -139,8 +249,104 @@ jobs:
           trap - EXIT
           rmdir "$mount"
 
+  clean-machine-windows:
+    needs: build-windows-alpha
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: restork-public-windows-alpha
+          path: candidate
+      - name: Install, launch, own Core, uninstall, and preserve user data
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $nsis = Get-ChildItem candidate/*-setup.exe | Select-Object -First 1
+          $msi = Get-ChildItem candidate/*.msi | Select-Object -First 1
+          if ($null -eq $nsis -or $null -eq $msi) { throw 'Expected both Windows installers' }
+          ./scripts/smoke-desktop-windows.ps1 `
+            -NsisInstaller $nsis.FullName `
+            -MsiInstaller $msi.FullName `
+            -ArtifactDirectory (Join-Path $env:RUNNER_TEMP 'restork-windows-alpha-e2e')
+      - name: Upload Windows lifecycle diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: restork-public-windows-alpha-diagnostics
+          path: ${{ runner.temp }}/restork-windows-alpha-e2e/
+          if-no-files-found: error
+          retention-days: 14
+
+  clean-machine-linux:
+    needs: build-linux-alpha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: restork-public-linux-alpha
+          path: candidate
+      - name: Install Linux runtime dependencies only
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          xvfb dbus-x11 libwebkit2gtk-4.1-0 libfuse2
+      - name: Exercise AppImage and DEB without a compiler toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          appimage="$(find candidate -name '*.AppImage' -print -quit)"
+          deb="$(find candidate -name '*.deb' -print -quit)"
+          test -f "$appimage" && test -f "$deb"
+          ./scripts/smoke-desktop-linux.sh "$appimage" "$deb"
+
+  assemble-alpha:
+    needs:
+      - build-macos-alpha
+      - build-windows-alpha
+      - build-linux-alpha
+      - clean-machine-macos
+      - clean-machine-windows
+      - clean-machine-linux
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: restork-public-*-alpha
+          path: dist/public-alpha
+          merge-multiple: true
+      - name: Create one cross-platform ledger, updater manifest, SBOM, and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          python3 scripts/generate_sbom.py --root . --output dist/public-alpha/restork.cdx.json
+          python3 scripts/desktop_release.py manifest --directory dist/public-alpha --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --version "$version" --commit "$GITHUB_SHA" --channel alpha --trust technical-preview
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: |
+            dist/public-alpha/SHA256SUMS
+            dist/public-alpha/release-manifest.json
+            dist/public-alpha/restork.cdx.json
+            dist/public-alpha/latest.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: restork-public-desktop-alpha
+          path: dist/public-alpha/
+          if-no-files-found: error
+          retention-days: 30
+
   publish-alpha:
-    needs: [build-macos-alpha, clean-machine-macos]
+    needs: assemble-alpha
     runs-on: ubuntu-latest
     environment: release-publish
     permissions:
@@ -149,14 +355,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: restork-public-macos-alpha
+          name: restork-public-desktop-alpha
           path: dist/publish
-      - name: Publish a clearly labeled Latest Alpha for the signed updater endpoint
+      - name: Publish a clearly labeled desktop Alpha for the signed macOS updater endpoint
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: >-
           gh release create "$GITHUB_REF_NAME" dist/publish/*
           --repo "$GITHUB_REPOSITORY" --verify-tag --latest
-          --title "Restork $GITHUB_REF_NAME — UNSIGNED macOS Alpha"
+          --title "Restork $GITHUB_REF_NAME — Desktop Technical Preview"
           --notes-file docs/unsigned-alpha-release.md

@@ -178,7 +178,10 @@ async fn public_machine_schema_covers_every_versioned_router_path() {
         .map(|route| route["path"].as_str().expect("route path").to_owned())
         .collect::<BTreeSet<_>>();
 
-    let source = include_str!("../src/lib.rs");
+    // Route composition has one explicit owner. Keeping the inventory test on
+    // that module lets `lib.rs` remain a composition root rather than a route
+    // warehouse while still failing if schema and implementation drift.
+    let source = include_str!("../src/routes.rs");
     let implemented = source
         .split(".route(")
         .skip(1)

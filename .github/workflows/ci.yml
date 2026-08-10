@@ -4,23 +4,54 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  script-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - run: node --test scripts/tests/windows-toolchain.test.mjs
+      - run: python3 -m unittest scripts.tests.test_desktop_release
+      - run: python3 scripts/check_architecture.py
+
   rust-core:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - run: rustup default 1.97.1
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: restork-rust-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
       - run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
       - run: cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets -- -D warnings
       - run: cargo test --manifest-path rust/Cargo.toml --locked
-      - run: cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
+      - name: Build crate documentation without warnings
+        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --manifest-path rust/Cargo.toml --locked --workspace --no-deps
+      - name: Build the release Core
+        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+        run: cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
 
   rust-platforms:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
     strategy:
       fail-fast: false
       matrix:
@@ -30,17 +61,37 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup toolchain install 1.97.1 --profile minimal
       - run: rustup default 1.97.1
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: restork-rust-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
       - run: cargo test --manifest-path rust/Cargo.toml --locked --workspace
       - run: cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
 
   dependency-policy:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup toolchain install 1.97.1 --profile minimal
       - run: rustup default 1.97.1
-      - run: cargo install cargo-audit --locked
-      - run: cargo install cargo-deny --locked
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: restork-policy-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock', 'deny.toml') }}
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/bin/cargo-audit
+            ~/.cargo/bin/cargo-deny
+          key: restork-policy-tools-${{ runner.os }}-audit-0.22.2-deny-0.20.2
+      - run: command -v cargo-audit >/dev/null || cargo install cargo-audit --version 0.22.2 --locked
+      - run: command -v cargo-deny >/dev/null || cargo install cargo-deny --version 0.20.2 --locked
       - run: cargo audit --file rust/Cargo.lock
       - run: cargo deny --config deny.toml --manifest-path rust/Cargo.toml check advisories bans sources
 
@@ -58,7 +109,42 @@ jobs:
       - run: npm --prefix dashboard test
       - run: npm --prefix dashboard run build
 
+  desktop-check:
+    name: desktop-check (${{ matrix.platform }})
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && '[{"os":"ubuntu-latest","platform":"linux"}]' || '[{"os":"macos-15","platform":"macos"},{"os":"windows-2025","platform":"windows-msvc"},{"os":"ubuntu-latest","platform":"linux"}]') }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install Linux desktop check dependencies
+        if: runner.os == 'Linux'
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
+      - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+      - run: rustup default 1.97.1
+      - name: Require the Windows MSVC Rust toolchain
+        if: runner.os == 'Windows'
+        run: node scripts/windows-toolchain.mjs
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/src-tauri/target
+          key: restork-desktop-${{ runner.os }}-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
+      - run: cargo fmt --manifest-path desktop/src-tauri/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path desktop/src-tauri/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --locked
+
   desktop-macos:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -72,14 +158,21 @@ jobs:
             desktop/package-lock.json
       - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - run: rustup default 1.97.1
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+            desktop/src-tauri/target
+          key: restork-package-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock', 'desktop/src-tauri/Cargo.lock') }}
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
-      - run: npm --prefix desktop run fmt:check
       - run: node scripts/build-desktop-runtime.mjs
-      - run: npm --prefix desktop run clippy
-      - run: npm --prefix desktop test
       - run: ./scripts/smoke-desktop-runtime.sh
       - run: npm --prefix desktop run build:app
+        env:
+          RESTORK_DESKTOP_RUNTIME_READY: "1"
       - name: Ad-hoc sign internal test bundle
         run: >-
           codesign --force --deep --sign - --timestamp=none
@@ -93,6 +186,7 @@ jobs:
           | grep -q com.apple.security.automation.apple-events
 
   desktop-windows-linux:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -127,15 +221,25 @@ jobs:
             desktop/package-lock.json
       - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - run: rustup default 1.97.1
+      - name: Require the Windows MSVC Rust toolchain
+        if: runner.os == 'Windows'
+        run: node scripts/windows-toolchain.mjs
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+            desktop/src-tauri/target
+          key: restork-package-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock', 'desktop/src-tauri/Cargo.lock') }}
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
-      - run: npm --prefix desktop run fmt:check
       - run: node scripts/build-desktop-runtime.mjs
       - run: node scripts/smoke-desktop-runtime.mjs
-      - run: npm --prefix desktop run clippy
-      - run: npm --prefix desktop test
       - run: npm exec tauri build -- --config ${{ matrix.config }}
         working-directory: desktop
+        env:
+          RESTORK_DESKTOP_RUNTIME_READY: "1"
       - name: Exercise Windows installers on the clean runner
         if: runner.os == 'Windows'
         shell: pwsh
@@ -170,76 +274,34 @@ jobs:
         with:
           fetch-depth: 0
       - run: ./scripts/scan-public-artifacts.sh
+      - run: python3 scripts/audit_readme.py README.md README.zh-CN.md
 
-  release-blocking-gates:
+  fast-gates:
+    name: Fast PR gates
+    needs:
+      - script-contracts
+      - rust-core
+      - dashboard
+      - desktop-check
+      - public-artifact-scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - run: rustup toolchain install 1.97.1 --profile minimal
-      - run: rustup default 1.97.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: dashboard/package-lock.json
-      - run: npm --prefix dashboard ci
-      - name: SEC-NET-001
-        run: >-
-          cargo test --manifest-path rust/Cargo.toml --locked -p restork-provider
-          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test loopback_boundary
-      - name: SEC-APPROVAL-001
-        run: >-
-          cargo test --manifest-path rust/Cargo.toml --locked -p restork-deliverables --test approval_contract
-          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-core --test durable_loop_contract
-          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test deliverables_api_contract
-      - name: SEC-AUTH-001
-        run: >-
-          cargo test --manifest-path rust/Cargo.toml --locked -p restork-core --test auth
-          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test auth_contract
-      - name: SEC-SQL-001
-        run: cargo test --manifest-path rust/Cargo.toml --locked -p restork-storage --tests
-      - name: SEC-PROMPT-001
-        run: >-
-          cargo test --manifest-path rust/Cargo.toml --locked -p restork-personal --test domain_contracts
-          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-provider
-      - name: CONV-BOUNDARY-001
-        run: >-
-          cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test workspace_api_contract
-          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test operation_sse_contract
-      - name: PRIV-LABEL-001
-        run: >-
-          cargo test --manifest-path rust/Cargo.toml --locked -p restork-personal
-          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test automation_api_contract
-      - name: REC-EFFECT-001
-        run: >-
-          cargo test --manifest-path rust/Cargo.toml --locked -p restork-core --test durable_loop_contract
-          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-storage --test operation_contract
-      - name: REL-WRITE-001
-        run: >-
-          cargo test --manifest-path rust/Cargo.toml --locked -p restork-core workspace
-          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test bootstrap_api_contract
-      - name: REL-EVENT-001
-        run: >-
-          cargo test --manifest-path rust/Cargo.toml --locked -p restork-storage --test storage_contract
-          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test sse_replay_contract
-      - name: OSS-CLEAN-001
-        run: ./scripts/scan-public-artifacts.sh
-      - name: MEM-RETENTION-001
-        run: cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test feature_api_contract
-      - name: UI-CONTEXT-001
-        run: >-
-          cargo test --manifest-path rust/Cargo.toml --locked -p restork-api --test daily_api_contract
-          && npm --prefix dashboard test
-      - name: DESKTOP-BOUNDARY-001
-        run: >-
-          cargo test --manifest-path rust/Cargo.toml --locked -p restorkd
-          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-worker
-      - name: README-ASSET-001
-        run: python3 scripts/audit_readme.py README.md README.zh-CN.md
-      - name: Golden modes and rendering parity
-        run: >-
-          cargo test --manifest-path rust/Cargo.toml --locked -p restork-core
-          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-deliverables
-          && cargo test --manifest-path rust/Cargo.toml --locked -p restork-render
+      - name: Confirm the review feedback lane completed
+        run: echo "Rust, Dashboard, architecture, Linux desktop compile, and public-boundary checks passed."
+
+  release-blocking-gates:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+    needs:
+      - script-contracts
+      - rust-core
+      - rust-platforms
+      - dependency-policy
+      - dashboard
+      - desktop-check
+      - desktop-macos
+      - desktop-windows-linux
+      - public-artifact-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm the full gate graph completed once
+        run: echo "Rust, Dashboard, policy, public scan, three-platform tests, packages, and clean-machine checks passed."

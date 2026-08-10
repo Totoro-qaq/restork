@@ -1,42 +1,45 @@
-name: Feature proposal
-description: Propose a focused Research, Study, Work, or platform improvement.
-title: "[Proposal]: "
+name: Feature request / 功能建议
+description: Propose a focused product or platform improvement. / 提出具体的产品或平台改进。
+title: "[Feature / 功能]: "
 labels: ["enhancement", "needs-triage"]
 body:
   - type: markdown
     attributes:
-      value: Restork adds authority carefully. Describe the user outcome first, then the minimum new capability it needs.
+      value: |
+        Restork adds authority carefully. Describe the user outcome first, then the minimum new capability it needs.
+
+        Restork 会谨慎增加权限。请先描述用户希望得到的结果，再说明所需的最小能力。
   - type: textarea
     id: problem
     attributes:
-      label: What is hard today?
-      description: Describe the concrete research, study, or work situation—not just a technology choice.
+      label: What is hard today? / 现在什么最难用？
+      description: Describe the concrete research, study, or work situation—not just a technology choice. / 请描述具体场景，而不只是技术选型。
     validations:
       required: true
   - type: textarea
     id: outcome
     attributes:
-      label: What should feel different?
+      label: What should feel different? / 改完后应该有什么不同？
     validations:
       required: true
   - type: dropdown
     id: authority
     attributes:
-      label: Does it add authority?
+      label: Does it add authority? / 是否增加权限？
       options:
-        - No; it is local and read-only
-        - It reads a new local or remote source
-        - It calls a model or network service
-        - It writes, sends, installs, or executes something
-        - I am not sure
+        - No; it is local and read-only / 否，仅本地只读
+        - It reads a new local or remote source / 读取新的本地或远程来源
+        - It calls a model or network service / 调用模型或网络服务
+        - It writes, sends, installs, or executes something / 写入、发送、安装或执行
+        - I am not sure / 不确定
     validations:
       required: true
   - type: textarea
     id: boundary
     attributes:
-      label: Suggested privacy and recovery boundary
-      description: What should be opt-in, previewed, approved, cancellable, or recoverable?
+      label: Suggested privacy and recovery boundary / 建议的隐私与恢复边界
+      description: What should be opt-in, previewed, approved, cancellable, or recoverable? / 哪些行为应主动开启、预览、审批、取消或恢复？
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternatives considered
+      label: Alternatives considered / 考虑过的替代方案

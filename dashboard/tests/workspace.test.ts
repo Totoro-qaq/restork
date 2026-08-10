@@ -1601,6 +1601,123 @@ describe("Rust conversation workspace", () => {
     submittedRoot.remove();
   });
 
+  it("uses native, recoverable setup controls instead of technical paths and secret references", async () => {
+    const root = document.createElement("main");
+    const state = workspaceSnapshot();
+    const invoke = vi.fn(async function invoke<T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> {
+      if (command === "desktop_vault_config") {
+        return {
+          status: "configured",
+          grant_id: "vault-7ee0fca2",
+          label: "Research Notes",
+          mutable: true,
+        } as T;
+      }
+      if (command === "desktop_choose_vault") {
+        return {
+          status: "selected",
+          candidate_id: "candidate-42",
+          label: "Work Notes",
+          same_as_active: false,
+        } as T;
+      }
+      if (command === "desktop_apply_vault") {
+        return { status: "switching", label: "Work Notes" } as T;
+      }
+      if (command === "desktop_configure_provider_secret") {
+        expect(args).toEqual({ providerKind: "deepseek" });
+        return {
+          status: "saved",
+          secret_ref: "keychain:restork/provider/deepseek",
+        } as T;
+      }
+      if (command === "desktop_onboarding_state") {
+        return { version: 1, dismissed: false } as T;
+      }
+      if (command === "desktop_set_onboarding_dismissed") {
+        return { version: 1, dismissed: args?.dismissed === true } as T;
+      }
+      return undefined as T;
+    });
+    window.__TAURI__ = {
+      core: {
+        invoke: invoke as unknown as <T>(
+          command: string,
+          args?: Record<string, unknown>,
+        ) => Promise<T>,
+      },
+    };
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { protocol: "http:", hostname: "127.0.0.1", port: "49152" },
+    });
+    mountDashboard(root, { api: fakeApi(), snapshot: state, locale: "zh-CN" });
+    root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
+
+    expect(root.querySelector('input[name="vault_dir"]')).toBeNull();
+    expect(root.querySelector('input[type="password"]')).toBeNull();
+    expect(root.querySelector<HTMLInputElement>('input[name="secret_ref"]')?.type).toBe("hidden");
+    await vi.waitFor(() => expect(root.textContent).toContain("Research Notes"));
+    expect(root.textContent).toContain("选择知识库文件夹");
+    expect(root.textContent).toContain("安全保存 API Key");
+
+    root.querySelector<HTMLButtonElement>("[data-onboarding-skip]")?.click();
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith(
+      "desktop_set_onboarding_dismissed",
+      { dismissed: true },
+    ));
+    await vi.waitFor(() => {
+      expect(root.querySelector<HTMLElement>("[data-first-run]")?.hidden).toBe(true);
+    });
+    root.querySelector<HTMLButtonElement>("[data-onboarding-reopen]")?.click();
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith(
+      "desktop_set_onboarding_dismissed",
+      { dismissed: false },
+    ));
+    await vi.waitFor(() => {
+      expect(root.querySelector<HTMLElement>("[data-first-run]")?.hidden).toBe(false);
+    });
+
+    root.querySelector<HTMLButtonElement>("[data-vault-choose]")?.click();
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("desktop_choose_vault"));
+    await vi.waitFor(() => expect(root.textContent).toContain("Work Notes"));
+    expect(root.textContent).toContain("应用并重新连接");
+    root.querySelector<HTMLButtonElement>("[data-vault-apply]")?.click();
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("desktop_apply_vault", {
+      candidateId: "candidate-42",
+    }));
+
+    root.querySelector<HTMLButtonElement>("[data-provider-secret-configure]")?.click();
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith(
+      "desktop_configure_provider_secret",
+      { providerKind: "deepseek" },
+    ));
+    await vi.waitFor(() => expect(
+      root.querySelector<HTMLInputElement>('input[name="secret_ref"]')?.value,
+    ).toBe("keychain:restork/provider/deepseek"));
+    expect(root.textContent).toContain("已安全保存");
+    root.remove();
+  });
+
+  it("shows native setup progress as optional real actions instead of a blocking tour", () => {
+    const root = document.createElement("main");
+    const state = workspaceSnapshot();
+    mountDashboard(root, { api: fakeApi(), snapshot: state, locale: "zh-CN" });
+
+    const onboarding = root.querySelector<HTMLElement>("[data-first-run]");
+    expect(onboarding).not.toBeNull();
+    expect(onboarding?.textContent).toContain("先完成一次真正的运行");
+    expect(onboarding?.textContent).toContain("知识库");
+    expect(onboarding?.textContent).toContain("模型");
+    expect(onboarding?.textContent).toContain("研究、学习或工作");
+    expect(onboarding?.querySelector("[data-onboarding-skip]")?.textContent).toContain("关闭引导");
+    expect(onboarding?.textContent).toContain("关闭后不会再次自动显示");
+    expect(onboarding?.getAttribute("role")).not.toBe("dialog");
+  });
+
   it("routes Todo suggestions through an explicit model conversation", () => {
     const root = document.createElement("main");
     mountDashboard(root, { api: fakeApi(), snapshot: workspaceSnapshot(), locale: "zh-CN" });
@@ -1622,7 +1739,7 @@ describe("Rust conversation workspace", () => {
     root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
 
     expect(root.textContent).toContain("Core 内置 Skills");
-    expect(root.textContent).toContain("研究与证据核验");
+    expect(root.textContent).toContain("资料研究与核对");
     expect(root.textContent).toContain("日报与周报");
     expect(root.textContent).toContain("vault_search");
     expect(root.textContent).toContain("source_read");

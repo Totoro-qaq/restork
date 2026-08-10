@@ -1,64 +1,66 @@
-name: Bug report
-description: Report a reproducible Restork problem without including private data.
-title: "[Bug]: "
+name: Bug report / 问题反馈
+description: Report a reproducible problem without private data. / 使用脱敏信息反馈可复现问题。
+title: "[Bug / 问题]: "
 labels: ["bug", "needs-triage"]
 body:
   - type: markdown
     attributes:
       value: |
         Thanks for helping improve Restork. Never attach a real API key, Vault note, work artifact, location, calendar, playlist, or private log. Report security issues through private vulnerability reporting instead.
+
+        感谢你帮助改进 Restork。请勿上传真实 API Key、Vault 笔记、工作资料、位置、日历、歌单或私人日志；安全问题请使用私有漏洞报告。
   - type: dropdown
     id: surface
     attributes:
-      label: Affected surface
+      label: Affected surface / 受影响功能
       options:
-        - Desktop lifecycle or updater
-        - Dashboard
-        - Rust Core or local API
-        - Provider or model
-        - MCP, Skill, or Plugin
-        - Research, Study, or Work workflow
-        - Packaging or documentation
+        - Desktop lifecycle or updater / 桌面生命周期或更新
+        - Dashboard / 前端工作台
+        - Rust Core or local API / Rust Core 或本地 API
+        - Provider or model / 模型供应商或模型
+        - MCP, Skill, or Plugin / 扩展能力
+        - Research, Study, or Work workflow / 研究、学习或工作流程
+        - Packaging or documentation / 安装包或文档
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: Version or commit
+      label: Version or commit / 版本或提交
       placeholder: v0.1.2 or full commit SHA
     validations:
       required: true
   - type: dropdown
     id: platform
     attributes:
-      label: Platform
+      label: Platform / 平台
       options: [macOS, Windows, Linux, Browser-only source start, Other]
     validations:
       required: true
   - type: textarea
     id: reproduce
     attributes:
-      label: Reproduction with synthetic data
-      description: Give the smallest safe sequence that reproduces the problem.
-      placeholder: "1. Start…\n2. Select…\n3. Observe…"
+      label: Reproduction with synthetic data / 使用合成数据复现
+      description: Give the smallest safe sequence. / 请提供最短且不含私人信息的复现步骤。
+      placeholder: "1. Start / 启动…\n2. Select / 选择…\n3. Observe / 看到…"
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected and observed behavior
+      label: Expected and observed behavior / 预期与实际表现
     validations:
       required: true
   - type: textarea
     id: diagnostics
     attributes:
-      label: Redacted diagnostics
-      description: Paste only metadata you have inspected. Remove paths, prompts, notes, ids, tokens, and credentials.
+      label: Redacted diagnostics / 已脱敏诊断
+      description: Paste only inspected metadata; remove paths, prompts, notes, ids, tokens, and credentials. / 只粘贴确认过的元数据，并删除路径、提示词、笔记、标识、token 与凭据。
       render: text
   - type: checkboxes
     id: safety
     attributes:
-      label: Privacy check
+      label: Privacy check / 隐私确认
       options:
-        - label: I checked that this report contains no secret or private user content.
+        - label: I checked that this report contains no secret or private user content. / 我已确认本报告不含凭据或私人内容。
           required: true

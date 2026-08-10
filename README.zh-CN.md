@@ -16,6 +16,9 @@
   <a href="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml/badge.svg" alt="CI 状态"></a>
   <a href="https://github.com/Totoro-qaq/restork/releases"><img src="https://img.shields.io/github/v/release/Totoro-qaq/restork?display_name=tag&amp;sort=semver" alt="最新 GitHub Release"></a>
   <a href="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml/badge.svg" alt="发布来源证明状态"></a>
+  <a href="./rust-toolchain.toml"><img src="https://img.shields.io/badge/MSRV-1.97.1-dea584.svg" alt="最低支持 Rust 版本 1.97.1"></a>
+  <a href="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Totoro-qaq/restork/ci.yml?branch=main&amp;label=CI%20%2F%20Dashboard" alt="Dashboard 测试状态"></a>
+  <a href="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Totoro-qaq/restork/ci.yml?branch=main&amp;label=CI%20%2F%20cargo--deny" alt="cargo-deny 策略状态"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0ea5e9.svg" alt="MIT 许可证"></a>
   <img src="https://img.shields.io/badge/Rust-1.97-dea584.svg" alt="Rust 1.97 运行时基础">
   <img src="https://img.shields.io/badge/UI-TypeScript-06b6d4.svg" alt="TypeScript Dashboard">
@@ -32,7 +35,10 @@
 
 <p align="center">
   <a href="./assets/readme/demo-poster.zh-CN.webp">
-    <img src="./assets/readme/demo-hd.zh-CN.gif" width="100%" alt="Restork 中文 Dashboard 使用合成数据展示研究运行、审批、Markdown 任务、Radar、记忆与每日上下文。">
+    <picture>
+      <source media="(prefers-reduced-motion: no-preference)" srcset="./assets/readme/demo-hd.zh-CN.gif" type="image/gif">
+      <img src="./assets/readme/demo-poster.zh-CN.webp" width="100%" alt="Restork 中文 Dashboard 使用合成数据展示研究运行、审批、Markdown 任务、Radar、记忆与每日上下文。">
+    </picture>
   </a>
 </p>
 
@@ -64,7 +70,7 @@
 ## 它是怎么工作的
 
 <p align="center">
-  <img src="./assets/readme/architecture.zh-CN.svg" width="100%" alt="Restork 把本地记忆和知识放在受控 Core 后面，获准的云端请求统一经过出站策略网关。">
+  <img src="./assets/readme/architecture.zh-CN.svg" width="100%" alt="Restork 把记忆和知识留在本地，只有你允许的内容才会交给云端模型。">
 </p>
 
 ```text
@@ -84,24 +90,43 @@ Markdown 是笔记和用户任务的持久载体；SQLite 保存运行、审批�
 都是可以删除后重新生成的缓存。Dashboard 与 CLI 既拿不到模型密钥，也不能绕过 Core 策略。
 
 Restork 的基础工作流不需要 LangGraph、图数据库、KAG、Valkey、Memory MCP 或 Obsidian
-插件。一个有界 Rust Core 统一负责策略、存储、工具、恢复和内嵌 Dashboard。本仓库中的少量
+插件。一个 Rust Core 统一负责策略、存储、工具、恢复和内嵌 Dashboard，并明确限制每次操作的
+时间、数据范围和副作用。本仓库中的少量
 Python 脚本只用于开发辅助，不是产品运行时或可安装包。
 
-## 五分钟开始使用
+## 下载桌面技术预览
 
-一条命令构建 Dashboard 和原生 Core 并启动它。你需要 [Rust 工具链](https://rustup.rs)
-和 Node.js。
+打开 [GitHub Releases](https://github.com/Totoro-qaq/restork/releases)，按平台下载一个预编译包。
+目标电脑不需要 Python、Node.js、Rust、MinGW、GTK 开发包或其他编译工具。
 
+| 平台 | 下载文件 | 首次启动 |
+|---|---|---|
+| Apple Silicon macOS 13+ | `macOS-arm64-UNSIGNED-ALPHA.dmg` | 拖入“应用程序”，再使用单个应用的**打开 / 仍要打开**；不要全局关闭 Gatekeeper。 |
+| Windows 10/11 x64 | `Windows-x64-UNSIGNED-ALPHA-setup.exe` 或 `.msi` | 技术预览尚无 Authenticode，SmartScreen 可能提示；校验 `SHA256SUMS` 后，只在确认来自本仓库时运行。 |
+| 桌面 Linux x64 | `Linux-x64-UNSIGNED-ALPHA.AppImage` 或 `.deb` | AppImage 赋予执行权限后打开；Debian/Ubuntu 可用系统安装器安装 DEB。 |
+
+三种平台都内置同一份 Rust Core 与 Dashboard，并通过干净 runner 生命周期测试。它们是明确标注
+的未签名技术预览，不是平台签名正式版。macOS 更新包另有 Restork 独立签名；Windows/Linux 在
+受保护签名门禁通过前不启用预览版自动更新。校验与信任边界见[桌面端指南](docs/desktop.zh-CN.md)。
+
+## 从源码运行（贡献者）
+
+只有修改 Restork 时才走这里。请安装 Node.js 22 与仓库固定的 Rust 工具链。Windows 必须使用
+`x86_64-pc-windows-msvc`；Restork 会在编译前拒绝 GNU/MinGW，因此完全不需要追着安装
+`as.exe` 或 `dlltool`。
+
+macOS / Linux：
 ```bash
 git clone https://github.com/Totoro-qaq/restork.git
 cd restork
 ./scripts/quickstart.sh
 ```
 
-已经下载过仓库？以后只需：
-
-```bash
-./scripts/quickstart.sh
+Windows PowerShell：
+```powershell
+git clone https://github.com/Totoro-qaq/restork.git
+Set-Location restork
+./scripts/quickstart.ps1
 ```
 
 Restork 会让系统自动选择一个空闲 loopback 端口，并打印准确的本地 URL，以及彼此独立的一次性
@@ -124,18 +149,6 @@ cargo run --manifest-path rust/Cargo.toml --bin restorkd -- \
 产品只有一个权威运行时：`restorkd`。Dashboard、CLI、桌面生命周期、API、Agent 循环、记忆、
 任务、Research、Study、Work 与 Radar 全部经过同一套 Rust 策略和事件边界。旧 Python Core
 及其构建路径已经移除。
-
-### 桌面安装包
-
-[Releases 页面](https://github.com/Totoro-qaq/restork/releases)现在支持公开的 Apple Silicon
-macOS Alpha。下载文件名明确带有 `UNSIGNED-ALPHA` 的 DMG，目标 Mac 不需要 Python、Node.js、
-Rust、`uv` 或包管理器。这个早期版本使用 ad-hoc 签名，另有独立更新签名、校验和、SBOM、
-provenance 与干净机器生命周期测试，但它**没有 Apple Developer ID 签名，也没有经过公证**。
-首次启动请使用单个应用的**打开 / 仍要打开**，不要全局关闭 Gatekeeper。
-
-受保护正式通道仍保持独立：macOS Developer ID/公证、Windows Authenticode、Linux 包签名与
-完整干净机器矩阵都通过后，才能称为正式版本。精确信任边界、安装步骤与贡献者构建方式见
-[桌面端指南](docs/desktop.zh-CN.md)。
 
 ### 只连接你真正需要的东西
 
@@ -181,12 +194,12 @@ RESTORK_PORT=7444 ./scripts/quickstart.sh
 ### 准备好后再接入模型
 
 打开**设置 → 模型供应商**，选择精确模型和它支持的思考强度。Restork 内置 DeepSeek、GLM、
-Kimi、Qwen、Ollama、OpenRouter 和 OpenAI-compatible 定义。Profile 与具体模型绑定，因此有界
-子任务可以用更快的模型、综合任务可以用更强模型，同时不会发生隐藏回退。保存后直接在对应
+Kimi、Qwen、Ollama、OpenRouter 和 OpenAI-compatible 定义。Profile 与具体模型绑定，因此小型
+委派任务可以用更快的模型、综合任务可以用更强模型，同时不会发生隐藏回退。保存后直接在对应
 Provider Profile 卡片点击**测试模型**；选择的不是 DeepSeek 时，测试也绝不会绕到内置 DeepSeek
 链路。能力表与端点规则见[模型供应商指南](docs/providers.zh-CN.md)。
 
-在对话中点击**换一个模型继续**会创建带有界近期上下文的新分支；它不会改写原 Profile，也不会
+在对话中点击**换一个模型继续**会创建新分支，只带上预览里列出的近期上下文；它不会改写原 Profile，也不会
 把私有消息带进数据边界更窄的云端模型。
 
 云端 Key 使用按供应商区分的原生凭据流程，不在 Dashboard 放明文 Key 输入框；省略类型时仍默认
@@ -239,7 +252,7 @@ cargo run --manifest-path rust/Cargo.toml --bin restorkd -- \
 | **对话** | 运行范围内的会话，支持分支、搜索、导出、归档、可取消操作与 SSE 重放 |
 | **模型** | DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter 与通用 OpenAI 兼容端点；供应商范围内思考强度；原生凭据存储；版本化 Prompt 与配置 Profile |
 | **Agent 运行时** | 持久化模型/工具循环，分别约束步骤、修复、Token、费用与总耗时；支持取消、审批暂停、事件重放和可见的上下文压缩 |
-| **Research、Study、Work** | 证据驱动 Research 与可审批笔记；基于 Vault 的学习路径和置信度复习；有界工作计划、脱敏交接与证据化结果校验 |
+| **Research、Study、Work** | 带来源的资料研究与写入前预览；基于 Vault 的学习路径和主动复习；清晰的工作计划、脱敏交接与结果核对 |
 | **本地知识** | 带分页、安全 Markdown 预览和文件实时更新的 Obsidian Vault 浏览器，可检查的四层记忆、审批式 Markdown 任务、统一搜索，以及可选的 GitHub 公开 AI/Agent 项目与 Hacker News Radar |
 | **扩展** | 清单校验、权限格、不可变修订与回滚，以及沙箱化的 stdio MCP 执行 |
 | **每日上下文** | 可选天气、无需权限的系统日期与月历、一个本地 ICS 日历、macOS 未读邮件计数，以及来自 QQ 音乐、网易云、Apple Music 或私有歌单文件的每日单曲 |
@@ -254,11 +267,11 @@ cargo run --manifest-path rust/Cargo.toml --bin restorkd -- \
 | 联网搜索 | 公开 HTTPS Research 统一经过出站网关；是否可用取决于所选供应商能力。 |
 | MCP | 已审批的 stdio MCP 在平台沙箱中执行；Remote HTTPS MCP 在传输策略完成前会直接拒绝。 |
 | 交付物创作 | Restork 从显式内容组装经校验的 Markdown、确定性无宏 PPTX 与 PDF，不会暗中编造来源论断。 |
-| Work 执行 | Work 生成有界计划与交接包，再校验返回的 manifest；不会接管外部编码进程。 |
+| Work 执行 | Work 生成可审查的计划与交接包，再核对返回的 manifest；不会接管外部编码进程。 |
 | 原生邮件 | 未读总数适配仅支持 macOS；Windows/Linux 会如实显示不可用。 |
 
-公开 macOS Alpha 明确不在 Apple Developer ID 信任范围内；受保护正式版仍要求真实
-Developer ID、Authenticode、Linux GPG、公证与干净 runner 证据。
+桌面技术预览明确不在 Apple、Microsoft 或 Linux 发布者信任范围内；受保护正式版仍要求真实
+Developer ID、Authenticode、Linux 签名、公证、签名更新与干净 runner 证据。
 
 ## 使用指南
 
@@ -313,8 +326,9 @@ loopback 延迟，全程不发送 Prompt。
 
 提交改动前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。已实现的产品契约位于
 [`V1 规格`](specs/restork-v1.md)与[Steps 18–22 规格](specs/restork-steps18-22.md)；对话模型分支与公开
-macOS Alpha 的边界冻结在 [Step 26 规格](specs/restork-step26-model-branch-and-public-alpha.md)。发布历史记录在
-[`CHANGELOG.md`](CHANGELOG.md)。
+macOS Alpha 的边界冻结在 [Step 26 规格](specs/restork-step26-model-branch-and-public-alpha.md)，
+三平台预览安装与贡献者体验由 [Step 29 规格](specs/restork-step29-install-and-contributor-experience.md)
+约束。发布历史记录在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 </details>
 

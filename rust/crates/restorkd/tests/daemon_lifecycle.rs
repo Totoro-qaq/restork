@@ -20,6 +20,7 @@ fn config_accepts_an_os_selected_port_but_never_a_host_override() {
             port: 0,
             state_db: None,
             vault_dir: None,
+            vault_grant_file: None,
         }
     );
     assert_eq!(
@@ -28,6 +29,7 @@ fn config_accepts_an_os_selected_port_but_never_a_host_override() {
             port: 0,
             state_db: None,
             vault_dir: None,
+            vault_grant_file: None,
         }
     );
     assert_eq!(
@@ -37,6 +39,38 @@ fn config_accepts_an_os_selected_port_but_never_a_host_override() {
     assert_eq!(
         ServerConfig::parse(["serve", "--port", "not-a-port"]),
         Err(ConfigError::InvalidPort("not-a-port".to_owned()))
+    );
+}
+
+#[test]
+fn config_accepts_one_private_vault_descriptor_and_rejects_conflicts() {
+    let descriptor = std::path::PathBuf::from("private-vault.grant");
+    assert_eq!(
+        ServerConfig::parse([
+            "serve",
+            "--vault-grant-file",
+            descriptor.to_str().expect("UTF-8 fixture"),
+        ])
+        .expect("private descriptor"),
+        ServerConfig {
+            port: 0,
+            state_db: None,
+            vault_dir: None,
+            vault_grant_file: Some(descriptor),
+        }
+    );
+    assert_eq!(
+        ServerConfig::parse([
+            "serve",
+            "--vault-dir",
+            "vault",
+            "--vault-grant-file",
+            "private-vault.grant",
+        ]),
+        Err(ConfigError::ConflictingArguments(
+            "--vault-dir",
+            "--vault-grant-file",
+        ))
     );
 }
 
@@ -271,6 +305,7 @@ async fn daemon_owns_a_loopback_only_listener_and_shuts_down_cleanly() {
         port: 0,
         state_db: Some(state_directory.path().join("restork.db")),
         vault_dir: None,
+        vault_grant_file: None,
     })
     .await
     .expect("bind loopback listener");
@@ -310,4 +345,38 @@ async fn daemon_owns_a_loopback_only_listener_and_shuts_down_cleanly() {
         .expect("server stops promptly")
         .expect("server task")
         .expect("graceful shutdown");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn desktop_vault_descriptor_must_be_owner_private() {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    let state_directory = tempfile::tempdir().expect("private state directory");
+    let vault = tempfile::tempdir().expect("vault");
+    let grant = state_directory.path().join("vault-launch.grant");
+    fs::write(&grant, vault.path().to_string_lossy().as_bytes()).expect("write grant");
+    fs::set_permissions(&grant, fs::Permissions::from_mode(0o600)).expect("private mode");
+    let bound = bind(ServerConfig {
+        port: 0,
+        state_db: Some(state_directory.path().join("private.db")),
+        vault_dir: None,
+        vault_grant_file: Some(grant.clone()),
+    })
+    .await
+    .expect("private grant binds");
+    drop(bound);
+
+    fs::set_permissions(&grant, fs::Permissions::from_mode(0o644)).expect("public mode");
+    let error = bind(ServerConfig {
+        port: 0,
+        state_db: Some(state_directory.path().join("public.db")),
+        vault_dir: None,
+        vault_grant_file: Some(grant),
+    })
+    .await
+    .err()
+    .expect("public grant rejected");
+    assert!(error.to_string().contains("owner-private"));
 }

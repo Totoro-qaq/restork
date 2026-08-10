@@ -2,6 +2,9 @@
 //!
 //! Provider configuration contains only a native secret reference. Secret
 //! values are resolved just-in-time, never serialized, and zeroized on drop.
+//! Network calls use bounded redirects, timeouts, response sizes, and explicit
+//! error classes. Paid or ambiguous provider requests are never automatically
+//! replayed by this crate.
 
 mod secrets;
 
@@ -2987,9 +2990,15 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.expect("mock server");
         });
-        let client = Client::new();
-
         for path in ["malformed", "oversized"] {
+            // Do not reuse the malformed fixture's HTTP connection. Some
+            // platforms reset a pooled connection after the intentionally
+            // invalid body, which would test socket timing instead of the
+            // bounded JSON reader.
+            let client = Client::builder()
+                .pool_max_idle_per_host(0)
+                .build()
+                .expect("fixture client");
             let response = client
                 .get(format!("http://{address}/{path}"))
                 .send()

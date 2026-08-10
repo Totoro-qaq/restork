@@ -39,19 +39,19 @@
             操作系统级沙箱里——不是靠提示词让模型小心。跑一次带引用的研究、生成可审笔记，
             存回 Vault 前你先看一眼。</p>
           <div class="actions">
-            <a class="primary" href="https://github.com/Totoro-qaq/restork/blob/main/README.zh-CN.md#五分钟开始使用">从源码体验</a>
-            <a href="https://github.com/Totoro-qaq/restork/releases">macOS 未签名 Alpha</a>
+            <a class="primary" href="https://github.com/Totoro-qaq/restork/releases">下载桌面技术预览</a>
+            <a href="https://github.com/Totoro-qaq/restork/blob/main/README.zh-CN.md#从源码运行贡献者">从源码构建</a>
           </div>
-          <p class="fine">公开 macOS Alpha 未经过 Apple 公证；首次启动也不会自动开启模型、Vault、天气、日历或定位。</p>
+          <p class="fine">预编译 DMG、MSI/EXE、AppImage 与 DEB，无需编译器。它们会明确提示未签名；首次启动也不会自动开启模型、Vault、天气、日历或定位。</p>
         </div>
         <div class="window" aria-label="Restork 架构预览">
           <div class="window-bar"><span></span><span></span><span></span><strong>RESTORK CORE · 127.0.0.1</strong></div>
-          <img src="./assets/readme/architecture.zh-CN.svg" alt="本地知识与四层记忆先进入受控 Restork Core，再访问获准的模型或工具。" width="1200" height="560">
+          <img src="./assets/readme/architecture.zh-CN.svg" alt="本地知识与四层记忆留在 Restork Core 中，只有你允许的内容才会交给模型或工具。" width="1200" height="560">
         </div>
       </section>
 
       <section id="why" class="paper-section">
-        <header><p class="eyebrow">一个受控 CORE，多种前进方式</p><h2>适应一天里真正交织的事情。</h2></header>
+        <header><p class="eyebrow">一个 CORE，串起一天的事情</p><h2>研究、学习和工作，本来就会交织在一起。</h2></header>
         <div class="modes">
           <article><span class="mode research">R</span><h3>Research</h3><p>比较公开来源、保留证据，并在存入 Vault 前审一份带引用的 Markdown 笔记。</p></article>
           <article><span class="mode study">S</span><h3>Study</h3><p>以你的笔记为前提整理学习路径，练习不漏答案，再回去补真正漏掉的地方。</p></article>
@@ -67,7 +67,7 @@
 
       <section class="proof">
         <div><p class="eyebrow">副作用不是承诺</p><h2>每次写入都先预览。</h2><p>一个会偷偷写文件的 Agent 是没法拿来碰真实笔记的。Restork 把要改什么先精确展示给你，绑定那份具体内容批准它才生效，且只生效一次。</p></div>
-        <img src="./assets/readme/architecture.zh-CN.svg" alt="本地知识与四层记忆先进入受控 Restork Core，再访问获准的模型或工具。" width="1200" height="560" loading="lazy">
+        <img src="./assets/readme/demo-poster.zh-CN.webp" alt="使用合成数据展示研究、审批、记忆、Radar 与每日上下文的 Restork 中文静态界面。" width="1600" height="1000" loading="lazy">
       </section>
 
       <section class="promises">
@@ -80,13 +80,14 @@
       </section>
 
       <section id="start" class="start">
-        <div><p class="eyebrow">五分钟源码体验</p><h2>先看看，再决定连接什么。</h2></div>
-        <pre><code>git clone https://github.com/Totoro-qaq/restork.git
-cd restork
-./scripts/quickstart.sh</code></pre>
-        <p>打开终端打印的本地地址并输入一次性配对码。查看本地工作台不需要 API Key；模型任务需要你明确配置 Provider，也只有在你主动选择后才会读取 Vault。</p>
+        <div><p class="eyebrow">无需编译环境</p><h2>先下载，准备好时再连接自己的东西。</h2></div>
+        <pre><code>macOS   · DMG
+Windows · 安装 EXE 或 MSI
+Linux   · AppImage 或 DEB</code></pre>
+        <p>每个安装包都内置 Rust Core 与 Dashboard。首次清单允许以后再选 Vault 和 Provider；Key 由原生凭据库接收，保存时不会自动发起付费测试。Alpha 文件会明确标注未签名，并附校验和、SBOM、来源证明与干净 runner 生命周期证据。</p>
         <div class="actions">
-          <a class="primary" href="https://github.com/Totoro-qaq/restork/blob/main/README.zh-CN.md">查看完整指南</a>
+          <a class="primary" href="https://github.com/Totoro-qaq/restork/releases">选择下载文件</a>
+          <a href="https://github.com/Totoro-qaq/restork/blob/main/docs/desktop.zh-CN.md">查看安装与信任说明</a>
           <a href="https://github.com/Totoro-qaq/restork/discussions">加入 Discussions</a>
         </div>
       </section>

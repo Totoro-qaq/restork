@@ -1,4 +1,9 @@
-//! Durable SQLite ownership for the Rust-first Restork runtime.
+//! Durable SQLite ownership for the Restork Core.
+//!
+//! This crate owns schema migration, transactions, event replay, schedule and
+//! catalog pagination, soft deletion, and revision-bound writes. Callers do
+//! not construct SQL and do not share raw database connections across domain
+//! boundaries.
 
 use std::{
     collections::BTreeSet,

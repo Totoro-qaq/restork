@@ -11,7 +11,7 @@ use std::{collections::BTreeSet, fs};
 
 /// Generous enough that ordinary edits pass, tight enough that a new domain has
 /// to become its own module instead of being appended to the root.
-const LIB_MAXIMUM_LINES: usize = 4_200;
+const LIB_MAXIMUM_LINES: usize = 3_500;
 
 /// No single module should become the next `lib.rs`.
 const MODULE_MAXIMUM_LINES: usize = 3_600;
@@ -28,9 +28,13 @@ const MODULES: &[&str] = &[
     "catalog_api",
     "config_api",
     "daily_api",
+    "error",
     "feature_api",
+    "http_middleware",
     "radar",
+    "routes",
     "session_api",
+    "state",
     "todo_api",
     "vault_api",
 ];

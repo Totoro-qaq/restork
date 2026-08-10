@@ -1,22 +1,28 @@
-# Restork Rust runtime foundation
+# Restork Rust runtime
 
-This workspace is the test-first migration target described by
-[ADR 0002](../docs/adr/0002-rust-first-core-bounded-agent-loop.md). It is not yet selected by the
-normal quickstart or desktop release path; the complete Python V1 Core remains the production owner
-until each vertical slice reaches contract, migration, recovery, and evaluation parity.
+This workspace is the shipped local Core described by
+[ADR 0002](../docs/adr/0002-rust-first-core-bounded-agent-loop.md). The desktop shell starts one
+`restorkd` process, pairs the embedded Dashboard over loopback, and keeps durable state in one local
+SQLite database. Python is not part of the installed runtime.
 
 ## Crates
 
-- `restork-core` contains the framework-independent bounded run state machine and in-memory,
-  short-lived pairing authority.
-- `restork-api` contains the loopback HTTP boundary, local-origin/CORS policy, Web/CLI pairing,
-  scoped session rotation/revocation, readiness/health routes, and the authenticated SSE transport
-  skeleton.
-- `restorkd` owns the native listener, automatic port selection, signal handling, one-shot desktop
-  bootstrap, and parent-death lease.
+- `restork-core`: bounded agent loop, scopes, approvals, evidence, and workspace contracts.
+- `restork-api`: authenticated loopback routes, browser-origin middleware, SSE, and embedded Web UI.
+- `restork-storage`: SQLite migrations and durable catalog/event ownership.
+- `restork-provider`: bounded cloud/local model transports and just-in-time native secret resolution.
+- `restork-personal`: provider registry, profiles, prompt revisions, sessions, and data classes.
+- `restork-daily`: weather, calendar, mail-count, playlist, and daily-context adapters.
+- `restork-extension`: governed Skill, MCP, plugin, and tool manifests.
+- `restork-automation`: schedules, recovery, evaluation, and bounded subtask contracts.
+- `restork-deliverables`: evidence-labelled reports, decks, and approval-aware exports.
+- `restork-render`: deterministic PPTX/PDF preview and export surfaces.
+- `restork-worker`: sandboxed MCP subprocess execution.
+- `restorkd`: listener, scheduler, desktop bootstrap, health, and process lifecycle ownership.
 
-The current Rust binary never opens the V1 database, reads a Vault, runs a model, or executes an
-effect. This prevents two implementations from writing the same domain during migration.
+HTTP route composition lives in `restork-api/src/routes.rs`; browser/CORS hardening lives in
+`restork-api/src/http_middleware.rs`. Feature handlers remain beside their domain adapters so route
+reviews do not require opening one monolithic router.
 
 ## Verify
 
@@ -25,12 +31,12 @@ cargo fmt --manifest-path rust/Cargo.toml --all -- --check
 cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets -- -D warnings
 cargo test --manifest-path rust/Cargo.toml --locked
 cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
+RUSTDOCFLAGS="-D warnings" cargo doc --manifest-path rust/Cargo.toml --locked --workspace --no-deps
 ```
 
-`restorkd serve --port 0` binds only to `127.0.0.1`, prints a machine-readable readiness record with
-the selected port and one-time pairing code, and exits cleanly on Ctrl-C or SIGTERM. In desktop mode,
-the pairing material is written only to the inherited anonymous bootstrap pipe; parent-lease EOF is
-an independent shutdown signal.
+`restorkd serve --port 0` binds only to loopback, selects a free port, and exits cleanly on Ctrl-C or
+SIGTERM. In desktop mode, pairing material is written only to the inherited anonymous bootstrap
+pipe; parent-lease EOF is an independent shutdown signal. Vault roots and provider secrets are
+granted by the native shell and never placed in Dashboard storage.
 
-See [runtime benchmarks](../benchmarks/README.md) for the provider-free measurement method and the
-explicit limitations of comparing this compatibility shell with the full Python V1 Core.
+See [runtime benchmarks](../benchmarks/README.md) for provider-free startup and latency measurement.

@@ -9,38 +9,53 @@ supervisor. The app does not need Python, Node.js, Rust, `uv`, or a package mana
 machine. The current release contains no Python runtime or capability worker; a future optional
 worker would require its own protocol, sandbox, dependency lock, and release review.
 
-The source supports macOS, Windows, and Linux. Restork now has two deliberately separate release
-channels: a public Apple Silicon macOS Alpha for early testing, and a protected stable channel that
-still requires real platform identities. Pull-request artifacts remain short-lived candidates.
+The source supports macOS, Windows, and Linux. Restork has two deliberately separate release
+channels: a visibly unprotected cross-platform technical preview for early testing, and a protected
+stable channel that requires real platform identities. Pull-request artifacts remain short-lived
+candidates.
 
 | Platform | Public availability | Trust boundary |
 |---|---|---|
-| Apple Silicon macOS 13+ | GitHub Release DMG Alpha | visibly ad-hoc signed and not notarized; Tauri updater signature, checksum, SBOM, provenance, clean-machine checks |
-| Windows 10/11 | contributor candidate only | public release still requires Authenticode, timestamping, updater signature, and clean-machine checks |
-| Supported desktop Linux | contributor candidate only | public release still requires GPG/package signatures, updater signature, distro checks, and clean-machine checks |
+| Apple Silicon macOS 13+ | GitHub Release DMG Alpha | visibly ad-hoc signed and not notarized; independent updater signature plus checksum, SBOM, provenance, and clean-machine checks |
+| Windows 10/11 x64 | GitHub Release NSIS EXE and MSI Alpha | visibly unsigned; no preview updater; checksum, provenance, and both installer lifecycle checks |
+| Desktop Linux x64 | GitHub Release AppImage and DEB Alpha | visibly unsigned; no preview updater; checksum, provenance, AppImage launch and DEB install/uninstall checks |
 
 ## One-click use
 
-Open the [GitHub Releases page](https://github.com/Totoro-qaq/restork/releases) and choose the file
-ending in `macOS-arm64-UNSIGNED-ALPHA.dmg`:
+Open the [GitHub Releases page](https://github.com/Totoro-qaq/restork/releases) and choose one file:
 
-1. Optionally download `SHA256SUMS` and verify the DMG with
-   `grep 'macOS-arm64-UNSIGNED-ALPHA.dmg$' SHA256SUMS | shasum -a 256 -c -`.
-2. Open the DMG and drag Restork to Applications.
-3. On first launch, Control-click Restork and choose **Open**, or use **System Settings → Privacy &
-   Security → Open Anyway**. Never disable Gatekeeper globally.
+- macOS: `macOS-arm64-UNSIGNED-ALPHA.dmg`;
+- Windows: `Windows-x64-UNSIGNED-ALPHA-setup.exe` or `.msi`;
+- Linux: `Linux-x64-UNSIGNED-ALPHA.AppImage` or `.deb`.
 
-The current public Alpha is not Apple Developer-ID-signed and is not notarized. Its ad-hoc bundle
-signature checks internal consistency; the independent Tauri signature authenticates updates. Neither
-creates Apple trust. Install it only when you intentionally downloaded it from this repository. See
-the bilingual [Alpha trust and install notice](unsigned-alpha-release.md).
+Download `SHA256SUMS` beside it and verify the exact file before installing. Examples:
 
-Windows, Linux, Intel Mac, and users who do not want the Alpha warning should use the contributor
-build below or wait for the protected signed channel.
+```bash
+# macOS
+grep 'macOS-arm64-UNSIGNED-ALPHA.dmg$' SHA256SUMS | shasum -a 256 -c -
+
+# Linux
+grep 'Linux-x64-UNSIGNED-ALPHA.AppImage$' SHA256SUMS | sha256sum -c -
+chmod +x Restork-*-Linux-x64-UNSIGNED-ALPHA.AppImage
+./Restork-*-Linux-x64-UNSIGNED-ALPHA.AppImage
+```
+
+On Windows, use `Get-FileHash .\Restork-*-Windows-x64-UNSIGNED-ALPHA.msi -Algorithm SHA256` and
+compare it with `SHA256SUMS`. Windows SmartScreen may warn because the preview is not
+Authenticode-signed. On macOS, use the per-app **Open / Open Anyway** flow and never disable
+Gatekeeper globally. On Debian/Ubuntu, the DEB can be opened with the system installer or installed
+with `sudo apt install ./Restork-*-Linux-x64-UNSIGNED-ALPHA.deb`.
+
+These technical previews do not create Apple, Microsoft, or Linux publisher trust. Install them only
+when you intentionally downloaded them from this repository. See the bilingual
+[Alpha trust and install notice](unsigned-alpha-release.md). Intel Mac users and anyone who does not
+accept the warning should wait for the protected channel or build as a contributor.
 
 ## Build an internal candidate
 
-Install Node.js 22 and Rust 1.97.1, then run from the repository root:
+Install Node.js 22 and Rust 1.97.1, then run from the repository root. Windows must use the MSVC
+host; `quickstart.ps1` and the packaging script fail before dependency installation if a GNU target
+or `CARGO_BUILD_TARGET=*windows-gnu*` is detected.
 
 ```bash
 npm --prefix dashboard ci
@@ -51,6 +66,10 @@ npm --prefix desktop run build:macos
 npm --prefix desktop run build:windows
 npm --prefix desktop run build:linux
 ```
+
+For an interactive source start, use `./scripts/quickstart.sh` on macOS/Linux or
+`./scripts/quickstart.ps1` in Windows PowerShell. Restork does not require `as.exe`, `dlltool`, or
+MinGW. Linux packaging dependencies are contributor-only; the AppImage/DEB user never installs them.
 
 Outputs are under `desktop/src-tauri/target/release/bundle/`. The build compiles `restorkd`, embeds
 the Dashboard, and bundles both into the native application; opening the result performs no package
@@ -84,17 +103,18 @@ macOS also has process-group and repeated-launch fault checks:
 
 ## Credentials
 
-The Dashboard never accepts or receives an API key. A packaged build shows a copyable setup command
-that includes the exact bundled Core path, so it works even though `restorkd` is intentionally not
-installed on `PATH`. Run that command in Terminal. From a source checkout, use the Rust CLI:
+The Dashboard never accepts or receives an API key. A packaged build opens a native secure prompt;
+only the provider kind crosses the WebView boundary, while the secret travels directly from the OS
+prompt into Keychain, Credential Manager, or Secret Service. Saving does not test the key or create a
+paid request. From a source checkout, the CLI remains available:
 
 ```bash
 cargo run --manifest-path rust/Cargo.toml -p restorkd -- provider configure
 ```
 
-The resulting secret lives in macOS Keychain, Windows Credential Manager, or Linux Secret Service.
-Only the reference is stored in a provider profile. A future native setup dialog can shorten this
-flow, but packaged users are not blocked on it and the key still never crosses Dashboard JavaScript.
+Only the opaque credential reference is stored in a provider profile. Vault selection follows the
+same boundary: the native picker keeps the absolute path in Rust and returns only an opaque grant and
+safe folder label to the Dashboard.
 
 ## Diagnostics and recovery
 
@@ -117,10 +137,10 @@ executes one as an automatic downgrade and never places user data inside the app
 
 ## Release contract
 
-The public `v*-alpha.*` workflow is intentionally macOS-only. Before publishing a visibly labeled
-Alpha it verifies that the annotated tag belongs to `main`, runs the privacy/release gates, builds
-an ad-hoc-signed Apple Silicon app, signs the updater archive, emits checksums/SBOM/provenance, then
-mounts the downloaded DMG and launches it three times while checking complete Core cleanup.
+The public `v*-alpha.*` workflow verifies that an annotated tag belongs to `main`, builds all three
+platform previews, and publishes only after downloaded-package lifecycle checks pass. macOS retains
+its independently signed updater archive. Windows/Linux preview updater artifacts are disabled. One
+cross-platform manifest, checksum ledger, SBOM, and provenance set describe the exact release.
 
 The protected tag workflow now defines the complete three-platform gate:
 
