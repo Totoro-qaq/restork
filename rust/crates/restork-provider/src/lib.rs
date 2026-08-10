@@ -32,6 +32,9 @@ use url::Url;
 pub use secrets::{NativeSecretStore, SecretError};
 
 const WEB_SEARCH_RESPONSE_MAX_BYTES: usize = 2 * 1024 * 1024;
+const MODEL_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(30);
+const CHAT_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+const CHAT_STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const WEB_SEARCH_TIMEOUT: Duration = Duration::from_secs(180);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -273,8 +276,32 @@ pub struct WebSearchRequest<'a> {
     pub require_sources: bool,
 }
 
+fn build_web_search_request(request: &WebSearchRequest<'_>) -> Value {
+    json!({
+        "model": "deepseek-v4-flash",
+        "instructions": request.instructions,
+        "input": request.input,
+        "tools": [{"type": "web_search"}],
+        "tool_choice": {"type": "web_search"},
+        "include": ["web_search_call.action.sources"],
+        "reasoning": {"effort": request.reasoning_effort},
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": request.schema_name,
+                "strict": true,
+                "schema": request.response_schema,
+            }
+        },
+        "max_output_tokens": request.max_output_tokens,
+        "stream": false,
+    })
+}
+
 pub struct ProviderClient {
     client: Client,
+    discovery_client: Client,
+    stream_client: Client,
     web_client: Client,
     secrets: NativeSecretStore,
 }
@@ -337,7 +364,21 @@ impl ProviderClient {
     pub fn new() -> Result<Self, ProviderError> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(30))
+            .timeout(CHAT_REQUEST_TIMEOUT)
+            .redirect(Policy::none())
+            .no_proxy()
+            .build()
+            .map_err(|_| ProviderError::Configuration)?;
+        let discovery_client = Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(MODEL_DISCOVERY_TIMEOUT)
+            .redirect(Policy::none())
+            .no_proxy()
+            .build()
+            .map_err(|_| ProviderError::Configuration)?;
+        let stream_client = Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .read_timeout(CHAT_STREAM_IDLE_TIMEOUT)
             .redirect(Policy::none())
             .no_proxy()
             .build()
@@ -351,6 +392,8 @@ impl ProviderClient {
             .map_err(|_| ProviderError::Configuration)?;
         Ok(Self {
             client,
+            discovery_client,
+            stream_client,
             web_client,
             secrets: NativeSecretStore,
         })
@@ -490,7 +533,7 @@ impl ProviderClient {
                     // truncate the JSON envelope before the visible result begins.
                     max_output_tokens: 4_096,
                     reasoning_effort: "high",
-                    require_sources: false,
+                    require_sources: true,
                 },
             )
             .await;
@@ -607,7 +650,7 @@ impl ProviderClient {
         let request = match protocol {
             ProviderProtocol::OpenAiChatCompletions => {
                 let secret = self.resolve_secret(profile).await?;
-                self.client
+                self.stream_client
                     .post(format!("{}/chat/completions", profile.base_url()))
                     .bearer_auth(secret.expose())
                     .json(&build_openai_chat_request_with_options(
@@ -615,7 +658,7 @@ impl ProviderClient {
                     )?)
             }
             ProviderProtocol::OllamaChat => self
-                .client
+                .stream_client
                 .post(format!("{}/api/chat", profile.base_url()))
                 .json(&build_ollama_chat_request_with_options(
                     profile, messages, max_tokens, options, true,
@@ -697,7 +740,10 @@ impl ProviderClient {
             ModelDiscovery::ManualOnly => Vec::new(),
             ModelDiscovery::OllamaTags => {
                 let response = self
-                    .send_idempotent(self.client.get(format!("{}/api/tags", profile.base_url())))
+                    .send_idempotent(
+                        self.discovery_client
+                            .get(format!("{}/api/tags", profile.base_url())),
+                    )
                     .await?;
                 let status = response.status();
                 let payload: Value = response
@@ -711,7 +757,7 @@ impl ProviderClient {
                 let secret = self.resolve_secret(profile).await?;
                 let response = self
                     .send_idempotent(
-                        self.client
+                        self.discovery_client
                             .get(format!("{}/models", profile.base_url()))
                             .bearer_auth(secret.expose()),
                     )
@@ -773,24 +819,7 @@ impl ProviderClient {
             .web_client
             .post(format!("{}/responses", profile.base_url()))
             .bearer_auth(secret.expose())
-            .json(&json!({
-                "model": "deepseek-v4-flash",
-                "instructions": request.instructions,
-                "input": request.input,
-                "tools": [{"type": "web_search"}],
-                "tool_choice": {"type": "web_search"},
-                "reasoning": {"effort": request.reasoning_effort},
-                "text": {
-                    "format": {
-                        "type": "json_schema",
-                        "name": request.schema_name,
-                        "strict": true,
-                        "schema": request.response_schema,
-                    }
-                },
-                "max_output_tokens": request.max_output_tokens,
-                "stream": false,
-            }))
+            .json(&build_web_search_request(&request))
             .send()
             .await
             .map_err(map_transport)?;
@@ -2436,6 +2465,16 @@ mod tests {
     }
 
     #[test]
+    fn provider_timeout_policy_separates_discovery_generation_streaming_and_web_search() {
+        assert_eq!(MODEL_DISCOVERY_TIMEOUT, Duration::from_secs(30));
+        assert_eq!(CHAT_REQUEST_TIMEOUT, Duration::from_secs(120));
+        assert_eq!(CHAT_STREAM_IDLE_TIMEOUT, Duration::from_secs(120));
+        assert_eq!(WEB_SEARCH_TIMEOUT, Duration::from_secs(180));
+        assert!(MODEL_DISCOVERY_TIMEOUT < CHAT_REQUEST_TIMEOUT);
+        assert!(CHAT_REQUEST_TIMEOUT < WEB_SEARCH_TIMEOUT);
+    }
+
+    #[test]
     fn setup_commands_follow_the_selected_provider_without_exposing_secrets() {
         let qwen = provider_setup_command(&profile(ProviderKind::Qwen));
         assert!(qwen.ends_with(" provider configure qwen"));
@@ -2498,6 +2537,29 @@ mod tests {
         assert!(
             web_search_response_model(&json!({"model": "deepseek-v4-flash-../other"})).is_none()
         );
+    }
+
+    #[test]
+    fn web_search_request_asks_provider_for_observed_sources() {
+        let schema = json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {"answer": {"type": "string"}},
+            "required": ["answer"]
+        });
+        let request = WebSearchRequest {
+            instructions: "Use web search.",
+            input: "Find one public source.",
+            schema_name: "source_contract",
+            response_schema: &schema,
+            max_output_tokens: 256,
+            reasoning_effort: "high",
+            require_sources: true,
+        };
+
+        let body = build_web_search_request(&request);
+
+        assert_eq!(body["include"], json!(["web_search_call.action.sources"]));
     }
 
     #[test]
