@@ -172,11 +172,8 @@ jobs:
           key: restork-package-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock', 'desktop/src-tauri/Cargo.lock') }}
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
-      - run: node scripts/build-desktop-runtime.mjs
-      - run: ./scripts/smoke-desktop-runtime.sh
       - run: npm --prefix desktop run build:app
-        env:
-          RESTORK_DESKTOP_RUNTIME_READY: "1"
+      - run: ./scripts/smoke-desktop-runtime.sh
       - name: Ad-hoc sign internal test bundle
         run: >-
           codesign --force --deep --sign - --timestamp=none
@@ -238,12 +235,9 @@ jobs:
           key: restork-package-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock', 'desktop/src-tauri/Cargo.lock') }}
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
-      - run: node scripts/build-desktop-runtime.mjs
-      - run: node scripts/smoke-desktop-runtime.mjs
       - run: npm exec tauri build -- --config ${{ matrix.config }}
         working-directory: desktop
-        env:
-          RESTORK_DESKTOP_RUNTIME_READY: "1"
+      - run: node scripts/smoke-desktop-runtime.mjs
       - name: Exercise Windows installers on the clean runner
         if: runner.os == 'Windows'
         shell: pwsh

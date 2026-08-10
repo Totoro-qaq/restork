@@ -456,6 +456,9 @@ fn resolve_vault_dir(
         (None, None) => return Ok(None),
         (Some(_), Some(_)) => unreachable!("conflict handled above"),
     };
+    // This is an explicit local capability root chosen by the process owner,
+    // either as a CLI argument or through an owner-private desktop grant file.
+    // Vault operations still confine all later relative paths to this root.
     let canonical = selected.canonicalize()?;
     if !canonical.is_dir() {
         return Err(io::Error::new(

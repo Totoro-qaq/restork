@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { existsSync } from "node:fs";
 import { chmod, copyFile, mkdir, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
@@ -17,19 +16,6 @@ try {
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(2);
-}
-
-if (process.env.RESTORK_DESKTOP_RUNTIME_READY === "1") {
-  const frozenCore = join(outputDirectory, executableName);
-  const embeddedDashboard = join(projectRoot, "rust", "crates", "restork-api", "web", "index.html");
-  if (!existsSync(frozenCore) || !existsSync(embeddedDashboard)) {
-    process.stderr.write(
-      "RESTORK_DESKTOP_RUNTIME_READY was set, but the frozen Core or Dashboard is missing.\n",
-    );
-    process.exit(2);
-  }
-  process.stdout.write(`Reusing verified desktop runtime: ${frozenCore}\n`);
-  process.exit(0);
 }
 
 function run(command, args, environment = process.env, workingDirectory = projectRoot) {
