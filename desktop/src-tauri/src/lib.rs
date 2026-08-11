@@ -4,6 +4,7 @@ mod diagnostics;
 #[cfg(windows)]
 #[path = "diagnostics_windows.rs"]
 mod diagnostics;
+mod external_link;
 mod native_secret;
 mod onboarding;
 #[cfg(unix)]
@@ -457,7 +458,7 @@ pub fn run() {
             commands::desktop_configure_provider_secret,
             commands::desktop_onboarding_state,
             commands::desktop_set_onboarding_dismissed,
-            commands::desktop_open_external,
+            external_link::desktop_open_external,
             commands::desktop_retry,
             commands::desktop_quit,
             commands::desktop_update_recovery,

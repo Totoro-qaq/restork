@@ -14,7 +14,7 @@ import { tr } from "../i18n";
 import {
   presentationTemplateCardsMarkup,
   presentationTemplateTrashMarkup,
-} from "../ui/render";
+} from "../ui/presentations";
 
 interface PresentationTemplateCallbacks {
   confirm(message: string): Promise<boolean>;

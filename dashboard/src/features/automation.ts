@@ -70,6 +70,9 @@ export function configureAutomation(
       if (status) status.textContent = tr(localeOf(root), "Saving automation…", "正在保存自动化…");
       void api.createSchedule(scheduleInputFromForm(form, systemTimeZone(), localeOf(root)))
         .then(async () => {
+          // A dashboard refresh may be slower on CI or a cold desktop Core. Confirm
+          // persistence immediately, then repaint the same notice after the view reload.
+          effects.announceStatus(tr(localeOf(root), "Schedule saved.", "自动化已保存。"));
           await effects.reload();
           effects.announceStatus(tr(localeOf(root), "Schedule saved.", "自动化已保存。"));
         })

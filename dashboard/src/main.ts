@@ -55,6 +55,13 @@ import { startClock } from "./ui/clock";
 import { activeView, bindRovingFocus, escapeMarkup } from "./ui/dom";
 import { configureAutomation } from "./features/automation";
 import {
+  bindRadarConfig,
+  configureWeather,
+  refreshRadarPanel,
+} from "./features/daily";
+import type { DailyEffects } from "./features/daily";
+import { configureDeliverables } from "./features/deliverables";
+import {
   configureNativeSetup,
   friendlyNativeSetupError,
 } from "./features/nativeSetup";
@@ -63,9 +70,7 @@ import {
   openVaultWorkspace,
   stopVaultStream,
 } from "./features/vault";
-import { configurePresentationTemplates } from "./features/presentationTemplates";
 import { configureStartWorkspace } from "./features/start";
-import { rememberPresentationThemeId } from "./deliverables/themes";
 import {
   alternateLocale,
   detectLocale,
@@ -345,7 +350,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
       const view = button.dataset.view ?? "overview";
       selectView(root, view);
       if (view === "vault") void openVaultWorkspace(root, api);
-      if (view === "radar") void refreshRadarPanel(root, api, snapshot);
+      if (view === "radar") void refreshRadarPanel(root, api, snapshot, dailyEffects(root, api, snapshot));
       if (view === "start") resumeStartRunFromSnapshot(root, api, snapshot);
     });
   });
@@ -404,7 +409,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   });
   bindListInteractions(root, api, snapshot, root);
   configureMusic(root, api);
-  configureWeather(root, api);
+  configureWeather(root, api, dailyEffects(root, api, snapshot));
   configureCalendar(root, api);
   configureMail(root, api, snapshot);
   configureProvider(root, api, snapshot);
@@ -412,7 +417,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
     selectView: (view) => selectView(root, view),
   });
   configureRustWorkspace(root, api, snapshot);
-  bindRadarConfig(root, api, snapshot);
+  bindRadarConfig(root, api, snapshot, dailyEffects(root, api, snapshot));
   configureVaultBrowser(root, api);
   // Last, so it overrides any enabled state the feature wiring just set.
   applyCapabilityGuards(root, api, locale);
@@ -421,8 +426,21 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   }
   if (snapshot.radar.configured && api.loadPage && !radarStartupRefreshes.has(root)) {
     radarStartupRefreshes.add(root);
-    void refreshRadarPanel(root, api, snapshot);
+    void refreshRadarPanel(root, api, snapshot, dailyEffects(root, api, snapshot));
   }
+}
+
+function dailyEffects(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+): DailyEffects {
+  return {
+    error: (message) => announceError(root, message),
+    refresh: () => refresh(root, api),
+    renderRadar: () => renderListPanel(root, api, snapshot, "radar"),
+    status: (message) => announceStatus(root, message),
+  };
 }
 
 function configureRustWorkspace(
@@ -1261,7 +1279,12 @@ function configureRustWorkspace(
   );
 
   configureExtensionCenter(root, api, snapshot);
-  configureDeliverables(root, api, snapshot);
+  configureDeliverables(root, api, snapshot, {
+    confirm: (message, detail) => confirmAction(root, message, detail),
+    error: (message) => announceError(root, message),
+    reload: () => reloadWorkspaceView(root, api, "deliverables"),
+    status: (message) => announceStatus(root, message),
+  });
   configureAutomation(root, api, snapshot, {
     announceError: (message) => announceError(root, message),
     announceStatus: (message) => announceStatus(root, message),
@@ -1549,157 +1572,6 @@ function configureExtensionCenter(
   });
 }
 
-function configureDeliverables(root: HTMLElement, api: DashboardApi, snapshot: DashboardSnapshot): void {
-  root.querySelectorAll<HTMLButtonElement>("[data-report-download]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const markdown = button.closest("article")?.querySelector<HTMLElement>(".deliverable-preview")?.textContent ?? "";
-      if (!markdown) return;
-      const title = button.dataset.reportTitle ?? tr(localeOf(root), "report", "报告");
-      const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${safeFilename(title)}.md`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      announceStatus(root, tr(localeOf(root), "Markdown report downloaded.", "Markdown 报告已下载。"));
-    });
-  });
-  root.querySelectorAll<HTMLButtonElement>("[data-render-format]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const deliverableId = button.dataset.renderId ?? "";
-      const revision = Number(button.dataset.renderRevision ?? "0");
-      const format = button.dataset.renderFormat as "pptx" | "pdf";
-      if (!deliverableId || revision < 1 || !api.previewDeliverableRender || !api.exportDeliverableRender) return;
-      button.disabled = true;
-      button.textContent = tr(localeOf(root), "RENDERING PREVIEW…", "正在渲染预览…");
-      void api.previewDeliverableRender(deliverableId, revision, format).then(async (preview) => {
-        const approved = await confirmAction(
-          root,
-          tr(
-            localeOf(root),
-            `Download deterministic ${format.toUpperCase()} (${preview.manifest.byte_count} bytes)?`,
-            `下载可复现的 ${format.toUpperCase()}（${preview.manifest.byte_count} 字节）？`,
-          ),
-          `SHA-256 ${preview.manifest.artifact_hash}`,
-        );
-        if (!approved) return;
-        const download = await api.exportDeliverableRender?.(preview);
-        if (!download) return;
-        const url = URL.createObjectURL(download.blob);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = download.filename;
-        anchor.click();
-        URL.revokeObjectURL(url);
-        announceStatus(root, tr(
-          localeOf(root),
-          `${download.filename} is ready. SHA-256 ${download.artifactHash}`,
-          `${download.filename} 已生成。SHA-256 ${download.artifactHash}`,
-        ));
-      }).catch((error) => announceError(root, errorText(error, localeOf(root))))
-        .finally(() => {
-          button.disabled = false;
-          button.textContent = format === "pptx"
-            ? tr(localeOf(root), "DOWNLOAD PPTX", "下载 PPTX")
-            : tr(localeOf(root), "DOWNLOAD PDF", "下载 PDF");
-        });
-    });
-  });
-  root.querySelector<HTMLFormElement>("#manual-report-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const form = event.currentTarget as HTMLFormElement;
-    const data = new FormData(form);
-    const status = form.querySelector<HTMLElement>("#manual-report-status");
-    const entries = lines(data.get("entries"));
-    if (!entries.length || !api.composeManualReport) return;
-    if (status) status.textContent = tr(localeOf(root), "Organizing the report draft and its sources…", "正在整理报告草稿与来源…");
-    const section = String(data.get("section") ?? "completed") as
-      "summary" | "completed" | "progress" | "decisions" | "blockers" | "next" | "notes";
-    void api.composeManualReport({
-      report_id: localDraftId("report"),
-      revision: 1,
-      kind: String(data.get("kind") ?? "daily") as "daily" | "weekly",
-      title: String(data.get("title") ?? "").trim(),
-      language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
-      timezone: systemTimeZone(),
-      entries: entries.map((text) => ({ section, text })),
-    }).then(() => reloadWorkspaceView(root, api, "deliverables"))
-      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
-  });
-  root.querySelector<HTMLFormElement>("#ai-report-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const form = event.currentTarget as HTMLFormElement;
-    const data = new FormData(form);
-    const status = form.querySelector<HTMLElement>("#ai-report-status");
-    const button = form.querySelector<HTMLButtonElement>("button[type=submit]");
-    const providerProfileId = String(data.get("provider_profile_id") ?? "").trim();
-    if (!providerProfileId || !api.composeAiReportDraft) return;
-    if (button) button.disabled = true;
-    if (status) status.textContent = tr(localeOf(root), "The model is drafting from verified runs…", "模型正在基于已验证运行起草…");
-    void api.composeAiReportDraft({
-      report_id: localDraftId("report-ai"),
-      revision: 1,
-      kind: String(data.get("kind") ?? "daily") as "daily" | "weekly",
-      title: String(data.get("title") ?? "").trim(),
-      language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
-      timezone: systemTimeZone(),
-      provider_profile_id: providerProfileId,
-      focus: String(data.get("focus") ?? "").trim(),
-    }).then(() => reloadWorkspaceView(root, api, "deliverables"))
-      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); })
-      .finally(() => { if (button) button.disabled = false; });
-  });
-  root.querySelector<HTMLFormElement>("#presentation-studio-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const form = event.currentTarget as HTMLFormElement;
-    const data = new FormData(form);
-    const select = form.elements.namedItem("report") as HTMLSelectElement | null;
-    const option = select?.selectedOptions[0];
-    const status = form.querySelector<HTMLElement>("#presentation-studio-status");
-    const button = form.querySelector<HTMLButtonElement>("button[type=submit]");
-    const providerProfileId = String(data.get("provider_profile_id") ?? "").trim();
-    const brief = String(data.get("brief") ?? "").trim();
-    if (!providerProfileId || !brief || !api.composeDeckDraft) return;
-    if (button) button.disabled = true;
-    if (status) status.textContent = tr(localeOf(root), "Building a cited slide outline for preview…", "正在生成带来源的演示大纲，稍后可以逐页预览…");
-    const themeId = String(data.get("theme_id") ?? "restork-print");
-    void api.composeDeckDraft({
-      deck_id: localDraftId("deck"),
-      revision: 1,
-      title: String(data.get("title") ?? "").trim(),
-      report: option?.value
-        ? { report_id: option.value, report_revision: Number(option.dataset.revision ?? "1") }
-        : null,
-      brief,
-      slide_count: Number(data.get("slide_count") ?? "6"),
-      theme_id: themeId,
-      provider_profile_id: providerProfileId,
-      language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
-      audience: {
-        audience_id: String(data.get("audience") ?? "team").trim(),
-        purpose: String(data.get("purpose") ?? "").trim(),
-        expertise: String(data.get("expertise") ?? "").trim(),
-      },
-    }).then(() => {
-      rememberPresentationThemeId(themeId);
-      return reloadWorkspaceView(root, api, "deliverables");
-    })
-      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); })
-      .finally(() => { if (button) button.disabled = false; });
-  });
-  configurePresentationTemplates(root, api, snapshot, {
-    confirm: (message) => confirmAction(root, message),
-    error: (message) => announceError(root, message),
-    reload: () => reloadWorkspaceView(root, api, "deliverables"),
-    status: (message) => announceStatus(root, message),
-  });
-}
-
-function localDraftId(prefix: string): string {
-  const date = new Date().toISOString().slice(0, 10);
-  return `${prefix}-${date}-${crypto.randomUUID().slice(0, 8)}`;
-}
 
 function safeFilename(value: string): string {
   return value.normalize("NFKC").replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80) || "conversation";
@@ -2043,177 +1915,6 @@ function safeProviderFailureDetail(error: unknown, activeLocale: Locale): string
   );
 }
 
-function configureWeather(root: HTMLElement, api: DashboardApi): void {
-  bindSettingsDialog(root, "#weather-settings-dialog", "[data-weather-open]");
-  const form = root.querySelector<HTMLFormElement>("#weather-form");
-  form?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void saveWeather(root, api, form);
-  });
-  form?.querySelector<HTMLButtonElement>("[data-weather-disable]")?.addEventListener(
-    "click",
-    () => void disableWeather(root, api, form),
-  );
-  form?.querySelector<HTMLButtonElement>("[data-weather-locate]")?.addEventListener(
-    "click",
-    () => void locateWeather(root, api, form),
-  );
-}
-
-function bindRadarConfig(root: HTMLElement, api: DashboardApi, snapshot: DashboardSnapshot): void {
-  const form = root.querySelector<HTMLFormElement>("#radar-config-form");
-  form?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void saveRadarConfig(root, api, snapshot, form);
-  });
-}
-
-async function saveRadarConfig(
-  root: HTMLElement,
-  api: DashboardApi,
-  snapshot: DashboardSnapshot,
-  form: HTMLFormElement,
-): Promise<void> {
-  const data = new FormData(form);
-  const githubDiscovery = data.get("github_discovery") === "1";
-  const hackerNews = data.get("hacker_news") === "1";
-  const status = form.querySelector<HTMLElement>("#radar-config-status");
-  if (!githubDiscovery && !hackerNews) {
-    if (status) {
-      status.textContent = tr(
-        localeOf(root),
-        "Enable at least one source: public GitHub AI/Agent projects or Hacker News.",
-        "至少启用一个来源：GitHub 公开 AI/Agent 项目或 Hacker News。",
-      );
-    }
-    return;
-  }
-  if (status) status.textContent = tr(localeOf(root), "Saving sources and fetching…", "正在保存来源并拉取…");
-  try {
-    await api.configureRadar({
-      enabled: true,
-      github_discovery: githubDiscovery,
-      hacker_news: hackerNews,
-    });
-    await refreshRadarPanel(root, api, snapshot);
-    announceStatus(root, tr(localeOf(root), "Radar sources saved.", "Radar 来源已保存。"));
-  } catch (error) {
-    if (status) status.textContent = errorText(error, localeOf(root));
-  }
-}
-
-async function refreshRadarPanel(
-  root: HTMLElement,
-  api: DashboardApi,
-  snapshot: DashboardSnapshot,
-): Promise<void> {
-  if (!api.loadPage) return;
-  const panel = root.querySelector<HTMLElement>('[data-view-panel="radar"]');
-  if (!panel || panel.dataset.loading === "true") return;
-  panel.dataset.loading = "true";
-  panel.setAttribute("aria-busy", "true");
-  try {
-    const page = await api.loadPage("radar", "");
-    if (page.kind !== "radar") return;
-    snapshot.radar = {
-      configured: page.configured,
-      items: page.items,
-    };
-    snapshot.pagination ??= {};
-    snapshot.pagination.radar = page.page;
-    renderListPanel(root, api, snapshot, "radar");
-  } catch (error) {
-    announceError(root, errorText(error, localeOf(root)));
-  } finally {
-    panel.dataset.loading = "false";
-    panel.removeAttribute("aria-busy");
-  }
-}
-
-async function saveWeather(
-  root: HTMLElement,
-  api: DashboardApi,
-  form: HTMLFormElement,
-): Promise<void> {
-  const data = new FormData(form);
-  const query = String(data.get("query") ?? "").trim();
-  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
-  buttons.forEach((button) => { button.disabled = true; });
-  try {
-    const result = await api.configureWeather({
-      enabled: true,
-      mode: "query",
-      query,
-      language: localeOf(root) === "zh-CN" ? "zh" : "en",
-    });
-    form.reset();
-    await refresh(root, api);
-    announceStatus(root, tr(
-      localeOf(root),
-      `Weather enabled for ${result.location_label}.`,
-      `已为 ${result.location_label} 启用天气。`,
-    ));
-  } catch (error) {
-    buttons.forEach((button) => { button.disabled = false; });
-    announceError(root, errorText(error, localeOf(root)));
-  }
-}
-
-async function locateWeather(
-  root: HTMLElement,
-  api: DashboardApi,
-  form: HTMLFormElement,
-): Promise<void> {
-  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
-  buttons.forEach((button) => { button.disabled = true; });
-  announceStatus(root, tr(
-    localeOf(root),
-    "Waiting for browser location permission…",
-    "正在等待浏览器定位授权…",
-  ));
-  try {
-    const position = await currentPosition();
-    await api.configureWeather({
-      enabled: true,
-      mode: "coordinates",
-      label: tr(localeOf(root), "Current location", "当前位置"),
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-    });
-    form.reset();
-    await refresh(root, api);
-    announceStatus(root, tr(
-      localeOf(root),
-      "Weather enabled from the location you approved.",
-      "已使用你授权的位置启用天气。",
-    ));
-  } catch (error) {
-    buttons.forEach((button) => { button.disabled = false; });
-    announceError(root, geolocationError(error, localeOf(root)));
-  }
-}
-
-async function disableWeather(
-  root: HTMLElement,
-  api: DashboardApi,
-  form: HTMLFormElement,
-): Promise<void> {
-  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
-  buttons.forEach((button) => { button.disabled = true; });
-  try {
-    await api.configureWeather({ enabled: false });
-    form.reset();
-    await refresh(root, api);
-    announceStatus(root, tr(
-      localeOf(root),
-      "Weather disabled and its saved location cleared.",
-      "天气已停用，保存的位置也已清除。",
-    ));
-  } catch (error) {
-    buttons.forEach((button) => { button.disabled = false; });
-    announceError(root, errorText(error, localeOf(root)));
-  }
-}
 
 function configureCalendar(root: HTMLElement, api: DashboardApi): void {
   bindSettingsDialog(root, "#calendar-settings-dialog", "[data-calendar-open]");
@@ -2500,38 +2201,6 @@ async function disableCalendar(
     buttons.forEach((button) => { button.disabled = false; });
     announceError(root, errorText(error, localeOf(root)));
   }
-}
-
-function currentPosition(): Promise<GeolocationPosition> {
-  return new Promise((resolve, reject) => {
-    if (!("geolocation" in navigator)) {
-      reject(new Error("Browser location is unavailable"));
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: false,
-      maximumAge: 10 * 60 * 1000,
-      timeout: 15_000,
-    });
-  });
-}
-
-function geolocationError(error: unknown, locale: Locale): string {
-  const code = typeof error === "object" && error !== null && "code" in error
-    ? Number((error as { code: unknown }).code)
-    : 0;
-  if (code === 1) {
-    return tr(
-      locale,
-      "Location permission was not granted. You can still enter a city.",
-      "未授予定位权限，你仍可直接输入城市。",
-    );
-  }
-  return tr(
-    locale,
-    "Current location is unavailable. You can still enter a city.",
-    "无法获取当前位置，你仍可直接输入城市。",
-  );
 }
 
 function selectView(root: HTMLElement, view: string): void {
@@ -3772,7 +3441,7 @@ function renderListPanel(
   if (!panel) return false;
   panel.innerHTML = markup;
   bindListInteractions(root, api, snapshot, panel);
-  if (kind === "radar") bindRadarConfig(root, api, snapshot);
+  if (kind === "radar") bindRadarConfig(root, api, snapshot, dailyEffects(root, api, snapshot));
   return true;
 }
 
@@ -4432,7 +4101,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const app = document.querySelector<HTMLElement>("#app");
-if (app) void mountDetectedDashboard(app);
+if (app && document.body.dataset.restorkDemo !== "true") void mountDetectedDashboard(app);
 
 async function mountDetectedDashboard(root: HTMLElement): Promise<void> {
   const bridge = detectDesktopBridge();
