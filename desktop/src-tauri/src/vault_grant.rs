@@ -222,9 +222,11 @@ mod tests {
     use std::os::unix::fs::{PermissionsExt, symlink};
     use std::process::Command;
 
+    #[cfg(unix)]
+    use super::validate_vault_dir;
     use super::{
         append_launch_argument, prepare_launch_vault_grant, remove_launch_vault_grant,
-        save_vault_dir, validate_vault_dir,
+        save_vault_dir,
     };
 
     #[test]

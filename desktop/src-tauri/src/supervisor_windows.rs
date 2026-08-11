@@ -28,6 +28,7 @@ use crate::vault_grant::{
     append_launch_argument, configured_vault_dir, prepare_launch_vault_grant,
     remove_launch_vault_grant,
 };
+use crate::workspace_grant::workspace_grant_dir;
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 const RETRY_LIMIT: usize = 3;
@@ -106,7 +107,12 @@ pub(crate) fn start_core_with_vault(
     let mut last_error = "core_start_failed";
     let mut result = Err(last_error);
     for _attempt in 0..RETRY_LIMIT {
-        match start_attempt(&executable, &state_database, grant_file.as_deref()) {
+        match start_attempt(
+            &executable,
+            &state_database,
+            grant_file.as_deref(),
+            &workspace_grant_dir(data_root),
+        ) {
             Ok(core) => {
                 result = Ok(core);
                 break;
@@ -147,6 +153,7 @@ fn start_attempt(
     executable: &PathBuf,
     state_database: &PathBuf,
     grant_file: Option<&Path>,
+    workspace_grants: &Path,
 ) -> Result<CoreProcess, &'static str> {
     let port = reserve_port()?;
     let mut command = Command::new(executable);
@@ -161,6 +168,7 @@ fn start_attempt(
     command
         .env("RESTORK_DESKTOP_WINDOWS_JOB", "1")
         .env("RESTORK_DESKTOP_PARENT_PID", std::process::id().to_string())
+        .env("RESTORK_DESKTOP_WORKSPACE_GRANTS", workspace_grants)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

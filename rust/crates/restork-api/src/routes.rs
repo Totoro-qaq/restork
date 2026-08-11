@@ -347,6 +347,22 @@ fn automation_routes() -> Router<ApiState> {
 
 fn deliverable_routes() -> Router<ApiState> {
     Router::new()
+        .route(
+            "/v1/deliverable-templates",
+            get(list_presentation_templates).post(create_presentation_template),
+        )
+        .route(
+            "/v1/deliverable-templates/deleted",
+            get(list_deleted_presentation_templates),
+        )
+        .route(
+            "/v1/deliverable-templates/{template_id}",
+            axum::routing::put(update_presentation_template).delete(delete_presentation_template),
+        )
+        .route(
+            "/v1/deliverable-templates/{template_id}/restore",
+            axum::routing::post(restore_presentation_template),
+        )
         .route("/v1/deliverables", get(list_deliverables))
         .route(
             "/v1/deliverables/reports",

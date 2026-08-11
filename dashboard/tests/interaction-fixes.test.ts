@@ -230,6 +230,6 @@ describe("research run creation keeps the launch context", () => {
       expect(root.querySelector("#global-status")?.textContent).toContain("run-stay");
     });
     expect(root.querySelector('[data-view="runs"]')?.classList.contains("is-active")).toBe(false);
-    expect(root.querySelector('[data-view="overview"]')?.classList.contains("is-active")).toBe(true);
+    expect(root.querySelector('[data-view="start"]')?.classList.contains("is-active")).toBe(true);
   });
 });

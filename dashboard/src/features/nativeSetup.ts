@@ -3,7 +3,6 @@ import { localeOf, tr } from "../i18n";
 import type { Locale } from "../i18n";
 
 export interface NativeSetupEffects {
-  openResearch(trigger: HTMLButtonElement): void;
   selectView(view: string): void;
 }
 
@@ -12,7 +11,10 @@ export function configureNativeSetup(
   root: HTMLElement,
   effects: NativeSetupEffects,
 ): void {
-  bindFirstRunGuide(root, effects);
+  root.querySelector<HTMLButtonElement>("[data-start-page-return]")?.addEventListener(
+    "click",
+    () => effects.selectView("start"),
+  );
   bindVaultDir(root);
 }
 
@@ -120,93 +122,6 @@ function bindVaultDir(root: HTMLElement): void {
       if (status) status.textContent = friendlyNativeSetupError(error, localeOf(root));
     });
   });
-}
-
-function bindFirstRunGuide(
-  root: HTMLElement,
-  effects: NativeSetupEffects,
-): void {
-  const guide = root.querySelector<HTMLElement>("[data-first-run]");
-  const bridge = detectDesktopBridge();
-  const state = root.querySelector<HTMLElement>("[data-onboarding-state]");
-  const dismissStatus = guide?.querySelector<HTMLElement>("[data-onboarding-dismiss-status]");
-  if (guide && bridge) {
-    void bridge.onboardingState().then((onboarding) => {
-      if (!root.contains(guide)) return;
-      const complete = guide.dataset.onboardingComplete === "true";
-      guide.hidden = onboarding.dismissed || complete;
-    }).catch(() => undefined);
-  }
-  guide?.querySelector<HTMLButtonElement>("[data-onboarding-skip]")?.addEventListener(
-    "click",
-    (event) => {
-      const button = event.currentTarget as HTMLButtonElement;
-      const close = (): void => {
-        guide.hidden = true;
-      };
-      if (!bridge) {
-        close();
-        return;
-      }
-      button.disabled = true;
-      button.setAttribute("aria-busy", "true");
-      if (dismissStatus) dismissStatus.textContent = "";
-      void bridge.setOnboardingDismissed(true).then(close).catch((error: unknown) => {
-        if (dismissStatus) {
-          dismissStatus.textContent = friendlyNativeSetupError(error, localeOf(root));
-        }
-      }).finally(() => {
-        button.disabled = false;
-        button.removeAttribute("aria-busy");
-      });
-    },
-  );
-  guide?.querySelectorAll<HTMLButtonElement>("[data-onboarding-target]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const target = button.dataset.onboardingTarget ?? "";
-      if (target === "run") {
-        const trigger = root.querySelector<HTMLButtonElement>('[data-mode="research"]');
-        if (trigger) effects.openResearch(trigger);
-        return;
-      }
-      effects.selectView("settings");
-      const selector = target === "settings-vault" ? "#vault-dir-form" : "#provider-profile-form";
-      const section = root.querySelector<HTMLElement>(selector);
-      section?.scrollIntoView({ behavior: "smooth", block: "center" });
-      section?.querySelector<HTMLElement>("button, input, select")?.focus();
-    });
-  });
-  root.querySelector<HTMLButtonElement>("[data-onboarding-reopen]")?.addEventListener(
-    "click",
-    (event) => {
-      const button = event.currentTarget as HTMLButtonElement;
-      if (!guide) return;
-      button.disabled = true;
-      button.setAttribute("aria-busy", "true");
-      const show = (): void => {
-        effects.selectView("overview");
-        guide.hidden = false;
-        guide.scrollIntoView({ behavior: "smooth", block: "start" });
-        guide.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
-      };
-      if (!bridge) {
-        show();
-        button.disabled = false;
-        button.removeAttribute("aria-busy");
-        return;
-      }
-      void bridge.setOnboardingDismissed(false).then(() => {
-        show();
-        if (state) state.textContent = tr(localeOf(root), "Checklist reopened.", "清单已重新打开。");
-      }).catch((error: unknown) => {
-        if (state) state.textContent = friendlyNativeSetupError(error, localeOf(root));
-      }).finally(() => {
-        if (!root.contains(button)) return;
-        button.disabled = false;
-        button.removeAttribute("aria-busy");
-      });
-    },
-  );
 }
 
 export function friendlyNativeSetupError(error: unknown, locale: Locale): string {

@@ -13,6 +13,7 @@ mod supervisor;
 mod supervisor;
 mod updates;
 mod vault_grant;
+mod workspace_grant;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -32,10 +33,11 @@ use onboarding::{OnboardingState, load_onboarding_state, save_onboarding_state};
 use supervisor::{
     CoreProcess, invalidate_vault_authority, readiness_request, start_core, start_core_with_vault,
 };
-use updates::{RecoveryArtifact, UpdateStorage, recovery_artifacts};
 #[cfg(not(debug_assertions))]
-use updates::{accepts_update, archive_verified_update};
+use updates::{BackgroundUpdateAction, accepts_update, background_update_action};
+use updates::{RecoveryArtifact, UpdateStorage, recovery_artifacts};
 use vault_grant::{configured_vault_dir, save_vault_dir, validate_vault_dir};
+use workspace_grant::issue_workspace_grant;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
 const HEARTBEAT_FAILURE_LIMIT: u8 = 3;
@@ -58,8 +60,6 @@ enum DesktopPhase {
     Starting,
     Ready,
     Switching,
-    #[cfg_attr(debug_assertions, allow(dead_code))]
-    Updating,
     Failed,
 }
 
@@ -133,6 +133,13 @@ enum VaultApplyResponse {
 enum SecretResponse {
     Cancelled,
     Saved { secret_ref: String },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum WorkspaceGrantResponse {
+    Cancelled,
+    Selected { grant_id: String, label: String },
 }
 
 struct DesktopInner {
@@ -413,49 +420,12 @@ fn launch_update_check(app: AppHandle) {
                 }
                 return;
             }
-            let Ok(bytes) = update.download(|_, _| {}, || {}).await else {
-                if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
-                    inner.record("update_download_failed");
+            match background_update_action() {
+                BackgroundUpdateAction::NotifyOnly => {
+                    if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
+                        inner.record("update_available");
+                    }
                 }
-                return;
-            };
-            if archive_verified_update(&storage, &update.version, &update.target, &bytes).is_err() {
-                if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
-                    inner.record("update_recovery_archive_failed");
-                }
-                return;
-            }
-
-            let state = app.state::<DesktopState>();
-            if let Ok(mut inner) = state.inner.lock() {
-                inner.status = DesktopStatus {
-                    phase: DesktopPhase::Updating,
-                    message: "Installing a verified Restork update…".into(),
-                };
-                inner.record("update_verified");
-                if let Some(mut core) = inner.core.take() {
-                    core.terminate();
-                }
-                inner.pairing_code = None;
-                inner.browser_session = None;
-                inner.origin = None;
-            } else {
-                return;
-            }
-            navigate_to_loader(&app);
-            if update.install(bytes).is_ok() {
-                if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
-                    inner.record("update_installed");
-                }
-                app.restart();
-            } else if let Ok(mut inner) = app.state::<DesktopState>().inner.lock() {
-                inner.status = DesktopStatus {
-                    phase: DesktopPhase::Failed,
-                    message:
-                        "The verified update could not be installed. Retry Restork Core or quit."
-                            .into(),
-                };
-                inner.record("update_install_failed");
             }
         });
     });
@@ -483,9 +453,11 @@ pub fn run() {
             commands::desktop_vault_config,
             commands::desktop_choose_vault,
             commands::desktop_apply_vault,
+            commands::desktop_choose_workspace,
             commands::desktop_configure_provider_secret,
             commands::desktop_onboarding_state,
             commands::desktop_set_onboarding_dismissed,
+            commands::desktop_open_external,
             commands::desktop_retry,
             commands::desktop_quit,
             commands::desktop_update_recovery,

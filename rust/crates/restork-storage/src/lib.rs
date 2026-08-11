@@ -30,9 +30,10 @@ mod workspace;
 
 pub use automation::{CheckpointFileBlob, CheckpointRecord, EvaluationRecord, SubtaskRecord};
 pub use catalog::{
-    CatalogCursor, DeliverableExportRecord, DeliverablePage, DeliverableRecord, ExtensionPage,
-    ExtensionRecord, ExtensionRevisionRecord, SchedulePage, ScheduleRecord, ScheduleRunCursor,
-    ScheduleRunPage, ScheduleRunRecord,
+    CatalogCursor, DeliverableExportRecord, DeliverablePage, DeliverableRecord,
+    DeliverableTemplatePage, DeliverableTemplateRecord, ExtensionPage, ExtensionRecord,
+    ExtensionRevisionRecord, SchedulePage, ScheduleRecord, ScheduleRunCursor, ScheduleRunPage,
+    ScheduleRunRecord,
 };
 pub use daily::{
     CalendarIntervalRecord, DailyCacheRecord, DailySourceRecord, MusicPreferenceRecord,
@@ -696,6 +697,15 @@ impl Database {
             .query_map([limit as i64], run_record_from_row)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(StorageError::from)
+    }
+
+    pub fn has_completed_run(&self) -> Result<bool, StorageError> {
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        Ok(connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM runs WHERE state = 'completed' LIMIT 1)",
+            [],
+            |row| row.get(0),
+        )?)
     }
 
     pub fn create_run(&self, run: NewRun<'_>) -> Result<(), StorageError> {

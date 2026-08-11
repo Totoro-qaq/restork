@@ -488,3 +488,83 @@ fn subtasks_enforce_parent_concurrency_and_terminal_cancellation() {
         .expect("record timeout");
     assert_eq!(timed_out.state, "timed_out");
 }
+
+#[test]
+fn presentation_templates_page_update_soft_delete_and_restore() {
+    let directory = TestDirectory::new();
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
+    let mut first = None;
+    for index in 0..7 {
+        let record = database
+            .create_deliverable_template(
+                &format!("theme-user-{index}"),
+                &json!({"schema_version": 1, "name": format!("Theme {index}")}),
+                &format!("2026-08-02T00:00:0{index}Z"),
+            )
+            .expect("create template");
+        if index == 0 {
+            first = Some(record);
+        }
+    }
+
+    let page = database
+        .deliverable_templates_page(None, 6, false)
+        .expect("first page");
+    assert_eq!(page.items.len(), 6);
+    let second = database
+        .deliverable_templates_page(page.next.as_ref(), 6, false)
+        .expect("second page");
+    assert_eq!(second.items.len(), 1);
+
+    let first = first.expect("first template");
+    let updated = database
+        .update_deliverable_template(
+            &first.template_id,
+            &first.template_hash,
+            &json!({"schema_version": 1, "name": "Updated"}),
+            "2026-08-02T01:00:00Z",
+        )
+        .expect("update template");
+    assert!(
+        database
+            .update_deliverable_template(
+                &first.template_id,
+                &first.template_hash,
+                &json!({"schema_version": 1, "name": "Stale"}),
+                "2026-08-02T01:00:01Z",
+            )
+            .is_err()
+    );
+
+    let deleted = database
+        .soft_delete_deliverable_template(
+            &updated.template_id,
+            &updated.template_hash,
+            "2026-08-02T01:01:00Z",
+        )
+        .expect("soft delete template");
+    assert_eq!(deleted.state, "deleted");
+    assert!(
+        database
+            .deliverable_template(&deleted.template_id)
+            .expect("active lookup")
+            .is_none()
+    );
+    assert_eq!(
+        database
+            .deliverable_templates_page(None, 6, true)
+            .expect("trash")
+            .items
+            .len(),
+        1
+    );
+
+    let restored = database
+        .restore_deliverable_template(
+            &deleted.template_id,
+            &deleted.template_hash,
+            "2026-08-02T01:02:00Z",
+        )
+        .expect("restore template");
+    assert_eq!(restored.state, "active");
+}

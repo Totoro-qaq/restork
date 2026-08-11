@@ -131,7 +131,7 @@ fn store_native_secret(reference: &str, secret: &Zeroizing<String>) -> Result<()
         .collect::<Vec<_>>();
     let mut username = "restork\0".encode_utf16().collect::<Vec<_>>();
     let mut blob = secret.as_bytes().to_vec();
-    let mut credential = CREDENTIALW {
+    let credential = CREDENTIALW {
         Type: CRED_TYPE_GENERIC,
         TargetName: target.as_mut_ptr(),
         CredentialBlobSize: u32::try_from(blob.len())
@@ -142,7 +142,7 @@ fn store_native_secret(reference: &str, secret: &Zeroizing<String>) -> Result<()
         ..CREDENTIALW::default()
     };
     // SAFETY: every pointer in the credential refers to a live, bounded buffer.
-    let written = unsafe { CredWriteW(&mut credential, 0) } != 0;
+    let written = unsafe { CredWriteW(&credential, 0) } != 0;
     blob.zeroize();
     username.zeroize();
     target.zeroize();
@@ -156,6 +156,7 @@ fn store_native_secret(_reference: &str, _secret: &Zeroizing<String>) -> Result<
     Err("native_secret_store_unsupported")
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn reference_parts<'a>(
     reference: &'a str,
     prefix: &str,

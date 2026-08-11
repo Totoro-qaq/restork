@@ -70,6 +70,100 @@ pub(super) fn desktop_store_session(
 }
 
 #[tauri::command]
+pub(super) fn desktop_open_external(
+    window: WebviewWindow,
+    state: State<'_, DesktopState>,
+    url: String,
+) -> Result<(), String> {
+    let external = validated_external_url(&url)?;
+    let inner = state
+        .inner
+        .lock()
+        .map_err(|_| "desktop_state_unavailable")?;
+    require_dashboard_window(&window, inner.origin.as_deref())?;
+    inner.record("external_link_opened");
+    drop(inner);
+    launch_external_url(external.as_str()).map_err(|_| "external_link_unavailable".to_owned())
+}
+
+fn validated_external_url(value: &str) -> Result<tauri::Url, String> {
+    if value.is_empty() || value.len() > 2_048 {
+        return Err("external_link_invalid".to_owned());
+    }
+    let parsed = tauri::Url::parse(value).map_err(|_| "external_link_invalid".to_owned())?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err("external_link_invalid".to_owned());
+    }
+    Ok(parsed)
+}
+
+fn launch_external_url(url: &str) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("/usr/bin/open")
+            .arg("--")
+            .arg(url)
+            .spawn()?;
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("rundll32.exe")
+            .arg("url.dll,FileProtocolHandler")
+            .arg(url)
+            .spawn()?;
+        return Ok(());
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if std::process::Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .is_ok()
+        {
+            return Ok(());
+        }
+        std::process::Command::new("gio")
+            .arg("open")
+            .arg(url)
+            .spawn()?;
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "external links are unavailable on this platform",
+    ))
+}
+
+#[cfg(test)]
+mod external_link_tests {
+    use super::validated_external_url;
+
+    #[test]
+    fn accepts_only_public_https_urls_without_credentials() {
+        assert!(validated_external_url("https://github.com/Totoro-qaq/restork").is_ok());
+        for value in [
+            "http://github.com/Totoro-qaq/restork",
+            "http://127.0.0.1:49152/v1/health",
+            "https://user:secret@example.com/private",
+            "file:///tmp/private",
+            "javascript:alert(1)",
+            "not-a-url",
+        ] {
+            assert_eq!(
+                validated_external_url(value).unwrap_err(),
+                "external_link_invalid"
+            );
+        }
+    }
+}
+
+#[tauri::command]
 pub(super) fn desktop_vault_config(
     app: AppHandle,
     window: WebviewWindow,
@@ -173,6 +267,55 @@ pub(super) async fn desktop_choose_vault(
         candidate_id,
         label,
         same_as_active,
+    })
+}
+
+#[tauri::command]
+pub(super) async fn desktop_choose_workspace(
+    app: AppHandle,
+    window: WebviewWindow,
+    state: State<'_, DesktopState>,
+) -> Result<WorkspaceGrantResponse, String> {
+    let data_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "workspace_path_unavailable")?;
+    let expected_origin = {
+        let mut inner = state
+            .inner
+            .lock()
+            .map_err(|_| "desktop_state_unavailable")?;
+        require_dashboard_window(&window, inner.origin.as_deref())?;
+        if inner.native_prompt_active {
+            return Err("native_prompt_already_open".into());
+        }
+        inner.native_prompt_active = true;
+        inner.origin.clone().ok_or("desktop_origin_unavailable")?
+    };
+    let selected = tauri::async_runtime::spawn_blocking(|| {
+        SelectFolder::new("Choose the project folder Restork may inspect").show()
+    })
+    .await
+    .map_err(|_| "native_prompt_unavailable".to_owned());
+    let mut inner = state
+        .inner
+        .lock()
+        .map_err(|_| "desktop_state_unavailable")?;
+    inner.native_prompt_active = false;
+    require_dashboard_window(&window, inner.origin.as_deref())?;
+    if inner.origin.as_deref() != Some(expected_origin.as_str()) {
+        return Err("desktop_session_changed".into());
+    }
+    let selected = selected?;
+    let Some(raw_path) = selected else {
+        inner.record("workspace_selection_cancelled");
+        return Ok(WorkspaceGrantResponse::Cancelled);
+    };
+    let grant = issue_workspace_grant(&data_root, Path::new(&raw_path)).map_err(str::to_owned)?;
+    inner.record("workspace_grant_issued");
+    Ok(WorkspaceGrantResponse::Selected {
+        grant_id: grant.id,
+        label: grant.label,
     })
 }
 

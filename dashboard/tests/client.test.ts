@@ -404,6 +404,31 @@ describe("LocalApiClient daily timezone", () => {
   });
 });
 
+describe("LocalApiClient Radar paging", () => {
+  it("loads enough cached items for GitHub and Hacker News to share the first view", async () => {
+    const responses = [
+      jsonResponse({ access_token: "paired-token" }),
+      jsonResponse({
+        configured: true,
+        items: [],
+        page: { limit: 50, has_more: false, next_cursor: null },
+      }),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+
+    await client.pair("pairing-code");
+    await client.loadPage("radar", "");
+
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/radar?limit=50&cursor=");
+  });
+});
+
 describe("LocalApiClient local Todo lifecycle", () => {
   it("uses paired Core routes for edit, soft delete, restore, and deleted pagination", async () => {
     const record = {

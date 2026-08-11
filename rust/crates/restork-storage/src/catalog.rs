@@ -61,6 +61,21 @@ pub struct DeliverablePage {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct DeliverableTemplateRecord {
+    pub template_id: String,
+    pub template: Value,
+    pub template_hash: String,
+    pub state: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct DeliverableTemplatePage {
+    pub items: Vec<DeliverableTemplateRecord>,
+    pub next: Option<CatalogCursor>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DeliverableExportRecord {
     pub export_id: String,
     pub deliverable_id: String,
@@ -479,6 +494,191 @@ impl Database {
                 deliverable_from_row,
             )
             .optional()
+            .map_err(StorageError::from)
+    }
+
+    pub fn create_deliverable_template(
+        &self,
+        template_id: &str,
+        template: &Value,
+        occurred_at: &str,
+    ) -> Result<DeliverableTemplateRecord, StorageError> {
+        validate_identifier(template_id)?;
+        validate_object(template, "deliverable template must be a JSON object")?;
+        validate_timestamp(occurred_at)?;
+        let document = serde_json::to_string(template)?;
+        let template_hash = json_hash(&document);
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        connection.execute(
+            "INSERT INTO deliverable_templates \
+             (template_id, template_json, template_hash, state, updated_at) \
+             VALUES (?1, ?2, ?3, 'active', ?4)",
+            params![template_id, document, template_hash, occurred_at],
+        )?;
+        Ok(DeliverableTemplateRecord {
+            template_id: template_id.to_owned(),
+            template: template.clone(),
+            template_hash,
+            state: "active".to_owned(),
+            updated_at: occurred_at.to_owned(),
+        })
+    }
+
+    pub fn update_deliverable_template(
+        &self,
+        template_id: &str,
+        expected_hash: &str,
+        template: &Value,
+        occurred_at: &str,
+    ) -> Result<DeliverableTemplateRecord, StorageError> {
+        validate_identifier(template_id)?;
+        validate_digest(expected_hash)?;
+        validate_object(template, "deliverable template must be a JSON object")?;
+        validate_timestamp(occurred_at)?;
+        let document = serde_json::to_string(template)?;
+        let template_hash = json_hash(&document);
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let changed = connection.execute(
+            "UPDATE deliverable_templates SET template_json = ?3, template_hash = ?4, \
+             updated_at = ?5 WHERE template_id = ?1 AND template_hash = ?2 AND state = 'active'",
+            params![
+                template_id,
+                expected_hash,
+                document,
+                template_hash,
+                occurred_at
+            ],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::Conflict("template changed since it was read"));
+        }
+        Ok(DeliverableTemplateRecord {
+            template_id: template_id.to_owned(),
+            template: template.clone(),
+            template_hash,
+            state: "active".to_owned(),
+            updated_at: occurred_at.to_owned(),
+        })
+    }
+
+    pub fn deliverable_template(
+        &self,
+        template_id: &str,
+    ) -> Result<Option<DeliverableTemplateRecord>, StorageError> {
+        validate_identifier(template_id)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        connection
+            .query_row(
+                "SELECT template_id, template_json, template_hash, state, updated_at \
+                 FROM deliverable_templates WHERE template_id = ?1 AND state = 'active'",
+                [template_id],
+                deliverable_template_from_row,
+            )
+            .optional()
+            .map_err(StorageError::from)
+    }
+
+    pub fn deliverable_templates_page(
+        &self,
+        cursor: Option<&CatalogCursor>,
+        limit: usize,
+        deleted: bool,
+    ) -> Result<DeliverableTemplatePage, StorageError> {
+        validate_catalog_cursor(cursor, limit)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT template_id, template_json, template_hash, state, updated_at \
+             FROM deliverable_templates WHERE state = ?1 \
+             AND (?2 IS NULL OR updated_at < ?2 OR (updated_at = ?2 AND template_id < ?3)) \
+             ORDER BY updated_at DESC, template_id DESC LIMIT ?4",
+        )?;
+        let (updated_at, id) = cursor_parts(cursor);
+        let rows = statement.query_map(
+            params![
+                if deleted { "deleted" } else { "active" },
+                updated_at,
+                id,
+                (limit + 1) as i64
+            ],
+            deliverable_template_from_row,
+        )?;
+        let mut items = rows.collect::<Result<Vec<_>, _>>()?;
+        let has_more = items.len() > limit;
+        items.truncate(limit);
+        let next = has_more
+            .then(|| items.last())
+            .flatten()
+            .map(|last| CatalogCursor {
+                updated_at: last.updated_at.clone(),
+                id: last.template_id.clone(),
+                version: 1,
+            });
+        Ok(DeliverableTemplatePage { items, next })
+    }
+
+    pub fn soft_delete_deliverable_template(
+        &self,
+        template_id: &str,
+        expected_hash: &str,
+        occurred_at: &str,
+    ) -> Result<DeliverableTemplateRecord, StorageError> {
+        self.change_deliverable_template_state(
+            template_id,
+            expected_hash,
+            "active",
+            "deleted",
+            occurred_at,
+        )
+    }
+
+    pub fn restore_deliverable_template(
+        &self,
+        template_id: &str,
+        expected_hash: &str,
+        occurred_at: &str,
+    ) -> Result<DeliverableTemplateRecord, StorageError> {
+        self.change_deliverable_template_state(
+            template_id,
+            expected_hash,
+            "deleted",
+            "active",
+            occurred_at,
+        )
+    }
+
+    fn change_deliverable_template_state(
+        &self,
+        template_id: &str,
+        expected_hash: &str,
+        from_state: &str,
+        to_state: &str,
+        occurred_at: &str,
+    ) -> Result<DeliverableTemplateRecord, StorageError> {
+        validate_identifier(template_id)?;
+        validate_digest(expected_hash)?;
+        validate_timestamp(occurred_at)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let changed = connection.execute(
+            "UPDATE deliverable_templates SET state = ?4, updated_at = ?5 \
+             WHERE template_id = ?1 AND template_hash = ?2 AND state = ?3",
+            params![
+                template_id,
+                expected_hash,
+                from_state,
+                to_state,
+                occurred_at
+            ],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::Conflict("template changed since it was read"));
+        }
+        connection
+            .query_row(
+                "SELECT template_id, template_json, template_hash, state, updated_at \
+                 FROM deliverable_templates WHERE template_id = ?1",
+                [template_id],
+                deliverable_template_from_row,
+            )
             .map_err(StorageError::from)
     }
 
@@ -1119,6 +1319,19 @@ fn deliverable_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Deliverable
         state: row.get(5)?,
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
+    })
+}
+
+fn deliverable_template_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<DeliverableTemplateRecord> {
+    let document: String = row.get(1)?;
+    Ok(DeliverableTemplateRecord {
+        template_id: row.get(0)?,
+        template: json_from_sql(&document)?,
+        template_hash: row.get(2)?,
+        state: row.get(3)?,
+        updated_at: row.get(4)?,
     })
 }
 

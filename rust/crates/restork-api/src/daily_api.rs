@@ -1099,9 +1099,9 @@ pub(crate) async fn research_daily_music(
                 input: &input,
                 schema_name: "restork_daily_music_research",
                 response_schema: &music_research_schema(),
-                // The Responses budget includes hidden reasoning as well as the four bounded
-                // bilingual fields. A 2,400-token cap can finish web search but leave the
-                // response envelope incomplete before the JSON object is emitted.
+                // Leave enough room for search synthesis and the four bounded bilingual fields.
+                // The provider still enforces one request, a four-search ceiling and the
+                // 2 MiB response boundary in restork-provider.
                 max_output_tokens: 8_192,
                 reasoning_effort: "high",
                 require_sources: true,

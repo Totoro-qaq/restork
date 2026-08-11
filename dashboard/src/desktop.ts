@@ -37,6 +37,10 @@ export type DesktopSecretResult =
   | { status: "cancelled" }
   | { status: "saved"; secretRef: string };
 
+export type DesktopWorkspaceGrant =
+  | { status: "cancelled" }
+  | { status: "selected"; grantId: string; label: string };
+
 export interface DesktopOnboardingState {
   version: 1;
   dismissed: boolean;
@@ -61,10 +65,14 @@ export interface DesktopBridge {
   vaultConfig(): Promise<DesktopVaultConfig>;
   chooseVault(): Promise<DesktopVaultCandidate>;
   applyVault(candidateId: string): Promise<DesktopVaultApplyResult>;
+  chooseWorkspace(): Promise<DesktopWorkspaceGrant>;
   configureProviderSecret(providerKind: string): Promise<DesktopSecretResult>;
   onboardingState(): Promise<DesktopOnboardingState>;
   setOnboardingDismissed(dismissed: boolean): Promise<DesktopOnboardingState>;
+  openExternal(url: string): Promise<void>;
 }
+
+const externalLinkHandlers = new WeakMap<HTMLElement, EventListener>();
 
 export function detectDesktopBridge(
   location: Pick<Location, "protocol" | "hostname" | "port"> = window.location,
@@ -148,6 +156,18 @@ export function detectDesktopBridge(
       }
       return { status: value.status, label: value.label };
     },
+    async chooseWorkspace(): Promise<DesktopWorkspaceGrant> {
+      const value = await invoke<unknown>("desktop_choose_workspace");
+      if (!isWorkspaceGrant(value)) {
+        throw new Error("The native workspace bridge returned an invalid response");
+      }
+      if (value.status === "cancelled") return { status: "cancelled" };
+      return {
+        status: "selected",
+        grantId: value.grant_id,
+        label: value.label,
+      };
+    },
     async configureProviderSecret(providerKind: string): Promise<DesktopSecretResult> {
       const value = await invoke<unknown>("desktop_configure_provider_secret", { providerKind });
       if (!isSecretResult(value)) {
@@ -170,7 +190,43 @@ export function detectDesktopBridge(
       }
       return value;
     },
+    async openExternal(url: string): Promise<void> {
+      await invoke("desktop_open_external", { url });
+    },
   };
+}
+
+/**
+ * A loopback Dashboard runs inside a Tauri WebView, where target=_blank does
+ * not create a useful browser tab. Delegate only public HTTPS links to the
+ * native shell; the ordinary Web build keeps the browser's normal behavior.
+ */
+export function bindDesktopExternalLinks(
+  root: HTMLElement,
+  bridge: DesktopBridge | null,
+  onError: (error: unknown) => void = () => undefined,
+): void {
+  const previous = externalLinkHandlers.get(root);
+  if (previous) root.removeEventListener("click", previous);
+  externalLinkHandlers.delete(root);
+  if (!bridge) return;
+
+  const handler: EventListener = (event) => {
+    if (!(event instanceof MouseEvent) || event.button !== 0) return;
+    const target = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
+    if (!target || !root.contains(target) || target.hasAttribute("download")) return;
+    let url: URL;
+    try {
+      url = new URL(target.href);
+    } catch {
+      return;
+    }
+    if (url.protocol !== "https:") return;
+    event.preventDefault();
+    void bridge.openExternal(url.toString()).catch(onError);
+  };
+  externalLinkHandlers.set(root, handler);
+  root.addEventListener("click", handler);
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
@@ -199,6 +255,21 @@ function isVaultConfig(value: unknown): value is {
     && typeof value.label === "string"
     && value.label.length > 0
     && value.label.length <= 256;
+}
+
+type WorkspaceGrantWire =
+  | { status: "cancelled" }
+  | { status: "selected"; grant_id: string; label: string };
+
+function isWorkspaceGrant(value: unknown): value is WorkspaceGrantWire {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["status", "grant_id", "label"])) return false;
+  if (value.status === "cancelled") return hasOnlyKeys(value, ["status"]);
+  return value.status === "selected"
+    && typeof value.grant_id === "string"
+    && /^[a-f0-9]{32}$/.test(value.grant_id)
+    && typeof value.label === "string"
+    && value.label.length > 0
+    && value.label.length <= 255;
 }
 
 type VaultCandidateWire =

@@ -2804,6 +2804,7 @@ dependencies = [
 name = "restork-desktop"
 version = "0.1.2"
 dependencies = [
+ "getrandom 0.4.3",
  "libc",
  "light-file-dialog",
  "security-framework",

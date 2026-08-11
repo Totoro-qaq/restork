@@ -308,8 +308,6 @@ describe("authenticated workspace", () => {
     const root = document.createElement("main");
     mountDashboard(root, { api: fakeApi(), snapshot });
 
-    root.querySelector<HTMLButtonElement>('[data-mode="research"]')?.click();
-    expect(root.querySelector<HTMLElement>("#action-panel")?.hidden).toBe(false);
     root.querySelector<HTMLButtonElement>('[data-view="tasks"]')?.click();
 
     const tasks = root.querySelector<HTMLElement>('[data-view-panel="tasks"]');
@@ -321,7 +319,16 @@ describe("authenticated workspace", () => {
     expect(overview?.contains(root.querySelector(".daily-context"))).toBe(true);
     expect(root.querySelector('[data-view="tasks"]')?.getAttribute("aria-current")).toBe("page");
     expect(root.querySelector('[data-view="overview"]')?.hasAttribute("aria-current")).toBe(false);
-    expect(root.querySelector<HTMLElement>("#action-panel")?.hidden).toBe(true);
+    expect(root.querySelector(".sidebar .mode-grid")).toBeNull();
+  });
+
+  it("keeps the four overview summaries in one bounded card system", () => {
+    const root = document.createElement("main");
+    mountDashboard(root, { api: fakeApi(), snapshot, locale: "zh-CN" });
+
+    const cards = root.querySelectorAll('[data-view-panel="overview"] .board > .dashboard-card');
+    expect(cards).toHaveLength(4);
+    expect(root.querySelectorAll('[data-view-panel="overview"] .dashboard-card-body')).toHaveLength(4);
   });
 
   it("keeps the selected page when the user refreshes Core data", async () => {
@@ -339,29 +346,19 @@ describe("authenticated workspace", () => {
     });
   });
 
-  it("lets a new run be toggled, closed, and dismissed with Escape", () => {
+  it("keeps task choices on Start instead of crowding the sidebar", () => {
     const root = document.createElement("main");
     document.body.append(root);
     mountDashboard(root, { api: fakeApi(), snapshot });
-    const research = root.querySelector<HTMLButtonElement>('[data-mode="research"]');
-    const work = root.querySelector<HTMLButtonElement>('[data-mode="work"]');
-    const panel = root.querySelector<HTMLElement>("#action-panel");
+    const research = root.querySelector<HTMLButtonElement>('[data-start-mode="research"]');
+    const work = root.querySelector<HTMLButtonElement>('[data-start-mode="work"]');
 
-    research?.click();
-    expect(panel?.hidden).toBe(false);
-    expect(research?.getAttribute("aria-expanded")).toBe("true");
-    research?.click();
-    expect(panel?.hidden).toBe(true);
-    expect(research?.getAttribute("aria-expanded")).toBe("false");
-
+    expect(root.querySelector(".sidebar [data-mode]")).toBeNull();
+    expect(root.querySelectorAll(".start-mode-row [data-start-mode]")).toHaveLength(3);
     work?.click();
-    panel?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    expect(panel?.hidden).toBe(true);
-    expect(document.activeElement).toBe(work);
-
-    work?.click();
-    root.querySelector<HTMLButtonElement>("[data-run-panel-close]")?.click();
-    expect(panel?.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>("[data-start-work-fields]")?.hidden).toBe(false);
+    research?.click();
+    expect(root.querySelector<HTMLElement>("[data-start-work-fields]")?.hidden).toBe(true);
     root.remove();
   });
 
@@ -369,16 +366,15 @@ describe("authenticated workspace", () => {
     const root = document.createElement("main");
     mountDashboard(root, { api: fakeApi(), snapshot });
 
-    root.querySelector<HTMLButtonElement>('[data-mode="research"]')?.click();
-    const goal = root.querySelector<HTMLInputElement>("#run-goal");
+    const goal = root.querySelector<HTMLTextAreaElement>("#start-goal");
     if (goal) goal.value = "Compare Bayesian model selection criteria";
-    root.querySelector<HTMLButtonElement>('[data-mode="work"]')?.click();
-    const workRoot = root.querySelector<HTMLInputElement>("#work-root");
+    root.querySelector<HTMLButtonElement>('[data-start-mode="work"]')?.click();
+    const workRoot = root.querySelector<HTMLInputElement>("#start-work-root");
     if (workRoot) workRoot.value = "/private/example";
-    root.querySelector<HTMLButtonElement>('[data-mode="research"]')?.click();
+    root.querySelector<HTMLButtonElement>('[data-start-mode="research"]')?.click();
 
     expect(goal?.value).toBe("Compare Bayesian model selection criteria");
-    expect(root.querySelector<HTMLFieldSetElement>("#work-fields")?.hidden).toBe(true);
+    expect(root.querySelector<HTMLFieldSetElement>("[data-start-work-fields]")?.hidden).toBe(true);
     expect(workRoot?.value).toBe("/private/example");
   });
 
@@ -1113,6 +1109,22 @@ describe("authenticated workspace", () => {
     expect(api.loadPage).toHaveBeenCalledWith("radar", "");
   });
 
+  it("refreshes an already configured Radar once after the workspace opens", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    api.loadPage = vi.fn(async () => ({
+      kind: "radar" as const,
+      items: [],
+      configured: true,
+      page: { limit: 50, has_more: false, next_cursor: null },
+    }));
+
+    mountDashboard(root, { api, snapshot });
+
+    await vi.waitFor(() => expect(api.loadPage).toHaveBeenCalledWith("radar", ""));
+    expect(api.loadPage).toHaveBeenCalledTimes(1);
+  });
+
   it("launches a Radar Research run and renders its write-free preview", async () => {
     const root = document.createElement("main");
     const api = fakeApi();
@@ -1356,18 +1368,18 @@ describe("authenticated workspace", () => {
     const verify = vi.spyOn(api, "verifyWorkResult").mockResolvedValue(report);
     mountDashboard(root, { api, snapshot });
 
-    root.querySelector<HTMLButtonElement>('[data-mode="work"]')?.click();
-    const goal = root.querySelector<HTMLInputElement>("#run-goal");
-    const workRoot = root.querySelector<HTMLInputElement>("#work-root");
-    const targets = root.querySelector<HTMLTextAreaElement>("#work-targets");
-    const context = root.querySelector<HTMLTextAreaElement>("#work-context");
-    const dataClass = root.querySelector<HTMLSelectElement>("#work-class");
+    root.querySelector<HTMLButtonElement>('[data-start-mode="work"]')?.click();
+    const goal = root.querySelector<HTMLTextAreaElement>("#start-goal");
+    const workRoot = root.querySelector<HTMLInputElement>("#start-work-root");
+    const targets = root.querySelector<HTMLTextAreaElement>("#start-work-targets");
+    const context = root.querySelector<HTMLTextAreaElement>("#start-work-context");
+    const dataClass = root.querySelector<HTMLInputElement>('#start-run-form [name="context_data_class"]');
     if (goal) goal.value = "Bounded Work change";
     if (workRoot) workRoot.value = "/synthetic/private/repo";
     if (targets) targets.value = "src/app.py";
     if (context) context.value = "README.md";
     if (dataClass) dataClass.value = "confidential";
-    root.querySelector<HTMLFormElement>("#run-form")?.requestSubmit();
+    root.querySelector<HTMLFormElement>("#start-run-form")?.requestSubmit();
 
     await vi.waitFor(() => expect(root.textContent).toContain("WORK PLAN · PREVIEW ONLY"));
     expect(planWork).toHaveBeenCalledWith("run-work", expect.objectContaining({
@@ -1393,10 +1405,10 @@ describe("authenticated workspace", () => {
     root.querySelector<HTMLButtonElement>("[data-work-export]")?.click();
 
     await vi.waitFor(() => expect(root.textContent).toContain("PRIVATE HANDOFF EXPORTED"));
-    expect(root.querySelector("#work-workspace")?.textContent).not.toContain(
+    expect(root.querySelector(".start-workspace [data-work-workspace]")?.textContent).not.toContain(
       "<script>alert(1)</script>",
     );
-    const manifest = root.querySelector<HTMLTextAreaElement>('[name="manifest"]');
+    const manifest = root.querySelector<HTMLTextAreaElement>('.start-workspace [name="manifest"]');
     if (manifest) {
       manifest.value = JSON.stringify({
         schema_version: 1,
@@ -1409,7 +1421,7 @@ describe("authenticated workspace", () => {
         summary: "private imported summary",
       });
     }
-    root.querySelector<HTMLFormElement>("[data-work-verify]")?.requestSubmit();
+    root.querySelector<HTMLFormElement>(".start-workspace [data-work-verify]")?.requestSubmit();
 
     await vi.waitFor(() => expect(root.textContent).toContain("IMPORTED RESULT"));
     expect(verify).toHaveBeenCalledWith("run-work", expect.objectContaining({
@@ -1679,22 +1691,9 @@ describe("Rust conversation workspace", () => {
     expect(root.textContent).toContain("选择知识库文件夹");
     expect(root.textContent).toContain("安全保存 API Key");
 
-    root.querySelector<HTMLButtonElement>("[data-onboarding-skip]")?.click();
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith(
-      "desktop_set_onboarding_dismissed",
-      { dismissed: true },
-    ));
-    await vi.waitFor(() => {
-      expect(root.querySelector<HTMLElement>("[data-first-run]")?.hidden).toBe(true);
-    });
-    root.querySelector<HTMLButtonElement>("[data-onboarding-reopen]")?.click();
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith(
-      "desktop_set_onboarding_dismissed",
-      { dismissed: false },
-    ));
-    await vi.waitFor(() => {
-      expect(root.querySelector<HTMLElement>("[data-first-run]")?.hidden).toBe(false);
-    });
+    expect(root.querySelector("[data-first-run]")).toBeNull();
+    expect(root.querySelector("[data-onboarding-reopen]")).toBeNull();
+    expect(root.querySelector("[data-start-page-return]")?.textContent).toContain("打开开始页");
 
     root.querySelector<HTMLButtonElement>("[data-vault-choose]")?.click();
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("desktop_choose_vault"));
@@ -1717,20 +1716,18 @@ describe("Rust conversation workspace", () => {
     root.remove();
   });
 
-  it("shows native setup progress as optional real actions instead of a blocking tour", () => {
+  it("starts with one focused task decision instead of a recurring setup tour", () => {
     const root = document.createElement("main");
     const state = workspaceSnapshot();
     mountDashboard(root, { api: fakeApi(), snapshot: state, locale: "zh-CN" });
 
-    const onboarding = root.querySelector<HTMLElement>("[data-first-run]");
-    expect(onboarding).not.toBeNull();
-    expect(onboarding?.textContent).toContain("先完成一次真正的运行");
-    expect(onboarding?.textContent).toContain("知识库");
-    expect(onboarding?.textContent).toContain("模型");
-    expect(onboarding?.textContent).toContain("研究、学习或工作");
-    expect(onboarding?.querySelector("[data-onboarding-skip]")?.textContent).toContain("关闭引导");
-    expect(onboarding?.textContent).toContain("关闭后不会再次自动显示");
-    expect(onboarding?.getAttribute("role")).not.toBe("dialog");
+    expect(root.querySelector("[data-first-run]")).toBeNull();
+    expect(root.querySelector<HTMLElement>('[data-view-panel="start"]')?.hidden).toBe(false);
+    expect(root.textContent).toContain("今天想研究、学习，还是完成一项工作？");
+    expect(root.textContent).toContain("Research");
+    expect(root.textContent).toContain("Study");
+    expect(root.textContent).toContain("Work");
+    expect(root.querySelector("[data-start-examples]")).not.toBeNull();
   });
 
   it("routes Todo suggestions through an explicit model conversation", () => {

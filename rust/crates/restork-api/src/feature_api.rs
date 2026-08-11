@@ -3,8 +3,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, OpenOptions},
-    io::Write,
-    path::Path as FsPath,
+    io::{Read, Write},
+    path::{Path as FsPath, PathBuf},
+    time::{Duration, SystemTime},
 };
 
 use axum::{
@@ -32,6 +33,7 @@ use sha2::{Digest, Sha256};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use super::radar::{NewRadarOwned, RadarConfiguration, github_discovery_urls, github_radar_record};
+use super::vault_api::study_note_slug;
 use super::{
     ApiState, authorize, authorize_scopes, bounded_usize_query, error_response,
     error_response_owned, idempotency_key, invalid_query, json_digest, now_rfc3339, parse_json,
@@ -141,7 +143,10 @@ struct RadarAction {
 #[serde(deny_unknown_fields)]
 pub(super) struct WorkStart {
     goal: String,
-    workspace_root: String,
+    #[serde(default)]
+    workspace_root: Option<String>,
+    #[serde(default)]
+    workspace_grant_id: Option<String>,
     target_files: Vec<String>,
     #[serde(default)]
     context_files: Vec<String>,
@@ -2132,38 +2137,6 @@ fn normalize_study_artifact(
     Some((artifact, rubrics))
 }
 
-/// Filesystem-safe slug for the Vault note backing a Study artifact. Keeps
-/// letters and digits (including CJK), collapses everything else to single
-/// dashes, and falls back to a run-derived suffix when nothing survives.
-fn study_note_slug(outcome: &str, run_id: &str) -> String {
-    let mut slug = String::new();
-    let mut pending_dash = false;
-    let mut kept = 0_usize;
-    for ch in outcome.chars() {
-        if kept >= 48 {
-            break;
-        }
-        if ch.is_alphanumeric() {
-            if pending_dash && !slug.is_empty() {
-                slug.push('-');
-            }
-            slug.push(ch);
-            kept += 1;
-            pending_dash = false;
-        } else {
-            pending_dash = true;
-        }
-    }
-    while slug.ends_with('-') {
-        slug.pop();
-    }
-    if slug.is_empty() {
-        format!("run-{}", &sha256_hex(run_id.as_bytes())[..12])
-    } else {
-        slug
-    }
-}
-
 /// Render the Markdown note that mirrors a validated Study artifact into the
 /// Vault. Only artifact-grounded fields are written; answer keys stay in the
 /// app and are never part of the note.
@@ -2278,7 +2251,7 @@ pub(super) async fn plan_work(
         Ok(None) => return error_response(StatusCode::NOT_FOUND, "run not found"),
         Err(error) => return storage_error_response(error),
     };
-    let request_value = match serde_json::to_value(&payload) {
+    let mut request_value = match serde_json::to_value(&payload) {
         Ok(value) => value,
         Err(_) => return storage_unavailable(),
     };
@@ -2296,7 +2269,18 @@ pub(super) async fn plan_work(
             "this Work run already froze a different workspace request",
         );
     }
-    let workspace = match SafeWorkspace::open(FsPath::new(&payload.workspace_root)) {
+    let (workspace_root, grant_file) = match resolve_work_root(&payload) {
+        Ok(value) => value,
+        Err(detail) => return error_response_owned(StatusCode::UNPROCESSABLE_ENTITY, detail),
+    };
+    if let Some(request) = request_value.as_object_mut() {
+        request.insert(
+            "workspace_root".to_owned(),
+            Value::String(workspace_root.to_string_lossy().into_owned()),
+        );
+        request.remove("workspace_grant_id");
+    }
+    let workspace = match SafeWorkspace::open(&workspace_root) {
         Ok(workspace) => workspace,
         Err(_) => {
             return error_response(
@@ -2436,7 +2420,12 @@ pub(super) async fn plan_work(
         return storage_error_response(error);
     }
     let mut task_spec = run.task_spec.clone();
-    task_spec["goal"] = Value::String(work_agent_goal(&payload, &plan, &model_context));
+    task_spec["goal"] = Value::String(work_agent_goal(
+        &payload,
+        &plan,
+        &model_context,
+        workspace.root(),
+    ));
     task_spec["work_request_hash"] = Value::String(request_hash);
     task_spec["work_plan_artifact_id"] = plan["artifact_id"].clone();
     if let Err(error) =
@@ -2450,6 +2439,9 @@ pub(super) async fn plan_work(
         restork_core::durable_loop::AgentAuthorization::default(),
     ) {
         return response;
+    }
+    if let Some(path) = grant_file {
+        let _ = fs::remove_file(path);
     }
     let _ = idempotency_key;
     (StatusCode::ACCEPTED, Json(plan)).into_response()
@@ -2908,10 +2900,15 @@ pub(super) async fn verify_work(
 }
 
 fn validate_work_start(payload: &WorkStart) -> Result<(), String> {
+    let root_valid = payload.workspace_root.as_deref().is_some_and(|root| {
+        !root.is_empty() && root.len() <= 4_096 && FsPath::new(root).is_absolute()
+    });
+    let grant_valid = payload.workspace_grant_id.as_deref().is_some_and(|grant| {
+        grant.len() == 32 && grant.bytes().all(|byte| byte.is_ascii_hexdigit())
+    });
     if payload.goal.trim().is_empty()
         || payload.goal.len() > 32_000
-        || !FsPath::new(&payload.workspace_root).is_absolute()
-        || payload.target_files.is_empty()
+        || root_valid == grant_valid
         || payload.target_files.len() > 500
         || payload.context_files.len() > 500
         || !matches!(
@@ -2936,6 +2933,70 @@ fn validate_work_start(payload: &WorkStart) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn resolve_work_root(payload: &WorkStart) -> Result<(PathBuf, Option<PathBuf>), String> {
+    if let Some(root) = payload.workspace_root.as_deref() {
+        return Ok((PathBuf::from(root), None));
+    }
+    let directory = std::env::var_os("RESTORK_DESKTOP_WORKSPACE_GRANTS")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute());
+    resolve_work_root_with_grant_dir(payload, directory.as_deref())
+}
+
+fn resolve_work_root_with_grant_dir(
+    payload: &WorkStart,
+    directory: Option<&FsPath>,
+) -> Result<(PathBuf, Option<PathBuf>), String> {
+    if let Some(root) = payload.workspace_root.as_deref() {
+        return Ok((PathBuf::from(root), None));
+    }
+    let grant_id = payload
+        .workspace_grant_id
+        .as_deref()
+        .ok_or_else(|| "choose one Work workspace".to_owned())?;
+    let directory = directory
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| "desktop workspace grants are unavailable".to_owned())?;
+    let grant_file = directory.join(format!("{grant_id}.grant"));
+    let metadata = fs::symlink_metadata(&grant_file).map_err(|_| {
+        "the project-folder grant is unavailable; choose the folder again".to_owned()
+    })?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > 4_096 {
+        return Err("the project-folder grant is invalid; choose the folder again".to_owned());
+    }
+    let age = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+        .unwrap_or(Duration::MAX);
+    if age > Duration::from_secs(30 * 60) {
+        return Err("the project-folder grant expired; choose the folder again".to_owned());
+    }
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = options.open(&grant_file).map_err(|_| {
+        "the project-folder grant is unavailable; choose the folder again".to_owned()
+    })?;
+    let mut root = String::new();
+    file.take(4_097)
+        .read_to_string(&mut root)
+        .map_err(|_| "the project-folder grant is invalid; choose the folder again".to_owned())?;
+    let root = root.trim();
+    if root.is_empty()
+        || root.len() > 4_096
+        || root.contains(['\0', '\r', '\n'])
+        || !FsPath::new(root).is_absolute()
+    {
+        return Err("the project-folder grant is invalid; choose the folder again".to_owned());
+    }
+    Ok((PathBuf::from(root), Some(grant_file)))
 }
 
 fn canonical_work_paths(
@@ -3043,10 +3104,15 @@ fn sanitize_work_context(content: &str, root: &FsPath) -> (String, Vec<String>) 
     )
 }
 
-fn work_agent_goal(payload: &WorkStart, plan: &Value, model_context: &[Value]) -> String {
+fn work_agent_goal(
+    payload: &WorkStart,
+    plan: &Value,
+    model_context: &[Value],
+    root: &FsPath,
+) -> String {
     format!(
         "Author a concrete Work plan for this frozen request. Return only one JSON object with a `plan_steps` array; each step must contain `title`, `intent`, `target_files`, and `verification`. Never claim execution. Goal: {}\nTargets and hashes: {}\nConstraints: {}\nNon-goals: {}\nCompletion criteria: {}\nPublic reviewed context: {}",
-        redact_private_paths(&payload.goal, FsPath::new(&payload.workspace_root)),
+        redact_private_paths(&payload.goal, root),
         plan["context_manifest"],
         plan["constraints"],
         plan["non_goals"],
@@ -3440,19 +3506,6 @@ fn parse_model_json(output: &str) -> Option<Value> {
         .filter(Value::is_object)
 }
 
-pub(super) fn bootstrap_radar(state: &ApiState) -> Result<Option<Value>, ()> {
-    let storage = state.storage.as_ref().ok_or(())?;
-    let configured = storage
-        .daily_cache("radar-config")
-        .map_err(|_| ())?
-        .is_some_and(|record| record.payload["enabled"].as_bool() == Some(true));
-    if !configured {
-        return Ok(None);
-    }
-    let items = storage.radar_items(12, 0).map_err(|_| ())?;
-    Ok(Some(json!({"configured": true, "items": items})))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3508,5 +3561,39 @@ mod tests {
         assert!(note.contains("[[学习-Agent Loop与Loop Engineering]]"));
         // Answer keys / rubrics must never leak into the note.
         assert!(!note.contains("grading_rubric"));
+    }
+
+    #[test]
+    fn work_folder_grant_resolves_without_exposing_the_path_in_the_request() {
+        let grant_dir = tempfile::tempdir().expect("grant directory");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let grant_id = "0123456789abcdef0123456789abcdef";
+        fs::write(
+            grant_dir.path().join(format!("{grant_id}.grant")),
+            workspace.path().to_string_lossy().as_bytes(),
+        )
+        .expect("grant fixture");
+        let payload = WorkStart {
+            goal: "prepare the release".to_owned(),
+            workspace_root: None,
+            workspace_grant_id: Some(grant_id.to_owned()),
+            target_files: Vec::new(),
+            context_files: Vec::new(),
+            constraints: Vec::new(),
+            non_goals: Vec::new(),
+            completion_criteria: Vec::new(),
+            verification_commands: Vec::new(),
+            context_data_class: "public".to_owned(),
+        };
+
+        assert!(validate_work_start(&payload).is_ok());
+        let (resolved, consumed) =
+            resolve_work_root_with_grant_dir(&payload, Some(grant_dir.path()))
+                .expect("resolved grant");
+        assert_eq!(resolved, workspace.path());
+        assert_eq!(
+            consumed,
+            Some(grant_dir.path().join(format!("{grant_id}.grant")))
+        );
     }
 }

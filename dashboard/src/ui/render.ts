@@ -13,6 +13,8 @@ import type {
   MusicResearchSummary,
   MusicSourceDefinition,
   PageInfo,
+  PresentationTemplateRecordV2,
+  PresentationThemeLayoutV2,
   ProviderDefinitionV2,
   ProviderKindV2,
   RadarItem,
@@ -41,9 +43,16 @@ import type {
 import type { Locale } from "../i18n";
 import { alternateLocale, plural, tr } from "../i18n";
 import { providerDiagnosticMarkup } from "./provider";
+import { startWorkspaceMarkup } from "./start";
 export { providerDiagnosticMarkup, providerErrorMarkup, providerWaitMarkup } from "./provider";
 import { buildRunTrace, traceMarkup } from "./trace";
-import { BUILTIN_RENDER_THEMES, builtinRenderTheme } from "../deliverables/themes";
+import {
+  BUILTIN_RENDER_THEMES,
+  type BuiltinRenderTheme,
+  builtinRenderTheme,
+  recentPresentationTheme,
+  templateRenderTheme,
+} from "../deliverables/themes";
 
 export type AgentWaitStage =
   | "prepare"
@@ -94,7 +103,8 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
       <aside class="sidebar">
         <div class="brand"><h1>RES<span>TORK</span></h1><small>LOCAL-FIRST AGENT</small></div>
         <nav aria-label="${tr(locale, "Main navigation", "主导航")}">
-          ${navButton("overview", "R", tr(locale, "Dashboard", "仪表盘"), true)}
+          ${navButton("start", "›", tr(locale, "Start", "开始"), true)}
+          ${navButton("overview", "R", tr(locale, "Dashboard", "仪表盘"), false)}
           ${navButton("runs", "›", tr(locale, "Runs", "运行"), false, active.length)}
           ${navButton("approvals", "✓", tr(locale, "Approvals", "审批"), false, pending.length)}
           ${navButton("tasks", "□", tr(locale, "Tasks", "任务"), false, incomplete.length)}
@@ -107,17 +117,9 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
           ${v2 ? navButton("automation", "A", tr(locale, "Automation", "自动化"), false, v2.schedules.length) : ""}
           ${v2 ? navButton("settings", "⚙", tr(locale, "Settings", "设置"), false) : ""}
         </nav>
-        <p class="sidebar-label">${tr(locale, "New run", "新建运行")}</p>
-        <div class="mode-grid">
-          ${modeButton("research", "R", tr(locale, "Research sources and keep citations", "查资料、核来源、留引用"))}
-          ${modeButton("study", "S", tr(locale, "Learning paths and active recall", "学习路径和主动回忆"))}
-          ${modeButton("work", "W", tr(locale, "Read-only plans and handoffs", "只读规划和交接包"))}
-        </div>
-        <p class="session">127.0.0.1 · LOCAL<br><b>CORE PAIRED</b></p>
       </aside>
       <main class="workspace" id="workspace-main" tabindex="-1">
         <header class="topline">
-          <p>&gt; <span id="greeting">${escapeHtml(greeting)}</span><span class="caret" aria-hidden="true"></span></p>
           <div class="topline-actions">
             ${mailIndicator(snapshot, locale)}
             ${localeSwitch(locale)}
@@ -135,9 +137,8 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
             aria-label="${tr(locale, "Dismiss message", "关闭提示")}"
           >×</button>
         </div>
-        ${firstRunGuide(snapshot, locale)}
         ${mailSettings(snapshot, locale)}
-        <section id="action-panel" class="action-panel" aria-labelledby="action-panel-title" hidden>
+        <section id="action-panel" class="action-panel" data-run-surface aria-labelledby="action-panel-title" hidden>
           <header class="action-panel-header">
             <div><small>${tr(locale, "NEW RUN", "新建运行")}</small><strong id="action-panel-title">${tr(locale, "Start a Research run", "新建 Research 运行")}</strong></div>
             <button class="action-panel-close" type="button" data-run-panel-close aria-label="${tr(locale, "Close new run", "收起新建运行")}">×</button>
@@ -189,12 +190,13 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
               )}</p>
             </fieldset>
           </form>
-          <p id="action-status" class="status" role="status"></p>
-          <div id="agent-wait-host"></div>
-          <div id="study-workspace" class="study-workspace" aria-live="polite"></div>
-          <div id="work-workspace" class="work-workspace" aria-live="polite"></div>
+          <p id="action-status" class="status" data-run-status role="status"></p>
+          <div id="agent-wait-host" data-run-wait></div>
+          <div id="study-workspace" class="study-workspace" data-study-workspace aria-live="polite"></div>
+          <div id="work-workspace" class="work-workspace" data-work-workspace aria-live="polite"></div>
         </section>
-        <section class="view is-visible" data-view-panel="overview">
+        <section class="view is-visible" data-view-panel="start">${startWorkspaceMarkup(snapshot, locale, greeting)}</section>
+        <section class="view" data-view-panel="overview" hidden>
           <section class="metrics" aria-label="${tr(locale, "Run overview", "运行概览")}">
             ${metric("research", tr(locale, "Active runs", "进行中运行"), String(active.length), modeCounts(active, locale))}
             ${metric("approval", tr(locale, "Pending approvals", "待审批"), String(pending.length), tr(locale, "Single-use · expires", "单次能力 · 到期失效"))}
@@ -225,76 +227,6 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
         ${v2 ? `<section class="view" data-view-panel="settings" hidden>${personalSettingsWorkspace(snapshot, locale)}</section>` : ""}
       </main>
     </section>`;
-}
-
-function firstRunGuide(snapshot: DashboardSnapshot, locale: Locale): string {
-  const vaultReady = snapshot.taskBoard.vault_configured === true;
-  const modelReady = (snapshot.workspaceV2?.providers?.length ?? 0) > 0;
-  const firstRunReady = snapshot.runs.length > 0;
-  const complete = vaultReady && modelReady && firstRunReady;
-  const checkIcon = `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4.5 10.5 3.2 3.2 7.8-8"/></svg>`;
-  const step = (ready: boolean, title: string, detail: string, action: string, target: string) => `
-    <article class="first-run-step ${ready ? "is-complete" : ""}">
-      <span class="first-run-check" aria-hidden="true">${ready ? checkIcon : ""}</span>
-      <div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small></div>
-      ${ready ? "" : `<button type="button" data-onboarding-target="${target}">${escapeHtml(action)}</button>`}
-    </article>`;
-  return `<section class="first-run-guide" data-first-run data-onboarding-complete="${complete}" aria-labelledby="first-run-title" ${complete ? "hidden" : ""}>
-    <header>
-      <div>
-        <h2 id="first-run-title" tabindex="-1">${complete
-          ? tr(locale, "Restork is ready for you", "Restork 已经准备好了")
-          : tr(locale, "Complete one real run first", "先完成一次真正的运行")}</h2>
-        <p>${tr(
-          locale,
-          "About three minutes. Every step is optional, and you can return here from Settings.",
-          "大约三分钟。每一步都可以跳过，也可以之后从设置回来继续。",
-        )}</p>
-      </div>
-      <div class="first-run-dismiss">
-        <button type="button" class="quiet-button" data-onboarding-skip>
-          ${complete ? tr(locale, "CLOSE", "关闭") : tr(locale, "CLOSE GUIDE", "关闭引导")}
-        </button>
-        ${complete ? "" : `<small>${tr(
-          locale,
-          "It will not open automatically again. You can reopen it from Settings.",
-          "关闭后不会再次自动显示，可在设置中重新打开。",
-        )}</small>`}
-        <small data-onboarding-dismiss-status role="status" aria-live="polite"></small>
-      </div>
-    </header>
-    <div class="first-run-steps">
-      ${step(
-        vaultReady,
-        tr(locale, "Choose a knowledge library", "选择知识库"),
-        tr(locale, "Only the folder you choose is indexed locally.", "只在本地索引你主动选择的文件夹。"),
-        tr(locale, "CHOOSE FOLDER", "选择文件夹"),
-        "settings-vault",
-      )}
-      ${step(
-        modelReady,
-        tr(locale, "Connect a model", "连接模型"),
-        tr(
-          locale,
-          "Use a cloud provider or local Ollama; testing stays a separate action.",
-          "可以使用云端模型或本地 Ollama；联网测试始终是单独动作。",
-        ),
-        tr(locale, "CHOOSE MODEL", "选择模型"),
-        "settings-provider",
-      )}
-      ${step(
-        firstRunReady,
-        tr(locale, "Start Research, Study, or Work", "开始研究、学习或工作"),
-        tr(
-          locale,
-          "See the goal, model and context together before the run starts.",
-          "开始前先一起看看目标、模型和准备使用的内容。",
-        ),
-        tr(locale, "START A RUN", "开始一次运行"),
-        "run",
-      )}
-    </div>
-  </section>`;
 }
 
 function vaultWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
@@ -469,8 +401,12 @@ function personalGreeting(snapshot: DashboardSnapshot, locale: Locale): string {
     evening: tr(locale, "Good evening", "晚上好"),
     late_night: tr(locale, "Still awake", "夜深了"),
   }[band ?? "morning"];
+  if (locale === "zh-CN") {
+    const who = name ? `，${name}` : "";
+    return `${salutation}${who}。今天想研究、学习，还是完成一项工作？`;
+  }
   const who = name ? `, ${name}` : "";
-  return `${salutation}${who}. ${tr(locale, "What will you research, study, or finish today?", "今天想研究、学习，还是完成一项工作？")}`;
+  return `${salutation}${who}. What will you research, study, or finish today?`;
 }
 
 function dataClassLabel(value: string, locale: Locale): string {
@@ -860,6 +796,7 @@ function sourceLabel(value: unknown): string {
 function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
   const records = snapshot.workspaceV2?.deliverables ?? [];
   const reports = records.filter((record) => record.kind === "daily_report" || record.kind === "weekly_report");
+  const templates = snapshot.workspaceV2?.presentationTemplates ?? [];
   const providers = snapshot.workspaceV2?.providers ?? [];
   const providerOptions = providers.map((record) => (
     `<option value="${escapeHtml(record.provider.profile_id)}">`
@@ -900,7 +837,7 @@ function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
         <option value="beginner">${tr(locale, "New to the topic", "第一次接触")}</option>
         <option value="expert">${tr(locale, "Expert", "熟悉这个领域")}</option>
       </select></label>
-      <fieldset class="wide-label render-theme-picker"><legend>${tr(locale, "Choose a built-in look", "选择版式")}</legend><div>${renderThemeOptions(locale)}</div></fieldset>
+      ${presentationTemplateLibrary(templates, snapshot.workspaceV2?.presentationTemplateNext ?? null, locale)}
       <button type="submit" ${providers.length ? "" : "disabled"}>${tr(locale, "CREATE PREVIEW", "生成可预览大纲")}</button>
       <p id="presentation-studio-status" role="status">${providers.length ? "" : tr(locale, "Add a model in Settings first.", "请先在设置里添加模型。")}</p>
       <p class="fine">${tr(
@@ -908,7 +845,10 @@ function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
         "Six themes, PPTX, and PDF are included in Restork. No extra renderer, office suite, or skill installation is required.",
         "六套版式、PPTX 和 PDF 渲染都随 Restork 提供，不需要另装渲染器、办公套件或 Skill。",
       )}</p>
-    </form></div></article>`;
+    </form></div>
+    ${presentationTemplateDialog(locale)}
+    ${presentationTemplateTrashDialog(locale)}
+  </article>`;
 }
 
 function deliverableTitle(record: CatalogRecordV2, locale: Locale): string {
@@ -942,7 +882,10 @@ function deckPreviewMarkup(artifact: Record<string, unknown> | undefined, locale
   const themeId = themeRecord && typeof themeRecord === "object" && !Array.isArray(themeRecord)
     ? (themeRecord as Record<string, unknown>).theme_id
     : null;
-  const theme = builtinRenderTheme(themeId);
+  const snapshot = artifact?.theme_snapshot;
+  const theme = snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)
+    ? presentationThemeFromArtifact(snapshot as Record<string, unknown>)
+    : builtinRenderTheme(themeId);
   const claims = artifact?.claims && typeof artifact.claims === "object" && !Array.isArray(artifact.claims)
     ? artifact.claims as Record<string, Record<string, unknown>>
     : {};
@@ -960,8 +903,241 @@ function deckPreviewMarkup(artifact: Record<string, unknown> | undefined, locale
   }).join("")}</div></details>`;
 }
 
-function renderThemeOptions(locale: Locale): string {
-  return BUILTIN_RENDER_THEMES.map((theme, index) => `<label class="render-theme-option" data-render-theme="${theme.id}" data-theme-layout="${theme.layout}" style="--theme-bg:${theme.background};--theme-fg:${theme.foreground};--theme-accent:${theme.accent};--theme-accent-2:${theme.accentSecondary}"><input type="radio" name="theme_id" value="${theme.id}" ${index === 0 ? "checked" : ""}><span aria-hidden="true"><i></i><b></b></span><strong>${escapeHtml(locale === "zh-CN" ? theme.nameZh : theme.nameEn)}</strong><small>${escapeHtml(locale === "zh-CN" ? theme.descriptionZh : theme.descriptionEn)}</small></label>`).join("");
+function presentationThemeFromArtifact(snapshot: Record<string, unknown>) {
+  const fallback = BUILTIN_RENDER_THEMES[0];
+  const color = (key: string, defaultValue: string): string => {
+    const value = typeof snapshot[key] === "string" ? String(snapshot[key]) : "";
+    return /^[0-9A-Fa-f]{6}$/.test(value) ? `#${value}` : defaultValue;
+  };
+  const layout = typeof snapshot.layout === "string" ? snapshot.layout : fallback.layout;
+  return {
+    ...fallback,
+    id: typeof snapshot.theme_id === "string" ? snapshot.theme_id : fallback.id,
+    nameEn: typeof snapshot.name === "string" ? snapshot.name : fallback.nameEn,
+    nameZh: typeof snapshot.name === "string" ? snapshot.name : fallback.nameZh,
+    background: color("background", fallback.background),
+    foreground: color("foreground", fallback.foreground),
+    accent: color("accent", fallback.accent),
+    accentSecondary: color("accent_secondary", fallback.accentSecondary),
+    layout: isPresentationLayout(layout) ? layout : fallback.layout,
+  };
+}
+
+function isPresentationLayout(value: string): value is PresentationThemeLayoutV2 {
+  return ["editorial", "minimal", "spotlight", "research", "narrative", "blueprint"].includes(value);
+}
+
+function presentationTemplateLibrary(
+  templates: PresentationTemplateRecordV2[],
+  next: { updated_at: string; id: string; version: number } | null,
+  locale: Locale,
+): string {
+  const availableIds = new Set([
+    ...BUILTIN_RENDER_THEMES.map((theme) => theme.id),
+    ...templates.map((record) => record.template_id),
+  ]);
+  const recentRecord = recentPresentationTheme();
+  const recent = recentRecord?.id ?? null;
+  const selected = recent && availableIds.has(recent) ? recent : BUILTIN_RENDER_THEMES[0].id;
+  const recentTheme = BUILTIN_RENDER_THEMES.find((theme) => theme.id === selected)
+    ?? templates.find((record) => record.template_id === selected);
+  const recentName = recentTheme && "template" in recentTheme
+    ? recentTheme.template.theme.name
+    : recentTheme
+      ? (locale === "zh-CN" ? recentTheme.nameZh : recentTheme.nameEn)
+      : "";
+  const recentDate = recentRecord?.usedAt ? ` · ${formatDate(recentRecord.usedAt, locale)}` : "";
+  const builtins = BUILTIN_RENDER_THEMES
+    .map((theme) => renderThemeCard(theme, selected, locale))
+    .join("");
+  const custom = templates
+    .map((record) => renderCustomThemeCard(record, selected, locale))
+    .join("") || `<p class="empty">${tr(locale, "No personal templates yet.", "还没有个人模板。")}</p>`;
+  const nextButton = next ? templatePageButton(next, locale) : "";
+  return `<fieldset class="wide-label render-theme-picker"><legend>${tr(locale, "Choose a look", "选择版式")}</legend>
+    <header class="template-picker-header"><div>
+      <strong>${tr(locale, "Last used", "上次使用")}</strong>
+      <span>${escapeHtml(recentName)}${recentDate}</span>
+    </div><div class="template-picker-actions">
+      <button type="button" class="template-action-button" data-template-add>${tr(locale, "NEW", "新建")}</button>
+      <label class="button-like template-action-button">${tr(locale, "IMPORT", "导入")}
+        <input type="file" data-template-import accept=".pptx,image/png,image/jpeg,image/webp">
+      </label>
+      <button type="button" class="template-action-button" data-template-trash>${tr(locale, "TRASH", "回收站")}</button>
+    </div>
+    </header>
+    <section class="template-group" aria-labelledby="builtin-template-title"><header><div>
+      <strong id="builtin-template-title">${tr(locale, "Built into Restork", "内置版式")}</strong>
+      <small>${tr(locale, "Always available and cannot be deleted", "始终可用，不可删除")}</small>
+    </div></header><div class="template-card-grid">${builtins}</div></section>
+    <section class="template-group" aria-labelledby="custom-template-title"><header><div>
+      <strong id="custom-template-title">${tr(locale, "My templates", "我的模板")}</strong>
+      <small>${tr(locale, "Create, import, edit or move to trash", "可新建、导入、修改或移入回收站")}</small>
+    </div></header><div class="template-card-grid" data-template-list>${custom}</div>${nextButton}</section>
+  </fieldset>`;
+}
+
+function templatePageButton(
+  next: { updated_at: string; id: string; version: number },
+  locale: Locale,
+): string {
+  return `<button type="button" class="template-load-more" data-template-load-more`
+    + ` data-after-time="${escapeHtml(next.updated_at)}" data-after-id="${escapeHtml(next.id)}"`
+    + ` data-after-version="${next.version}">${tr(locale, "LOAD MORE", "加载更多")}</button>`;
+}
+
+function renderThemeCard(
+  theme: (typeof BUILTIN_RENDER_THEMES)[number],
+  selected: string,
+  locale: Locale,
+): string {
+  const name = escapeHtml(locale === "zh-CN" ? theme.nameZh : theme.nameEn);
+  const description = escapeHtml(locale === "zh-CN" ? theme.descriptionZh : theme.descriptionEn);
+  return `<label class="render-theme-option" data-render-theme="${theme.id}"`
+    + ` data-theme-layout="${theme.layout}">`
+    + `<input type="radio" name="theme_id" value="${theme.id}" ${theme.id === selected ? "checked" : ""}>`
+    + `<span class="theme-thumbnail" aria-hidden="true">${themePreviewGraphic(theme.layout, theme)}</span>`
+    + `<strong>${name}</strong><small>${description}</small></label>`;
+}
+
+function themePreviewGraphic(
+  layout: PresentationThemeLayoutV2,
+  theme: Pick<BuiltinRenderTheme, "background" | "foreground" | "accent" | "accentSecondary">,
+): string {
+  // Presentation attributes are CSP-safe. Inline styles are intentionally
+  // avoided because both the loopback server and Tauri shell reject them.
+  const background = escapeHtml(theme.background);
+  const foreground = escapeHtml(theme.foreground);
+  const accent = escapeHtml(theme.accent);
+  const secondary = escapeHtml(theme.accentSecondary);
+  const frame = `<rect width="160" height="90" rx="7" class="theme-preview-bg" fill="${background}"/>`;
+  const graphics: Record<PresentationThemeLayoutV2, string> = {
+    editorial: `<rect x="0" y="0" width="8" height="90" class="theme-preview-accent" fill="${accent}"/>
+      <rect x="20" y="15" width="48" height="5" rx="2.5" class="theme-preview-secondary" fill="${secondary}"/>
+      <rect x="20" y="28" width="96" height="10" rx="3" class="theme-preview-fg" fill="${foreground}"/>
+      <rect x="20" y="47" width="68" height="4" rx="2" class="theme-preview-muted" fill="${foreground}"/>
+      <rect x="20" y="57" width="54" height="4" rx="2" class="theme-preview-muted" fill="${foreground}"/>
+      <rect x="105" y="50" width="39" height="25" rx="4" class="theme-preview-panel" fill="${accent}"/>
+      <rect x="112" y="63" width="5" height="7" rx="1" class="theme-preview-accent" fill="${accent}"/>
+      <rect x="121" y="57" width="5" height="13" rx="1" class="theme-preview-secondary" fill="${secondary}"/>
+      <rect x="130" y="60" width="5" height="10" rx="1" class="theme-preview-accent" fill="${accent}"/>`,
+    minimal: `<rect x="0" y="0" width="160" height="5" class="theme-preview-accent" fill="${accent}"/>
+      <rect x="17" y="18" width="72" height="9" rx="3" class="theme-preview-fg" fill="${foreground}"/>
+      <rect x="17" y="36" width="112" height="4" rx="2" class="theme-preview-muted" fill="${foreground}"/>
+      <rect x="17" y="47" width="96" height="4" rx="2" class="theme-preview-muted" fill="${foreground}"/>
+      <rect x="17" y="58" width="64" height="4" rx="2" class="theme-preview-muted" fill="${foreground}"/>
+      <circle cx="129" cy="64" r="13" class="theme-preview-panel" fill="${accent}"/>
+      <path d="M122 65l5 5 10-13" class="theme-preview-stroke" stroke="${accent}"/>`,
+    spotlight: `<circle cx="80" cy="39" r="30" class="theme-preview-halo" fill="${accent}"/>
+      <rect x="39" y="25" width="82" height="10" rx="4" class="theme-preview-fg" fill="${foreground}"/>
+      <rect x="49" y="43" width="62" height="5" rx="2.5" class="theme-preview-secondary" fill="${secondary}"/>
+      <rect x="58" y="55" width="44" height="4" rx="2" class="theme-preview-muted" fill="${foreground}"/>
+      <rect x="0" y="82" width="160" height="8" class="theme-preview-accent" fill="${accent}"/>`,
+    research: `<rect x="0" y="0" width="35" height="28" class="theme-preview-accent" fill="${accent}"/>
+      <rect x="45" y="13" width="92" height="8" rx="3" class="theme-preview-fg" fill="${foreground}"/>
+      <polyline points="15,70 34,54 53,62 72,40 93,50" class="theme-preview-stroke" stroke="${accent}"/>
+      <circle cx="34" cy="54" r="3" class="theme-preview-secondary" fill="${secondary}"/>
+      <circle cx="72" cy="40" r="3" class="theme-preview-secondary" fill="${secondary}"/>
+      <rect x="104" y="39" width="38" height="5" rx="2" class="theme-preview-secondary" fill="${secondary}"/>
+      <rect x="104" y="52" width="31" height="4" rx="2" class="theme-preview-muted" fill="${foreground}"/>
+      <rect x="104" y="63" width="36" height="4" rx="2" class="theme-preview-muted" fill="${foreground}"/>`,
+    narrative: `<rect x="152" y="0" width="8" height="90" class="theme-preview-accent" fill="${accent}"/>
+      <circle cx="35" cy="34" r="18" class="theme-preview-halo" fill="${accent}"/>
+      <rect x="25" y="29" width="20" height="9" rx="3" class="theme-preview-accent" fill="${accent}"/>
+      <rect x="63" y="18" width="66" height="9" rx="3" class="theme-preview-fg" fill="${foreground}"/>
+      <rect x="63" y="38" width="76" height="5" rx="2" class="theme-preview-secondary" fill="${secondary}"/>
+      <rect x="63" y="51" width="64" height="4" rx="2" class="theme-preview-muted" fill="${foreground}"/>
+      <rect x="63" y="62" width="48" height="4" rx="2" class="theme-preview-muted" fill="${foreground}"/>`,
+    blueprint: `<path d="M17 18h35v20H17zm48 0h35v20H65zm48 0h30v20h-30zM31 51h35v21H31zm49 0h50v21H80z" class="theme-preview-boxes" fill="${background}" stroke="${accent}"/>
+      <path d="M52 28h13m35 0h13M48 38v13m50-13v13M66 62h14" class="theme-preview-stroke" stroke="${accent}"/>
+      <circle cx="31" cy="28" r="4" class="theme-preview-accent" fill="${accent}"/>
+      <circle cx="82" cy="28" r="4" class="theme-preview-secondary" fill="${secondary}"/>
+      <circle cx="105" cy="62" r="4" class="theme-preview-accent" fill="${accent}"/>`,
+  };
+  return `<svg class="theme-preview-svg" data-preview-layout="${layout}" viewBox="0 0 160 90"`
+    + ` role="img" focusable="false">${frame}${graphics[layout]}</svg>`;
+}
+
+function renderCustomThemeCard(
+  record: PresentationTemplateRecordV2,
+  selected: string,
+  locale: Locale,
+): string {
+  const theme = templateRenderTheme(record);
+  return `<article class="template-card" data-template-id="${escapeHtml(record.template_id)}" data-template-hash="${escapeHtml(record.template_hash)}">
+    ${renderThemeCard(theme, selected, locale)}
+    <div class="template-card-actions">
+      <button type="button" data-template-edit>${tr(locale, "EDIT", "修改")}</button>
+      <button type="button" data-template-copy>${tr(locale, "COPY", "复制")}</button>
+      <button type="button" data-template-delete>${tr(locale, "DELETE", "删除")}</button>
+    </div>
+  </article>`;
+}
+
+export function presentationTemplateCardsMarkup(
+  records: PresentationTemplateRecordV2[],
+  selected: string,
+  locale: Locale,
+): string {
+  return records.map((record) => renderCustomThemeCard(record, selected, locale)).join("");
+}
+
+export function presentationTemplateTrashMarkup(
+  records: PresentationTemplateRecordV2[],
+  locale: Locale,
+): string {
+  const cards = records.map((record) => `<article class="template-trash-card"`
+    + ` data-template-id="${escapeHtml(record.template_id)}"`
+    + ` data-template-hash="${escapeHtml(record.template_hash)}"><div>`
+    + `<strong>${escapeHtml(record.template.theme.name)}</strong>`
+    + `<small>${formatDate(record.updated_at, locale)}</small></div>`
+    + `<button type="button" data-template-restore>${tr(locale, "RESTORE", "恢复")}</button>`
+    + `</article>`).join("");
+  return cards || `<p class="empty">${tr(locale, "Trash is empty.", "回收站是空的。")}</p>`;
+}
+
+function presentationTemplateDialog(locale: Locale): string {
+  const layouts: Array<[PresentationThemeLayoutV2, string, string]> = [
+    ["editorial", "Editorial", "编辑排版"], ["minimal", "Minimal", "清晰简报"],
+    ["spotlight", "Spotlight", "深色舞台"], ["research", "Research", "研究记录"],
+    ["narrative", "Narrative", "故事复盘"], ["blueprint", "Blueprint", "结构蓝图"],
+  ];
+  const colorFields = [
+    templateColorField("background", "Background", "背景", "#FBF7EF", locale),
+    templateColorField("foreground", "Text", "文字", "#302A21", locale),
+    templateColorField("muted", "Muted text", "辅助文字", "#786D5C", locale),
+    templateColorField("accent", "Accent", "强调色", "#6657D9", locale),
+    templateColorField("accent_secondary", "Second accent", "第二强调色", "#E84D8A", locale),
+  ].join("");
+  return `<dialog id="presentation-template-dialog" class="restork-dialog template-dialog">
+    <form method="dialog" id="presentation-template-form"><header><div>
+      <p class="eyebrow">PRESENTATION TEMPLATE</p>
+      <h3>${tr(locale, "Template details", "模板设置")}</h3></div>
+      <button type="button" data-template-dialog-close aria-label="${tr(locale, "Close", "关闭")}">×</button>
+    </header>
+    <input type="hidden" name="template_id"><input type="hidden" name="expected_hash">
+    <input type="hidden" name="source_kind" value="created"><input type="hidden" name="source_label">
+    <label>${tr(locale, "Name", "名称")}<input name="name" required maxlength="120"></label>
+    <label>${tr(locale, "Layout", "布局")}<select name="layout">${layouts.map(([value, en, zh]) => `<option value="${value}">${tr(locale, en, zh)}</option>`).join("")}</select></label>
+    <div class="template-color-fields">${colorFields}</div>
+    <div class="dialog-actions">
+      <button type="button" data-template-dialog-close>${tr(locale, "CANCEL", "取消")}</button>
+      <button type="submit">${tr(locale, "SAVE TEMPLATE", "保存模板")}</button>
+    </div><p role="status" data-template-dialog-status></p>
+  </form></dialog>`;
+}
+
+function templateColorField(name: string, en: string, zh: string, value: string, locale: Locale): string {
+  return `<label>${tr(locale, en, zh)}<input type="color" name="${name}" value="${value}" required></label>`;
+}
+
+function presentationTemplateTrashDialog(locale: Locale): string {
+  return `<dialog id="presentation-template-trash" class="restork-dialog template-dialog"><section><header><div>
+    <p class="eyebrow">TEMPLATE TRASH</p><h3>${tr(locale, "Deleted templates", "模板回收站")}</h3>
+    </div><button type="button" data-template-trash-close aria-label="${tr(locale, "Close", "关闭")}">×</button>
+    </header><div data-template-trash-list>
+      <p class="empty">${tr(locale, "Loading…", "正在加载…")}</p>
+    </div><div data-template-trash-page></div></section></dialog>`;
 }
 
 function aiReportForm(snapshot: DashboardSnapshot, locale: Locale): string {
@@ -1395,7 +1571,7 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
           <button type="submit">${tr(locale, "SAVE LOCALLY", "保存到本地")}</button><p id="personal-settings-status" role="status"></p>
         </form>
         <p class="fine">${tr(locale, "Your display name is not sent to a model unless a run setup explicitly includes it.", "称呼默认不会发送给模型；只有你在运行配置中明确开启后才会包含它。")}</p>
-        <div class="getting-started-return"><div><strong>${tr(locale, "Getting started", "首次使用引导")}</strong><small>${tr(locale, "Reopen the optional setup checklist at any time.", "随时重新打开可跳过的三步设置清单。")}</small></div><button type="button" class="quiet-button" data-onboarding-reopen>${tr(locale, "SHOW CHECKLIST", "重新打开清单")}</button><p data-onboarding-state role="status" aria-live="polite"></p></div>
+        <div class="getting-started-return"><div><strong>${tr(locale, "Start page", "开始页")}</strong><small>${tr(locale, "Return to the focused task launcher at any time.", "随时回到一句话发起任务的开始页。")}</small></div><button type="button" class="quiet-button" data-start-page-return>${tr(locale, "OPEN START", "打开开始页")}</button></div>
       </section>
       <section class="settings-section"><header><div><small>KNOWLEDGE BASE</small><h3>${tr(locale, "Vault directory", "知识库目录")}</h3></div></header>
         <form id="vault-dir-form">
@@ -1837,14 +2013,43 @@ function overview(snapshot: DashboardSnapshot, locale: Locale): string {
   const run = snapshot.runs[0];
   const approval = snapshot.approvals.find((item) => item.decision === "pending");
   const tasks = snapshot.taskBoard.tasks.filter((task) => !task.completed).slice(0, 3);
+  const runSummary = run
+    ? runCard(run, locale)
+    : emptyCard(
+      tr(locale, "Runs", "运行"),
+      tr(locale, "No runs yet. Choose Research or Work to begin.", "还没有运行。选择 Research 或 Work 开始。"),
+      true,
+    );
+  const approvalSummary = approval
+    ? approvalCard(approval, locale, true)
+    : emptyCard(
+      tr(locale, "Approvals", "审批"),
+      tr(locale, "No actions are waiting for approval.", "没有待审批动作。"),
+      true,
+    );
+  const taskRows = tasks.length
+    ? tasks.map((task) => {
+      const priority = escapeHtml(String(task.fields.priority ?? "P–"));
+      const origin = task.origin === "vault"
+        ? tr(locale, "Synced from Vault", "来自知识库同步")
+        : task.origin === "model"
+          ? tr(locale, "Accepted model suggestion", "已确认的模型建议")
+          : tr(locale, "Added by you", "由你添加");
+      return `<p class="task-row"><b>${priority}</b>${escapeHtml(cleanTaskText(task.text))}<small>${origin}</small></p>`;
+    }).join("")
+    : `<p class="empty">${tr(locale, "No incomplete tasks. Add one yourself or ask the model for suggestions.", "没有未完成任务；你可以自己添加，也可以让模型先给出建议。")}</p>`;
+  const radarRows = snapshot.radar.items.slice(0, 4).map((item) => radarSummary(item, locale)).join("")
+    || `<p class="empty">${snapshot.radar.configured
+      ? tr(locale, "The next public refresh will appear here.", "下一次公开来源刷新后会显示在这里。")
+      : tr(locale, "Choose public Radar sources to begin.", "选择公开 Radar 来源后开始。")}</p>`;
   return `<div class="board">
-    ${run ? runCard(run, locale) : emptyCard(tr(locale, "Runs", "运行"), tr(locale, "No runs yet. Choose Research or Work to begin.", "还没有运行。选择 Research 或 Work 开始。"))}
-    ${approval ? approvalCard(approval, locale) : emptyCard(tr(locale, "Approvals", "审批"), tr(locale, "No actions are waiting for approval.", "没有待审批动作。"))}
-    <article class="paper-card"><header><h2>${tr(locale, "Tasks", "任务")}</h2><span class="ribbon work">LOCAL FIRST</span></header>
-      ${tasks.length ? tasks.map((task) => `<p class="task-row"><b>${escapeHtml(String(task.fields.priority ?? "P–"))}</b>${escapeHtml(cleanTaskText(task.text))}<small>${task.origin === "vault" ? tr(locale, "Synced from Vault", "来自知识库同步") : task.origin === "model" ? tr(locale, "Accepted model suggestion", "已确认的模型建议") : tr(locale, "Added by you", "由你添加")}</small></p>`).join("") : `<p class="empty">${tr(locale, "No incomplete tasks. Add one yourself or ask the model for suggestions.", "没有未完成任务；你可以自己添加，也可以让模型先给出建议。")}</p>`}
+    ${runSummary}
+    ${approvalSummary}
+    <article class="paper-card dashboard-card"><header><h2>${tr(locale, "Tasks", "任务")}</h2><span class="ribbon work">${tr(locale, "YOUR LIST", "你的清单")}</span></header>
+      <div class="dashboard-card-body">${taskRows}</div>
     </article>
-    <article class="paper-card radar-summary"><header><h2>${tr(locale, "Radar highlights", "雷达精选")}</h2><span class="ribbon radar">24H · 7D</span></header>
-      ${snapshot.radar.items.slice(0, 4).map((item) => radarSummary(item, locale)).join("") || `<p class="empty">${snapshot.radar.configured ? tr(locale, "The next public refresh will appear here.", "下一次公开来源刷新后会显示在这里。") : tr(locale, "Choose public Radar sources to begin.", "选择公开 Radar 来源后开始。")}</p>`}
+    <article class="paper-card radar-summary dashboard-card"><header><h2>${tr(locale, "Radar highlights", "雷达精选")}</h2><span class="ribbon radar">24H · 7D</span></header>
+      <div class="dashboard-card-body">${radarRows}</div>
     </article>
   </div>`;
 }
@@ -2033,24 +2238,72 @@ function runCard(run: RunListEntry, locale: Locale): string {
   const usage = run.budget?.usage;
   const budget = run.budget?.budget;
   const tokenRatio = usage && budget?.max_tokens ? Math.min(100, (usage.tokens / budget.max_tokens) * 100) : 0;
-  return `<article class="paper-card run-card"><header><h2>${tr(locale, "Latest run", "最近运行")}</h2><span class="ribbon ${escapeHtml(run.summary.mode)}">${escapeHtml(run.summary.mode)}</span></header>
-    <p class="run-title">${escapeHtml(run.task?.goal ?? run.summary.task_id)}</p>
+  return `<article class="paper-card run-card dashboard-card"><header>
+    <h2>${tr(locale, "Latest run", "最近运行")}</h2>
+    <span class="ribbon ${escapeHtml(run.summary.mode)}">${escapeHtml(modeLabel(run.summary.mode, locale))}</span></header>
+    <div class="dashboard-card-body"><p class="run-title">${escapeHtml(run.task?.goal ?? run.summary.task_id)}</p>
     <progress class="progress-native" aria-label="Token budget ${tokenRatio.toFixed(0)}%" max="100" value="${tokenRatio.toFixed(1)}">${tokenRatio.toFixed(0)}%</progress>
-    <p class="fine">${escapeHtml(run.summary.state)} · ${usage?.tokens ?? 0} tokens · ${formatDate(run.summary.updated_at, locale)}</p>
+    <p class="fine">${escapeHtml(runStateLabel(run.summary.state, locale))} · ${usage?.tokens ?? 0} tokens · ${formatDate(run.summary.updated_at, locale)}</p></div>
   </article>`;
 }
 
-function approvalCard(approval: ApprovalRequest, locale: Locale): string {
+function approvalCard(approval: ApprovalRequest, locale: Locale, dashboardCard = false): string {
   const pending = approval.decision === "pending";
   const taskReady =
     approval.decision === "approved" &&
     (approval.action_kind === "task_write" || approval.action_kind === "vault_write");
-  return `<article class="paper-card approval-card"><header><h2>${tr(locale, "Approval request", "审批请求")}</h2><span class="ribbon approval">${escapeHtml(approval.decision)}</span></header>
-    <p class="run-title">${escapeHtml(approval.human_summary)}</p>
-    <dl class="metadata compact"><div><dt>${tr(locale, "TARGET", "目标")}</dt><dd>${escapeHtml(approval.canonical_scope)}</dd></div><div><dt>${tr(locale, "RULE VERSION", "规则版本")}</dt><dd>${escapeHtml(approval.policy_version)}</dd></div><div><dt>${tr(locale, "CONTENT FINGERPRINT", "内容指纹")}</dt><dd>${escapeHtml(approval.action_digest.slice(0, 16))}…</dd></div><div><dt>${tr(locale, "EXPIRES", "失效时间")}</dt><dd>${formatDate(approval.expires_at, locale)}</dd></div></dl>
-    ${pending ? `<div class="stamps"><button class="stamp approve" type="button" data-approval-id="${escapeHtml(approval.approval_id)}" data-action-kind="${escapeHtml(approval.action_kind)}" data-decision="approve">${tr(locale, "APPROVE", "批准")}</button><button class="stamp reject" type="button" data-approval-id="${escapeHtml(approval.approval_id)}" data-action-kind="${escapeHtml(approval.action_kind)}" data-decision="reject">${tr(locale, "REJECT", "拒绝")}</button></div>` : ""}
-    ${taskReady ? `<div class="stamps"><button class="stamp approve" type="button" data-task-apply="${escapeHtml(approval.approval_id)}" data-action-kind="${escapeHtml(approval.action_kind)}">${tr(locale, "APPLY WRITE", "应用写入")}</button></div>` : ""}
+  const body = `<p class="run-title">${escapeHtml(approvalSummary(approval, locale))}</p>
+    <dl class="metadata compact">
+      <div><dt>${tr(locale, "TARGET", "目标")}</dt><dd>${escapeHtml(approval.canonical_scope)}</dd></div>
+      <div><dt>${tr(locale, "RULE VERSION", "规则版本")}</dt><dd>${escapeHtml(approval.policy_version)}</dd></div>
+      <div><dt>${tr(locale, "CONTENT FINGERPRINT", "内容指纹")}</dt><dd>${escapeHtml(approval.action_digest.slice(0, 16))}…</dd></div>
+      <div><dt>${tr(locale, "EXPIRES", "失效时间")}</dt><dd>${formatDate(approval.expires_at, locale)}</dd></div>
+    </dl>
+    ${pending ? approvalButtons(approval, locale) : ""}
+    ${taskReady ? approvalApplyButton(approval, locale) : ""}`;
+  return `<article class="paper-card approval-card${dashboardCard ? " dashboard-card" : ""}"><header>
+    <h2>${tr(locale, "Approval request", "审批请求")}</h2>
+    <span class="ribbon approval">${escapeHtml(approval.decision)}</span></header>
+    ${dashboardCard ? `<div class="dashboard-card-body">${body}</div>` : body}
   </article>`;
+}
+
+function approvalSummary(approval: ApprovalRequest, locale: Locale): string {
+  const summary = approval.human_summary.trim();
+  if (locale !== "zh-CN" || /[\u3400-\u9fff]/u.test(summary)) return summary;
+
+  const taskChange = summary.match(/^Apply the reviewed Markdown task change to (.+)\?$/u);
+  if (taskChange) return `将刚才预览的 Markdown 任务改动写入「${taskChange[1]}」？`;
+
+  const handoff = summary.match(/^Export reviewed Work handoff (.+) to private artifacts\?$/u);
+  if (handoff) return `将工作交接稿「${handoff[1]}」导出到本地文件？`;
+
+  const toolCall = summary.match(/^Allow `([^`]+)` with the reviewed normalized arguments\?$/u);
+  if (toolCall) return `允许工具「${toolCall[1]}」使用刚才确认的参数运行？`;
+
+  const sourceBackedNote = summary.match(/^Append a source-backed (?:evidence card|note) to (.+)$/u);
+  if (sourceBackedNote) return `将带来源的内容写入「${sourceBackedNote[1]}」？`;
+
+  if (/^Export reviewed (?:synthetic )?(?:Work )?handoff(?: to private artifacts)?$/u.test(summary)) {
+    return "导出刚才确认的工作交接稿？";
+  }
+
+  return summary;
+}
+
+function approvalButtons(approval: ApprovalRequest, locale: Locale): string {
+  const id = escapeHtml(approval.approval_id);
+  const actionKind = escapeHtml(approval.action_kind);
+  return `<div class="stamps">
+    <button class="stamp approve" type="button" data-approval-id="${id}" data-action-kind="${actionKind}" data-decision="approve">${tr(locale, "APPROVE", "批准")}</button>
+    <button class="stamp reject" type="button" data-approval-id="${id}" data-action-kind="${actionKind}" data-decision="reject">${tr(locale, "REJECT", "拒绝")}</button>
+  </div>`;
+}
+
+function approvalApplyButton(approval: ApprovalRequest, locale: Locale): string {
+  return `<div class="stamps"><button class="stamp approve" type="button"
+    data-task-apply="${escapeHtml(approval.approval_id)}" data-action-kind="${escapeHtml(approval.action_kind)}">
+    ${tr(locale, "APPLY WRITE", "应用写入")}</button></div>`;
 }
 
 function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
@@ -2729,16 +2982,15 @@ function navButton(view: string, icon: string, label: string, active: boolean, c
   return `<button class="nav-item ${active ? "is-active" : ""}" type="button" data-view="${view}"${active ? ' aria-current="page"' : ""}><b class="icon">${icon}</b>${label}${badge}</button>`;
 }
 
-function modeButton(mode: string, icon: string, description: string): string {
-  return `<button class="mode" type="button" data-mode="${mode}" aria-controls="action-panel" aria-expanded="false" aria-pressed="false"><b class="icon ${mode}">${icon}</b><span><strong>${mode}</strong><small>${description}</small></span></button>`;
-}
-
 function metric(kind: string, label: string, value: string, note: string): string {
   return `<article class="metric ${kind}"><small>${label}</small><strong>${value}</strong><span>${escapeHtml(note)}</span></article>`;
 }
 
-function emptyCard(title: string, copy: string): string {
-  return `<article class="paper-card"><header><h2>${escapeHtml(title)}</h2></header><p class="empty">${escapeHtml(copy)}</p></article>`
+function emptyCard(title: string, copy: string, dashboardCard = false): string {
+  const body = `<p class="empty">${escapeHtml(copy)}</p>`;
+  const content = dashboardCard ? `<div class="dashboard-card-body">${body}</div>` : body;
+  return `<article class="paper-card${dashboardCard ? " dashboard-card" : ""}">
+    <header><h2>${escapeHtml(title)}</h2></header>${content}</article>`;
 }
 
 /**

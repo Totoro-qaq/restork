@@ -91,7 +91,7 @@ use restork_daily::{
 use restork_deliverables::{
     deck::{
         AssetRef, DeckAudience, DeckClaimDraft, DeckSpec, SlideDraft, SlideRole, SlideVisual,
-        SpeakerNoteDraft, ThemeRef, VisualKind,
+        SpeakerNoteDraft, ThemeLayout, ThemeRef, ThemeSnapshot, VisualKind,
     },
     evidence::{
         EvidenceLedger, EvidenceSource, EvidenceSourceKind, FactDraft, FactKind, Period,
@@ -553,6 +553,22 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
     ApiRouteDescription {
         path: "/v1/deliverables",
         methods: &["GET"],
+    },
+    ApiRouteDescription {
+        path: "/v1/deliverable-templates",
+        methods: &["GET", "POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/deliverable-templates/deleted",
+        methods: &["GET"],
+    },
+    ApiRouteDescription {
+        path: "/v1/deliverable-templates/{template_id}",
+        methods: &["PUT", "DELETE"],
+    },
+    ApiRouteDescription {
+        path: "/v1/deliverable-templates/{template_id}/restore",
+        methods: &["POST"],
     },
     ApiRouteDescription {
         path: "/v1/deliverables/reports",
@@ -1165,6 +1181,48 @@ struct DeckDraftCompose {
     audience: AudienceInput,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct PresentationTemplateSource {
+    kind: String,
+    #[serde(default)]
+    label: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PresentationTemplateInput {
+    name: String,
+    background: String,
+    foreground: String,
+    muted: String,
+    accent: String,
+    accent_secondary: String,
+    layout: ThemeLayout,
+    source: PresentationTemplateSource,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PresentationTemplateUpdate {
+    expected_hash: String,
+    template: PresentationTemplateInput,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PresentationTemplateRestore {
+    expected_hash: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct PresentationTemplateDocument {
+    schema_version: u8,
+    theme: ThemeSnapshot,
+    source: PresentationTemplateSource,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RenderPreviewCreate {
@@ -1590,6 +1648,19 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
             StatusCode::INTERNAL_SERVER_ERROR,
         )
     };
+    let (presentation_templates, presentation_template_next) = state
+        .storage
+        .as_ref()
+        .and_then(|storage| storage.deliverable_templates_page(None, 6, false).ok())
+        .map_or_else(
+            || (serde_json::json!([]), serde_json::Value::Null),
+            |page| {
+                (
+                    serde_json::to_value(page.items).unwrap_or_default(),
+                    serde_json::to_value(page.next).unwrap_or(serde_json::Value::Null),
+                )
+            },
+        );
     let apple_music_credential_present = NativeSecretStore
         .exists(apple_developer_token_reference())
         .await;
@@ -1607,6 +1678,11 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
             )
         },
     );
+    let has_completed_run = state
+        .storage
+        .as_ref()
+        .and_then(|storage| storage.has_completed_run().ok())
+        .unwrap_or(false);
     let (approvals, approvals_status) = state.storage.as_ref().map_or_else(
         || (serde_json::json!([]), unavailable.clone()),
         |storage| bootstrap_storage_value(storage.approvals(true, 12, 0), serde_json::json!([])),
@@ -1654,7 +1730,7 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
             ),
         ),
     };
-    let (radar, radar_status) = match feature_api::bootstrap_radar(&state) {
+    let (radar, radar_status) = match radar::bootstrap_radar(&state) {
         Ok(Some(value)) => (value, BootstrapDomainStatus::ready()),
         Ok(None) => (
             serde_json::json!({"configured": false, "items": []}),
@@ -1673,6 +1749,9 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
 
     Json(serde_json::json!({
         "runs": runs,
+        "firstRun": {
+            "has_completed_run": has_completed_run,
+        },
         "approvals": approvals,
         "taskBoard": task_board,
         "radar": radar,
@@ -1693,6 +1772,8 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
             "sessions": sessions,
             "extensions": extensions,
             "deliverables": deliverables,
+            "presentationTemplates": presentation_templates,
+            "presentationTemplateNext": presentation_template_next,
             "schedules": schedules,
             "providers": providers,
             "providerRegistry": {

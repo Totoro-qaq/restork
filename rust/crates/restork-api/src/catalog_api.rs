@@ -1021,16 +1021,17 @@ pub(crate) async fn compose_deck_from_report(
         Err(_) => return invalid_deliverable(),
     };
     let theme_id = payload.theme_id.as_deref().unwrap_or("restork-print");
-    let theme = match deck_theme_ref(theme_id) {
+    let (theme, theme_snapshot) = match deck_theme(&storage, theme_id) {
         Ok(theme) => theme,
         Err(response) => return response,
     };
-    let deck = match DeckSpec::build(
+    let deck = match DeckSpec::build_with_theme_snapshot(
         &payload.deck_id,
         payload.revision,
         payload.language,
         audience,
         theme,
+        theme_snapshot,
         &ledger,
         Vec::<AssetRef>::new(),
         claims,
@@ -1079,15 +1080,39 @@ struct ModelSlideOutput {
     speaker_notes: Vec<String>,
 }
 
-fn deck_theme_ref(theme_id: &str) -> Result<ThemeRef, Response> {
-    let Some(theme) = builtin_theme(theme_id) else {
-        return Err(error_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "unknown built-in presentation theme",
-        ));
-    };
-    ThemeRef::new(theme.theme_id, theme.version, theme.content_hash)
-        .map_err(|_| invalid_deliverable())
+fn deck_theme(
+    storage: &Database,
+    theme_id: &str,
+) -> Result<(ThemeRef, Option<ThemeSnapshot>), Response> {
+    if let Some(theme) = builtin_theme(theme_id) {
+        let reference = ThemeRef::new(theme.theme_id, theme.version, theme.content_hash)
+            .map_err(|_| invalid_deliverable())?;
+        return Ok((reference, None));
+    }
+    let record = storage
+        .deliverable_template(theme_id)
+        .map_err(storage_error_response)?
+        .ok_or_else(|| {
+            error_response(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "presentation template does not exist",
+            )
+        })?;
+    let document = serde_json::from_value::<PresentationTemplateDocument>(record.template)
+        .map_err(|_| invalid_deliverable())?;
+    if document.schema_version != 1 || document.theme.theme_id() != theme_id {
+        return Err(invalid_deliverable());
+    }
+    let reference = ThemeRef::new(
+        document.theme.theme_id(),
+        document.theme.version(),
+        document
+            .theme
+            .content_hash()
+            .map_err(|_| invalid_deliverable())?,
+    )
+    .map_err(|_| invalid_deliverable())?;
+    Ok((reference, Some(document.theme)))
 }
 
 fn deck_model_role_allowed(role: SlideRole) -> bool {
@@ -1122,7 +1147,7 @@ pub(crate) async fn compose_deck_draft(
     {
         return invalid_deliverable();
     }
-    let theme = match deck_theme_ref(&payload.theme_id) {
+    let (theme, theme_snapshot) = match deck_theme(&storage, &payload.theme_id) {
         Ok(theme) => theme,
         Err(response) => return response,
     };
@@ -1376,12 +1401,13 @@ pub(crate) async fn compose_deck_draft(
         Ok(audience) => audience,
         Err(_) => return invalid_deliverable(),
     };
-    let deck = match DeckSpec::build(
+    let deck = match DeckSpec::build_with_theme_snapshot(
         &payload.deck_id,
         payload.revision,
         payload.language,
         audience,
         theme,
+        theme_snapshot,
         &ledger,
         Vec::<AssetRef>::new(),
         claims,
@@ -1434,6 +1460,196 @@ pub(crate) async fn list_deliverables(State(state): State<ApiState>, request: Re
         Ok(page) => Json(page).into_response(),
         Err(error) => storage_error_response(error),
     }
+}
+
+pub(crate) async fn create_presentation_template(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), DELIVERABLES_COMPOSE) {
+        return *response;
+    }
+    let Some(storage) = state.storage else {
+        return storage_unavailable();
+    };
+    let input = match parse_json::<PresentationTemplateInput>(request, 32 * 1024).await {
+        Ok(input) => input,
+        Err(response) => return *response,
+    };
+    let template_id = match random_id("theme-user") {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let document = match presentation_template_document(&template_id, input) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let occurred_at = match now_rfc3339() {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let value = match serde_json::to_value(document) {
+        Ok(value) => value,
+        Err(_) => return invalid_deliverable(),
+    };
+    match storage.create_deliverable_template(&template_id, &value, &occurred_at) {
+        Ok(record) => (StatusCode::CREATED, Json(record)).into_response(),
+        Err(error) => storage_error_response(error),
+    }
+}
+
+pub(crate) async fn list_presentation_templates(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Response {
+    list_presentation_template_page(state, request, false)
+}
+
+pub(crate) async fn list_deleted_presentation_templates(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Response {
+    list_presentation_template_page(state, request, true)
+}
+
+fn list_presentation_template_page(state: ApiState, request: Request, deleted: bool) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), DELIVERABLES_READ) {
+        return *response;
+    }
+    let Some(storage) = state.storage else {
+        return storage_unavailable();
+    };
+    let query = request.uri().query();
+    let limit = match bounded_usize_query(query, "limit", 6, 24) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let cursor = match catalog_cursor(query) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    match storage.deliverable_templates_page(cursor.as_ref(), limit, deleted) {
+        Ok(page) => Json(page).into_response(),
+        Err(error) => storage_error_response(error),
+    }
+}
+
+pub(crate) async fn update_presentation_template(
+    State(state): State<ApiState>,
+    Path(template_id): Path<String>,
+    request: Request,
+) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), DELIVERABLES_COMPOSE) {
+        return *response;
+    }
+    let Some(storage) = state.storage else {
+        return storage_unavailable();
+    };
+    let payload = match parse_json::<PresentationTemplateUpdate>(request, 32 * 1024).await {
+        Ok(value) => value,
+        Err(response) => return *response,
+    };
+    let document = match presentation_template_document(&template_id, payload.template) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let occurred_at = match now_rfc3339() {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let value = match serde_json::to_value(document) {
+        Ok(value) => value,
+        Err(_) => return invalid_deliverable(),
+    };
+    match storage.update_deliverable_template(
+        &template_id,
+        &payload.expected_hash,
+        &value,
+        &occurred_at,
+    ) {
+        Ok(record) => Json(record).into_response(),
+        Err(error) => storage_error_response(error),
+    }
+}
+
+pub(crate) async fn delete_presentation_template(
+    State(state): State<ApiState>,
+    Path(template_id): Path<String>,
+    request: Request,
+) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), DELIVERABLES_COMPOSE) {
+        return *response;
+    }
+    let Some(storage) = state.storage else {
+        return storage_unavailable();
+    };
+    let expected_hash = match single_query_value(request.uri().query(), "expected_hash") {
+        Ok(Some(value)) => value,
+        _ => return invalid_query(),
+    };
+    let occurred_at = match now_rfc3339() {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    match storage.soft_delete_deliverable_template(&template_id, &expected_hash, &occurred_at) {
+        Ok(record) => Json(record).into_response(),
+        Err(error) => storage_error_response(error),
+    }
+}
+
+pub(crate) async fn restore_presentation_template(
+    State(state): State<ApiState>,
+    Path(template_id): Path<String>,
+    request: Request,
+) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), DELIVERABLES_COMPOSE) {
+        return *response;
+    }
+    let Some(storage) = state.storage else {
+        return storage_unavailable();
+    };
+    let payload = match parse_json::<PresentationTemplateRestore>(request, 8 * 1024).await {
+        Ok(value) => value,
+        Err(response) => return *response,
+    };
+    let occurred_at = match now_rfc3339() {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    match storage.restore_deliverable_template(&template_id, &payload.expected_hash, &occurred_at) {
+        Ok(record) => Json(record).into_response(),
+        Err(error) => storage_error_response(error),
+    }
+}
+
+fn presentation_template_document(
+    template_id: &str,
+    input: PresentationTemplateInput,
+) -> Result<PresentationTemplateDocument, Response> {
+    if !matches!(input.source.kind.as_str(), "created" | "image" | "pptx")
+        || input.source.label.as_ref().is_some_and(|label| {
+            label.trim().is_empty() || label.len() > 240 || label.contains('\0')
+        })
+    {
+        return Err(invalid_deliverable());
+    }
+    let theme = ThemeSnapshot::new(
+        template_id,
+        1,
+        input.name,
+        input.background,
+        input.foreground,
+        input.muted,
+        input.accent,
+        input.accent_secondary,
+        input.layout,
+    )
+    .map_err(|_| invalid_deliverable())?;
+    Ok(PresentationTemplateDocument {
+        schema_version: 1,
+        theme,
+        source: input.source,
+    })
 }
 pub(crate) async fn preview_deliverable_render(
     State(state): State<ApiState>,

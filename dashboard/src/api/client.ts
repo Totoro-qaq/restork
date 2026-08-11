@@ -61,6 +61,10 @@ import type {
   MailSnapshot,
   DeckFromReportInputV2,
   DeckDraftInputV2,
+  CatalogCursorV2,
+  PresentationTemplateInputV2,
+  PresentationTemplatePageV2,
+  PresentationTemplateRecordV2,
   ScheduleCreateInputV2,
   SchedulePageV2,
   ScheduleRecordV2,
@@ -587,6 +591,67 @@ export class LocalApiClient implements DashboardApi {
     );
   }
 
+  async createPresentationTemplate(
+    input: PresentationTemplateInputV2,
+  ): Promise<PresentationTemplateRecordV2> {
+    return this.#request<PresentationTemplateRecordV2>(
+      "POST",
+      "/v1/deliverable-templates",
+      input,
+    );
+  }
+
+  async updatePresentationTemplate(
+    templateId: string,
+    expectedHash: string,
+    input: PresentationTemplateInputV2,
+  ): Promise<PresentationTemplateRecordV2> {
+    return this.#request<PresentationTemplateRecordV2>(
+      "PUT",
+      `/v1/deliverable-templates/${encodeURIComponent(templateId)}`,
+      { expected_hash: expectedHash, template: input },
+    );
+  }
+
+  async listPresentationTemplates(
+    cursor?: CatalogCursorV2,
+  ): Promise<PresentationTemplatePageV2> {
+    return this.#request<PresentationTemplatePageV2>(
+      "GET",
+      presentationTemplatePagePath("/v1/deliverable-templates", cursor),
+    );
+  }
+
+  async listDeletedPresentationTemplates(
+    cursor?: CatalogCursorV2,
+  ): Promise<PresentationTemplatePageV2> {
+    return this.#request<PresentationTemplatePageV2>(
+      "GET",
+      presentationTemplatePagePath("/v1/deliverable-templates/deleted", cursor),
+    );
+  }
+
+  async deletePresentationTemplate(
+    templateId: string,
+    expectedHash: string,
+  ): Promise<PresentationTemplateRecordV2> {
+    return this.#request<PresentationTemplateRecordV2>(
+      "DELETE",
+      `/v1/deliverable-templates/${encodeURIComponent(templateId)}?expected_hash=${encodeURIComponent(expectedHash)}`,
+    );
+  }
+
+  async restorePresentationTemplate(
+    templateId: string,
+    expectedHash: string,
+  ): Promise<PresentationTemplateRecordV2> {
+    return this.#request<PresentationTemplateRecordV2>(
+      "POST",
+      `/v1/deliverable-templates/${encodeURIComponent(templateId)}/restore`,
+      { expected_hash: expectedHash },
+    );
+  }
+
   async previewDeliverableRender(
     deliverableId: string,
     revision: number,
@@ -716,7 +781,10 @@ export class LocalApiClient implements DashboardApi {
       return { kind, items: payload.tasks, page: payload.page, configured: payload.configured, vault_configured: payload.vault_configured };
     }
     if (kind === "radar") {
-      const payload = await this.#request<DashboardSnapshot["radar"] & { page: DashboardListPage["page"] }>("GET", `/v1/radar?limit=12&cursor=${encoded}`);
+      // Radar combines independently ranked GitHub and Hacker News lanes.
+      // A twelve-item global page lets high GitHub star counts crowd every HN
+      // item out of the first view even when both feeds are cached locally.
+      const payload = await this.#request<DashboardSnapshot["radar"] & { page: DashboardListPage["page"] }>("GET", `/v1/radar?limit=50&cursor=${encoded}`);
       return { kind, items: payload.items, page: payload.page, configured: payload.configured };
     }
     const payload = await this.#request<NonNullable<DashboardSnapshot["memory"]> & { page: DashboardListPage["page"] }>("GET", `/v1/memory?limit=12&cursor=${encoded}`);
@@ -1470,6 +1538,16 @@ export function systemTimeZone(): string {
 function schedulePagePath(path: string, cursor?: string): string {
   const suffix = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
   return `${path}?limit=20${suffix}`;
+}
+
+function presentationTemplatePagePath(path: string, cursor?: CatalogCursorV2): string {
+  const query = new URLSearchParams({ limit: "6" });
+  if (cursor) {
+    query.set("after_time", cursor.updated_at);
+    query.set("after_id", cursor.id);
+    query.set("after_version", String(cursor.version));
+  }
+  return `${path}?${query.toString()}`;
 }
 
 export class ApiError extends Error {

@@ -7,9 +7,11 @@ fn main() {
         "desktop_vault_config",
         "desktop_choose_vault",
         "desktop_apply_vault",
+        "desktop_choose_workspace",
         "desktop_configure_provider_secret",
         "desktop_onboarding_state",
         "desktop_set_onboarding_dismissed",
+        "desktop_open_external",
         "desktop_retry",
         "desktop_quit",
     ];

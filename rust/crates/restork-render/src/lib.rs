@@ -3,6 +3,7 @@
 //! The renderer accepts only the already validated deck artifact. It performs no
 //! network, filesystem, process, template, macro, or secret access.
 
+use restork_deliverables::deck::{ThemeLayout, ThemeSnapshot};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -215,9 +216,53 @@ struct DeckView {
     spec_hash: String,
     ledger_hash: String,
     theme_hash: String,
-    theme: &'static RenderTheme,
+    theme: ResolvedRenderTheme,
     language: String,
     slides: Vec<SlideView>,
+}
+
+#[derive(Clone)]
+struct ResolvedRenderTheme {
+    name_en: String,
+    background: String,
+    foreground: String,
+    muted: String,
+    accent: String,
+    accent_secondary: String,
+    layout: RenderLayout,
+}
+
+impl ResolvedRenderTheme {
+    fn builtin(theme: &RenderTheme) -> Self {
+        Self {
+            name_en: theme.name_en.to_owned(),
+            background: theme.background.to_owned(),
+            foreground: theme.foreground.to_owned(),
+            muted: theme.muted.to_owned(),
+            accent: theme.accent.to_owned(),
+            accent_secondary: theme.accent_secondary.to_owned(),
+            layout: theme.layout,
+        }
+    }
+
+    fn snapshot(theme: &ThemeSnapshot) -> Self {
+        Self {
+            name_en: theme.name().to_owned(),
+            background: theme.background().to_owned(),
+            foreground: theme.foreground().to_owned(),
+            muted: theme.muted().to_owned(),
+            accent: theme.accent().to_owned(),
+            accent_secondary: theme.accent_secondary().to_owned(),
+            layout: match theme.layout() {
+                ThemeLayout::Editorial => RenderLayout::Editorial,
+                ThemeLayout::Minimal => RenderLayout::Minimal,
+                ThemeLayout::Spotlight => RenderLayout::Spotlight,
+                ThemeLayout::Research => RenderLayout::Research,
+                ThemeLayout::Narrative => RenderLayout::Narrative,
+                ThemeLayout::Blueprint => RenderLayout::Blueprint,
+            },
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -286,23 +331,45 @@ impl DeckView {
             .filter(|value| is_digest(value))
             .ok_or(RenderError::InvalidDeck)?
             .to_owned();
-        let theme = object
+        let theme_ref = object
             .get("theme")
             .and_then(Value::as_object)
             .ok_or(RenderError::InvalidDeck)?;
-        let theme_id = theme
+        let theme_id = theme_ref
             .get("theme_id")
             .and_then(Value::as_str)
             .ok_or(RenderError::InvalidDeck)?;
-        let theme = builtin_theme(theme_id).ok_or(RenderError::InvalidDeck)?;
-        let theme_hash = object
-            .get("theme")
-            .and_then(Value::as_object)
-            .and_then(|value| value.get("content_hash"))
+        let theme_version = theme_ref
+            .get("version")
+            .and_then(Value::as_u64)
+            .filter(|version| *version > 0)
+            .ok_or(RenderError::InvalidDeck)?;
+        let theme_hash = theme_ref
+            .get("content_hash")
             .and_then(Value::as_str)
-            .filter(|value| is_digest(value) && *value == theme.content_hash)
+            .filter(|value| is_digest(value))
             .ok_or(RenderError::InvalidDeck)?
             .to_owned();
+        let theme = if let Some(snapshot) = object.get("theme_snapshot") {
+            let snapshot = serde_json::from_value::<ThemeSnapshot>(snapshot.clone())
+                .map_err(|_| RenderError::InvalidDeck)?;
+            let snapshot_hash = snapshot
+                .content_hash()
+                .map_err(|_| RenderError::InvalidDeck)?;
+            if snapshot.theme_id() != theme_id
+                || snapshot.version() != theme_version
+                || snapshot_hash != theme_hash
+            {
+                return Err(RenderError::InvalidDeck);
+            }
+            ResolvedRenderTheme::snapshot(&snapshot)
+        } else {
+            let builtin = builtin_theme(theme_id).ok_or(RenderError::InvalidDeck)?;
+            if builtin.version != theme_version || builtin.content_hash != theme_hash {
+                return Err(RenderError::InvalidDeck);
+            }
+            ResolvedRenderTheme::builtin(builtin)
+        };
         let language = bounded_text(object.get("language"), 64)?;
         let claims = object
             .get("claims")
@@ -445,11 +512,11 @@ fn render_pptx(deck: &DeckView) -> Result<Vec<u8>, RenderError> {
         "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
         LAYOUT_RELS.as_bytes().to_vec(),
     )?;
-    archive.add("ppt/theme/theme1.xml", theme_xml(deck.theme).into_bytes())?;
+    archive.add("ppt/theme/theme1.xml", theme_xml(&deck.theme).into_bytes())?;
     for (index, slide) in deck.slides.iter().enumerate() {
         archive.add(
             &format!("ppt/slides/slide{}.xml", index + 1),
-            slide_xml(slide, &deck.language, deck.theme, index).into_bytes(),
+            slide_xml(slide, &deck.language, &deck.theme, index).into_bytes(),
         )?;
         archive.add(
             &format!("ppt/slides/_rels/slide{}.xml.rels", index + 1),
@@ -506,7 +573,12 @@ fn presentation_relationships(slides: usize) -> String {
     )
 }
 
-fn slide_xml(slide: &SlideView, language: &str, theme: &RenderTheme, index: usize) -> String {
+fn slide_xml(
+    slide: &SlideView,
+    language: &str,
+    theme: &ResolvedRenderTheme,
+    index: usize,
+) -> String {
     let layout = layout_metrics(theme.layout);
     let bullets = slide
         .lines
@@ -653,11 +725,11 @@ const fn layout_metrics(layout: RenderLayout) -> LayoutMetrics {
     }
 }
 
-fn accent_shape(theme: &RenderTheme, index: usize) -> String {
+fn accent_shape(theme: &ResolvedRenderTheme, index: usize) -> String {
     let color = if index.is_multiple_of(2) {
-        theme.accent
+        theme.accent.as_str()
     } else {
-        theme.accent_secondary
+        theme.accent_secondary.as_str()
     };
     match theme.layout {
         RenderLayout::Editorial => filled_rect(4, "Accent", 0, 0, 114_300, 6_858_000, color),
@@ -675,7 +747,7 @@ fn accent_shape(theme: &RenderTheme, index: usize) -> String {
                 0,
                 11_506_200,
                 57_150,
-                theme.accent_secondary
+                &theme.accent_secondary
             )
         ),
         RenderLayout::Narrative => {
@@ -691,7 +763,7 @@ fn accent_shape(theme: &RenderTheme, index: usize) -> String {
                 0,
                 11_963_400,
                 57_150,
-                theme.accent_secondary
+                &theme.accent_secondary
             )
         ),
     }
@@ -725,7 +797,7 @@ fn render_pdf(deck: &DeckView) -> Result<Vec<u8>, RenderError> {
         let content_id = page_id + 1;
         page_refs.push(format!("{page_id} 0 R"));
         objects.push(format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 960 540] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >>").into_bytes());
-        let stream = pdf_page(slide, deck.theme);
+        let stream = pdf_page(slide, &deck.theme);
         objects.push(
             format!(
                 "<< /Length {} >>\nstream\n{}\nendstream",
@@ -766,11 +838,11 @@ fn render_pdf(deck: &DeckView) -> Result<Vec<u8>, RenderError> {
     Ok(output)
 }
 
-fn pdf_page(slide: &SlideView, theme: &RenderTheme) -> String {
+fn pdf_page(slide: &SlideView, theme: &ResolvedRenderTheme) -> String {
     let layout = layout_metrics(theme.layout);
-    let background = pdf_rgb(theme.background);
-    let foreground = pdf_rgb(theme.foreground);
-    let accent = pdf_rgb(theme.accent);
+    let background = pdf_rgb(&theme.background);
+    let foreground = pdf_rgb(&theme.foreground);
+    let accent = pdf_rgb(&theme.accent);
     let (accent_command, title_x, title_y, body_x, mut y) = match theme.layout {
         RenderLayout::Editorial => (format!("q {accent} rg 0 0 8 540 re f Q"), 60, 470, 75, 410),
         RenderLayout::Minimal => (
@@ -992,10 +1064,10 @@ const MASTER_RELS: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\
 const LAYOUT_RELS: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster\" Target=\"../slideMasters/slideMaster1.xml\"/></Relationships>";
 const SLIDE_MASTER: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><p:sldMaster xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld><p:clrMap accent1=\"accent1\" accent2=\"accent2\" accent3=\"accent3\" accent4=\"accent4\" accent5=\"accent5\" accent6=\"accent6\" bg1=\"lt1\" bg2=\"lt2\" folHlink=\"folHlink\" hlink=\"hlink\" tx1=\"dk1\" tx2=\"dk2\"/><p:sldLayoutIdLst><p:sldLayoutId id=\"1\" r:id=\"rId1\"/></p:sldLayoutIdLst><p:txStyles><p:titleStyle/><p:bodyStyle/><p:otherStyle/></p:txStyles></p:sldMaster>";
 const SLIDE_LAYOUT: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><p:sldLayout xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\" type=\"blank\" preserve=\"1\"><p:cSld name=\"Blank\"><p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>";
-fn theme_xml(theme: &RenderTheme) -> String {
+fn theme_xml(theme: &ResolvedRenderTheme) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><a:theme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"Restork {}\"><a:themeElements><a:clrScheme name=\"Restork\"><a:dk1><a:srgbClr val=\"{}\"/></a:dk1><a:lt1><a:srgbClr val=\"{}\"/></a:lt1><a:dk2><a:srgbClr val=\"{}\"/></a:dk2><a:lt2><a:srgbClr val=\"{}\"/></a:lt2><a:accent1><a:srgbClr val=\"{}\"/></a:accent1><a:accent2><a:srgbClr val=\"{}\"/></a:accent2><a:accent3><a:srgbClr val=\"{}\"/></a:accent3><a:accent4><a:srgbClr val=\"F39819\"/></a:accent4><a:accent5><a:srgbClr val=\"40B98A\"/></a:accent5><a:accent6><a:srgbClr val=\"AF6BCE\"/></a:accent6><a:hlink><a:srgbClr val=\"{}\"/></a:hlink><a:folHlink><a:srgbClr val=\"{}\"/></a:folHlink></a:clrScheme><a:fontScheme name=\"Restork\"><a:majorFont><a:latin typeface=\"Arial\"/><a:ea typeface=\"Microsoft YaHei\"/><a:cs typeface=\"Arial\"/></a:majorFont><a:minorFont><a:latin typeface=\"Arial\"/><a:ea typeface=\"Microsoft YaHei\"/><a:cs typeface=\"Arial\"/></a:minorFont></a:fontScheme><a:fmtScheme name=\"Restork\"><a:fillStyleLst><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w=\"6350\"><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>",
-        xml(theme.name_en),
+        xml(&theme.name_en),
         theme.foreground,
         theme.background,
         theme.muted,
@@ -1011,6 +1083,7 @@ fn theme_xml(theme: &RenderTheme) -> String {
 #[cfg(test)]
 mod tests {
     use super::{RenderFormat, builtin_themes, render_deck};
+    use restork_deliverables::deck::{ThemeLayout, ThemeSnapshot};
     use serde_json::json;
 
     fn deck() -> serde_json::Value {
@@ -1022,6 +1095,7 @@ mod tests {
             "ledger_hash": "b".repeat(64),
             "theme": {
                 "theme_id": "restork-print",
+                "version": 1,
                 "content_hash": builtin_themes()[0].content_hash
             },
             "claims": {"claim-1": {"text": "本地优先 keeps private context local.", "citation_refs": ["source-1"]}},
@@ -1054,6 +1128,7 @@ mod tests {
             let mut value = deck();
             value["theme"] = json!({
                 "theme_id": theme.theme_id,
+                "version": theme.version,
                 "content_hash": theme.content_hash,
             });
             let pptx = render_deck(&value, RenderFormat::Pptx).expect("pptx");
@@ -1093,5 +1168,38 @@ mod tests {
         assert!(rendered.bytes.starts_with(b"%PDF-1.7"));
         assert!(rendered.bytes.ends_with(b"%%EOF\n"));
         assert!(rendered.bytes.windows(4).any(|part| part == b"xref"));
+    }
+
+    #[test]
+    fn renders_a_frozen_user_theme_without_files_or_external_assets() {
+        let snapshot = ThemeSnapshot::new(
+            "theme-user-fixture",
+            1,
+            "Team review",
+            "FFF7ED",
+            "431407",
+            "9A6B55",
+            "EA580C",
+            "E11D48",
+            ThemeLayout::Narrative,
+        )
+        .expect("snapshot");
+        let mut value = deck();
+        value["theme"] = json!({
+            "theme_id": snapshot.theme_id(),
+            "version": snapshot.version(),
+            "content_hash": snapshot.content_hash().expect("hash"),
+        });
+        value["theme_snapshot"] = serde_json::to_value(&snapshot).expect("serialize snapshot");
+
+        let rendered = render_deck(&value, RenderFormat::Pptx).expect("custom theme pptx");
+        assert!(rendered.manifest.macro_free);
+        assert_eq!(
+            rendered.manifest.theme_hash,
+            snapshot.content_hash().expect("hash")
+        );
+
+        value["theme_snapshot"]["accent"] = json!("000000");
+        assert!(render_deck(&value, RenderFormat::Pptx).is_err());
     }
 }

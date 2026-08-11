@@ -19,5 +19,8 @@
     "typescript-eslint": "^8.0.0",
     "vite": "^7.0.0",
     "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
   }
 }

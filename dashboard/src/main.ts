@@ -1,7 +1,7 @@
 import "./styles.css";
 
 import { LocalApiClient, systemTimeZone } from "./api/client";
-import { detectDesktopBridge } from "./desktop";
+import { bindDesktopExternalLinks, detectDesktopBridge } from "./desktop";
 import type { DesktopBridge } from "./desktop";
 import type {
   ConversationTurn,
@@ -63,6 +63,9 @@ import {
   openVaultWorkspace,
   stopVaultStream,
 } from "./features/vault";
+import { configurePresentationTemplates } from "./features/presentationTemplates";
+import { configureStartWorkspace } from "./features/start";
+import { rememberPresentationThemeId } from "./deliverables/themes";
 import {
   alternateLocale,
   detectLocale,
@@ -80,7 +83,13 @@ interface MountOptions {
 }
 
 const coverUrls = new WeakMap<HTMLElement, string>();
-const eventStreams = new WeakMap<HTMLElement, AbortController>();
+interface EventStreamEntry {
+  runId: string;
+  controller: AbortController;
+  listeners: Map<string, (event: RunEvent) => void>;
+}
+
+const eventStreams = new WeakMap<HTMLElement, EventStreamEntry>();
 const mailStreams = new WeakMap<HTMLElement, AbortController>();
 const conversationStreams = new WeakMap<HTMLElement, {
   controller: AbortController;
@@ -91,6 +100,10 @@ const conversationStreams = new WeakMap<HTMLElement, {
 // The user's choice therefore lives outside the DOM and is restored after render.
 const selectedSessions = new WeakMap<HTMLElement, string>();
 const dismissHandlers = new WeakMap<HTMLElement, (event: KeyboardEvent) => void>();
+// A locale change or ordinary workspace refresh rebuilds the DOM on the same
+// root. Radar's startup refresh should happen once per opened workspace, not
+// once per render. Manual navigation and the Refresh button remain available.
+const radarStartupRefreshes = new WeakSet<HTMLElement>();
 
 /**
  * Escape closes the topmost dismissible surface regardless of where focus sits.
@@ -321,7 +334,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   });
   bindDismissStack(root);
   bindLocaleSwitch(root, () => {
-    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "overview";
+    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "start";
     renderWorkspace(root, api, snapshot);
     selectView(root, view);
     if (view === "vault") void openVaultWorkspace(root, api);
@@ -333,6 +346,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
       selectView(root, view);
       if (view === "vault") void openVaultWorkspace(root, api);
       if (view === "radar") void refreshRadarPanel(root, api, snapshot);
+      if (view === "start") resumeStartRunFromSnapshot(root, api, snapshot);
     });
   });
   const nav = root.querySelector<HTMLElement>(".sidebar nav");
@@ -342,6 +356,25 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   });
   root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
     button.addEventListener("click", () => openRunForm(root, button.dataset.mode as Mode, button, snapshot));
+  });
+  const desktopBridge = detectDesktopBridge();
+  bindDesktopExternalLinks(root, desktopBridge, (error) => {
+    announceError(root, errorText(error, localeOf(root)));
+  });
+  configureStartWorkspace(root, snapshot, {
+    submit: (form) => { void createRun(root, api, form, snapshot); },
+    selectView: (view) => {
+      selectView(root, view);
+      if (view === "vault") void openVaultWorkspace(root, api);
+      if (view === "start") resumeStartRunFromSnapshot(root, api, snapshot);
+    },
+    resume: (runId, state) => resumeStartRun(root, api, runId, state),
+    cancel: (runId) => { void cancelStartRun(root, api, runId); },
+    ...(desktopBridge ? { chooseWorkspace: async () => {
+      const selection = await desktopBridge.chooseWorkspace();
+      if (!selection || selection.status === "cancelled") return null;
+      return { grantId: selection.grantId, label: selection.label };
+    } } : {}),
   });
   root.querySelector<HTMLButtonElement>("[data-run-panel-close]")?.addEventListener("click", () => {
     closeRunForm(root, true);
@@ -358,7 +391,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   root.querySelector<HTMLButtonElement>("#refresh")?.addEventListener("click", (event) => {
     const button = event.currentTarget as HTMLButtonElement;
     if (button.getAttribute("aria-busy") === "true") return;
-    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "overview";
+    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "start";
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
     void refresh(root, api, view).finally(() => {
@@ -376,7 +409,6 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   configureMail(root, api, snapshot);
   configureProvider(root, api, snapshot);
   configureNativeSetup(root, {
-    openResearch: (trigger) => openRunForm(root, "research", trigger, snapshot),
     selectView: (view) => selectView(root, view),
   });
   configureRustWorkspace(root, api, snapshot);
@@ -386,6 +418,10 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   applyCapabilityGuards(root, api, locale);
   if (snapshot.daily?.music?.recommendation?.cover_available) {
     void loadMusicCover(root, api);
+  }
+  if (snapshot.radar.configured && api.loadPage && !radarStartupRefreshes.has(root)) {
+    radarStartupRefreshes.add(root);
+    void refreshRadarPanel(root, api, snapshot);
   }
 }
 
@@ -1225,7 +1261,7 @@ function configureRustWorkspace(
   );
 
   configureExtensionCenter(root, api, snapshot);
-  configureDeliverables(root, api);
+  configureDeliverables(root, api, snapshot);
   configureAutomation(root, api, snapshot, {
     announceError: (message) => announceError(root, message),
     announceStatus: (message) => announceStatus(root, message),
@@ -1513,7 +1549,7 @@ function configureExtensionCenter(
   });
 }
 
-function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
+function configureDeliverables(root: HTMLElement, api: DashboardApi, snapshot: DashboardSnapshot): void {
   root.querySelectorAll<HTMLButtonElement>("[data-report-download]").forEach((button) => {
     button.addEventListener("click", () => {
       const markdown = button.closest("article")?.querySelector<HTMLElement>(".deliverable-preview")?.textContent ?? "";
@@ -1627,6 +1663,7 @@ function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
     if (!providerProfileId || !brief || !api.composeDeckDraft) return;
     if (button) button.disabled = true;
     if (status) status.textContent = tr(localeOf(root), "Building a cited slide outline for preview…", "正在生成带来源的演示大纲，稍后可以逐页预览…");
+    const themeId = String(data.get("theme_id") ?? "restork-print");
     void api.composeDeckDraft({
       deck_id: localDraftId("deck"),
       revision: 1,
@@ -1636,7 +1673,7 @@ function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
         : null,
       brief,
       slide_count: Number(data.get("slide_count") ?? "6"),
-      theme_id: String(data.get("theme_id") ?? "restork-print"),
+      theme_id: themeId,
       provider_profile_id: providerProfileId,
       language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
       audience: {
@@ -1644,9 +1681,18 @@ function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
         purpose: String(data.get("purpose") ?? "").trim(),
         expertise: String(data.get("expertise") ?? "").trim(),
       },
-    }).then(() => reloadWorkspaceView(root, api, "deliverables"))
+    }).then(() => {
+      rememberPresentationThemeId(themeId);
+      return reloadWorkspaceView(root, api, "deliverables");
+    })
       .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); })
       .finally(() => { if (button) button.disabled = false; });
+  });
+  configurePresentationTemplates(root, api, snapshot, {
+    confirm: (message) => confirmAction(root, message),
+    error: (message) => announceError(root, message),
+    reload: () => reloadWorkspaceView(root, api, "deliverables"),
+    status: (message) => announceStatus(root, message),
   });
 }
 
@@ -2490,9 +2536,9 @@ function geolocationError(error: unknown, locale: Locale): string {
 
 function selectView(root: HTMLElement, view: string): void {
   const panels = [...root.querySelectorAll<HTMLElement>("[data-view-panel]")];
-  const resolvedView = panels.some((panel) => panel.dataset.viewPanel === view) ? view : "overview";
+  const resolvedView = panels.some((panel) => panel.dataset.viewPanel === view) ? view : "start";
   const previousView = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view;
-  if (resolvedView !== "runs") stopEventStream(root);
+  if (resolvedView !== "runs" && resolvedView !== "start") stopEventStream(root);
   if (resolvedView !== "vault") stopVaultStream(root);
   panels.forEach((panel) => {
     panel.hidden = panel.dataset.viewPanel !== resolvedView;
@@ -2615,18 +2661,23 @@ function capitalizedMode(mode: Mode): string {
 }
 
 async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormElement, snapshot?: DashboardSnapshot): Promise<void> {
+  const surface = form.closest<HTMLElement>("[data-run-surface]") ?? root;
   const data = new FormData(form);
   const mode = String(data.get("mode")) as Mode;
   const goal = String(data.get("goal") ?? "").trim();
   const dataClass = String(data.get("context_data_class") ?? "public") as WorkDataClass;
   const providerProfileId = String(data.get("provider_profile_id") ?? "deepseek").trim();
   const workspaceRoot = String(data.get("workspace_root") ?? "").trim();
+  const workspaceGrantId = String(data.get("workspace_grant_id") ?? "").trim();
   const targetFiles = lines(data.get("target_files"));
   const targetNote = String(data.get("target_note") ?? "").trim() || null;
-  const status = root.querySelector<HTMLElement>("#action-status");
-  const waitHost = root.querySelector<HTMLElement>("#agent-wait-host");
+  const status = surface.querySelector<HTMLElement>("[data-run-status]");
+  const waitHost = surface.querySelector<HTMLElement>("[data-run-wait]");
   if (!goal) return;
-  if (mode === "study" && snapshot && !snapshot.taskBoard.configured) {
+  const vaultReady = snapshot
+    ? (snapshot.taskBoard.vault_configured ?? snapshot.taskBoard.configured)
+    : true;
+  if (mode === "study" && !vaultReady) {
     if (status) {
       status.textContent = tr(
         localeOf(root),
@@ -2636,28 +2687,31 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
     }
     return;
   }
-  if (mode === "work" && (!workspaceRoot || !targetFiles.length)) {
+  if (mode === "work" && !workspaceRoot && !workspaceGrantId) {
     if (status) {
       status.textContent = tr(
         localeOf(root),
-        "Work requires a workspace root and at least one target file.",
-        "Work 需要工作区根路径和至少一个目标文件。",
+        "Choose a project folder before starting Work.",
+        "开始推进工作前，请先选择项目文件夹。",
       );
     }
     return;
   }
   if (status) status.textContent = tr(localeOf(root), "Creating a local run…", "正在创建本地运行…");
   if (waitHost) waitHost.innerHTML = agentWaitMarkup("prepare", localeOf(root));
+  if (form.id === "start-run-form") setStartRunBusy(form, true);
   let stream: AbortController | null = null;
   let createdRun: RunSummary | null = null;
   try {
     const run = await api.createRun(mode, goal, dataClass, providerProfileId);
     createdRun = run;
+    if (form.id === "start-run-form") prepareStartRunFeedback(surface, run.run_id);
     let waitStage: AgentWaitStage = "prepare";
     stream = startEventStream(root, api, run.run_id, 0, (event) => {
       waitStage = waitStageForEvent(waitStage, event);
       if (waitHost?.isConnected) waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root));
-    });
+      if (form.id === "start-run-form") paintStartRunEvent(surface, event, localeOf(root));
+    }, form.id === "start-run-form" ? "start" : "launcher");
     if (status) {
       status.textContent = tr(
         localeOf(root),
@@ -2668,16 +2722,17 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
     if (mode === "study") {
       if (waitHost) waitHost.innerHTML = agentWaitMarkup("sources", localeOf(root));
       const diagnostic = await api.prepareStudy(run.run_id, goal, targetNote);
-      const host = root.querySelector<HTMLElement>("#study-workspace");
+      const host = surface.querySelector<HTMLElement>("[data-study-workspace]");
       if (host) {
         host.innerHTML = studyDiagnosticMarkup(diagnostic, localeOf(root));
-        bindStudyDiagnostic(root, api);
+        bindStudyDiagnostic(root, api, host);
       }
     } else if (mode === "work") {
       if (waitHost) waitHost.innerHTML = agentWaitMarkup("sources", localeOf(root));
       const plan = await api.planWork(run.run_id, {
         goal,
-        workspace_root: workspaceRoot,
+        workspace_root: workspaceRoot || undefined,
+        workspace_grant_id: workspaceGrantId || undefined,
         target_files: targetFiles,
         context_files: lines(data.get("context_files")),
         constraints: lines(data.get("constraints")),
@@ -2690,25 +2745,33 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
         verification_commands: lines(data.get("verification_commands")),
         context_data_class: dataClass,
       });
-      const host = root.querySelector<HTMLElement>("#work-workspace");
+      const host = surface.querySelector<HTMLElement>("[data-work-workspace]");
       if (host) {
         host.innerHTML = workPlanMarkup(plan, localeOf(root));
-        bindWorkPlan(root, api);
+        bindWorkPlan(root, api, host);
       }
       clearWorkFields(form);
     } else {
-      // Research runs execute in the background. Stay on the current view so
-      // the launch context is not lost; the run is one nav click away.
-      await refresh(root, api);
-      announceStatus(root, tr(
-        localeOf(root),
-        `Created ${run.run_id}. Track progress and the answer in Runs.`,
-        `已创建 ${run.run_id}，可在「运行」页查看进度和回答。`,
-      ));
+      if (form.id === "start-run-form") {
+        if (status) status.textContent = tr(
+          localeOf(root),
+          `Task started · ${run.run_id}`,
+          `任务已开始 · ${run.run_id}`,
+        );
+      } else {
+        // The compact sidebar launcher keeps its legacy hand-off to Dashboard.
+        await refresh(root, api);
+        announceStatus(root, tr(
+          localeOf(root),
+          `Created ${run.run_id}. Track progress and the answer in Runs.`,
+          `已创建 ${run.run_id}，可在「运行」页查看进度和回答。`,
+        ));
+      }
     }
     if (mode !== "research" && waitHost?.isConnected) {
       waitHost.innerHTML = agentWaitMarkup("complete", localeOf(root));
     }
+    if (mode !== "research" && form.id === "start-run-form") setStartRunBusy(form, false);
   } catch (error) {
     // A Study/Work run never auto-starts: if preparation or planning failed,
     // the run is still `proposed` and would stay in the run list forever.
@@ -2725,13 +2788,130 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       waitHost.innerHTML = agentWaitMarkup(neverStarted ? "blocked" : "error", localeOf(root));
     }
     if (status) status.textContent = errorText(error, localeOf(root));
+    if (form.id === "start-run-form") setStartRunBusy(form, false);
   } finally {
-    if (stream && eventStreams.get(root) === stream) stopEventStream(root);
+    if (stream && eventStreams.get(root)?.controller === stream && form.id !== "start-run-form") {
+      stopEventStream(root);
+    }
   }
 }
 
-function bindStudyDiagnostic(root: HTMLElement, api: DashboardApi): void {
-  const form = root.querySelector<HTMLFormElement>("[data-study-diagnostic]");
+function resumeStartRunFromSnapshot(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+): void {
+  const active = snapshot.runs.find(
+    (entry) => !["completed", "failed", "cancelled"].includes(entry.summary.state),
+  );
+  if (active) resumeStartRun(root, api, active.summary.run_id, active.summary.state);
+}
+
+function resumeStartRun(
+  root: HTMLElement,
+  api: DashboardApi,
+  runId: string,
+  state: string,
+): void {
+  const surface = root.querySelector<HTMLElement>(".start-workspace");
+  const panel = surface?.closest<HTMLElement>("[data-view-panel]");
+  if (!surface || panel?.hidden) return;
+  prepareStartRunFeedback(surface, runId);
+  setStartRunBusy(surface, true);
+  const status = surface.querySelector<HTMLElement>("[data-run-status]");
+  const waitHost = surface.querySelector<HTMLElement>("[data-run-wait]");
+  if (status) status.textContent = tr(
+    localeOf(root),
+    `Continuing ${runId} · ${state}`,
+    `继续显示任务 · ${runId}`,
+  );
+  let waitStage: AgentWaitStage = state === "running" ? "model" : "prepare";
+  if (waitHost) waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root));
+  startEventStream(root, api, runId, 0, (event) => {
+    waitStage = waitStageForEvent(waitStage, event);
+    if (waitHost?.isConnected) waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root));
+    paintStartRunEvent(surface, event, localeOf(root));
+  }, "start");
+}
+
+function prepareStartRunFeedback(surface: ParentNode, runId: string): void {
+  const cancel = surface.querySelector<HTMLButtonElement>("[data-start-cancel]");
+  const output = surface.querySelector<HTMLElement>("[data-start-output]");
+  const text = surface.querySelector<HTMLElement>("[data-start-output-text]");
+  if (cancel) {
+    cancel.hidden = false;
+    cancel.disabled = false;
+    cancel.dataset.runId = runId;
+  }
+  if (output) output.hidden = true;
+  if (text) text.replaceChildren();
+}
+
+function setStartRunBusy(surface: ParentNode, busy: boolean): void {
+  const form = surface instanceof HTMLFormElement
+    ? surface
+    : surface.querySelector<HTMLFormElement>("#start-run-form");
+  if (!form) return;
+  form.dataset.runBusy = String(busy);
+  form.setAttribute("aria-busy", String(busy));
+  const submit = form.querySelector<HTMLButtonElement>("[data-start-submit]");
+  if (!submit) return;
+  const disabled = busy || form.dataset.modeBlocked === "true";
+  submit.disabled = disabled;
+  submit.setAttribute("aria-disabled", String(disabled));
+}
+
+function paintStartRunEvent(surface: ParentNode, event: RunEvent, locale: Locale): void {
+  const status = surface.querySelector<HTMLElement>("[data-run-status]");
+  const cancel = surface.querySelector<HTMLButtonElement>("[data-start-cancel]");
+  const output = surface.querySelector<HTMLElement>("[data-start-output]");
+  const text = surface.querySelector<HTMLElement>("[data-start-output-text]");
+  if (event.type === "assistant.delta" && typeof event.data.content === "string" && text) {
+    if (output) output.hidden = false;
+    text.append(document.createTextNode(event.data.content));
+  }
+  if (event.type === "run.completed") {
+    if (status) status.textContent = tr(locale, "Task completed.", "任务已完成。");
+    if (cancel) cancel.hidden = true;
+    if (text?.textContent) {
+      const upgraded = assistantStreamMarkup(text.textContent, locale);
+      if (!upgraded.startsWith("<pre")) text.outerHTML = upgraded;
+    }
+    setStartRunBusy(surface, false);
+  } else if (event.type === "run.failed") {
+    if (status) status.textContent = tr(
+      locale,
+      "Task failed. Open Runs for details.",
+      "任务未完成，可到「运行」查看原因。",
+    );
+    if (cancel) cancel.hidden = true;
+    setStartRunBusy(surface, false);
+  } else if (event.type === "run.cancelled") {
+    if (status) status.textContent = tr(locale, "Task stopped.", "任务已停止。");
+    if (cancel) cancel.hidden = true;
+    setStartRunBusy(surface, false);
+  }
+}
+
+async function cancelStartRun(root: HTMLElement, api: DashboardApi, runId: string): Promise<void> {
+  const surface = root.querySelector<HTMLElement>("#start-run-form");
+  const cancel = surface?.querySelector<HTMLButtonElement>("[data-start-cancel]");
+  const status = surface?.querySelector<HTMLElement>("[data-run-status]");
+  if (cancel) cancel.disabled = true;
+  try {
+    await api.cancelRun(runId);
+    stopEventStream(root);
+    if (cancel) cancel.hidden = true;
+    if (status) status.textContent = tr(localeOf(root), "Task stopped.", "任务已停止。");
+    if (surface) setStartRunBusy(surface, false);
+  } catch (error) {
+    if (cancel) cancel.disabled = false;
+    if (status) status.textContent = errorText(error, localeOf(root));
+  }
+}
+
+function bindStudyDiagnostic(root: HTMLElement, api: DashboardApi, scope: ParentNode = root): void {
+  const form = scope.querySelector<HTMLFormElement>("[data-study-diagnostic]");
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
     void submitStudyDiagnostic(root, api, form);
@@ -2752,10 +2932,11 @@ async function submitStudyDiagnostic(
   form.reset();
   try {
     const artifact = await api.submitStudyDiagnostic(form.dataset.runId ?? "", answers);
-    const host = root.querySelector<HTMLElement>("#study-workspace");
+    const host = form.closest<HTMLElement>("[data-run-surface]")
+      ?.querySelector<HTMLElement>("[data-study-workspace]");
     if (host) {
       host.innerHTML = studyArtifactMarkup(artifact, localeOf(root));
-      bindStudyPractice(root, api);
+      bindStudyPractice(root, api, host);
       bindNoteSave(root, api, host);
     }
   } catch (error) {
@@ -2764,8 +2945,8 @@ async function submitStudyDiagnostic(
   }
 }
 
-function bindStudyPractice(root: HTMLElement, api: DashboardApi): void {
-  root.querySelectorAll<HTMLFormElement>("[data-study-practice]").forEach((form) => {
+function bindStudyPractice(root: HTMLElement, api: DashboardApi, scope: ParentNode = root): void {
+  scope.querySelectorAll<HTMLFormElement>("[data-study-practice]").forEach((form) => {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       void submitStudyPractice(root, api, form);
@@ -2806,8 +2987,8 @@ async function submitStudyPractice(
   }
 }
 
-function bindWorkPlan(root: HTMLElement, api: DashboardApi): void {
-  const button = root.querySelector<HTMLButtonElement>("[data-work-preview]");
+function bindWorkPlan(root: HTMLElement, api: DashboardApi, scope: ParentNode = root): void {
+  const button = scope.querySelector<HTMLButtonElement>("[data-work-preview]");
   button?.addEventListener("click", () => void previewWorkHandoff(root, api, button));
 }
 
@@ -2819,10 +3000,11 @@ async function previewWorkHandoff(
   button.disabled = true;
   try {
     const preview = await api.previewWorkHandoff(button.dataset.runId ?? "");
-    const host = root.querySelector<HTMLElement>("#work-workspace");
+    const host = button.closest<HTMLElement>("[data-run-surface]")
+      ?.querySelector<HTMLElement>("[data-work-workspace]");
     if (host) {
       host.innerHTML = workHandoffMarkup(preview, localeOf(root));
-      bindWorkHandoff(root, api, preview);
+      bindWorkHandoff(root, api, preview, host);
     }
   } catch (error) {
     button.disabled = false;
@@ -2834,12 +3016,13 @@ function bindWorkHandoff(
   root: HTMLElement,
   api: DashboardApi,
   preview: WorkHandoffPreview,
+  scope: ParentNode = root,
 ): void {
-  const exportButton = root.querySelector<HTMLButtonElement>("[data-work-export]");
+  const exportButton = scope.querySelector<HTMLButtonElement>("[data-work-export]");
   exportButton?.addEventListener("click", () => {
     void approveAndExportWork(root, api, preview, exportButton);
   });
-  const rejectButton = root.querySelector<HTMLButtonElement>("[data-work-reject]");
+  const rejectButton = scope.querySelector<HTMLButtonElement>("[data-work-reject]");
   rejectButton?.addEventListener("click", () => void rejectWork(root, api, rejectButton));
 }
 
@@ -2854,10 +3037,11 @@ async function approveAndExportWork(
     const approvalId = button.dataset.approvalId ?? "";
     await api.decideApproval(approvalId, "approve");
     const result = await api.exportWorkHandoff(button.dataset.runId ?? "", approvalId);
-    const host = root.querySelector<HTMLElement>("#work-workspace");
+    const host = button.closest<HTMLElement>("[data-run-surface]")
+      ?.querySelector<HTMLElement>("[data-work-workspace]");
     if (host) {
       host.innerHTML = workExportMarkup(result, preview.plan, localeOf(root));
-      bindWorkVerification(root, api);
+      bindWorkVerification(root, api, host);
     }
   } catch (error) {
     button.disabled = false;
@@ -2873,7 +3057,8 @@ async function rejectWork(
   button.disabled = true;
   try {
     await api.decideApproval(button.dataset.approvalId ?? "", "reject");
-    const host = root.querySelector<HTMLElement>("#work-workspace");
+    const host = button.closest<HTMLElement>("[data-run-surface]")
+      ?.querySelector<HTMLElement>("[data-work-workspace]");
     if (host) host.replaceChildren();
     announceStatus(root, tr(
       localeOf(root),
@@ -2886,8 +3071,8 @@ async function rejectWork(
   }
 }
 
-function bindWorkVerification(root: HTMLElement, api: DashboardApi): void {
-  const form = root.querySelector<HTMLFormElement>("[data-work-verify]");
+function bindWorkVerification(root: HTMLElement, api: DashboardApi, scope: ParentNode = root): void {
+  const form = scope.querySelector<HTMLFormElement>("[data-work-verify]");
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
     void verifyWorkResult(root, api, form);
@@ -2916,7 +3101,8 @@ async function verifyWorkResult(
       parsed as unknown as WorkResultManifest,
     );
     form.reset();
-    const host = root.querySelector<HTMLElement>("#work-workspace");
+    const host = form.closest<HTMLElement>("[data-run-surface]")
+      ?.querySelector<HTMLElement>("[data-work-workspace]");
     if (host) host.innerHTML = workVerificationMarkup(report, localeOf(root));
   } catch (error) {
     if (submit) submit.disabled = false;
@@ -3316,7 +3502,7 @@ async function showRun(
         // Append one row. Re-rendering the whole run per event made live
         // streaming quadratic and destroyed focus, selection, and scroll.
         if (!appendRunEvent(detail, event, localeOf(root))) render();
-      });
+      }, "run-detail");
     }
   } catch (error) {
     detail.textContent = errorText(error, localeOf(root));
@@ -3773,18 +3959,28 @@ function startEventStream(
   runId: string,
   after: number,
   onEvent: (event: RunEvent) => void,
+  subscriber = "default",
 ): AbortController {
+  const current = eventStreams.get(root);
+  if (current && current.runId === runId && !current.controller.signal.aborted) {
+    current.listeners.set(subscriber, onEvent);
+    return current.controller;
+  }
   stopEventStream(root);
   const controller = new AbortController();
-  eventStreams.set(root, controller);
-  void api.streamEvents(runId, after, onEvent, controller.signal).catch((error: unknown) => {
+  const listeners = new Map([[subscriber, onEvent]]);
+  eventStreams.set(root, { runId, controller, listeners });
+  if (typeof api.streamEvents !== "function") return controller;
+  void api.streamEvents(runId, after, (event) => {
+    for (const listener of listeners.values()) listener(event);
+  }, controller.signal).catch((error: unknown) => {
     if (!controller.signal.aborted) announceError(root, errorText(error, localeOf(root)));
   });
   return controller;
 }
 
 function stopEventStream(root: HTMLElement): void {
-  eventStreams.get(root)?.abort();
+  eventStreams.get(root)?.controller.abort();
   eventStreams.delete(root);
 }
 
@@ -3801,7 +3997,7 @@ function waitStageForEvent(current: AgentWaitStage, event: RunEvent): AgentWaitS
   return current;
 }
 
-async function refresh(root: HTMLElement, api: DashboardApi, view = "overview"): Promise<void> {
+async function refresh(root: HTMLElement, api: DashboardApi, view = "start"): Promise<void> {
   try {
     renderWorkspace(root, api, await api.loadDashboard());
     selectView(root, view);
@@ -4213,6 +4409,7 @@ function lines(value: FormDataEntryValue | null): string[] {
 function clearWorkFields(form: HTMLFormElement): void {
   for (const name of [
     "workspace_root",
+    "workspace_grant_id",
     "target_files",
     "context_files",
     "constraints",
@@ -4223,6 +4420,10 @@ function clearWorkFields(form: HTMLFormElement): void {
     if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
       field.value = "";
     }
+  }
+  const workspaceLabel = form.querySelector<HTMLElement>("[data-start-workspace-label]");
+  if (workspaceLabel) {
+    workspaceLabel.textContent = workspaceLabel.dataset.emptyLabel ?? "";
   }
 }
 

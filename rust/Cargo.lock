@@ -1401,6 +1401,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "http-body-util",
+ "libc",
  "notify",
  "restork-automation",
  "restork-core",
@@ -1528,6 +1529,7 @@ dependencies = [
 name = "restork-render"
 version = "0.1.0"
 dependencies = [
+ "restork-deliverables",
  "serde",
  "serde_json",
  "sha2",
