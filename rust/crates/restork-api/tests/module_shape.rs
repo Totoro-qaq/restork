@@ -33,6 +33,7 @@ const MODULES: &[&str] = &[
     "error",
     "feature_api",
     "http_middleware",
+    "presentation_api",
     "radar",
     "routes",
     "session_api",
