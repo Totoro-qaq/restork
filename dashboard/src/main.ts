@@ -169,6 +169,74 @@ function syncReasoningControls(form: HTMLFormElement): void {
   }
 }
 
+const RECOMMENDED_PROVIDER_MODELS: Record<string, string[]> = {
+  deepseek: ["deepseek-v4-pro", "deepseek-v4-flash"],
+  openai: ["gpt-5.6", "gpt-5.6-terra", "gpt-5.6-luna"],
+  anthropic: ["claude-sonnet-5", "claude-opus-5", "claude-fable-5", "claude-haiku-4-5"],
+  minimax: ["MiniMax-M2.7", "MiniMax-M2.7-highspeed", "MiniMax-M2.5", "MiniMax-M2.5-highspeed"],
+  mimo: ["mimo-v2.5-pro", "mimo-v2.5"],
+  glm: ["glm-5.2"],
+  kimi: ["kimi-k2.5"],
+  qwen: ["qwen-max", "qwen-plus", "qwen-turbo"],
+};
+
+function syncProviderModelControls(form: HTMLFormElement, requestedModel?: string): void {
+  const kind = form.elements.namedItem("kind") as HTMLSelectElement | null;
+  const selected = kind?.selectedOptions[0];
+  const pickerField = form.querySelector<HTMLElement>("[data-provider-model-picker]");
+  const picker = form.querySelector<HTMLSelectElement>("[data-provider-model-select]");
+  const customField = form.querySelector<HTMLElement>("[data-provider-custom-model-field]");
+  const custom = form.querySelector<HTMLInputElement>("[data-provider-custom-model]");
+  const hidden = form.elements.namedItem("model") as HTMLInputElement | null;
+  const baseUrl = form.elements.namedItem("base_url") as HTMLInputElement | null;
+  const endpointNote = form.querySelector<HTMLElement>("[data-provider-endpoint-note]");
+  if (!kind || !selected || !picker || !custom || !hidden || !baseUrl) return;
+
+  let models: string[] = [];
+  try {
+    const parsed = JSON.parse(selected.dataset.recommendedModels ?? "[]") as unknown;
+    if (Array.isArray(parsed)) {
+      models = parsed.filter((value): value is string => (
+        typeof value === "string" && value.length > 0 && value.length <= 256
+      ));
+    }
+  } catch {
+    models = [];
+  }
+  if (!models.length) models = RECOMMENDED_PROVIDER_MODELS[kind.value] ?? [];
+  const defaultModel = selected.dataset.defaultModel
+    || RECOMMENDED_PROVIDER_MODELS[kind.value]?.[0]
+    || "";
+  const current = requestedModel?.trim() || hidden.value.trim() || defaultModel;
+  if (current && !models.includes(current)) models.unshift(current);
+  models = models.filter((value, index, values) => values.indexOf(value) === index);
+
+  const customMode = kind.value === "open_ai_compatible" || models.length === 0;
+  pickerField?.toggleAttribute("hidden", customMode);
+  customField?.toggleAttribute("hidden", !customMode);
+  picker.disabled = customMode;
+  custom.disabled = !customMode;
+  if (customMode) {
+    custom.value = current;
+    hidden.value = custom.value;
+  } else {
+    picker.innerHTML = models.map((model) => {
+      const option = document.createElement("option");
+      option.value = model;
+      option.textContent = model;
+      return option.outerHTML;
+    }).join("");
+    picker.value = models.includes(current) ? current : (defaultModel || models[0]);
+    hidden.value = picker.value;
+  }
+
+  const editableEndpoint = selected.dataset.endpointPolicy === "public_https";
+  baseUrl.readOnly = !editableEndpoint;
+  if (endpointNote) endpointNote.textContent = editableEndpoint
+    ? tr(localeOf(form), "Custom endpoints can be edited.", "自定义兼容端点可以修改地址。")
+    : tr(localeOf(form), "Official providers use a locked verified endpoint.", "官方供应商使用经过确认的固定地址。")
+}
+
 export function mountDashboard(root: HTMLElement, options: MountOptions = {}): void {
   const api = options.api ?? new LocalApiClient();
   applyLocale(root, options.locale ?? detectLocale());
@@ -801,7 +869,7 @@ function configureRustWorkspace(
     form.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
       "button, input, select",
     ).forEach((control) => { control.disabled = true; });
-    preview.innerHTML = `<div class="conversation-wait"><i></i><span>${tr(localeOf(root), "Building a local, tool-free proposal…", "正在本地生成无工具提案…")}</span></div>`;
+    preview.innerHTML = `<div class="conversation-wait"><i></i><span>${tr(localeOf(root), "Preparing a run preview on this device…", "正在这台设备上准备运行预览…")}</span></div>`;
     void api.createSessionProposal(sessionId, mode, goal).then((proposal) => {
       preview.innerHTML = runProposalMarkup(proposal, localeOf(root));
     }).catch((error) => {
@@ -859,8 +927,8 @@ function configureRustWorkspace(
         selectView(root, "settings");
         announceStatus(root, tr(
           localeOf(root),
-          "Profile, language, and appearance were saved on this device.",
-          "个人资料、语言与外观已保存在本设备。",
+          "Name, language, and appearance were saved on this device.",
+          "称呼、语言与外观已保存在本设备。",
         ));
       }).catch((error) => {
         if (status) status.textContent = errorText(error, localeOf(root));
@@ -904,7 +972,6 @@ function configureRustWorkspace(
       const selected = select.selectedOptions[0];
       const form = root.querySelector<HTMLFormElement>("#provider-profile-form");
       const baseUrl = form?.elements.namedItem("base_url") as HTMLInputElement | null;
-      const model = form?.elements.namedItem("model") as HTMLInputElement | null;
       const secretRef = form?.elements.namedItem("secret_ref") as HTMLInputElement | null;
       const secretButton = form?.querySelector<HTMLButtonElement>("[data-provider-secret-configure]");
       const secretStatus = form?.querySelector<HTMLElement>("[data-provider-secret-status]");
@@ -912,7 +979,6 @@ function configureRustWorkspace(
       const registryBaseUrl = selected?.dataset.baseUrl;
       if (baseUrl && registryBaseUrl) baseUrl.value = registryBaseUrl;
       if (authKind === "none") {
-        if (model) model.value = "";
         if (secretRef) {
           secretRef.value = "";
           secretRef.disabled = true;
@@ -931,17 +997,28 @@ function configureRustWorkspace(
           "Not saved on this device",
           "尚未保存在这台设备上",
         );
-        if (kind === "deepseek") {
-          if (model) model.value = "deepseek-v4-pro";
-        } else if (model) {
-          model.value = "";
-        }
       }
-      if (form) syncReasoningControls(form);
+      if (form) {
+        syncProviderModelControls(form, selected?.dataset.defaultModel);
+        syncReasoningControls(form);
+      }
+    });
+  providerForm?.querySelector<HTMLSelectElement>("[data-provider-model-select]")
+    ?.addEventListener("change", (event) => {
+      const hidden = providerForm.elements.namedItem("model") as HTMLInputElement | null;
+      if (hidden) hidden.value = (event.currentTarget as HTMLSelectElement).value;
+    });
+  providerForm?.querySelector<HTMLInputElement>("[data-provider-custom-model]")
+    ?.addEventListener("input", (event) => {
+      const hidden = providerForm.elements.namedItem("model") as HTMLInputElement | null;
+      if (hidden) hidden.value = (event.currentTarget as HTMLInputElement).value;
     });
   providerForm?.querySelector<HTMLSelectElement>('[name="reasoning_effort"]')
     ?.addEventListener("change", () => syncReasoningControls(providerForm));
-  if (providerForm) syncReasoningControls(providerForm);
+  if (providerForm) {
+    syncProviderModelControls(providerForm);
+    syncReasoningControls(providerForm);
+  }
 
   providerForm?.querySelector<HTMLButtonElement>("[data-provider-secret-configure]")
     ?.addEventListener("click", (event) => {
@@ -1007,6 +1084,7 @@ function configureRustWorkspace(
           const field = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
           if (field) field.value = String(record.provider[name] ?? "");
         }
+        syncProviderModelControls(form, String(record.provider.model ?? ""));
         const reasoning = record.provider.reasoning as
           | { effort?: string; max_tokens?: number | null }
           | undefined;
@@ -1035,6 +1113,10 @@ function configureRustWorkspace(
       const expected = Number(form.dataset.version ?? "0") || null;
       const kind = String(data.get("kind") ?? "deepseek") as
         | "deepseek"
+        | "openai"
+        | "anthropic"
+        | "minimax"
+        | "mimo"
         | "glm"
         | "kimi"
         | "qwen"
@@ -1124,7 +1206,7 @@ function configureRustWorkspace(
       const status = form.querySelector<HTMLElement>("#configuration-profile-status");
       if (!api.saveConfigurationProfile || promptHash.length !== 64) return;
       const profileId = String(data.get("profile_id") ?? "").trim();
-      if (status) status.textContent = tr(localeOf(root), "Preparing the selected Profile…", "正在准备所选 Profile…");
+      if (status) status.textContent = tr(localeOf(root), "Preparing this run setup…", "正在准备这份运行配置…");
       void api.saveConfigurationProfile(expected, {
         profile_id: profileId,
         version: (expected ?? 0) + 1,
@@ -1289,8 +1371,8 @@ function configureExtensionCenter(
       const title = document.createElement("strong");
       title.textContent = tr(
         localeOf(root),
-        "Review the exact install preview",
-        "审查精确安装预览",
+        "Review the install details",
+        "查看安装内容",
       );
       const explanation = document.createElement("p");
       explanation.textContent = tr(
@@ -1318,8 +1400,8 @@ function configureExtensionCenter(
           root,
           tr(
             localeOf(root),
-            "Install this exact manifest in quarantine? It will remain unable to run until separately enabled.",
-            "按此精确清单安装到隔离区？在另行启用前，它仍无法运行。",
+            "Install this manifest in quarantine? It will stay off until you enable it separately.",
+            "将这份清单安装到隔离区？另行启用前，它不会运行。",
           ),
           preview.preview_digest,
         );
@@ -1387,11 +1469,11 @@ function configureExtensionCenter(
           if (record.manifest_hash !== currentHash && api.rollbackExtension) {
             const rollback = document.createElement("button");
             rollback.type = "button";
-            rollback.textContent = tr(localeOf(root), "REVIEW ROLLBACK", "审查回滚");
+            rollback.textContent = tr(localeOf(root), "VIEW ROLLBACK", "查看回滚内容");
             rollback.addEventListener("click", async () => {
               const confirmed = await confirmAction(
                 root,
-                tr(localeOf(root), "Create a reviewed rollback? It will not execute a tool.", "创建审查回滚记录？它不会执行工具。"),
+                tr(localeOf(root), "Create this rollback record? It will not run a tool.", "创建这条回滚记录？它不会运行工具。"),
                 record.manifest_hash ?? "",
               );
               if (!confirmed) return;
@@ -1432,6 +1514,21 @@ function configureExtensionCenter(
 }
 
 function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
+  root.querySelectorAll<HTMLButtonElement>("[data-report-download]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const markdown = button.closest("article")?.querySelector<HTMLElement>(".deliverable-preview")?.textContent ?? "";
+      if (!markdown) return;
+      const title = button.dataset.reportTitle ?? tr(localeOf(root), "report", "报告");
+      const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${safeFilename(title)}.md`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      announceStatus(root, tr(localeOf(root), "Markdown report downloaded.", "Markdown 报告已下载。"));
+    });
+  });
   root.querySelectorAll<HTMLButtonElement>("[data-render-format]").forEach((button) => {
     button.addEventListener("click", () => {
       const deliverableId = button.dataset.renderId ?? "";
@@ -1468,8 +1565,8 @@ function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
         .finally(() => {
           button.disabled = false;
           button.textContent = format === "pptx"
-            ? tr(localeOf(root), "REVIEW PPTX", "审查 PPTX")
-            : tr(localeOf(root), "REVIEW PDF", "审查 PDF");
+            ? tr(localeOf(root), "DOWNLOAD PPTX", "下载 PPTX")
+            : tr(localeOf(root), "DOWNLOAD PDF", "下载 PDF");
         });
     });
   });
@@ -1484,7 +1581,7 @@ function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
     const section = String(data.get("section") ?? "completed") as
       "summary" | "completed" | "progress" | "decisions" | "blockers" | "next" | "notes";
     void api.composeManualReport({
-      report_id: String(data.get("report_id") ?? "").trim(),
+      report_id: localDraftId("report"),
       revision: 1,
       kind: String(data.get("kind") ?? "daily") as "daily" | "weekly",
       title: String(data.get("title") ?? "").trim(),
@@ -1505,31 +1602,42 @@ function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
     if (button) button.disabled = true;
     if (status) status.textContent = tr(localeOf(root), "The model is drafting from verified runs…", "模型正在基于已验证运行起草…");
     void api.composeAiReportDraft({
-      report_id: String(data.get("report_id") ?? "").trim(),
+      report_id: localDraftId("report-ai"),
       revision: 1,
       kind: String(data.get("kind") ?? "daily") as "daily" | "weekly",
       title: String(data.get("title") ?? "").trim(),
       language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
       timezone: systemTimeZone(),
       provider_profile_id: providerProfileId,
+      focus: String(data.get("focus") ?? "").trim(),
     }).then(() => reloadWorkspaceView(root, api, "deliverables"))
       .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); })
       .finally(() => { if (button) button.disabled = false; });
   });
-  root.querySelector<HTMLFormElement>("#deck-from-report-form")?.addEventListener("submit", (event) => {
+  root.querySelector<HTMLFormElement>("#presentation-studio-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const data = new FormData(form);
     const select = form.elements.namedItem("report") as HTMLSelectElement | null;
     const option = select?.selectedOptions[0];
-    const status = form.querySelector<HTMLElement>("#deck-from-report-status");
-    if (!option || !api.composeDeckFromReport) return;
-    if (status) status.textContent = tr(localeOf(root), "Preparing claims, citations, and slide roles…", "正在整理内容、引用与页面结构…");
-    void api.composeDeckFromReport({
-      deck_id: String(data.get("deck_id") ?? "").trim(),
+    const status = form.querySelector<HTMLElement>("#presentation-studio-status");
+    const button = form.querySelector<HTMLButtonElement>("button[type=submit]");
+    const providerProfileId = String(data.get("provider_profile_id") ?? "").trim();
+    const brief = String(data.get("brief") ?? "").trim();
+    if (!providerProfileId || !brief || !api.composeDeckDraft) return;
+    if (button) button.disabled = true;
+    if (status) status.textContent = tr(localeOf(root), "Building a cited slide outline for preview…", "正在生成带来源的演示大纲，稍后可以逐页预览…");
+    void api.composeDeckDraft({
+      deck_id: localDraftId("deck"),
       revision: 1,
-      report_id: option.value,
-      report_revision: Number(option.dataset.revision ?? "1"),
+      title: String(data.get("title") ?? "").trim(),
+      report: option?.value
+        ? { report_id: option.value, report_revision: Number(option.dataset.revision ?? "1") }
+        : null,
+      brief,
+      slide_count: Number(data.get("slide_count") ?? "6"),
+      theme_id: String(data.get("theme_id") ?? "restork-print"),
+      provider_profile_id: providerProfileId,
       language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
       audience: {
         audience_id: String(data.get("audience") ?? "team").trim(),
@@ -1537,8 +1645,14 @@ function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
         expertise: String(data.get("expertise") ?? "").trim(),
       },
     }).then(() => reloadWorkspaceView(root, api, "deliverables"))
-      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
+      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); })
+      .finally(() => { if (button) button.disabled = false; });
   });
+}
+
+function localDraftId(prefix: string): string {
+  const date = new Date().toISOString().slice(0, 10);
+  return `${prefix}-${date}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
 function safeFilename(value: string): string {
@@ -1678,13 +1792,13 @@ function syncOverviewProvider(
     : tr(locale, `Configure ${selected.displayName}`, `配置 ${selected.displayName}`);
   if (model) model.textContent = selected.configured
     ? `${selected.kind} / ${selected.model}`
-    : tr(locale, "No model profile saved", "尚未保存模型 Profile");
+    : tr(locale, "No model saved", "尚未保存模型");
   if (command) command.textContent = selected.setupCommand;
   if (help) help.textContent = selected.kind === "ollama"
     ? tr(
       locale,
-      "No API key is needed. Start Ollama locally, then save its exact loopback model profile.",
-      "无需 API Key。请先在本机启动 Ollama，再保存精确的 loopback 模型 Profile。",
+      "No API key is needed. Start Ollama locally, then save the local model setup.",
+      "无需 API Key。请先在本机启动 Ollama，再保存本地模型配置。",
     )
     : tr(
       locale,
@@ -1709,8 +1823,8 @@ function syncOverviewProvider(
     result.innerHTML = matchingReport
       ? providerDiagnosticMarkup(matchingReport, locale)
       : `<p>${escapeStatus(selected.configured
-        ? tr(locale, "Run Test model to verify this exact saved model.", "请点击“测试模型”验证这个已保存的精确模型。")
-        : tr(locale, "Open Settings to enter the model ID and save this provider.", "请打开设置，填写模型 ID 并保存这个供应商。"))}</p>`;
+        ? tr(locale, "Run Test model to check this saved model.", "请点击“测试模型”检查这个已保存的模型。")
+        : tr(locale, "Open Settings to choose a model and save this provider.", "请打开设置，选择模型并保存这个供应商。"))}</p>`;
   }
   if (manage) manage.textContent = selected.configured
     ? tr(locale, "MANAGE MODELS", "管理模型")
@@ -3049,8 +3163,8 @@ function openTodoSuggestionConversation(
   profile?.focus();
   announceStatus(root, tr(
     locale,
-    "Choose a model profile and create the conversation. Restork will show the request before anything changes.",
-    "请选择模型 Profile 并创建对话；实际修改任务前，Restork 会展示准备执行的请求。",
+    "Choose a model and create the conversation. Restork will show the request before anything changes.",
+    "请选择模型并创建对话；实际修改任务前，Restork 会展示准备执行的请求。",
   ));
 }
 
@@ -3410,7 +3524,7 @@ const CAPABILITY_CONTROLS: ReadonlyArray<[keyof DashboardApi, string]> = [
   ["deleteSchedule", "[data-schedule-action=delete]"],
   ["composeManualReport", "#manual-report-form button[type=submit]"],
   ["composeAiReportDraft", "#ai-report-form button[type=submit]"],
-  ["composeDeckFromReport", "#deck-from-report-form button[type=submit]"],
+  ["composeDeckDraft", "#presentation-studio-form button[type=submit]"],
   ["previewDeliverableRender", "[data-render-format]"],
   ["exportDeliverableRender", "[data-render-format]"],
   ["saveProviderProfile", "#provider-profile-form button[type=submit]"],

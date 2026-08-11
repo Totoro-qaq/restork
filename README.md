@@ -273,7 +273,8 @@ Measured against the Core that `./scripts/quickstart.sh` starts.
 | **Local knowledge** | A paginated Obsidian Vault browser with safe Markdown previews and live file updates, four-layer inspectable memory, approval-bound Markdown tasks, unified search, and opt-in public GitHub AI/Agent + Hacker News Radar |
 | **Extensions** | Checked manifests, layered permissions, version history with rollback, and sandboxed stdio MCP execution |
 | **Daily context** | Optional weather, system date and month without a permission prompt, one local ICS calendar, macOS unread-mail count, and a daily track from QQ Music, NetEase, Apple Music, or a private playlist file |
-| **Artifacts and recovery** | Repeatable macro-free PPTX and PDF generation, exact file hashes, real-content checkpoints, and restore tied to the preview you approved |
+| **Reports and presentations** | Write a Daily/Weekly report yourself or ask a selected model for a cited draft; turn your brief or an existing report into a slide outline, preview every slide, choose one of six built-in layouts, then download macro-free PPTX, PDF, or Markdown without installing Node, Python, LibreOffice, MCP, or an extra Skill |
+| **Artifacts and recovery** | Exact file hashes, real-content checkpoints, and restore tied to the preview you approved |
 | **Automation** | DST-aware local jobs plus provider-selectable Daily/Weekly report drafts; model schedules require explicit network consent, send only `public` run facts, and keep the resulting draft local for review |
 | **Desktop** | Tauri packages `restorkd` and the Dashboard, owns Unix process groups or a Windows Job Object |
 

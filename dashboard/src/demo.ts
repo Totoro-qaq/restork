@@ -10,6 +10,7 @@ import type {
   DashboardApi,
   DashboardSnapshot,
   DeckFromReportInputV2,
+  DeckDraftInputV2,
   ExtensionInstallPreviewV2,
   ManualReportInputV2,
   Mode,
@@ -1442,6 +1443,25 @@ class DemoApi implements DashboardApi {
         source_report_id: input.report_id,
         audience: input.audience,
         slides: [{ title: "Synthetic deck", body: ["Evidence first", "Review before export"] }],
+      },
+      updated_at: demoTimestamp(),
+    };
+    workspace().deliverables.unshift(record);
+    return record;
+  }
+  async composeDeckDraft(input: DeckDraftInputV2): Promise<CatalogRecordV2> {
+    const record: CatalogRecordV2 = {
+      deliverable_id: input.deck_id,
+      kind: "deck",
+      state: "outline_review",
+      revision: input.revision,
+      artifact: {
+        theme: { theme_id: input.theme_id },
+        claims: { "claim:brief": { text: input.brief } },
+        slides: [
+          { slide_id: "slide:title", role: "title", action_title: input.title, claim_refs: [], speaker_notes: [] },
+          { slide_id: "slide:brief", role: "evidence", action_title: input.brief.slice(0, 100), claim_refs: ["claim:brief"], speaker_notes: [] },
+        ],
       },
       updated_at: demoTimestamp(),
     };

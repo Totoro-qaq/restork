@@ -60,6 +60,7 @@ import type {
   AiReportDraftInputV2,
   MailSnapshot,
   DeckFromReportInputV2,
+  DeckDraftInputV2,
   ScheduleCreateInputV2,
   SchedulePageV2,
   ScheduleRecordV2,
@@ -574,6 +575,14 @@ export class LocalApiClient implements DashboardApi {
     return this.#request<CatalogRecordV2>(
       "POST",
       "/v1/deliverables/decks/from-report",
+      input,
+    );
+  }
+
+  async composeDeckDraft(input: DeckDraftInputV2): Promise<CatalogRecordV2> {
+    return this.#request<CatalogRecordV2>(
+      "POST",
+      "/v1/deliverables/decks/draft",
       input,
     );
   }

@@ -945,6 +945,7 @@ export interface AiReportDraftInputV2 {
   language: string;
   timezone: string;
   provider_profile_id: string;
+  focus?: string;
 }
 
 export interface DeckFromReportInputV2 {
@@ -952,6 +953,23 @@ export interface DeckFromReportInputV2 {
   revision: number;
   report_id: string;
   report_revision: number;
+  language: string;
+  audience: {
+    audience_id: string;
+    purpose: string;
+    expertise: string;
+  };
+}
+
+export interface DeckDraftInputV2 {
+  deck_id: string;
+  revision: number;
+  title: string;
+  report: { report_id: string; report_revision: number } | null;
+  brief: string;
+  slide_count: number;
+  theme_id: string;
+  provider_profile_id: string;
   language: string;
   audience: {
     audience_id: string;
@@ -1062,6 +1080,10 @@ export interface ReasoningConfigV2 {
 
 export type ProviderKindV2 =
   | "deepseek"
+  | "openai"
+  | "anthropic"
+  | "minimax"
+  | "mimo"
   | "glm"
   | "kimi"
   | "qwen"
@@ -1074,11 +1096,13 @@ export interface ProviderDefinitionV2 {
   kind: ProviderKindV2;
   id: ProviderKindV2;
   display_name: string;
-  protocol: "open_ai_chat_completions" | "ollama_chat";
+  protocol: "open_ai_chat_completions" | "anthropic_messages" | "ollama_chat";
   default_base_url: string;
+  default_model?: string;
+  recommended_models?: string[];
   endpoint_policy: "exact_official" | "public_https" | "loopback_only";
-  auth_kind: "none" | "bearer";
-  model_discovery: "open_ai_models" | "ollama_tags" | "manual_only";
+  auth_kind: "none" | "bearer" | "api_key_header";
+  model_discovery: "open_ai_models" | "anthropic_models" | "ollama_tags" | "manual_only";
   request_adapter: string;
   capabilities: {
     streaming: boolean;
@@ -1507,6 +1531,7 @@ export interface DashboardApi {
   composeManualReport?(input: ManualReportInputV2): Promise<CatalogRecordV2>;
   composeAiReportDraft?(input: AiReportDraftInputV2): Promise<CatalogRecordV2>;
   composeDeckFromReport?(input: DeckFromReportInputV2): Promise<CatalogRecordV2>;
+  composeDeckDraft?(input: DeckDraftInputV2): Promise<CatalogRecordV2>;
   createSchedule?(schedule: ScheduleSpecV2): Promise<CatalogRecordV2>;
   updateSchedule?(
     scheduleId: string,

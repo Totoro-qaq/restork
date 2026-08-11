@@ -24,6 +24,7 @@ mod auth_api;
 mod automation_api;
 mod catalog_api;
 mod config_api;
+mod core_skills;
 mod daily_api;
 mod error;
 mod feature_api;
@@ -112,7 +113,7 @@ use restork_provider::{
     ProviderDiagnostic as RuntimeProviderDiagnostic, WebCitation, WebSearchRequest,
     estimate_chat_tokens,
 };
-use restork_render::{RenderFormat, render_deck};
+use restork_render::{RenderFormat, builtin_theme, render_deck};
 use restork_storage::{
     CalendarIntervalRecord, CatalogCursor, CheckpointFileBlob, Database, NewContextPreview,
     NewConversationOperation, NewMcpExecution, NewRun, NewSession, NewSessionFork,
@@ -571,6 +572,10 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
     },
     ApiRouteDescription {
         path: "/v1/deliverables/decks/from-report",
+        methods: &["POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/deliverables/decks/draft",
         methods: &["POST"],
     },
     ApiRouteDescription {
@@ -1131,6 +1136,31 @@ struct DeckFromReportCompose {
     revision: u64,
     report_id: String,
     report_revision: i64,
+    language: String,
+    audience: AudienceInput,
+    #[serde(default)]
+    theme_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeckReportSourceInput {
+    report_id: String,
+    report_revision: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeckDraftCompose {
+    deck_id: String,
+    revision: u64,
+    title: String,
+    #[serde(default)]
+    report: Option<DeckReportSourceInput>,
+    brief: String,
+    slide_count: u8,
+    theme_id: String,
+    provider_profile_id: String,
     language: String,
     audience: AudienceInput,
 }
@@ -2122,6 +2152,9 @@ impl AgentModel for RuntimeAgentModel {
         Result<Option<restork_provider::ChatEventStream>, restork_provider::ProviderError>,
     > {
         Box::pin(async move {
+            if !self.profile.kind().definition().capabilities.streaming {
+                return Ok(None);
+            }
             self.provider
                 .chat_stream(&self.profile, messages, maximum_output_tokens, options)
                 .await

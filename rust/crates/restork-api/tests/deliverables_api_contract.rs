@@ -352,6 +352,7 @@ async fn dashboard_report_marks_manual_claims_and_can_freeze_a_deck_outline_from
             "report_id": "report:manual",
             "report_revision": 1,
             "language": "en-US",
+            "theme_id": "restork-ocean",
             "audience": {
                 "audience_id": "team",
                 "purpose": "Daily review",
@@ -364,6 +365,7 @@ async fn dashboard_report_marks_manual_claims_and_can_freeze_a_deck_outline_from
     assert_eq!(status, StatusCode::CREATED);
     let deck = deck.expect("deck");
     assert_eq!(deck["state"], "outline_review");
+    assert_eq!(deck["artifact"]["theme"]["theme_id"], "restork-ocean");
     assert_eq!(
         deck["artifact"]["slides"].as_array().expect("slides").len(),
         2
@@ -427,6 +429,58 @@ async fn dashboard_report_marks_manual_claims_and_can_freeze_a_deck_outline_from
             .get("x-restork-idempotent-replay")
             .and_then(|value| value.to_str().ok()),
         Some("true")
+    );
+}
+
+#[tokio::test]
+async fn model_presentation_accepts_a_user_brief_theme_and_slide_count_without_a_report() {
+    let (app, authorization, _directory, _database) = paired_app_with_database().await;
+    let model_draft = json!({
+        "slides": [
+            {"role":"agenda","action_title":"今天要讲清楚什么","fact_refs":["fact:brief"],"speaker_notes":["先交代这份演示的目标。"]},
+            {"role":"evidence","action_title":"把研究结论变成下一步行动","fact_refs":["fact:brief"],"speaker_notes":["说明用户提供的研究目标。"]},
+            {"role":"comparison","action_title":"选择方案时看什么","fact_refs":["fact:brief"],"speaker_notes":["围绕目标比较可选路径。"]},
+            {"role":"timeline","action_title":"接下来怎么推进","fact_refs":["fact:brief"],"speaker_notes":["给出可以执行的顺序。"]},
+            {"role":"conclusion","action_title":"需要团队确认的事项","fact_refs":["fact:brief"],"speaker_notes":["以明确的决定收尾。"]}
+        ]
+    }).to_string();
+    let base_url = spawn_mock_ollama(&model_draft).await;
+    configure_ollama_profile(&app, &authorization, &base_url).await;
+
+    let (status, body) = call(
+        app,
+        Method::POST,
+        "/v1/deliverables/decks/draft",
+        Some(json!({
+            "deck_id": "deck:brief",
+            "revision": 1,
+            "title": "研究结论与下一步",
+            "report": null,
+            "brief": "把今天的研究结论整理成一份可以直接向团队讲解的演示稿。",
+            "slide_count": 6,
+            "theme_id": "restork-midnight",
+            "provider_profile_id": "ollama",
+            "language": "zh-CN",
+            "audience": {
+                "audience_id": "team",
+                "purpose": "同步研究结论并确定下一步",
+                "expertise": "混合"
+            }
+        })),
+        Some(&authorization),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CREATED, "body: {body:?}");
+    let record = body.expect("deck record");
+    assert_eq!(record["state"], "outline_review");
+    assert_eq!(record["artifact"]["theme"]["theme_id"], "restork-midnight");
+    let slides = record["artifact"]["slides"].as_array().expect("slides");
+    assert_eq!(slides.len(), 6, "title plus five model slides");
+    assert_eq!(slides[2]["action_title"], "把研究结论变成下一步行动");
+    assert_eq!(
+        record["artifact"]["claims"]["claim:model:0"]["verification"],
+        "self_asserted"
     );
 }
 

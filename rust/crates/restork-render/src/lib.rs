@@ -10,6 +10,144 @@ use sha2::{Digest, Sha256};
 const MAX_SLIDES: usize = 200;
 const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 
+/// A renderer-owned theme bundled into every Restork desktop build.
+///
+/// Themes contain colors and layout intent only. They never refer to remote
+/// assets, host fonts, executables, or user-installed template packages.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RenderLayout {
+    Editorial,
+    Minimal,
+    Spotlight,
+    Research,
+    Narrative,
+    Blueprint,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct RenderTheme {
+    pub theme_id: &'static str,
+    pub version: u64,
+    pub content_hash: &'static str,
+    pub name_en: &'static str,
+    pub name_zh: &'static str,
+    pub description_en: &'static str,
+    pub description_zh: &'static str,
+    pub background: &'static str,
+    pub foreground: &'static str,
+    pub muted: &'static str,
+    pub accent: &'static str,
+    pub accent_secondary: &'static str,
+    pub layout: RenderLayout,
+}
+
+const BUILTIN_THEMES: [RenderTheme; 6] = [
+    RenderTheme {
+        theme_id: "restork-print",
+        version: 1,
+        content_hash: "59719d41523c169b974f04cabba1c06cefb78617346c738bff8a89cbd0307907",
+        name_en: "Letterpress",
+        name_zh: "打字纸",
+        description_en: "Warm paper, editorial headings, and calm review slides.",
+        description_zh: "暖色纸张、编辑式标题，适合复盘与汇报。",
+        background: "FBF7EF",
+        foreground: "302A21",
+        muted: "756B5D",
+        accent: "6657D9",
+        accent_secondary: "E84D8A",
+        layout: RenderLayout::Editorial,
+    },
+    RenderTheme {
+        theme_id: "restork-clarity",
+        version: 1,
+        content_hash: "f083ed7b3d465d3c6fb3f7f668daae21d44df22694eec60c71068576c1a24e35",
+        name_en: "Clarity",
+        name_zh: "清晰简报",
+        description_en: "Clean white canvas with restrained cobalt emphasis.",
+        description_zh: "留白清楚、钴蓝强调，适合正式简报。",
+        background: "F8FAFC",
+        foreground: "172033",
+        muted: "64748B",
+        accent: "2563EB",
+        accent_secondary: "06B6D4",
+        layout: RenderLayout::Minimal,
+    },
+    RenderTheme {
+        theme_id: "restork-midnight",
+        version: 1,
+        content_hash: "75bb59e39da2663fff0139bb8c023fc535ba053a0271e31b647a9f4c5bb36caf",
+        name_en: "Midnight",
+        name_zh: "深夜演示",
+        description_en: "Dark stage with violet and cyan highlights.",
+        description_zh: "深色舞台配紫青高光，适合演讲与展示。",
+        background: "11131A",
+        foreground: "F8FAFC",
+        muted: "AAB2C5",
+        accent: "A78BFA",
+        accent_secondary: "22D3EE",
+        layout: RenderLayout::Spotlight,
+    },
+    RenderTheme {
+        theme_id: "restork-ocean",
+        version: 1,
+        content_hash: "04a8a222557487c194644fd2ac31b39b719eaeb04e69fb98a0e28758a5fa532a",
+        name_en: "Ocean Lab",
+        name_zh: "海盐研究",
+        description_en: "Cool research palette for evidence and technical narratives.",
+        description_zh: "清冷研究配色，适合证据、论文与技术叙事。",
+        background: "ECFEFF",
+        foreground: "164E63",
+        muted: "477987",
+        accent: "0891B2",
+        accent_secondary: "0F766E",
+        layout: RenderLayout::Research,
+    },
+    RenderTheme {
+        theme_id: "restork-ember",
+        version: 1,
+        content_hash: "e313b188c7638c78e22967923c089dab1630c2c739115bbe67835fb39dd62bc8",
+        name_en: "Ember",
+        name_zh: "暖色复盘",
+        description_en: "Soft cream and ember accents for stories and retrospectives.",
+        description_zh: "奶油底色配暖橙重点，适合故事与阶段复盘。",
+        background: "FFF7ED",
+        foreground: "431407",
+        muted: "9A5A3A",
+        accent: "EA580C",
+        accent_secondary: "E11D48",
+        layout: RenderLayout::Narrative,
+    },
+    RenderTheme {
+        theme_id: "restork-blueprint",
+        version: 1,
+        content_hash: "0cc52a02b1c52121215c34afe897e6ec154792bb6ccd20837b426cb555984e1c",
+        name_en: "Blueprint",
+        name_zh: "数据蓝图",
+        description_en: "Structured navy canvas for architecture, metrics, and plans.",
+        description_zh: "深蓝结构化画布，适合架构、数据与计划。",
+        background: "EAF2FF",
+        foreground: "102A56",
+        muted: "4F6B95",
+        accent: "1D4ED8",
+        accent_secondary: "7C3AED",
+        layout: RenderLayout::Blueprint,
+    },
+];
+
+/// Returns the complete theme catalog compiled into the binary.
+#[must_use]
+pub const fn builtin_themes() -> &'static [RenderTheme] {
+    &BUILTIN_THEMES
+}
+
+#[must_use]
+pub fn builtin_theme(theme_id: &str) -> Option<&'static RenderTheme> {
+    BUILTIN_THEMES
+        .iter()
+        .find(|theme| theme.theme_id == theme_id)
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RenderFormat {
@@ -77,6 +215,7 @@ struct DeckView {
     spec_hash: String,
     ledger_hash: String,
     theme_hash: String,
+    theme: &'static RenderTheme,
     language: String,
     slides: Vec<SlideView>,
 }
@@ -147,12 +286,21 @@ impl DeckView {
             .filter(|value| is_digest(value))
             .ok_or(RenderError::InvalidDeck)?
             .to_owned();
+        let theme = object
+            .get("theme")
+            .and_then(Value::as_object)
+            .ok_or(RenderError::InvalidDeck)?;
+        let theme_id = theme
+            .get("theme_id")
+            .and_then(Value::as_str)
+            .ok_or(RenderError::InvalidDeck)?;
+        let theme = builtin_theme(theme_id).ok_or(RenderError::InvalidDeck)?;
         let theme_hash = object
             .get("theme")
             .and_then(Value::as_object)
-            .and_then(|theme| theme.get("content_hash"))
+            .and_then(|value| value.get("content_hash"))
             .and_then(Value::as_str)
-            .filter(|value| is_digest(value))
+            .filter(|value| is_digest(value) && *value == theme.content_hash)
             .ok_or(RenderError::InvalidDeck)?
             .to_owned();
         let language = bounded_text(object.get("language"), 64)?;
@@ -216,6 +364,7 @@ impl DeckView {
             spec_hash,
             ledger_hash,
             theme_hash,
+            theme,
             language,
             slides,
         })
@@ -296,11 +445,11 @@ fn render_pptx(deck: &DeckView) -> Result<Vec<u8>, RenderError> {
         "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
         LAYOUT_RELS.as_bytes().to_vec(),
     )?;
-    archive.add("ppt/theme/theme1.xml", THEME.as_bytes().to_vec())?;
+    archive.add("ppt/theme/theme1.xml", theme_xml(deck.theme).into_bytes())?;
     for (index, slide) in deck.slides.iter().enumerate() {
         archive.add(
             &format!("ppt/slides/slide{}.xml", index + 1),
-            slide_xml(slide, &deck.language).into_bytes(),
+            slide_xml(slide, &deck.language, deck.theme, index).into_bytes(),
         )?;
         archive.add(
             &format!("ppt/slides/_rels/slide{}.xml.rels", index + 1),
@@ -357,31 +506,201 @@ fn presentation_relationships(slides: usize) -> String {
     )
 }
 
-fn slide_xml(slide: &SlideView, language: &str) -> String {
+fn slide_xml(slide: &SlideView, language: &str, theme: &RenderTheme, index: usize) -> String {
+    let layout = layout_metrics(theme.layout);
     let bullets = slide
         .lines
         .iter()
-        .flat_map(|line| wrap(line, 78))
-        .take(12)
-        .map(|line| format!("<a:p><a:pPr lvl=\"0\" marL=\"342900\" indent=\"-228600\"><a:buChar char=\"•\"/></a:pPr><a:r><a:rPr lang=\"{}\" sz=\"1900\"/><a:t>{}</a:t></a:r><a:endParaRPr lang=\"{}\" sz=\"1900\"/></a:p>", xml(language), xml(&line), xml(language)))
+        .flat_map(|line| wrap(line, layout.wrap_width))
+        .take(layout.maximum_lines)
+        .map(|line| format!("<a:p><a:pPr lvl=\"0\" marL=\"342900\" indent=\"-228600\"><a:buChar char=\"•\"/></a:pPr><a:r><a:rPr lang=\"{}\" sz=\"{}\"><a:solidFill><a:srgbClr val=\"{}\"/></a:solidFill></a:rPr><a:t>{}</a:t></a:r><a:endParaRPr lang=\"{}\" sz=\"{}\"/></a:p>", xml(language), layout.body_size, theme.foreground, xml(&line), xml(language), layout.body_size))
         .collect::<String>();
     format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><p:sld xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val=\"FBF7EF\"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>{}{}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><p:sld xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val=\"{}\"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>{}{}{}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>",
+        theme.background,
+        accent_shape(theme, index),
         text_box(
             2,
             "Title",
-            685800,
-            457200,
-            10820400,
-            914400,
+            layout.title_x,
+            layout.title_y,
+            layout.title_width,
+            layout.title_height,
             &format!(
-                "<a:p><a:r><a:rPr lang=\"{}\" sz=\"3000\" b=\"1\"><a:solidFill><a:srgbClr val=\"302A21\"/></a:solidFill></a:rPr><a:t>{}</a:t></a:r><a:endParaRPr lang=\"{}\" sz=\"3000\"/></a:p>",
+                "<a:p><a:r><a:rPr lang=\"{}\" sz=\"{}\" b=\"1\"><a:solidFill><a:srgbClr val=\"{}\"/></a:solidFill></a:rPr><a:t>{}</a:t></a:r><a:endParaRPr lang=\"{}\" sz=\"{}\"/></a:p>",
                 xml(language),
+                layout.title_size,
+                theme.foreground,
                 xml(&slide.title),
-                xml(language)
+                xml(language),
+                layout.title_size
             )
         ),
-        text_box(3, "Body", 914400, 1600200, 10363200, 4343400, &bullets)
+        text_box(
+            3,
+            "Body",
+            layout.body_x,
+            layout.body_y,
+            layout.body_width,
+            layout.body_height,
+            &bullets
+        )
+    )
+}
+
+#[derive(Clone, Copy)]
+struct LayoutMetrics {
+    title_x: u32,
+    title_y: u32,
+    title_width: u32,
+    title_height: u32,
+    body_x: u32,
+    body_y: u32,
+    body_width: u32,
+    body_height: u32,
+    title_size: u32,
+    body_size: u32,
+    wrap_width: usize,
+    maximum_lines: usize,
+}
+
+const fn layout_metrics(layout: RenderLayout) -> LayoutMetrics {
+    match layout {
+        RenderLayout::Editorial => LayoutMetrics {
+            title_x: 685_800,
+            title_y: 457_200,
+            title_width: 10_820_400,
+            title_height: 914_400,
+            body_x: 914_400,
+            body_y: 1_600_200,
+            body_width: 10_363_200,
+            body_height: 4_343_400,
+            title_size: 3_000,
+            body_size: 1_900,
+            wrap_width: 78,
+            maximum_lines: 12,
+        },
+        RenderLayout::Minimal => LayoutMetrics {
+            title_x: 914_400,
+            title_y: 685_800,
+            title_width: 10_363_200,
+            title_height: 800_100,
+            body_x: 914_400,
+            body_y: 1_828_800,
+            body_width: 9_144_000,
+            body_height: 3_886_200,
+            title_size: 2_800,
+            body_size: 1_800,
+            wrap_width: 70,
+            maximum_lines: 11,
+        },
+        RenderLayout::Spotlight => LayoutMetrics {
+            title_x: 1_143_000,
+            title_y: 914_400,
+            title_width: 9_906_000,
+            title_height: 1_257_300,
+            body_x: 1_371_600,
+            body_y: 2_400_300,
+            body_width: 8_686_800,
+            body_height: 3_086_100,
+            title_size: 3_400,
+            body_size: 2_000,
+            wrap_width: 60,
+            maximum_lines: 9,
+        },
+        RenderLayout::Research => LayoutMetrics {
+            title_x: 1_371_600,
+            title_y: 571_500,
+            title_width: 9_753_600,
+            title_height: 914_400,
+            body_x: 1_371_600,
+            body_y: 1_714_500,
+            body_width: 9_144_000,
+            body_height: 4_000_500,
+            title_size: 2_900,
+            body_size: 1_800,
+            wrap_width: 68,
+            maximum_lines: 12,
+        },
+        RenderLayout::Narrative => LayoutMetrics {
+            title_x: 685_800,
+            title_y: 800_100,
+            title_width: 8_686_800,
+            title_height: 1_257_300,
+            body_x: 685_800,
+            body_y: 2_286_000,
+            body_width: 9_144_000,
+            body_height: 3_200_400,
+            title_size: 3_300,
+            body_size: 1_900,
+            wrap_width: 64,
+            maximum_lines: 9,
+        },
+        RenderLayout::Blueprint => LayoutMetrics {
+            title_x: 1_143_000,
+            title_y: 457_200,
+            title_width: 9_906_000,
+            title_height: 914_400,
+            body_x: 1_143_000,
+            body_y: 1_714_500,
+            body_width: 9_144_000,
+            body_height: 3_886_200,
+            title_size: 2_700,
+            body_size: 1_750,
+            wrap_width: 72,
+            maximum_lines: 12,
+        },
+    }
+}
+
+fn accent_shape(theme: &RenderTheme, index: usize) -> String {
+    let color = if index.is_multiple_of(2) {
+        theme.accent
+    } else {
+        theme.accent_secondary
+    };
+    match theme.layout {
+        RenderLayout::Editorial => filled_rect(4, "Accent", 0, 0, 114_300, 6_858_000, color),
+        RenderLayout::Minimal => filled_rect(4, "Accent", 0, 0, 12_192_000, 114_300, color),
+        RenderLayout::Spotlight => {
+            filled_rect(4, "Accent", 0, 6_686_550, 12_192_000, 171_450, color)
+        }
+        RenderLayout::Research => format!(
+            "{}{}",
+            filled_rect(4, "Accent", 0, 0, 685_800, 685_800, color),
+            filled_rect(
+                5,
+                "Rule",
+                685_800,
+                0,
+                11_506_200,
+                57_150,
+                theme.accent_secondary
+            )
+        ),
+        RenderLayout::Narrative => {
+            filled_rect(4, "Accent", 12_077_700, 0, 114_300, 6_858_000, color)
+        }
+        RenderLayout::Blueprint => format!(
+            "{}{}",
+            filled_rect(4, "Accent", 0, 0, 228_600, 6_858_000, color),
+            filled_rect(
+                5,
+                "Rule",
+                228_600,
+                0,
+                11_963_400,
+                57_150,
+                theme.accent_secondary
+            )
+        ),
+    }
+}
+
+fn filled_rect(id: u32, name: &str, x: u32, y: u32, cx: u32, cy: u32, color: &str) -> String {
+    format!(
+        "<p:sp><p:nvSpPr><p:cNvPr id=\"{id}\" name=\"{}\"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"{x}\" y=\"{y}\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val=\"{color}\"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr></p:sp>",
+        xml(name)
     )
 }
 
@@ -406,7 +725,7 @@ fn render_pdf(deck: &DeckView) -> Result<Vec<u8>, RenderError> {
         let content_id = page_id + 1;
         page_refs.push(format!("{page_id} 0 R"));
         objects.push(format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 960 540] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >>").into_bytes());
-        let stream = pdf_page(slide);
+        let stream = pdf_page(slide, deck.theme);
         objects.push(
             format!(
                 "<< /Length {} >>\nstream\n{}\nendstream",
@@ -447,20 +766,80 @@ fn render_pdf(deck: &DeckView) -> Result<Vec<u8>, RenderError> {
     Ok(output)
 }
 
-fn pdf_page(slide: &SlideView) -> String {
+fn pdf_page(slide: &SlideView, theme: &RenderTheme) -> String {
+    let layout = layout_metrics(theme.layout);
+    let background = pdf_rgb(theme.background);
+    let foreground = pdf_rgb(theme.foreground);
+    let accent = pdf_rgb(theme.accent);
+    let (accent_command, title_x, title_y, body_x, mut y) = match theme.layout {
+        RenderLayout::Editorial => (format!("q {accent} rg 0 0 8 540 re f Q"), 60, 470, 75, 410),
+        RenderLayout::Minimal => (
+            format!("q {accent} rg 0 532 960 8 re f Q"),
+            72,
+            455,
+            72,
+            390,
+        ),
+        RenderLayout::Spotlight => (
+            format!("q {accent} rg 0 0 960 12 re f Q"),
+            90,
+            430,
+            105,
+            330,
+        ),
+        RenderLayout::Research => (
+            format!("q {accent} rg 0 486 54 54 re f Q"),
+            108,
+            462,
+            108,
+            392,
+        ),
+        RenderLayout::Narrative => (
+            format!("q {accent} rg 952 0 8 540 re f Q"),
+            54,
+            430,
+            54,
+            330,
+        ),
+        RenderLayout::Blueprint => (
+            format!("q {accent} rg 0 0 14 540 re f Q\nq {accent} rg 0 536 960 4 re f Q"),
+            90,
+            468,
+            90,
+            398,
+        ),
+    };
     let mut commands = format!(
-        "q 0.984 0.969 0.937 rg 0 0 960 540 re f Q\nBT /F1 28 Tf 60 470 Td <{}> Tj ET\n",
+        "q {background} rg 0 0 960 540 re f Q\n{accent_command}\n{foreground} rg\nBT /F1 {} Tf {title_x} {title_y} Td <{}> Tj ET\n",
+        layout.title_size / 100,
         utf16_hex(&slide.title)
     );
-    let mut y = 410_i32;
-    for line in slide.lines.iter().flat_map(|line| wrap(line, 54)).take(12) {
+    for line in slide
+        .lines
+        .iter()
+        .flat_map(|line| wrap(line, layout.wrap_width.saturating_sub(12)))
+        .take(layout.maximum_lines)
+    {
         commands.push_str(&format!(
-            "BT /F1 16 Tf 75 {y} Td <{}> Tj ET\n",
+            "BT /F1 {} Tf {body_x} {y} Td <{}> Tj ET\n",
+            layout.body_size / 120,
             utf16_hex(&format!("• {line}"))
         ));
         y -= 28;
     }
     commands
+}
+
+fn pdf_rgb(hex: &str) -> String {
+    let component = |range: std::ops::Range<usize>| {
+        u8::from_str_radix(&hex[range], 16).map_or(0.0, |value| f32::from(value) / 255.0)
+    };
+    format!(
+        "{:.3} {:.3} {:.3}",
+        component(0..2),
+        component(2..4),
+        component(4..6)
+    )
 }
 
 fn utf16_hex(value: &str) -> String {
@@ -613,11 +992,25 @@ const MASTER_RELS: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\
 const LAYOUT_RELS: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster\" Target=\"../slideMasters/slideMaster1.xml\"/></Relationships>";
 const SLIDE_MASTER: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><p:sldMaster xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld><p:clrMap accent1=\"accent1\" accent2=\"accent2\" accent3=\"accent3\" accent4=\"accent4\" accent5=\"accent5\" accent6=\"accent6\" bg1=\"lt1\" bg2=\"lt2\" folHlink=\"folHlink\" hlink=\"hlink\" tx1=\"dk1\" tx2=\"dk2\"/><p:sldLayoutIdLst><p:sldLayoutId id=\"1\" r:id=\"rId1\"/></p:sldLayoutIdLst><p:txStyles><p:titleStyle/><p:bodyStyle/><p:otherStyle/></p:txStyles></p:sldMaster>";
 const SLIDE_LAYOUT: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><p:sldLayout xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\" type=\"blank\" preserve=\"1\"><p:cSld name=\"Blank\"><p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>";
-const THEME: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><a:theme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"Restork Print\"><a:themeElements><a:clrScheme name=\"Restork\"><a:dk1><a:srgbClr val=\"302A21\"/></a:dk1><a:lt1><a:srgbClr val=\"FBF7EF\"/></a:lt1><a:dk2><a:srgbClr val=\"5E5548\"/></a:dk2><a:lt2><a:srgbClr val=\"F2EADF\"/></a:lt2><a:accent1><a:srgbClr val=\"6657D9\"/></a:accent1><a:accent2><a:srgbClr val=\"E84D8A\"/></a:accent2><a:accent3><a:srgbClr val=\"1ABECF\"/></a:accent3><a:accent4><a:srgbClr val=\"F39819\"/></a:accent4><a:accent5><a:srgbClr val=\"40B98A\"/></a:accent5><a:accent6><a:srgbClr val=\"AF6BCE\"/></a:accent6><a:hlink><a:srgbClr val=\"6657D9\"/></a:hlink><a:folHlink><a:srgbClr val=\"AF6BCE\"/></a:folHlink></a:clrScheme><a:fontScheme name=\"Restork\"><a:majorFont><a:latin typeface=\"Georgia\"/><a:ea typeface=\"PingFang SC\"/><a:cs typeface=\"Georgia\"/></a:majorFont><a:minorFont><a:latin typeface=\"Arial\"/><a:ea typeface=\"PingFang SC\"/><a:cs typeface=\"Arial\"/></a:minorFont></a:fontScheme><a:fmtScheme name=\"Restork\"><a:fillStyleLst><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w=\"6350\"><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>";
+fn theme_xml(theme: &RenderTheme) -> String {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><a:theme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"Restork {}\"><a:themeElements><a:clrScheme name=\"Restork\"><a:dk1><a:srgbClr val=\"{}\"/></a:dk1><a:lt1><a:srgbClr val=\"{}\"/></a:lt1><a:dk2><a:srgbClr val=\"{}\"/></a:dk2><a:lt2><a:srgbClr val=\"{}\"/></a:lt2><a:accent1><a:srgbClr val=\"{}\"/></a:accent1><a:accent2><a:srgbClr val=\"{}\"/></a:accent2><a:accent3><a:srgbClr val=\"{}\"/></a:accent3><a:accent4><a:srgbClr val=\"F39819\"/></a:accent4><a:accent5><a:srgbClr val=\"40B98A\"/></a:accent5><a:accent6><a:srgbClr val=\"AF6BCE\"/></a:accent6><a:hlink><a:srgbClr val=\"{}\"/></a:hlink><a:folHlink><a:srgbClr val=\"{}\"/></a:folHlink></a:clrScheme><a:fontScheme name=\"Restork\"><a:majorFont><a:latin typeface=\"Arial\"/><a:ea typeface=\"Microsoft YaHei\"/><a:cs typeface=\"Arial\"/></a:majorFont><a:minorFont><a:latin typeface=\"Arial\"/><a:ea typeface=\"Microsoft YaHei\"/><a:cs typeface=\"Arial\"/></a:minorFont></a:fontScheme><a:fmtScheme name=\"Restork\"><a:fillStyleLst><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w=\"6350\"><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>",
+        xml(theme.name_en),
+        theme.foreground,
+        theme.background,
+        theme.muted,
+        theme.background,
+        theme.accent,
+        theme.accent_secondary,
+        theme.muted,
+        theme.accent,
+        theme.accent_secondary
+    )
+}
 
 #[cfg(test)]
 mod tests {
-    use super::{RenderFormat, render_deck};
+    use super::{RenderFormat, builtin_themes, render_deck};
     use serde_json::json;
 
     fn deck() -> serde_json::Value {
@@ -627,10 +1020,56 @@ mod tests {
             "language": "zh-CN",
             "spec_hash": "a".repeat(64),
             "ledger_hash": "b".repeat(64),
-            "theme": {"content_hash": "c".repeat(64)},
+            "theme": {
+                "theme_id": "restork-print",
+                "content_hash": builtin_themes()[0].content_hash
+            },
             "claims": {"claim-1": {"text": "本地优先 keeps private context local.", "citation_refs": ["source-1"]}},
             "slides": [{"action_title": "Restork 研究工作台", "claim_refs": ["claim-1"], "speaker_notes": []}]
         })
+    }
+
+    #[test]
+    fn ships_six_distinct_zero_runtime_render_themes() {
+        let themes = builtin_themes();
+        assert_eq!(themes.len(), 6);
+        let ids = themes
+            .iter()
+            .map(|theme| theme.theme_id)
+            .collect::<std::collections::BTreeSet<_>>();
+        let hashes = themes
+            .iter()
+            .map(|theme| theme.content_hash)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(ids.len(), themes.len());
+        assert_eq!(hashes.len(), themes.len());
+        assert!(themes.iter().all(|theme| theme.version == 1));
+    }
+
+    #[test]
+    fn every_builtin_theme_changes_pptx_and_pdf_output_without_external_assets() {
+        let mut pptx_hashes = std::collections::BTreeSet::new();
+        let mut pdf_hashes = std::collections::BTreeSet::new();
+        for theme in builtin_themes() {
+            let mut value = deck();
+            value["theme"] = json!({
+                "theme_id": theme.theme_id,
+                "content_hash": theme.content_hash,
+            });
+            let pptx = render_deck(&value, RenderFormat::Pptx).expect("pptx");
+            let pdf = render_deck(&value, RenderFormat::Pdf).expect("pdf");
+            assert_eq!(pptx.manifest.theme_hash, theme.content_hash);
+            assert!(
+                !pptx
+                    .bytes
+                    .windows(21)
+                    .any(|part| part == b"TargetMode=\"External\"")
+            );
+            pptx_hashes.insert(pptx.manifest.artifact_hash);
+            pdf_hashes.insert(pdf.manifest.artifact_hash);
+        }
+        assert_eq!(pptx_hashes.len(), 6);
+        assert_eq!(pdf_hashes.len(), 6);
     }
 
     #[test]

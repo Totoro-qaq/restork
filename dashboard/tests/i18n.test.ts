@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { DashboardSnapshot } from "../src/api/types";
 import { detectLocale, LOCALE_STORAGE_KEY } from "../src/i18n";
 import { mountDashboard } from "../src/main";
-import { providerErrorMarkup } from "../src/ui/render";
+import { memoryView, providerErrorMarkup } from "../src/ui/render";
 
 const emptySnapshot: DashboardSnapshot = {
   runs: [],
@@ -84,6 +84,37 @@ describe("Dashboard locales", () => {
     expect(providerErrorMarkup("zh-CN")).toContain("检查失败");
     expect(providerErrorMarkup("zh-CN", "invalid or expired access token"))
       .toContain("Core 返回：invalid or expired access token");
+  });
+
+  it("uses product language for memory without exposing storage taxonomy", () => {
+    const snapshot: DashboardSnapshot = {
+      ...emptySnapshot,
+      memory: {
+        architecture: ["working", "episodic", "semantic", "profile"],
+        counts: { working: 1, episodic: 1, semantic: 1, profile: 1 },
+        records: [{
+          memory_id: "memory-copy",
+          layer: "episodic",
+          kind: "decision",
+          summary: "Keep the original note.",
+          provenance: "user",
+          data_class: "personal",
+          retention_class: "session",
+          updated_at: "2026-08-11T00:00:00Z",
+          content_hash: "a".repeat(64),
+        }],
+      },
+    };
+
+    const english = memoryView(snapshot, "en");
+    const chinese = memoryView(snapshot, "zh-CN");
+    expect(english).toContain("What Restork remembers");
+    expect(english).toContain("Current conversation");
+    expect(english).toContain("Run history · Decision");
+    expect(chinese).toContain("Restork 记住的内容");
+    expect(chinese).toContain("当前对话");
+    expect(chinese).toContain("运行记录 · 决定");
+    expect(`${english}${chinese}`).not.toMatch(/Four-layer|四层记忆|TTL\/LRU|EPISODIC/);
   });
 });
 

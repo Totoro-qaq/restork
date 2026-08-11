@@ -366,6 +366,10 @@ fn deliverable_routes() -> Router<ApiState> {
             axum::routing::post(compose_deck_from_report),
         )
         .route(
+            "/v1/deliverables/decks/draft",
+            axum::routing::post(compose_deck_draft),
+        )
+        .route(
             "/v1/deliverables/{deliverable_id}/{revision}/render-preview",
             axum::routing::post(preview_deliverable_render),
         )

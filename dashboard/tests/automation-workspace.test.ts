@@ -191,7 +191,7 @@ describe("Automation workspace", () => {
         network_access_confirmed: true,
       },
     })));
-    expect(root.textContent).toContain("模型自动化只使用 public 运行事实生成本地待审查草稿");
+    expect(root.textContent).toContain("模型自动化只使用公开的运行记录，并在这台设备上生成草稿");
     root.remove();
   });
 

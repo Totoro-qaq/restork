@@ -164,7 +164,7 @@ async fn configure_provider(provider_kind: &str) -> i32 {
     }
     let Some((display_name, reference)) = native_provider_reference(provider_kind) else {
         eprintln!(
-            "restorkd: unsupported credential provider; choose deepseek, glm, kimi, qwen, openrouter, or open_ai_compatible"
+            "restorkd: unsupported credential provider; choose deepseek, openai, anthropic, minimax, mimo, glm, kimi, qwen, openrouter, or open_ai_compatible"
         );
         return 2;
     };
@@ -191,6 +191,10 @@ async fn configure_provider(provider_kind: &str) -> i32 {
 fn native_provider_reference(provider_kind: &str) -> Option<(&'static str, String)> {
     let display_name = match provider_kind {
         "deepseek" => "DeepSeek",
+        "openai" => "OpenAI",
+        "anthropic" => "Anthropic",
+        "minimax" => "MiniMax",
+        "mimo" => "MiMo",
         "glm" => "GLM",
         "kimi" => "Kimi",
         "qwen" => "Qwen",

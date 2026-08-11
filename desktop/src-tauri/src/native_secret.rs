@@ -32,7 +32,16 @@ pub(crate) fn configure_provider_secret(
 pub(crate) fn provider_secret_reference(provider_kind: &str) -> Result<String, &'static str> {
     if !matches!(
         provider_kind,
-        "deepseek" | "glm" | "kimi" | "qwen" | "openrouter" | "open_ai_compatible"
+        "deepseek"
+            | "openai"
+            | "anthropic"
+            | "minimax"
+            | "mimo"
+            | "glm"
+            | "kimi"
+            | "qwen"
+            | "openrouter"
+            | "open_ai_compatible"
     ) {
         return Err("native_secret_provider_invalid");
     }
@@ -176,6 +185,10 @@ mod tests {
     fn provider_references_are_fixed_and_unknown_kinds_are_rejected() {
         let reference = provider_secret_reference("deepseek").expect("known provider");
         assert!(reference.ends_with("restork/provider/deepseek"));
+        for provider in ["openai", "anthropic", "minimax", "mimo"] {
+            let reference = provider_secret_reference(provider).expect("known provider");
+            assert!(reference.ends_with(&format!("restork/provider/{provider}")));
+        }
         assert!(provider_secret_reference("ollama").is_err());
         assert!(provider_secret_reference("deepseek;rm").is_err());
     }

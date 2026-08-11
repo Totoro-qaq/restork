@@ -599,7 +599,7 @@ impl ProviderClient {
     pub async fn credential_present(&self, profile: &ProviderProfile) -> bool {
         match profile.kind().definition().auth_kind {
             ProviderAuthKind::None => true,
-            ProviderAuthKind::Bearer => {
+            ProviderAuthKind::Bearer | ProviderAuthKind::ApiKeyHeader => {
                 let Some(reference) = profile.secret_ref() else {
                     return false;
                 };
@@ -635,6 +635,10 @@ impl ProviderClient {
                 self.chat_openai(profile, messages, max_tokens, options)
                     .await
             }
+            ProviderProtocol::AnthropicMessages => {
+                self.chat_anthropic(profile, messages, max_tokens, options)
+                    .await
+            }
         }
     }
 
@@ -663,6 +667,9 @@ impl ProviderClient {
                 .json(&build_ollama_chat_request_with_options(
                     profile, messages, max_tokens, options, true,
                 )?),
+            ProviderProtocol::AnthropicMessages => {
+                return Err(ProviderError::Configuration);
+            }
         };
         let response = send_chat_request(request, options.retry).await?;
         let status = response.status();
@@ -770,12 +777,28 @@ impl ProviderClient {
                 map_status(status, &payload)?;
                 parse_openai_models(&payload)?
             }
+            ModelDiscovery::AnthropicModels => {
+                let secret = self.resolve_secret(profile).await?;
+                let response = self
+                    .send_idempotent(
+                        self.discovery_client
+                            .get(format!("{}/models", profile.base_url()))
+                            .header("x-api-key", secret.expose())
+                            .header("anthropic-version", "2023-06-01"),
+                    )
+                    .await?;
+                let status = response.status();
+                let payload = read_bounded_json(response, WEB_SEARCH_RESPONSE_MAX_BYTES).await?;
+                map_status(status, &payload)?;
+                parse_openai_models(&payload)?
+            }
         };
         Ok(ProviderModelCatalog {
             registry_version: definition.registry_version,
             provider_kind: definition.id.to_owned(),
             discovery: match definition.model_discovery {
                 ModelDiscovery::OpenAiModels => "open_ai_models",
+                ModelDiscovery::AnthropicModels => "anthropic_models",
                 ModelDiscovery::OllamaTags => "ollama_tags",
                 ModelDiscovery::ManualOnly => "manual_only",
             }
@@ -964,6 +987,50 @@ impl ProviderClient {
         })
     }
 
+    async fn chat_anthropic(
+        &self,
+        profile: &ProviderProfile,
+        messages: &[ChatMessage],
+        max_tokens: u32,
+        options: &ChatOptions,
+    ) -> Result<ChatCompletion, ProviderError> {
+        let secret = self.resolve_secret(profile).await?;
+        let started = Instant::now();
+        let request = self
+            .client
+            .post(format!("{}/messages", profile.base_url()))
+            .header("x-api-key", secret.expose())
+            .header("anthropic-version", "2023-06-01")
+            .json(&build_anthropic_messages_request(
+                profile, messages, max_tokens, options,
+            )?);
+        let response = send_chat_request(request, options.retry).await?;
+        let request_id = request_id(&response);
+        let status = response.status();
+        let payload = read_bounded_json(response, WEB_SEARCH_RESPONSE_MAX_BYTES).await?;
+        map_status(status, &payload)?;
+        let (content, tool_calls) = parse_anthropic_content(&payload["content"])?;
+        if (content.is_empty() && tool_calls.is_empty()) || content.len() > 2_000_000 {
+            return Err(ProviderError::InvalidResponse);
+        }
+        let prompt_tokens = payload["usage"]["input_tokens"].as_u64();
+        let completion_tokens = payload["usage"]["output_tokens"].as_u64();
+        Ok(ChatCompletion {
+            content,
+            tool_calls,
+            reasoning_content: None,
+            finish_reason: payload["stop_reason"].as_str().map(str::to_owned),
+            latency_ms: elapsed_ms(started),
+            request_id,
+            prompt_tokens,
+            completion_tokens,
+            total_tokens: prompt_tokens
+                .zip(completion_tokens)
+                .map(|(left, right)| left + right),
+            cost_usd_micros: None,
+        })
+    }
+
     async fn chat_ollama(
         &self,
         profile: &ProviderProfile,
@@ -1055,6 +1122,9 @@ fn take_stream_frame(state: &mut ChatStreamState) -> Option<Result<Vec<u8>, Prov
             .iter()
             .position(|byte| *byte == b'\n')
             .map(|position| (position, 1)),
+        ProviderProtocol::AnthropicMessages => {
+            return Some(Err(ProviderError::Configuration));
+        }
     }?;
     let (position, width) = delimiter;
     let frame = state.buffer.drain(..position).collect::<Vec<_>>();
@@ -1072,6 +1142,7 @@ fn parse_stream_frame(
     match state.protocol {
         ProviderProtocol::OpenAiChatCompletions => parse_openai_stream_frame(state, frame),
         ProviderProtocol::OllamaChat => parse_ollama_stream_frame(state, frame),
+        ProviderProtocol::AnthropicMessages => Err(ProviderError::Configuration),
     }
 }
 
@@ -1287,7 +1358,125 @@ pub fn build_openai_chat_request_with_options(
                 body["reasoning_effort"] = Value::String(effort.as_wire_value().to_owned());
             }
         }
+        ProviderRequestAdapter::MiMo => match profile.reasoning().effort() {
+            ReasoningEffort::Auto => {}
+            ReasoningEffort::Off => body["thinking"] = json!({"type": "disabled"}),
+            _ => return Err(ProviderError::Configuration),
+        },
+        ProviderRequestAdapter::Anthropic => return Err(ProviderError::Configuration),
         ProviderRequestAdapter::Ollama => return Err(ProviderError::Configuration),
+    }
+    Ok(body)
+}
+
+/// Build the native Anthropic Messages payload. Credentials and protocol-only
+/// headers are applied by the transport and never enter the serialized body.
+pub fn build_anthropic_messages_request(
+    profile: &ProviderProfile,
+    messages: &[ChatMessage],
+    max_tokens: u32,
+    options: &ChatOptions,
+) -> Result<Value, ProviderError> {
+    if profile.kind().definition().protocol != ProviderProtocol::AnthropicMessages
+        || profile.kind().definition().request_adapter != ProviderRequestAdapter::Anthropic
+    {
+        return Err(ProviderError::Configuration);
+    }
+    validate_chat_request(profile, messages, max_tokens, options)?;
+    if options.sampling.seed.is_some() {
+        return Err(ProviderError::Configuration);
+    }
+
+    let system = messages
+        .iter()
+        .filter(|message| message.role == "system")
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let mut encoded = Vec::with_capacity(messages.len());
+    for message in messages.iter().filter(|message| message.role != "system") {
+        let (role, content) = match message.role.as_str() {
+            "user" => (
+                "user",
+                vec![json!({"type": "text", "text": message.content})],
+            ),
+            "assistant" => {
+                let mut content = Vec::with_capacity(message.tool_calls.len() + 1);
+                if !message.content.is_empty() {
+                    content.push(json!({"type": "text", "text": message.content}));
+                }
+                for call in &message.tool_calls {
+                    validate_tool_call(call)?;
+                    content.push(json!({
+                        "type": "tool_use",
+                        "id": call.id,
+                        "name": call.name,
+                        "input": call.arguments,
+                    }));
+                }
+                ("assistant", content)
+            }
+            "tool" => (
+                "user",
+                vec![json!({
+                    "type": "tool_result",
+                    "tool_use_id": message
+                        .tool_call_id
+                        .as_deref()
+                        .ok_or(ProviderError::Configuration)?,
+                    "content": message.content,
+                })],
+            ),
+            _ => return Err(ProviderError::Configuration),
+        };
+        encoded.push(json!({"role": role, "content": content}));
+    }
+    if encoded.is_empty() {
+        return Err(ProviderError::PolicyDenied);
+    }
+
+    let mut body = json!({
+        "model": profile.model(),
+        "max_tokens": max_tokens,
+        "messages": encoded,
+    });
+    if !system.is_empty() {
+        body["system"] = Value::String(system);
+    }
+    if !options.tools.is_empty() {
+        body["tools"] = Value::Array(
+            options
+                .tools
+                .iter()
+                .map(|tool| {
+                    json!({
+                        "name": tool.name,
+                        "description": tool.description,
+                        "input_schema": tool.parameters,
+                    })
+                })
+                .collect(),
+        );
+        let mut choice = match &options.tool_choice {
+            ChatToolChoice::Auto => json!({"type": "auto"}),
+            ChatToolChoice::None => json!({"type": "none"}),
+            ChatToolChoice::Required => json!({"type": "any"}),
+            ChatToolChoice::Function(name) => json!({"type": "tool", "name": name}),
+        };
+        if options.parallel_tool_calls == Some(false) {
+            choice["disable_parallel_tool_use"] = Value::Bool(true);
+        }
+        body["tool_choice"] = choice;
+    }
+    if let Some(temperature) = options.sampling.temperature {
+        body["temperature"] = json!(temperature);
+    }
+    if let Some(top_p) = options.sampling.top_p {
+        body["top_p"] = json!(top_p);
+    }
+    if !options.sampling.stop.is_empty() {
+        body["stop_sequences"] = serde_json::to_value(&options.sampling.stop)
+            .map_err(|_| ProviderError::Configuration)?;
     }
     Ok(body)
 }
@@ -1535,7 +1724,7 @@ fn encode_openai_messages(
                     .collect::<Result<Vec<_>, ProviderError>>()?,
             );
         }
-        if profile.kind() == ProviderKind::DeepSeek {
+        if matches!(profile.kind(), ProviderKind::DeepSeek | ProviderKind::MiMo) {
             match &message.reasoning_content {
                 Some(reasoning_content) => {
                     value["reasoning_content"] = Value::String(reasoning_content.clone());
@@ -2199,6 +2388,51 @@ fn parse_openai_tool_calls(value: &Value) -> Result<Vec<ToolCall>, ProviderError
         .collect()
 }
 
+fn parse_anthropic_content(value: &Value) -> Result<(String, Vec<ToolCall>), ProviderError> {
+    let blocks = value.as_array().ok_or(ProviderError::InvalidResponse)?;
+    if blocks.len() > 4_096 {
+        return Err(ProviderError::InvalidResponse);
+    }
+    let mut text = Vec::new();
+    let mut calls = Vec::new();
+    for block in blocks {
+        match block["type"].as_str() {
+            Some("text") => {
+                let part = block["text"]
+                    .as_str()
+                    .ok_or(ProviderError::InvalidResponse)?;
+                if !part.is_empty() {
+                    text.push(part);
+                }
+            }
+            Some("tool_use") => {
+                let call = ToolCall {
+                    id: block["id"]
+                        .as_str()
+                        .ok_or(ProviderError::InvalidResponse)?
+                        .to_owned(),
+                    name: block["name"]
+                        .as_str()
+                        .ok_or(ProviderError::InvalidResponse)?
+                        .to_owned(),
+                    arguments: block["input"].clone(),
+                };
+                validate_tool_call(&call)?;
+                calls.push(call);
+            }
+            // Thinking and redacted-thinking blocks are intentionally not
+            // persisted or exposed as assistant content.
+            Some("thinking" | "redacted_thinking") => {}
+            _ => return Err(ProviderError::InvalidResponse),
+        }
+    }
+    let content = text.join("\n");
+    if content.len() > 2_000_000 || calls.len() > 1_024 {
+        return Err(ProviderError::InvalidResponse);
+    }
+    Ok((content, calls))
+}
+
 fn parse_ollama_tool_calls(value: &Value) -> Result<Vec<ToolCall>, ProviderError> {
     if value.is_null() {
         return Ok(Vec::new());
@@ -2448,6 +2682,77 @@ mod tests {
         let ollama =
             build_ollama_chat_request(&ollama_profile, &messages, 32).expect("Ollama request");
         assert_eq!(ollama["think"], "high");
+    }
+
+    #[test]
+    fn anthropic_messages_keep_system_tools_and_results_in_native_shapes() {
+        let messages = [
+            ChatMessage::text("system", "Use only reviewed facts."),
+            ChatMessage::text("user", "Check the workspace."),
+            ChatMessage {
+                role: "assistant".to_owned(),
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    id: "toolu_1".to_owned(),
+                    name: "workspace_search".to_owned(),
+                    arguments: json!({"query": "release"}),
+                }],
+                tool_call_id: None,
+                reasoning_content: None,
+            },
+            ChatMessage::tool_result("toolu_1", "No release found."),
+        ];
+        let options = ChatOptions {
+            tools: vec![ChatTool {
+                name: "workspace_search".to_owned(),
+                description: "Search reviewed workspace metadata.".to_owned(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"]
+                }),
+            }],
+            tool_choice: ChatToolChoice::Required,
+            parallel_tool_calls: Some(false),
+            sampling: SamplingControls::default(),
+            retry: ChatRetryPolicy::Disabled,
+        };
+
+        let request = build_anthropic_messages_request(
+            &profile(ProviderKind::Anthropic),
+            &messages,
+            128,
+            &options,
+        )
+        .expect("native Anthropic request");
+        assert_eq!(request["system"], "Use only reviewed facts.");
+        assert_eq!(request["messages"][0]["role"], "user");
+        assert_eq!(request["messages"][1]["content"][0]["type"], "tool_use");
+        assert_eq!(request["messages"][2]["content"][0]["type"], "tool_result");
+        assert_eq!(request["tools"][0]["input_schema"]["type"], "object");
+        assert_eq!(request["tool_choice"]["type"], "any");
+        assert_eq!(request["tool_choice"]["disable_parallel_tool_use"], true);
+        assert!(request.get("stream").is_none());
+    }
+
+    #[test]
+    fn provider_specific_adapters_do_not_collapse_into_one_frontend_identity() {
+        let ids = [
+            ProviderKind::OpenAi,
+            ProviderKind::Anthropic,
+            ProviderKind::MiniMax,
+            ProviderKind::MiMo,
+        ]
+        .map(|kind| kind.definition().id);
+        assert_eq!(ids, ["openai", "anthropic", "minimax", "mimo"]);
+        assert_eq!(
+            ProviderKind::Anthropic.definition().protocol,
+            ProviderProtocol::AnthropicMessages
+        );
+        assert_eq!(
+            ProviderKind::MiMo.definition().request_adapter,
+            ProviderRequestAdapter::MiMo
+        );
     }
 
     #[test]

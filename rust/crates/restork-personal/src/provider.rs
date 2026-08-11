@@ -5,7 +5,7 @@ use crate::{
     validation::{hash_parts, normalize_id, normalize_text, validate_version},
 };
 
-pub const PROVIDER_REGISTRY_VERSION: u16 = 1;
+pub const PROVIDER_REGISTRY_VERSION: u16 = 2;
 
 /// Provider identity. Transport, endpoint, credential, and capability behavior
 /// are resolved through the central registry instead of scattered matches.
@@ -13,6 +13,14 @@ pub const PROVIDER_REGISTRY_VERSION: u16 = 1;
 pub enum ProviderKind {
     #[serde(rename = "deepseek")]
     DeepSeek,
+    #[serde(rename = "openai")]
+    OpenAi,
+    #[serde(rename = "anthropic")]
+    Anthropic,
+    #[serde(rename = "minimax")]
+    MiniMax,
+    #[serde(rename = "mimo")]
+    MiMo,
     #[serde(rename = "glm")]
     Glm,
     #[serde(rename = "kimi")]
@@ -31,6 +39,7 @@ pub enum ProviderKind {
 #[serde(rename_all = "snake_case")]
 pub enum ProviderProtocol {
     OpenAiChatCompletions,
+    AnthropicMessages,
     OllamaChat,
 }
 
@@ -39,12 +48,14 @@ pub enum ProviderProtocol {
 pub enum ProviderAuthKind {
     None,
     Bearer,
+    ApiKeyHeader,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelDiscovery {
     OpenAiModels,
+    AnthropicModels,
     OllamaTags,
     ManualOnly,
 }
@@ -53,12 +64,14 @@ pub enum ModelDiscovery {
 #[serde(rename_all = "snake_case")]
 pub enum ProviderRequestAdapter {
     StandardOpenAi,
+    Anthropic,
     DeepSeek,
     Glm,
     Kimi,
     Qwen,
     Ollama,
     OpenRouter,
+    MiMo,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -188,6 +201,8 @@ pub struct ProviderDefinition {
     pub display_name: &'static str,
     pub protocol: ProviderProtocol,
     pub default_base_url: &'static str,
+    pub default_model: &'static str,
+    pub recommended_models: &'static [&'static str],
     pub endpoint_policy: EndpointPolicy,
     pub auth_kind: ProviderAuthKind,
     pub model_discovery: ModelDiscovery,
@@ -230,7 +245,7 @@ const AUTO_ONLY: ReasoningCapabilities = ReasoningCapabilities {
     supports_token_budget: false,
 };
 
-const PROVIDER_DEFINITIONS: [ProviderDefinition; 7] = [
+const PROVIDER_DEFINITIONS: [ProviderDefinition; 11] = [
     ProviderDefinition {
         registry_version: PROVIDER_REGISTRY_VERSION,
         kind: ProviderKind::DeepSeek,
@@ -238,6 +253,8 @@ const PROVIDER_DEFINITIONS: [ProviderDefinition; 7] = [
         display_name: "DeepSeek",
         protocol: ProviderProtocol::OpenAiChatCompletions,
         default_base_url: "https://api.deepseek.com",
+        default_model: "deepseek-v4-pro",
+        recommended_models: &["deepseek-v4-pro", "deepseek-v4-flash"],
         endpoint_policy: EndpointPolicy::ExactOfficial,
         auth_kind: ProviderAuthKind::Bearer,
         model_discovery: ModelDiscovery::OpenAiModels,
@@ -255,11 +272,100 @@ const PROVIDER_DEFINITIONS: [ProviderDefinition; 7] = [
     },
     ProviderDefinition {
         registry_version: PROVIDER_REGISTRY_VERSION,
+        kind: ProviderKind::OpenAi,
+        id: "openai",
+        display_name: "OpenAI",
+        protocol: ProviderProtocol::OpenAiChatCompletions,
+        default_base_url: "https://api.openai.com/v1",
+        default_model: "gpt-5.6",
+        recommended_models: &["gpt-5.6", "gpt-5.6-terra", "gpt-5.6-luna"],
+        endpoint_policy: EndpointPolicy::ExactOfficial,
+        auth_kind: ProviderAuthKind::Bearer,
+        model_discovery: ModelDiscovery::OpenAiModels,
+        request_adapter: ProviderRequestAdapter::StandardOpenAi,
+        capabilities: STANDARD_CLOUD,
+        reasoning: AUTO_ONLY,
+        docs_url: "https://platform.openai.com/docs/api-reference",
+    },
+    ProviderDefinition {
+        registry_version: PROVIDER_REGISTRY_VERSION,
+        kind: ProviderKind::Anthropic,
+        id: "anthropic",
+        display_name: "Anthropic",
+        protocol: ProviderProtocol::AnthropicMessages,
+        default_base_url: "https://api.anthropic.com/v1",
+        default_model: "claude-sonnet-5",
+        recommended_models: &[
+            "claude-sonnet-5",
+            "claude-opus-5",
+            "claude-fable-5",
+            "claude-haiku-4-5",
+        ],
+        endpoint_policy: EndpointPolicy::ExactOfficial,
+        auth_kind: ProviderAuthKind::ApiKeyHeader,
+        model_discovery: ModelDiscovery::AnthropicModels,
+        request_adapter: ProviderRequestAdapter::Anthropic,
+        capabilities: ProviderCapabilities {
+            streaming: false,
+            tool_calls: true,
+            json_output: true,
+            reasoning: false,
+            vision: false,
+        },
+        reasoning: AUTO_ONLY,
+        docs_url: "https://platform.claude.com/docs/en/api/messages",
+    },
+    ProviderDefinition {
+        registry_version: PROVIDER_REGISTRY_VERSION,
+        kind: ProviderKind::MiniMax,
+        id: "minimax",
+        display_name: "MiniMax",
+        protocol: ProviderProtocol::OpenAiChatCompletions,
+        default_base_url: "https://api.minimaxi.com/v1",
+        default_model: "MiniMax-M2.7",
+        recommended_models: &[
+            "MiniMax-M2.7",
+            "MiniMax-M2.7-highspeed",
+            "MiniMax-M2.5",
+            "MiniMax-M2.5-highspeed",
+        ],
+        endpoint_policy: EndpointPolicy::ExactOfficial,
+        auth_kind: ProviderAuthKind::Bearer,
+        model_discovery: ModelDiscovery::ManualOnly,
+        request_adapter: ProviderRequestAdapter::StandardOpenAi,
+        capabilities: STANDARD_CLOUD,
+        reasoning: AUTO_ONLY,
+        docs_url: "https://platform.minimaxi.com/docs/guides/text-chat",
+    },
+    ProviderDefinition {
+        registry_version: PROVIDER_REGISTRY_VERSION,
+        kind: ProviderKind::MiMo,
+        id: "mimo",
+        display_name: "MiMo",
+        protocol: ProviderProtocol::OpenAiChatCompletions,
+        default_base_url: "https://api.xiaomimimo.com/v1",
+        default_model: "mimo-v2.5-pro",
+        recommended_models: &["mimo-v2.5-pro", "mimo-v2.5"],
+        endpoint_policy: EndpointPolicy::ExactOfficial,
+        auth_kind: ProviderAuthKind::Bearer,
+        model_discovery: ModelDiscovery::OpenAiModels,
+        request_adapter: ProviderRequestAdapter::MiMo,
+        capabilities: ProviderCapabilities {
+            reasoning: true,
+            ..STANDARD_CLOUD
+        },
+        reasoning: TOGGLE_ONLY,
+        docs_url: "https://mimo.mi.com/docs/zh-CN/api/chat/openai-api",
+    },
+    ProviderDefinition {
+        registry_version: PROVIDER_REGISTRY_VERSION,
         kind: ProviderKind::Glm,
         id: "glm",
         display_name: "GLM",
         protocol: ProviderProtocol::OpenAiChatCompletions,
         default_base_url: "https://open.bigmodel.cn/api/paas/v4",
+        default_model: "glm-5.2",
+        recommended_models: &["glm-5.2"],
         endpoint_policy: EndpointPolicy::ExactOfficial,
         auth_kind: ProviderAuthKind::Bearer,
         model_discovery: ModelDiscovery::ManualOnly,
@@ -279,6 +385,8 @@ const PROVIDER_DEFINITIONS: [ProviderDefinition; 7] = [
         display_name: "Kimi",
         protocol: ProviderProtocol::OpenAiChatCompletions,
         default_base_url: "https://api.moonshot.cn/v1",
+        default_model: "kimi-k2.5",
+        recommended_models: &["kimi-k2.5"],
         endpoint_policy: EndpointPolicy::ExactOfficial,
         auth_kind: ProviderAuthKind::Bearer,
         model_discovery: ModelDiscovery::OpenAiModels,
@@ -294,6 +402,8 @@ const PROVIDER_DEFINITIONS: [ProviderDefinition; 7] = [
         display_name: "Qwen",
         protocol: ProviderProtocol::OpenAiChatCompletions,
         default_base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        default_model: "qwen-max",
+        recommended_models: &["qwen-max", "qwen-plus", "qwen-turbo"],
         endpoint_policy: EndpointPolicy::ExactOfficial,
         auth_kind: ProviderAuthKind::Bearer,
         model_discovery: ModelDiscovery::ManualOnly,
@@ -316,6 +426,8 @@ const PROVIDER_DEFINITIONS: [ProviderDefinition; 7] = [
         display_name: "Ollama",
         protocol: ProviderProtocol::OllamaChat,
         default_base_url: "http://127.0.0.1:11434",
+        default_model: "",
+        recommended_models: &[],
         endpoint_policy: EndpointPolicy::LoopbackOnly,
         auth_kind: ProviderAuthKind::None,
         model_discovery: ModelDiscovery::OllamaTags,
@@ -341,6 +453,8 @@ const PROVIDER_DEFINITIONS: [ProviderDefinition; 7] = [
         display_name: "OpenAI-compatible",
         protocol: ProviderProtocol::OpenAiChatCompletions,
         default_base_url: "https://api.example.invalid/v1",
+        default_model: "",
+        recommended_models: &[],
         endpoint_policy: EndpointPolicy::PublicHttps,
         auth_kind: ProviderAuthKind::Bearer,
         model_discovery: ModelDiscovery::OpenAiModels,
@@ -356,6 +470,8 @@ const PROVIDER_DEFINITIONS: [ProviderDefinition; 7] = [
         display_name: "OpenRouter",
         protocol: ProviderProtocol::OpenAiChatCompletions,
         default_base_url: "https://openrouter.ai/api/v1",
+        default_model: "",
+        recommended_models: &[],
         endpoint_policy: EndpointPolicy::ExactOfficial,
         auth_kind: ProviderAuthKind::Bearer,
         model_discovery: ModelDiscovery::OpenAiModels,
@@ -480,7 +596,7 @@ impl ProviderProfile {
         let base_url = normalize_endpoint(kind, base_url)?;
         let secret_ref = secret_ref.map(validate_secret_ref).transpose()?;
         match kind.definition().auth_kind {
-            ProviderAuthKind::Bearer if secret_ref.is_none() => {
+            ProviderAuthKind::Bearer | ProviderAuthKind::ApiKeyHeader if secret_ref.is_none() => {
                 return Err(ContractError::new(
                     "provider.secret_ref",
                     "cloud providers require a native secret reference",

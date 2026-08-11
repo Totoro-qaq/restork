@@ -148,8 +148,8 @@ function providerStatusMessage(status: ProviderDiagnostic["status"], locale: Loc
       "联网搜索已完成，但没有返回有效的公网 HTTPS 来源。",
     ],
     policy_denied: [
-      "Restork's outbound policy denied this check.",
-      "Restork 出站策略拒绝了此次检查。",
+      "Restork's app rules blocked this connection check.",
+      "Restork 的应用规则阻止了这次联网检查。",
     ],
   };
   const [english, chinese] = messages[status];

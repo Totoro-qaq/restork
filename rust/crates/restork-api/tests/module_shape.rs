@@ -28,6 +28,7 @@ const MODULES: &[&str] = &[
     "automation_api",
     "catalog_api",
     "config_api",
+    "core_skills",
     "daily_api",
     "error",
     "feature_api",

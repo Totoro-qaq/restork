@@ -9,6 +9,7 @@ import type {
   ConversationOperationV2,
   DashboardApi,
   DashboardSnapshot,
+  DeckDraftInputV2,
   MusicConfigurationInput,
   ProviderDiagnostic,
   RunEvent,
@@ -1368,7 +1369,7 @@ describe("authenticated workspace", () => {
     if (dataClass) dataClass.value = "confidential";
     root.querySelector<HTMLFormElement>("#run-form")?.requestSubmit();
 
-    await vi.waitFor(() => expect(root.textContent).toContain("READ-ONLY WORK PLAN"));
+    await vi.waitFor(() => expect(root.textContent).toContain("WORK PLAN · PREVIEW ONLY"));
     expect(planWork).toHaveBeenCalledWith("run-work", expect.objectContaining({
       workspace_root: "/synthetic/private/repo",
       target_files: ["src/app.py"],
@@ -1379,7 +1380,7 @@ describe("authenticated workspace", () => {
     expect(root.textContent).not.toContain("/synthetic/private/repo");
     root.querySelector<HTMLButtonElement>("[data-work-preview]")?.click();
 
-    await vi.waitFor(() => expect(root.textContent).toContain("EXACT LOCAL HANDOFF PREVIEW"));
+    await vi.waitFor(() => expect(root.textContent).toContain("HANDOFF PACKAGE PREVIEW"));
     expect(root.textContent).toContain("<script>alert(1)</script>");
     expect(root.querySelector("script")).toBeNull();
     expect(root.textContent).toContain("personal_absolute_path");
@@ -1742,7 +1743,7 @@ describe("Rust conversation workspace", () => {
     expect(root.querySelector<HTMLElement>('[data-view-panel="conversation"]')?.hidden).toBe(false);
     expect(root.querySelector<HTMLInputElement>('#session-create-form [name="title"]')?.value)
       .toBe("安排我的下一步任务");
-    expect(root.textContent).toContain("请选择模型 Profile 并创建对话");
+    expect(root.textContent).toContain("请选择模型并创建对话");
   });
 
   it("shows real Core skills and native tools before third-party extensions are installed", () => {
@@ -1796,7 +1797,7 @@ describe("Rust conversation workspace", () => {
       "Recent model papers",
       "deepseek",
     ));
-    expect(root.textContent).toContain("cloud use is never selected silently");
+    expect(root.textContent).toContain("will not switch it to a cloud model in the background");
     expect(root.querySelector('input[type="password"]')).toBeNull();
   });
 
@@ -2068,8 +2069,8 @@ describe("Rust conversation workspace", () => {
 
     root.querySelector<HTMLButtonElement>('[data-view="deliverables"]')?.click();
     expect(root.querySelector("#manual-report-form")).not.toBeNull();
-    expect(root.querySelector("#deck-from-report-form")).not.toBeNull();
-    expect(root.textContent).toContain("日报 / 周报草稿");
+    expect(root.querySelector("#presentation-studio-form")).not.toBeNull();
+    expect(root.textContent).toContain("报告与演示文稿");
 
     root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
     expect(root.querySelector("#schedule-create-form")).not.toBeNull();
@@ -2204,8 +2205,78 @@ describe("Rust conversation workspace", () => {
       language: "zh-CN",
       provider_profile_id: "ollama",
     });
-    expect(input.report_id).toMatch(/^report-ai-\d{4}-\d{2}-\d{2}$/);
+    expect(input.report_id).toMatch(/^report-ai-\d{4}-\d{2}-\d{2}-[0-9a-f-]{8}$/);
     expect(input.timezone).toBeTruthy();
+  });
+
+  it("ships a zero-install presentation studio with six themes, model choice, preview, and download", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const state = workspaceSnapshot();
+    if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.providers = [{
+      provider: {
+        profile_id: "ollama",
+        version: 1,
+        display_name: "Ollama · Gemma 4 26B",
+        kind: "ollama",
+        base_url: "http://127.0.0.1:11434",
+        model: "gemma4:26b-mlx",
+        secret_ref: null,
+        fallback: "disabled",
+        reasoning: { effort: "auto", max_tokens: null },
+      },
+      revision: 1,
+      updated_at: "2026-08-04T00:00:00Z",
+    }];
+    state.workspaceV2.deliverables.push({
+      deliverable_id: "deck-preview",
+      kind: "deck",
+      state: "outline_review",
+      revision: 1,
+      artifact: {
+        theme: { theme_id: "restork-midnight" },
+        claims: { "claim:1": { text: "所有基础能力都随安装包提供。" } },
+        slides: [{
+          slide_id: "slide:1",
+          role: "evidence",
+          action_title: "不向用户收取依赖税",
+          claim_refs: ["claim:1"],
+          speaker_notes: [],
+        }],
+      },
+      updated_at: "2026-08-10T00:00:00Z",
+    });
+    const compose = vi.fn<(input: DeckDraftInputV2) => Promise<CatalogRecordV2>>(async () =>
+      state.workspaceV2!.deliverables.at(-1)!,
+    );
+    api.composeDeckDraft = compose;
+    mountDashboard(root, { api, snapshot: state, locale: "zh-CN" });
+
+    root.querySelector<HTMLButtonElement>('[data-view="deliverables"]')?.click();
+    const form = root.querySelector<HTMLFormElement>("#presentation-studio-form");
+    expect(form).not.toBeNull();
+    expect(root.querySelectorAll("[data-render-theme]")).toHaveLength(6);
+    expect(new Set(Array.from(root.querySelectorAll<HTMLElement>("[data-render-theme]"))
+      .map((element) => element.dataset.themeLayout))).toHaveLength(6);
+    expect(form?.querySelector('textarea[name="brief"]')).not.toBeNull();
+    expect(form?.querySelector('select[name="slide_count"]')).not.toBeNull();
+    expect(form?.querySelector('select[name="provider_profile_id"]')).not.toBeNull();
+    expect(root.querySelectorAll(".slide-preview-card")).toHaveLength(1);
+    expect(root.querySelector('[data-render-format="pptx"]')).not.toBeNull();
+    expect(root.querySelector('[data-render-format="pdf"]')).not.toBeNull();
+
+    const brief = form?.elements.namedItem("brief");
+    if (!(brief instanceof HTMLTextAreaElement)) throw new Error("brief field");
+    brief.value = "把研究结论整理成六页团队汇报，并给出下一步。";
+    form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(compose).toHaveBeenCalledOnce());
+    expect(compose.mock.calls[0]?.[0]).toMatchObject({
+      slide_count: 6,
+      theme_id: "restork-print",
+      provider_profile_id: "ollama",
+      brief: "把研究结论整理成六页团队汇报，并给出下一步。",
+    });
   });
 
   it("shows immutable extension history and creates a reviewed rollback without executing a tool", async () => {
@@ -2246,7 +2317,7 @@ describe("Rust conversation workspace", () => {
     root.querySelector<HTMLButtonElement>("[data-extension-history]")?.click();
     await vi.waitFor(() => expect(api.extensionRevisions).toHaveBeenCalledWith("skill.synthetic"));
     const rollback = root.querySelector<HTMLButtonElement>(".extension-history button");
-    expect(rollback?.textContent).toContain("REVIEW ROLLBACK");
+    expect(rollback?.textContent).toContain("VIEW ROLLBACK");
     rollback?.click();
 
     // Confirmation is an in-app dialog now, not a blocking native prompt.
@@ -2528,7 +2599,7 @@ describe("Rust conversation workspace", () => {
     const option = root.querySelector<HTMLOptionElement>(
       '#session-profile option[value="research-cloud"]',
     );
-    expect(option?.textContent).toContain("Research Cloud / Qwen Main / qwen-max / personal");
+    expect(option?.textContent).toContain("Research Cloud / Qwen Main / qwen-max / Personal content");
   });
 
   it("searches only the active session's frozen tool catalog and previews the real call", async () => {
@@ -2591,6 +2662,6 @@ describe("Rust conversation workspace", () => {
       "tool.synthetic",
       {},
     );
-    expect(root.textContent).toContain("Execution has not started");
+    expect(root.textContent).toContain("Nothing has run yet");
   });
 });

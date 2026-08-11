@@ -119,9 +119,14 @@ quarantine. Enabling it binds the exact reviewed content hash. The session tool 
 only tools already granted by that conversation's frozen Profile; selecting a result produces a
 real-tool permission preview and does not execute it.
 
-**Deliverables** builds Daily/Weekly Markdown drafts from explicit assertions and labels those facts
-as self-asserted. A report can freeze a cited DeckSpec outline. PPTX/PDF rendering is deliberately
-absent until the constrained renderer and final export approval gates pass.
+**Deliverables** has two built-in Core Skills. Reports can start from text you enter or from a
+provider you select; model drafts remain tied to the run facts supplied by Core. Presentations can
+start from a plain-language brief, optionally use an existing report, and let you choose the model,
+audience, slide count, and one of six bundled layouts. Restork shows a slide-by-slide outline before
+its native Rust renderer creates macro-free PPTX or PDF. Markdown reports can be downloaded directly.
+No Node, Python, LibreOffice, MCP server, or separately installed Skill is required for these paths.
+Optional extensions may add sources, charts, assets, templates, or alternate exporters without
+becoming a dependency of the built-in renderer.
 
 **Automation** creates named, time-zone-aware daily or weekly schedules. Health and daily-cache
 refreshes are no-model jobs. A user can also choose an already configured provider and describe the
