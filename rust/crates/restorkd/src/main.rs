@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use restork_daily::{apple_developer_token_reference, apple_music_user_token_reference};
 use restork_personal::{FallbackPolicy, ProviderKind, ProviderProfile};
 use restork_provider::{NativeSecretStore, ProviderClient};
+use restork_storage::Database;
 use restorkd::{HELP, ServerConfig, bind, desktop::DesktopRuntime};
 
 #[tokio::main]
@@ -78,6 +79,13 @@ async fn main() {
     {
         std::process::exit(run_doctor(true, true, true).await);
     }
+    if let [desktop, invalidate, state_flag, state_path] = arguments.as_slice()
+        && desktop == "desktop"
+        && invalidate == "invalidate-vault-authority"
+        && state_flag == "--state-db"
+    {
+        std::process::exit(invalidate_vault_authority(state_path));
+    }
 
     let config = match ServerConfig::parse(arguments) {
         Ok(config) => config,
@@ -131,6 +139,23 @@ async fn main() {
     }
 }
 
+fn invalidate_vault_authority(path: &std::ffi::OsStr) -> i32 {
+    let database = match Database::open(path) {
+        Ok(database) => database,
+        Err(_) => {
+            eprintln!("restorkd: unable to open desktop state for Vault switch");
+            return 1;
+        }
+    };
+    match database.invalidate_vault_bound_authority() {
+        Ok(_) => 0,
+        Err(_) => {
+            eprintln!("restorkd: unable to invalidate prior Vault authority");
+            1
+        }
+    }
+}
+
 async fn configure_provider(provider_kind: &str) -> i32 {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     if !io::stdin().is_terminal() {
@@ -139,7 +164,7 @@ async fn configure_provider(provider_kind: &str) -> i32 {
     }
     let Some((display_name, reference)) = native_provider_reference(provider_kind) else {
         eprintln!(
-            "restorkd: unsupported credential provider; choose deepseek, glm, kimi, qwen, openrouter, or open_ai_compatible"
+            "restorkd: unsupported credential provider; choose deepseek, openai, anthropic, minimax, mimo, glm, kimi, qwen, openrouter, or open_ai_compatible"
         );
         return 2;
     };
@@ -166,6 +191,10 @@ async fn configure_provider(provider_kind: &str) -> i32 {
 fn native_provider_reference(provider_kind: &str) -> Option<(&'static str, String)> {
     let display_name = match provider_kind {
         "deepseek" => "DeepSeek",
+        "openai" => "OpenAI",
+        "anthropic" => "Anthropic",
+        "minimax" => "MiniMax",
+        "mimo" => "MiMo",
         "glm" => "GLM",
         "kimi" => "Kimi",
         "qwen" => "Qwen",

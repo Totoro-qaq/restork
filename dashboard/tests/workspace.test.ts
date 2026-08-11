@@ -9,6 +9,7 @@ import type {
   ConversationOperationV2,
   DashboardApi,
   DashboardSnapshot,
+  DeckDraftInputV2,
   MusicConfigurationInput,
   ProviderDiagnostic,
   RunEvent,
@@ -307,8 +308,6 @@ describe("authenticated workspace", () => {
     const root = document.createElement("main");
     mountDashboard(root, { api: fakeApi(), snapshot });
 
-    root.querySelector<HTMLButtonElement>('[data-mode="research"]')?.click();
-    expect(root.querySelector<HTMLElement>("#action-panel")?.hidden).toBe(false);
     root.querySelector<HTMLButtonElement>('[data-view="tasks"]')?.click();
 
     const tasks = root.querySelector<HTMLElement>('[data-view-panel="tasks"]');
@@ -320,7 +319,16 @@ describe("authenticated workspace", () => {
     expect(overview?.contains(root.querySelector(".daily-context"))).toBe(true);
     expect(root.querySelector('[data-view="tasks"]')?.getAttribute("aria-current")).toBe("page");
     expect(root.querySelector('[data-view="overview"]')?.hasAttribute("aria-current")).toBe(false);
-    expect(root.querySelector<HTMLElement>("#action-panel")?.hidden).toBe(true);
+    expect(root.querySelector(".sidebar .mode-grid")).toBeNull();
+  });
+
+  it("keeps the four overview summaries in one bounded card system", () => {
+    const root = document.createElement("main");
+    mountDashboard(root, { api: fakeApi(), snapshot, locale: "zh-CN" });
+
+    const cards = root.querySelectorAll('[data-view-panel="overview"] .board > .dashboard-card');
+    expect(cards).toHaveLength(4);
+    expect(root.querySelectorAll('[data-view-panel="overview"] .dashboard-card-body')).toHaveLength(4);
   });
 
   it("keeps the selected page when the user refreshes Core data", async () => {
@@ -338,29 +346,19 @@ describe("authenticated workspace", () => {
     });
   });
 
-  it("lets a new run be toggled, closed, and dismissed with Escape", () => {
+  it("keeps task choices on Start instead of crowding the sidebar", () => {
     const root = document.createElement("main");
     document.body.append(root);
     mountDashboard(root, { api: fakeApi(), snapshot });
-    const research = root.querySelector<HTMLButtonElement>('[data-mode="research"]');
-    const work = root.querySelector<HTMLButtonElement>('[data-mode="work"]');
-    const panel = root.querySelector<HTMLElement>("#action-panel");
+    const research = root.querySelector<HTMLButtonElement>('[data-start-mode="research"]');
+    const work = root.querySelector<HTMLButtonElement>('[data-start-mode="work"]');
 
-    research?.click();
-    expect(panel?.hidden).toBe(false);
-    expect(research?.getAttribute("aria-expanded")).toBe("true");
-    research?.click();
-    expect(panel?.hidden).toBe(true);
-    expect(research?.getAttribute("aria-expanded")).toBe("false");
-
+    expect(root.querySelector(".sidebar [data-mode]")).toBeNull();
+    expect(root.querySelectorAll(".start-mode-row [data-start-mode]")).toHaveLength(3);
     work?.click();
-    panel?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    expect(panel?.hidden).toBe(true);
-    expect(document.activeElement).toBe(work);
-
-    work?.click();
-    root.querySelector<HTMLButtonElement>("[data-run-panel-close]")?.click();
-    expect(panel?.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>("[data-start-work-fields]")?.hidden).toBe(false);
+    research?.click();
+    expect(root.querySelector<HTMLElement>("[data-start-work-fields]")?.hidden).toBe(true);
     root.remove();
   });
 
@@ -368,16 +366,15 @@ describe("authenticated workspace", () => {
     const root = document.createElement("main");
     mountDashboard(root, { api: fakeApi(), snapshot });
 
-    root.querySelector<HTMLButtonElement>('[data-mode="research"]')?.click();
-    const goal = root.querySelector<HTMLInputElement>("#run-goal");
+    const goal = root.querySelector<HTMLTextAreaElement>("#start-goal");
     if (goal) goal.value = "Compare Bayesian model selection criteria";
-    root.querySelector<HTMLButtonElement>('[data-mode="work"]')?.click();
-    const workRoot = root.querySelector<HTMLInputElement>("#work-root");
+    root.querySelector<HTMLButtonElement>('[data-start-mode="work"]')?.click();
+    const workRoot = root.querySelector<HTMLInputElement>("#start-work-root");
     if (workRoot) workRoot.value = "/private/example";
-    root.querySelector<HTMLButtonElement>('[data-mode="research"]')?.click();
+    root.querySelector<HTMLButtonElement>('[data-start-mode="research"]')?.click();
 
     expect(goal?.value).toBe("Compare Bayesian model selection criteria");
-    expect(root.querySelector<HTMLFieldSetElement>("#work-fields")?.hidden).toBe(true);
+    expect(root.querySelector<HTMLFieldSetElement>("[data-start-work-fields]")?.hidden).toBe(true);
     expect(workRoot?.value).toBe("/private/example");
   });
 
@@ -1112,6 +1109,22 @@ describe("authenticated workspace", () => {
     expect(api.loadPage).toHaveBeenCalledWith("radar", "");
   });
 
+  it("refreshes an already configured Radar once after the workspace opens", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    api.loadPage = vi.fn(async () => ({
+      kind: "radar" as const,
+      items: [],
+      configured: true,
+      page: { limit: 50, has_more: false, next_cursor: null },
+    }));
+
+    mountDashboard(root, { api, snapshot });
+
+    await vi.waitFor(() => expect(api.loadPage).toHaveBeenCalledWith("radar", ""));
+    expect(api.loadPage).toHaveBeenCalledTimes(1);
+  });
+
   it("launches a Radar Research run and renders its write-free preview", async () => {
     const root = document.createElement("main");
     const api = fakeApi();
@@ -1355,20 +1368,20 @@ describe("authenticated workspace", () => {
     const verify = vi.spyOn(api, "verifyWorkResult").mockResolvedValue(report);
     mountDashboard(root, { api, snapshot });
 
-    root.querySelector<HTMLButtonElement>('[data-mode="work"]')?.click();
-    const goal = root.querySelector<HTMLInputElement>("#run-goal");
-    const workRoot = root.querySelector<HTMLInputElement>("#work-root");
-    const targets = root.querySelector<HTMLTextAreaElement>("#work-targets");
-    const context = root.querySelector<HTMLTextAreaElement>("#work-context");
-    const dataClass = root.querySelector<HTMLSelectElement>("#work-class");
+    root.querySelector<HTMLButtonElement>('[data-start-mode="work"]')?.click();
+    const goal = root.querySelector<HTMLTextAreaElement>("#start-goal");
+    const workRoot = root.querySelector<HTMLInputElement>("#start-work-root");
+    const targets = root.querySelector<HTMLTextAreaElement>("#start-work-targets");
+    const context = root.querySelector<HTMLTextAreaElement>("#start-work-context");
+    const dataClass = root.querySelector<HTMLInputElement>('#start-run-form [name="context_data_class"]');
     if (goal) goal.value = "Bounded Work change";
     if (workRoot) workRoot.value = "/synthetic/private/repo";
     if (targets) targets.value = "src/app.py";
     if (context) context.value = "README.md";
     if (dataClass) dataClass.value = "confidential";
-    root.querySelector<HTMLFormElement>("#run-form")?.requestSubmit();
+    root.querySelector<HTMLFormElement>("#start-run-form")?.requestSubmit();
 
-    await vi.waitFor(() => expect(root.textContent).toContain("READ-ONLY WORK PLAN"));
+    await vi.waitFor(() => expect(root.textContent).toContain("WORK PLAN · PREVIEW ONLY"));
     expect(planWork).toHaveBeenCalledWith("run-work", expect.objectContaining({
       workspace_root: "/synthetic/private/repo",
       target_files: ["src/app.py"],
@@ -1379,7 +1392,7 @@ describe("authenticated workspace", () => {
     expect(root.textContent).not.toContain("/synthetic/private/repo");
     root.querySelector<HTMLButtonElement>("[data-work-preview]")?.click();
 
-    await vi.waitFor(() => expect(root.textContent).toContain("EXACT LOCAL HANDOFF PREVIEW"));
+    await vi.waitFor(() => expect(root.textContent).toContain("HANDOFF PACKAGE PREVIEW"));
     expect(root.textContent).toContain("<script>alert(1)</script>");
     expect(root.querySelector("script")).toBeNull();
     expect(root.textContent).toContain("personal_absolute_path");
@@ -1392,10 +1405,10 @@ describe("authenticated workspace", () => {
     root.querySelector<HTMLButtonElement>("[data-work-export]")?.click();
 
     await vi.waitFor(() => expect(root.textContent).toContain("PRIVATE HANDOFF EXPORTED"));
-    expect(root.querySelector("#work-workspace")?.textContent).not.toContain(
+    expect(root.querySelector(".start-workspace [data-work-workspace]")?.textContent).not.toContain(
       "<script>alert(1)</script>",
     );
-    const manifest = root.querySelector<HTMLTextAreaElement>('[name="manifest"]');
+    const manifest = root.querySelector<HTMLTextAreaElement>('.start-workspace [name="manifest"]');
     if (manifest) {
       manifest.value = JSON.stringify({
         schema_version: 1,
@@ -1408,7 +1421,7 @@ describe("authenticated workspace", () => {
         summary: "private imported summary",
       });
     }
-    root.querySelector<HTMLFormElement>("[data-work-verify]")?.requestSubmit();
+    root.querySelector<HTMLFormElement>(".start-workspace [data-work-verify]")?.requestSubmit();
 
     await vi.waitFor(() => expect(root.textContent).toContain("IMPORTED RESULT"));
     expect(verify).toHaveBeenCalledWith("run-work", expect.objectContaining({
@@ -1556,6 +1569,20 @@ describe("Rust conversation workspace", () => {
     },
   });
 
+  it("explains the free community boundary without exposing a personal contact address", () => {
+    const root = document.createElement("main");
+    mountDashboard(root, { api: fakeApi(), snapshot: workspaceSnapshot(), locale: "zh-CN" });
+
+    const section = root.querySelector<HTMLElement>("[data-project-boundary]");
+    expect(section?.textContent).toContain("Restork 免费、开源");
+    expect(section?.textContent).toContain("重要的 AI 结果仍可能出错");
+    expect(section?.querySelector<HTMLAnchorElement>('a[href$="DISCLAIMER.zh-CN.md"]')).not.toBeNull();
+    expect(section?.querySelector<HTMLAnchorElement>('a[href$="SECURITY.zh-CN.md"]')).not.toBeNull();
+    expect(section?.textContent).toContain("不需要公开维护者的个人邮箱");
+    expect(section?.textContent).not.toMatch(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    root.remove();
+  });
+
   it("uses a system-backed time-zone selector instead of asking people to type an IANA identifier", async () => {
     const root = document.createElement("main");
     const state = workspaceSnapshot();
@@ -1601,6 +1628,108 @@ describe("Rust conversation workspace", () => {
     submittedRoot.remove();
   });
 
+  it("uses native, recoverable setup controls instead of technical paths and secret references", async () => {
+    const root = document.createElement("main");
+    const state = workspaceSnapshot();
+    const invoke = vi.fn(async function invoke<T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> {
+      if (command === "desktop_vault_config") {
+        return {
+          status: "configured",
+          grant_id: "vault-7ee0fca2",
+          label: "Research Notes",
+          mutable: true,
+        } as T;
+      }
+      if (command === "desktop_choose_vault") {
+        return {
+          status: "selected",
+          candidate_id: "candidate-42",
+          label: "Work Notes",
+          same_as_active: false,
+        } as T;
+      }
+      if (command === "desktop_apply_vault") {
+        return { status: "switching", label: "Work Notes" } as T;
+      }
+      if (command === "desktop_configure_provider_secret") {
+        expect(args).toEqual({ providerKind: "deepseek" });
+        return {
+          status: "saved",
+          secret_ref: "keychain:restork/provider/deepseek",
+        } as T;
+      }
+      if (command === "desktop_onboarding_state") {
+        return { version: 1, dismissed: false } as T;
+      }
+      if (command === "desktop_set_onboarding_dismissed") {
+        return { version: 1, dismissed: args?.dismissed === true } as T;
+      }
+      return undefined as T;
+    });
+    window.__TAURI__ = {
+      core: {
+        invoke: invoke as unknown as <T>(
+          command: string,
+          args?: Record<string, unknown>,
+        ) => Promise<T>,
+      },
+    };
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { protocol: "http:", hostname: "127.0.0.1", port: "49152" },
+    });
+    mountDashboard(root, { api: fakeApi(), snapshot: state, locale: "zh-CN" });
+    root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
+
+    expect(root.querySelector('input[name="vault_dir"]')).toBeNull();
+    expect(root.querySelector('input[type="password"]')).toBeNull();
+    expect(root.querySelector<HTMLInputElement>('input[name="secret_ref"]')?.type).toBe("hidden");
+    await vi.waitFor(() => expect(root.textContent).toContain("Research Notes"));
+    expect(root.textContent).toContain("选择知识库文件夹");
+    expect(root.textContent).toContain("安全保存 API Key");
+
+    expect(root.querySelector("[data-first-run]")).toBeNull();
+    expect(root.querySelector("[data-onboarding-reopen]")).toBeNull();
+    expect(root.querySelector("[data-start-page-return]")?.textContent).toContain("打开开始页");
+
+    root.querySelector<HTMLButtonElement>("[data-vault-choose]")?.click();
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("desktop_choose_vault"));
+    await vi.waitFor(() => expect(root.textContent).toContain("Work Notes"));
+    expect(root.textContent).toContain("应用并重新连接");
+    root.querySelector<HTMLButtonElement>("[data-vault-apply]")?.click();
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("desktop_apply_vault", {
+      candidateId: "candidate-42",
+    }));
+
+    root.querySelector<HTMLButtonElement>("[data-provider-secret-configure]")?.click();
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith(
+      "desktop_configure_provider_secret",
+      { providerKind: "deepseek" },
+    ));
+    await vi.waitFor(() => expect(
+      root.querySelector<HTMLInputElement>('input[name="secret_ref"]')?.value,
+    ).toBe("keychain:restork/provider/deepseek"));
+    expect(root.textContent).toContain("已安全保存");
+    root.remove();
+  });
+
+  it("starts with one focused task decision instead of a recurring setup tour", () => {
+    const root = document.createElement("main");
+    const state = workspaceSnapshot();
+    mountDashboard(root, { api: fakeApi(), snapshot: state, locale: "zh-CN" });
+
+    expect(root.querySelector("[data-first-run]")).toBeNull();
+    expect(root.querySelector<HTMLElement>('[data-view-panel="start"]')?.hidden).toBe(false);
+    expect(root.textContent).toContain("今天想研究、学习，还是完成一项工作？");
+    expect(root.textContent).toContain("Research");
+    expect(root.textContent).toContain("Study");
+    expect(root.textContent).toContain("Work");
+    expect(root.querySelector("[data-start-examples]")).not.toBeNull();
+  });
+
   it("routes Todo suggestions through an explicit model conversation", () => {
     const root = document.createElement("main");
     mountDashboard(root, { api: fakeApi(), snapshot: workspaceSnapshot(), locale: "zh-CN" });
@@ -1611,7 +1740,7 @@ describe("Rust conversation workspace", () => {
     expect(root.querySelector<HTMLElement>('[data-view-panel="conversation"]')?.hidden).toBe(false);
     expect(root.querySelector<HTMLInputElement>('#session-create-form [name="title"]')?.value)
       .toBe("安排我的下一步任务");
-    expect(root.textContent).toContain("请选择模型 Profile 并创建对话");
+    expect(root.textContent).toContain("请选择模型并创建对话");
   });
 
   it("shows real Core skills and native tools before third-party extensions are installed", () => {
@@ -1622,7 +1751,7 @@ describe("Rust conversation workspace", () => {
     root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
 
     expect(root.textContent).toContain("Core 内置 Skills");
-    expect(root.textContent).toContain("研究与证据核验");
+    expect(root.textContent).toContain("资料研究与核对");
     expect(root.textContent).toContain("日报与周报");
     expect(root.textContent).toContain("vault_search");
     expect(root.textContent).toContain("source_read");
@@ -1665,7 +1794,7 @@ describe("Rust conversation workspace", () => {
       "Recent model papers",
       "deepseek",
     ));
-    expect(root.textContent).toContain("cloud use is never selected silently");
+    expect(root.textContent).toContain("will not switch it to a cloud model in the background");
     expect(root.querySelector('input[type="password"]')).toBeNull();
   });
 
@@ -1926,7 +2055,7 @@ describe("Rust conversation workspace", () => {
     root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
     expect(root.querySelector<HTMLElement>('[data-view-panel="extensions"]')?.hidden).toBe(false);
     expect(root.querySelector("#extension-install-form")).not.toBeNull();
-    expect(root.textContent).toContain("添加已审查扩展");
+    expect(root.textContent).toContain("添加扩展");
     const reportSkill = root.querySelector<HTMLButtonElement>('[data-core-skill-view="deliverables"]');
     expect(reportSkill?.getAttribute("aria-label")).toContain("日报与周报");
     reportSkill?.click();
@@ -1937,8 +2066,8 @@ describe("Rust conversation workspace", () => {
 
     root.querySelector<HTMLButtonElement>('[data-view="deliverables"]')?.click();
     expect(root.querySelector("#manual-report-form")).not.toBeNull();
-    expect(root.querySelector("#deck-from-report-form")).not.toBeNull();
-    expect(root.textContent).toContain("日报 / 周报草稿");
+    expect(root.querySelector("#presentation-studio-form")).not.toBeNull();
+    expect(root.textContent).toContain("报告与演示文稿");
 
     root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
     expect(root.querySelector("#schedule-create-form")).not.toBeNull();
@@ -1993,7 +2122,7 @@ describe("Rust conversation workspace", () => {
     mountDashboard(root, { api, snapshot: state });
 
     root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
-    expect(root.textContent).toContain("Tools Restork can govern");
+    expect(root.textContent).toContain("Tools Restork can run");
     expect(root.textContent).toContain("paper.search");
     expect(root.textContent).toContain("network:https://example.com");
 
@@ -2073,8 +2202,78 @@ describe("Rust conversation workspace", () => {
       language: "zh-CN",
       provider_profile_id: "ollama",
     });
-    expect(input.report_id).toMatch(/^report-ai-\d{4}-\d{2}-\d{2}$/);
+    expect(input.report_id).toMatch(/^report-ai-\d{4}-\d{2}-\d{2}-[0-9a-f-]{8}$/);
     expect(input.timezone).toBeTruthy();
+  });
+
+  it("ships a zero-install presentation studio with six themes, model choice, preview, and download", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const state = workspaceSnapshot();
+    if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.providers = [{
+      provider: {
+        profile_id: "ollama",
+        version: 1,
+        display_name: "Ollama · Gemma 4 26B",
+        kind: "ollama",
+        base_url: "http://127.0.0.1:11434",
+        model: "gemma4:26b-mlx",
+        secret_ref: null,
+        fallback: "disabled",
+        reasoning: { effort: "auto", max_tokens: null },
+      },
+      revision: 1,
+      updated_at: "2026-08-04T00:00:00Z",
+    }];
+    state.workspaceV2.deliverables.push({
+      deliverable_id: "deck-preview",
+      kind: "deck",
+      state: "outline_review",
+      revision: 1,
+      artifact: {
+        theme: { theme_id: "restork-midnight" },
+        claims: { "claim:1": { text: "所有基础能力都随安装包提供。" } },
+        slides: [{
+          slide_id: "slide:1",
+          role: "evidence",
+          action_title: "不向用户收取依赖税",
+          claim_refs: ["claim:1"],
+          speaker_notes: [],
+        }],
+      },
+      updated_at: "2026-08-10T00:00:00Z",
+    });
+    const compose = vi.fn<(input: DeckDraftInputV2) => Promise<CatalogRecordV2>>(async () =>
+      state.workspaceV2!.deliverables.at(-1)!,
+    );
+    api.composeDeckDraft = compose;
+    mountDashboard(root, { api, snapshot: state, locale: "zh-CN" });
+
+    root.querySelector<HTMLButtonElement>('[data-view="deliverables"]')?.click();
+    const form = root.querySelector<HTMLFormElement>("#presentation-studio-form");
+    expect(form).not.toBeNull();
+    expect(root.querySelectorAll("[data-render-theme]")).toHaveLength(6);
+    expect(new Set(Array.from(root.querySelectorAll<HTMLElement>("[data-render-theme]"))
+      .map((element) => element.dataset.themeLayout))).toHaveLength(6);
+    expect(form?.querySelector('textarea[name="brief"]')).not.toBeNull();
+    expect(form?.querySelector('select[name="slide_count"]')).not.toBeNull();
+    expect(form?.querySelector('select[name="provider_profile_id"]')).not.toBeNull();
+    expect(root.querySelectorAll(".slide-preview-card")).toHaveLength(1);
+    expect(root.querySelector('[data-render-format="pptx"]')).not.toBeNull();
+    expect(root.querySelector('[data-render-format="pdf"]')).not.toBeNull();
+
+    const brief = form?.elements.namedItem("brief");
+    if (!(brief instanceof HTMLTextAreaElement)) throw new Error("brief field");
+    brief.value = "把研究结论整理成六页团队汇报，并给出下一步。";
+    form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(compose).toHaveBeenCalledOnce());
+    expect(compose.mock.calls[0]?.[0]).toMatchObject({
+      slide_count: 6,
+      theme_id: "restork-print",
+      provider_profile_id: "ollama",
+      brief: "把研究结论整理成六页团队汇报，并给出下一步。",
+    });
   });
 
   it("shows immutable extension history and creates a reviewed rollback without executing a tool", async () => {
@@ -2115,7 +2314,7 @@ describe("Rust conversation workspace", () => {
     root.querySelector<HTMLButtonElement>("[data-extension-history]")?.click();
     await vi.waitFor(() => expect(api.extensionRevisions).toHaveBeenCalledWith("skill.synthetic"));
     const rollback = root.querySelector<HTMLButtonElement>(".extension-history button");
-    expect(rollback?.textContent).toContain("REVIEW ROLLBACK");
+    expect(rollback?.textContent).toContain("VIEW ROLLBACK");
     rollback?.click();
 
     // Confirmation is an in-app dialog now, not a blocking native prompt.
@@ -2231,6 +2430,7 @@ describe("Rust conversation workspace", () => {
 
   it("tests the exact saved provider and model instead of a hard-coded vendor", async () => {
     const root = document.createElement("main");
+    document.body.append(root);
     const api = fakeApi();
     const state = workspaceSnapshot();
     if (!state.workspaceV2) throw new Error("workspace fixture");
@@ -2263,12 +2463,21 @@ describe("Rust conversation workspace", () => {
     mountDashboard(root, { api, snapshot: state });
 
     root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
-    root.querySelector<HTMLButtonElement>('[data-provider-profile-test="qwen-main"]')?.click();
+    const testButton = root.querySelector<HTMLButtonElement>(
+      '[data-provider-profile-test="qwen-main"]',
+    );
+    testButton?.click();
 
     await vi.waitFor(() => {
       expect(diagnostic).toHaveBeenCalledWith(true, "primary", "qwen-main");
       expect(root.textContent).toContain("qwen-max");
     });
+    const result = root.querySelector<HTMLElement>("[data-provider-profile-result]");
+    const dismiss = result?.querySelector<HTMLButtonElement>("[data-provider-diagnostic-dismiss]");
+    expect(dismiss?.getAttribute("aria-label")).toBe("Close test result");
+    dismiss?.click();
+    expect(result?.textContent).toBe("");
+    expect(document.activeElement).toBe(testButton);
   });
 
   it("selects and tests a saved model from the overview while setup commands follow the provider", async () => {
@@ -2387,7 +2596,7 @@ describe("Rust conversation workspace", () => {
     const option = root.querySelector<HTMLOptionElement>(
       '#session-profile option[value="research-cloud"]',
     );
-    expect(option?.textContent).toContain("Research Cloud / Qwen Main / qwen-max / personal");
+    expect(option?.textContent).toContain("Research Cloud / Qwen Main / qwen-max / Personal content");
   });
 
   it("searches only the active session's frozen tool catalog and previews the real call", async () => {
@@ -2450,6 +2659,6 @@ describe("Rust conversation workspace", () => {
       "tool.synthetic",
       {},
     );
-    expect(root.textContent).toContain("Execution has not started");
+    expect(root.textContent).toContain("Nothing has run yet");
   });
 });

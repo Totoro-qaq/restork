@@ -6,6 +6,10 @@ import { describe, expect, it } from "vitest";
 import { errorText } from "../src/ui/render";
 
 const stylesheet = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
+const desktopConfig = JSON.parse(readFileSync(
+  resolve(import.meta.dirname, "../../desktop/src-tauri/tauri.conf.json"),
+  "utf8",
+)) as { app: { windows: Array<Record<string, unknown>> } };
 
 describe("high-frequency interaction polish", () => {
   it("does not leak raw English backend errors into the Chinese interface", () => {
@@ -41,14 +45,55 @@ describe("high-frequency interaction polish", () => {
 });
 
 describe("responsive readability", () => {
+  it("fills the available desktop height instead of stopping at a fixed 920px canvas", () => {
+    const bodyRule = stylesheet.match(/body\s*\{([^}]*)\}/)?.[1] ?? "";
+    const shellRule = stylesheet.match(/\.dashboard\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(bodyRule).toContain("height: 100dvh");
+    expect(bodyRule).toContain("overflow: hidden");
+    expect(shellRule).toContain("height: calc(100dvh - clamp(");
+    expect(shellRule).not.toContain("920px");
+  });
+
+  it("keeps the shared desktop window resizable on macOS, Windows and Linux", () => {
+    const mainWindow = desktopConfig.app.windows.find((window) => window.label === "main");
+    expect(mainWindow).toMatchObject({ resizable: true, minWidth: 900, minHeight: 680 });
+  });
+
   it("keeps mobile navigation to one horizontally scrollable row", () => {
     const responsive = stylesheet.slice(stylesheet.indexOf("@media (max-width: 1000px)"));
     expect(responsive).toMatch(/\.sidebar nav\s*\{[^}]*display:\s*flex/);
     expect(responsive).toMatch(/\.sidebar nav\s*\{[^}]*overflow-x:\s*auto/);
   });
 
+  it("keeps the Start task focused and collapses its controls on narrow windows", () => {
+    expect(stylesheet).toMatch(/\.start-workspace\s*\{[^}]*width:\s*min\(940px,\s*100%\)[^}]*margin:\s*0 auto/);
+    expect(stylesheet).toMatch(/\.start-compose-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
+    const narrow = stylesheet.slice(stylesheet.indexOf("@media (max-width: 680px)"));
+    expect(narrow).toMatch(/\.start-compose-row\s*\{[^}]*grid-template-columns:\s*1fr/);
+    expect(narrow).toMatch(/\.start-status-row\s*\{[^}]*flex-direction:\s*column/);
+  });
+
   it("provides full-size touch controls without shrinking desktop density", () => {
     expect(stylesheet).toMatch(/@media \(pointer: coarse\)\s*\{[^}]*min-height:\s*44px/);
+  });
+
+  it("keeps presentation template actions typographically consistent and previews visible", () => {
+    expect(stylesheet).toMatch(/\.template-action-button,[\s\S]*?font:\s*inherit/);
+    expect(stylesheet).toMatch(/\.template-picker-header\s*>\s*\.template-picker-actions\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*86px\)/);
+    expect(stylesheet).toMatch(/\.template-action-button[^}]*\{[^}]*inline-size:\s*86px[^}]*block-size:\s*40px[^}]*color:\s*var\(--fg\)[^}]*font-size:\s*var\(--text-xs\)/);
+    expect(stylesheet).toMatch(/\.render-theme-option\s*\{[^}]*grid-template-rows:\s*28px\s+minmax\(0,\s*1fr\)/);
+    expect(stylesheet).toMatch(/\.render-theme-option\s*\{[^}]*block-size:\s*132px/);
+    expect(stylesheet).toMatch(/\.theme-thumbnail\s*\{[^}]*width:\s*112px[^}]*aspect-ratio:\s*16\s*\/\s*9/);
+    expect(stylesheet).toMatch(/\.theme-preview-svg\s*\{[^}]*width:\s*100%[^}]*height:\s*100%/);
+  });
+
+  it("uses one cross-platform type scale and equal-height dashboard cards", () => {
+    expect(stylesheet).toContain("--font-ui:");
+    expect(stylesheet).toContain("--font-display:");
+    expect(stylesheet).toMatch(/:root\s*\{[\s\S]*?font-family:\s*var\(--font-ui\)/);
+    expect(stylesheet).toMatch(/\.brand h1,[\s\S]*?\.paper-card h2,[\s\S]*?font-family:\s*var\(--font-display\)/);
+    expect(stylesheet).toMatch(/\.board > \.dashboard-card\s*\{[^}]*block-size:\s*clamp\(280px,\s*30vh,\s*340px\)/);
+    expect(stylesheet).toMatch(/\.dashboard-card-body\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/);
   });
 
   it("does not render navigation glyphs as white on a light surface", () => {
@@ -88,6 +133,12 @@ describe("responsive readability", () => {
   it("keeps compact conversation search controls on one usable row", () => {
     expect(stylesheet).toMatch(/\.compact-search\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
     expect(stylesheet).toMatch(/\.compact-search button\s*\{[^}]*white-space:\s*nowrap/);
+  });
+
+  it("keeps provider setup actions inside their own responsive columns", () => {
+    expect(stylesheet).toMatch(/\.provider-instructions,\s*\.provider-actions\s*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%[^}]*overflow:\s*hidden/);
+    expect(stylesheet).toMatch(/\.provider-instructions > button\s*\{[^}]*width:\s*100%[^}]*max-width:\s*100%/);
+    expect(stylesheet).toMatch(/\.provider-instructions \.source-build-fallback\s*\{[^}]*min-width:\s*0[^}]*overflow:\s*hidden/);
   });
 
   it("bounds every persistent collection that can grow over time", () => {

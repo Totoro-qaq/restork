@@ -6,6 +6,55 @@ export interface PageInfo {
   next_cursor: string | null;
 }
 
+export interface CatalogCursorV2 {
+  updated_at: string;
+  id: string;
+  version: number;
+}
+
+export type PresentationThemeLayoutV2 =
+  | "editorial" | "minimal" | "spotlight" | "research" | "narrative" | "blueprint";
+
+export interface PresentationThemeSnapshotV2 {
+  theme_id: string;
+  version: number;
+  name: string;
+  background: string;
+  foreground: string;
+  muted: string;
+  accent: string;
+  accent_secondary: string;
+  layout: PresentationThemeLayoutV2;
+}
+
+export interface PresentationTemplateInputV2 {
+  name: string;
+  background: string;
+  foreground: string;
+  muted: string;
+  accent: string;
+  accent_secondary: string;
+  layout: PresentationThemeLayoutV2;
+  source: { kind: "created" | "image" | "pptx"; label: string | null };
+}
+
+export interface PresentationTemplateRecordV2 {
+  template_id: string;
+  template: {
+    schema_version: 1;
+    theme: PresentationThemeSnapshotV2;
+    source: PresentationTemplateInputV2["source"];
+  };
+  template_hash: string;
+  state: "active" | "deleted";
+  updated_at: string;
+}
+
+export interface PresentationTemplatePageV2 {
+  items: PresentationTemplateRecordV2[];
+  next: CatalogCursorV2 | null;
+}
+
 export interface VaultNoteMetadataV2 {
   relative_path: string;
   byte_count: number;
@@ -306,7 +355,8 @@ export type WorkDataClass = "public" | "personal" | "confidential";
 
 export interface WorkStartInput {
   goal: string;
-  workspace_root: string;
+  workspace_root?: string;
+  workspace_grant_id?: string;
   target_files: string[];
   context_files: string[];
   constraints: string[];
@@ -945,6 +995,7 @@ export interface AiReportDraftInputV2 {
   language: string;
   timezone: string;
   provider_profile_id: string;
+  focus?: string;
 }
 
 export interface DeckFromReportInputV2 {
@@ -952,6 +1003,23 @@ export interface DeckFromReportInputV2 {
   revision: number;
   report_id: string;
   report_revision: number;
+  language: string;
+  audience: {
+    audience_id: string;
+    purpose: string;
+    expertise: string;
+  };
+}
+
+export interface DeckDraftInputV2 {
+  deck_id: string;
+  revision: number;
+  title: string;
+  report: { report_id: string; report_revision: number } | null;
+  brief: string;
+  slide_count: number;
+  theme_id: string;
+  provider_profile_id: string;
   language: string;
   audience: {
     audience_id: string;
@@ -1062,6 +1130,10 @@ export interface ReasoningConfigV2 {
 
 export type ProviderKindV2 =
   | "deepseek"
+  | "openai"
+  | "anthropic"
+  | "minimax"
+  | "mimo"
   | "glm"
   | "kimi"
   | "qwen"
@@ -1074,11 +1146,13 @@ export interface ProviderDefinitionV2 {
   kind: ProviderKindV2;
   id: ProviderKindV2;
   display_name: string;
-  protocol: "open_ai_chat_completions" | "ollama_chat";
+  protocol: "open_ai_chat_completions" | "anthropic_messages" | "ollama_chat";
   default_base_url: string;
+  default_model?: string;
+  recommended_models?: string[];
   endpoint_policy: "exact_official" | "public_https" | "loopback_only";
-  auth_kind: "none" | "bearer";
-  model_discovery: "open_ai_models" | "ollama_tags" | "manual_only";
+  auth_kind: "none" | "bearer" | "api_key_header";
+  model_discovery: "open_ai_models" | "anthropic_models" | "ollama_tags" | "manual_only";
   request_adapter: string;
   capabilities: {
     streaming: boolean;
@@ -1140,6 +1214,8 @@ export interface RustWorkspaceSnapshot {
   sessions: SessionRecordV2[];
   extensions: CatalogRecordV2[];
   deliverables: CatalogRecordV2[];
+  presentationTemplates?: PresentationTemplateRecordV2[];
+  presentationTemplateNext?: CatalogCursorV2 | null;
   schedules: CatalogRecordV2[];
   providers?: ProviderProfileRecordV2[];
   providerRegistry?: ProviderRegistryV2;
@@ -1207,6 +1283,7 @@ export interface DashboardSnapshot {
   } | null;
   daily: DailySnapshot | null;
   provider: ProviderDiagnostic | null;
+  firstRun?: { has_completed_run: boolean };
   musicSources?: MusicSourceDefinition[];
   pagination?: Partial<Record<DashboardListKind, PageInfo>>;
   workspaceV2?: RustWorkspaceSnapshot;
@@ -1507,6 +1584,17 @@ export interface DashboardApi {
   composeManualReport?(input: ManualReportInputV2): Promise<CatalogRecordV2>;
   composeAiReportDraft?(input: AiReportDraftInputV2): Promise<CatalogRecordV2>;
   composeDeckFromReport?(input: DeckFromReportInputV2): Promise<CatalogRecordV2>;
+  composeDeckDraft?(input: DeckDraftInputV2): Promise<CatalogRecordV2>;
+  createPresentationTemplate?(input: PresentationTemplateInputV2): Promise<PresentationTemplateRecordV2>;
+  updatePresentationTemplate?(
+    templateId: string,
+    expectedHash: string,
+    input: PresentationTemplateInputV2,
+  ): Promise<PresentationTemplateRecordV2>;
+  listPresentationTemplates?(cursor?: CatalogCursorV2): Promise<PresentationTemplatePageV2>;
+  listDeletedPresentationTemplates?(cursor?: CatalogCursorV2): Promise<PresentationTemplatePageV2>;
+  deletePresentationTemplate?(templateId: string, expectedHash: string): Promise<PresentationTemplateRecordV2>;
+  restorePresentationTemplate?(templateId: string, expectedHash: string): Promise<PresentationTemplateRecordV2>;
   createSchedule?(schedule: ScheduleSpecV2): Promise<CatalogRecordV2>;
   updateSchedule?(
     scheduleId: string,

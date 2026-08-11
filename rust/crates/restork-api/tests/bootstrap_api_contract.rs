@@ -7,7 +7,7 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use restork_core::auth::PairingAuthority;
-use restork_storage::Database;
+use restork_storage::{Database, NewRadarRecord};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -136,6 +136,7 @@ async fn bootstrap_returns_one_typed_workspace_projection() {
     assert_eq!(status, StatusCode::OK);
     let body = body.expect("bootstrap document");
     assert_eq!(body["runs"], json!([]));
+    assert_eq!(body["firstRun"]["has_completed_run"], false);
     assert_eq!(body["domains"]["runs"]["state"], "ready");
     assert_eq!(body["domains"]["daily"]["state"], "ready");
     assert_eq!(body["domains"]["sessions"]["state"], "ready");
@@ -153,6 +154,78 @@ async fn bootstrap_returns_one_typed_workspace_projection() {
         .expect("installation-aware setup command");
     assert!(setup_command.ends_with(" provider configure deepseek"));
     assert!(body["musicSources"].is_array());
+}
+
+#[tokio::test]
+async fn bootstrap_keeps_cached_github_and_hacker_news_lanes_together() {
+    let (app, authorization, directory) = paired_app().await;
+    let database = Database::open(directory.0.join("restork.db")).expect("database");
+    database
+        .put_daily_cache(
+            "radar-config",
+            &json!({"enabled": true, "github_discovery": true, "hacker_news": true}),
+            "2026-08-11T00:00:00Z",
+            "9999-12-31T23:59:59Z",
+            "2026-08-11T00:00:00Z",
+        )
+        .expect("Radar configuration");
+    for index in 0..12 {
+        let item_id = format!("github-{index}");
+        let title = format!("example/project-{index}");
+        database
+            .upsert_radar(NewRadarRecord {
+                item_id: &item_id,
+                lane: "trending",
+                title: &title,
+                source: "github",
+                url: "https://github.com/example/project",
+                summary: "GitHub fixture",
+                score: 10_000.0 - f64::from(index),
+                stars_total: Some(10_000 - i64::from(index)),
+                published_at: None,
+                state: "new",
+                data_class: "public",
+                occurred_at: "2026-08-11T00:00:00Z",
+            })
+            .expect("GitHub Radar fixture");
+    }
+    for index in 0..12 {
+        let item_id = format!("hn-{index}");
+        let title = format!("Hacker News item {index}");
+        database
+            .upsert_radar(NewRadarRecord {
+                item_id: &item_id,
+                lane: "hn",
+                title: &title,
+                source: "hacker-news",
+                url: "https://news.ycombinator.com/item?id=1",
+                summary: "Hacker News fixture",
+                score: 100.0 - f64::from(index),
+                stars_total: None,
+                published_at: None,
+                state: "new",
+                data_class: "public",
+                occurred_at: "2026-08-11T00:00:00Z",
+            })
+            .expect("Hacker News Radar fixture");
+    }
+
+    let (status, body) = call(
+        app,
+        Method::GET,
+        "/v1/bootstrap?timezone=Asia%2FShanghai",
+        None,
+        Some(&authorization),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    let items = body.expect("bootstrap document")["radar"]["items"]
+        .as_array()
+        .expect("Radar items")
+        .clone();
+    assert!(items.iter().any(|item| item["lane"] == "trending"));
+    assert!(items.iter().any(|item| item["lane"] == "hn"));
 }
 
 #[tokio::test]
@@ -178,7 +251,10 @@ async fn public_machine_schema_covers_every_versioned_router_path() {
         .map(|route| route["path"].as_str().expect("route path").to_owned())
         .collect::<BTreeSet<_>>();
 
-    let source = include_str!("../src/lib.rs");
+    // Route composition has one explicit owner. Keeping the inventory test on
+    // that module lets `lib.rs` remain a composition root rather than a route
+    // warehouse while still failing if schema and implementation drift.
+    let source = include_str!("../src/routes.rs");
     let implemented = source
         .split(".route(")
         .skip(1)

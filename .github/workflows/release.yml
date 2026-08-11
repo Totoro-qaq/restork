@@ -154,6 +154,8 @@ jobs:
             desktop/package-lock.json
       - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - run: rustup default 1.97.1
+      - name: Require the Windows MSVC Rust toolchain
+        run: node scripts/windows-toolchain.mjs
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
       - name: Require protected Windows and updater credentials

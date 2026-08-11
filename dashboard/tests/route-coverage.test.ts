@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -24,10 +24,12 @@ function dashboardRoutes(): string[] {
 }
 
 function rustRoutes(): Set<string> {
-  const source = readFileSync(
-    resolve(import.meta.dirname, "../../rust/crates/restork-api/src/lib.rs"),
-    "utf8",
-  );
+  const directory = resolve(import.meta.dirname, "../../rust/crates/restork-api/src");
+  const source = readdirSync(directory)
+    .filter((name) => name.endsWith(".rs"))
+    .sort()
+    .map((name) => readFileSync(resolve(directory, name), "utf8"))
+    .join("\n");
   const literals = [...source.matchAll(/\.route\(\s*"([^"]+)"/g)].map((m) => normalise(m[1]));
   return new Set(literals);
 }

@@ -231,7 +231,7 @@ fn provider_profiles_are_secret_reference_only_and_never_silently_fallback() {
 #[test]
 fn provider_registry_is_complete_unique_and_vendor_scoped() {
     let definitions = provider_definitions();
-    assert_eq!(definitions.len(), 7);
+    assert_eq!(definitions.len(), 11);
     assert!(
         definitions
             .iter()
@@ -246,12 +246,20 @@ fn provider_registry_is_complete_unique_and_vendor_scoped() {
     assert_eq!(ProviderKind::Kimi.definition().id, "kimi");
     assert_eq!(ProviderKind::Qwen.definition().id, "qwen");
     assert_eq!(ProviderKind::OpenRouter.definition().id, "openrouter");
+    assert_eq!(ProviderKind::OpenAi.definition().id, "openai");
+    assert_eq!(ProviderKind::Anthropic.definition().id, "anthropic");
+    assert_eq!(ProviderKind::MiniMax.definition().id, "minimax");
+    assert_eq!(ProviderKind::MiMo.definition().id, "mimo");
 
     for kind in [
         ProviderKind::Glm,
         ProviderKind::Kimi,
         ProviderKind::Qwen,
         ProviderKind::OpenRouter,
+        ProviderKind::OpenAi,
+        ProviderKind::Anthropic,
+        ProviderKind::MiniMax,
+        ProviderKind::MiMo,
     ] {
         let definition = kind.definition();
         assert!(

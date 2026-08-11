@@ -118,17 +118,14 @@ describe("keyboard navigation", () => {
 });
 
 describe("Escape dismisses the topmost surface", () => {
-  it("closes the run panel from anywhere, not only from inside it", () => {
+  it("keeps the primary task choices keyboard reachable without a sidebar launcher", () => {
     const root = mount();
-    root.querySelector<HTMLButtonElement>('[data-mode="research"]')?.click();
-    const panel = root.querySelector<HTMLElement>("#action-panel");
-    expect(panel?.hidden).toBe(false);
-
-    // Focus deliberately outside the panel: the old binding required it inside.
-    document.body.focus();
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-
-    expect(panel?.hidden).toBe(true);
+    const research = root.querySelector<HTMLButtonElement>('[data-start-mode="research"]');
+    const study = root.querySelector<HTMLButtonElement>('[data-start-mode="study"]');
+    research?.focus();
+    research?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    expect(document.activeElement).toBe(study);
+    expect(root.querySelector(".sidebar [data-mode]")).toBeNull();
   });
 
   it("dismisses a visible notice when no panel is open", async () => {

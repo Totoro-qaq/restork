@@ -3,9 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[cfg(all(any(test, not(debug_assertions)), not(windows)))]
+#[cfg(all(test, not(windows)))]
 use std::fs::File;
-#[cfg(any(test, not(debug_assertions)))]
+#[cfg(test)]
 use std::{
     fs::OpenOptions,
     io::Write,
@@ -15,18 +15,31 @@ use std::{
 #[cfg(any(test, not(debug_assertions)))]
 use semver::Version;
 use serde::{Deserialize, Serialize};
-#[cfg(any(test, not(debug_assertions)))]
+#[cfg(test)]
 use sha2::{Digest, Sha256};
 
-#[cfg(any(test, not(debug_assertions)))]
+#[cfg(test)]
 const MAX_RECOVERY_ARTIFACTS: usize = 2;
 const APP_IDENTIFIER: &str = "io.github.totoro-qaq.restork";
-#[cfg(any(test, not(debug_assertions)))]
+#[cfg(test)]
 const ARCHIVE_DIRECTORY: &str = "verified-updates";
 const LEDGER_FILENAME: &str = "update-ledger.json";
 
 pub struct UpdateStorage {
     root: PathBuf,
+}
+
+/// Background discovery is deliberately notification-only. Installing an
+/// update is a user action because it can stop an active Core process.
+#[cfg(any(test, not(debug_assertions)))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BackgroundUpdateAction {
+    NotifyOnly,
+}
+
+#[cfg(any(test, not(debug_assertions)))]
+pub const fn background_update_action() -> BackgroundUpdateAction {
+    BackgroundUpdateAction::NotifyOnly
 }
 
 impl UpdateStorage {
@@ -65,7 +78,7 @@ impl UpdateStorage {
         self.root.join(LEDGER_FILENAME)
     }
 
-    #[cfg(any(test, not(debug_assertions)))]
+    #[cfg(test)]
     fn archive_directory(&self) -> Result<PathBuf, &'static str> {
         private_child_directory(&self.root, ARCHIVE_DIRECTORY)
             .map_err(|_| "update_archive_unavailable")
@@ -110,7 +123,7 @@ pub fn accepts_update(
         .is_none_or(|highest| candidate >= highest)
 }
 
-#[cfg(any(test, not(debug_assertions)))]
+#[cfg(test)]
 pub fn archive_verified_update(
     storage: &UpdateStorage,
     version: &str,
@@ -181,7 +194,7 @@ fn read_ledger(storage: &UpdateStorage) -> Option<UpdateLedger> {
     (ledger.schema_version == 1).then_some(ledger)
 }
 
-#[cfg(any(test, not(debug_assertions)))]
+#[cfg(test)]
 fn safe_filename(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 255
@@ -191,7 +204,7 @@ fn safe_filename(value: &str) -> bool {
         && !matches!(value, "." | "..")
 }
 
-#[cfg(any(test, not(debug_assertions)))]
+#[cfg(test)]
 fn safe_identifier(value: &str, maximum: usize) -> bool {
     !value.is_empty()
         && value.len() <= maximum
@@ -200,7 +213,7 @@ fn safe_identifier(value: &str, maximum: usize) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
-#[cfg(any(test, not(debug_assertions)))]
+#[cfg(test)]
 fn atomic_write(root: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let parent = path
         .parent()
@@ -253,12 +266,12 @@ fn atomic_write(root: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(all(any(test, not(debug_assertions)), not(windows)))]
+#[cfg(all(test, not(windows)))]
 fn replace_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
     fs::rename(temporary, destination)
 }
 
-#[cfg(all(any(test, not(debug_assertions)), windows))]
+#[cfg(all(test, windows))]
 fn replace_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
 
@@ -292,7 +305,7 @@ fn replace_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
     }
 }
 
-#[cfg(any(test, not(debug_assertions)))]
+#[cfg(test)]
 fn private_child_directory(root: &Path, name: &str) -> std::io::Result<PathBuf> {
     if !safe_filename(name) {
         return Err(std::io::Error::other("directory name is invalid"));
@@ -333,7 +346,7 @@ fn existing_child_file(root: &Path, requested: &Path) -> Option<PathBuf> {
     Some(path)
 }
 
-#[cfg(any(test, not(debug_assertions)))]
+#[cfg(test)]
 fn remove_recovery_artifact(storage: &UpdateStorage, relative: &str) {
     let Some((directory, filename)) = relative.split_once('/') else {
         return;
@@ -353,7 +366,7 @@ fn remove_recovery_artifact(storage: &UpdateStorage, relative: &str) {
     }
 }
 
-#[cfg(any(test, not(debug_assertions)))]
+#[cfg(test)]
 fn hex_digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
@@ -368,8 +381,9 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        APP_IDENTIFIER, ARCHIVE_DIRECTORY, RecoveryArtifact, UpdateLedger, UpdateStorage,
-        accepts_update, archive_verified_update, recovery_artifacts,
+        APP_IDENTIFIER, ARCHIVE_DIRECTORY, BackgroundUpdateAction, RecoveryArtifact, UpdateLedger,
+        UpdateStorage, accepts_update, archive_verified_update, background_update_action,
+        recovery_artifacts,
     };
 
     fn storage(directory: &TempDir) -> UpdateStorage {
@@ -382,6 +396,14 @@ mod tests {
                 .expect("private permissions");
         }
         UpdateStorage::open(&root).expect("trusted update storage")
+    }
+
+    #[test]
+    fn background_update_discovery_never_installs_silently() {
+        assert_eq!(
+            background_update_action(),
+            BackgroundUpdateAction::NotifyOnly
+        );
     }
 
     #[test]

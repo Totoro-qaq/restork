@@ -11,8 +11,8 @@ destination are previewed, and any write is tied to exact content, a one-use app
 recovery record. Weather, calendar, music, location, and model providers all stay off until chosen.
 
 The project is a bilingual Tauri/Rust desktop application under MIT. It does not require an Obsidian
-plugin for the base workflow, so notes remain usable when Restork is not running. A plugin may come
-later for convenience, not authority.
+plugin for the base workflow, so notes remain usable when Restork is not running. A small companion
+plugin may come later if it makes opening and linking notes more convenient.
 
 Source and setup: https://github.com/Totoro-qaq/restork
 Demo: [60-SECOND DEMO URL]

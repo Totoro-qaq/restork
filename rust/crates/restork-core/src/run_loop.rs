@@ -1,4 +1,4 @@
-//! A deterministic, bounded state machine for one governed Restork run.
+//! A deterministic state machine with explicit limits for one Restork run.
 
 use std::collections::BTreeSet;
 

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "skill_id": "core.presentation",
+  "version": 1,
+  "prompt_version": "presentation-v1",
+  "bundled": true,
+  "user_runtime_dependencies": [],
+  "capabilities": [
+    "brief-to-outline",
+    "report-to-outline",
+    "slide-preview",
+    "pptx-render",
+    "pdf-render"
+  ],
+  "output_formats": ["pptx", "pdf"],
+  "themes": [
+    "restork-print",
+    "restork-clarity",
+    "restork-midnight",
+    "restork-ocean",
+    "restork-ember",
+    "restork-blueprint"
+  ]
+}

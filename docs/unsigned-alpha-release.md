@@ -1,49 +1,90 @@
-# Restork macOS Alpha / macOS 内测版
+# Restork desktop technical preview / 桌面技术预览
 
-> **Trust notice:** this Apple Silicon build is **not signed with an Apple Developer ID and is not
-> notarized by Apple**. It is ad-hoc signed so the bundle can be checked for internal integrity, and
-> its updater archive has Restork's independent Tauri signature. Those checks do not create Apple
-> trust. Install this Alpha only if you intentionally downloaded it from this repository.
+> **Trust notice:** these are early GitHub builds, not platform-signed stable releases. The macOS
+> app is ad-hoc signed and not notarized. The Windows installers have no Authenticode signature.
+> The Linux AppImage and DEB have no publisher/package signature. Install only if you intentionally
+> downloaded the files from this repository and verified `SHA256SUMS`.
 
-> **信任提示：**这个 Apple Silicon 版本**没有 Apple Developer ID 签名，也没有经过 Apple
-> 公证**。应用包使用 ad-hoc 签名以校验内部完整性，更新包另有 Restork 的 Tauri 签名；这些校验
-> 不能代替 Apple 的开发者信任。请只在你明确从本仓库下载并愿意试用内测版时安装。
+> **信任提示：**这些是早期 GitHub 构建，不是经过平台签名的正式版。macOS 应用使用 ad-hoc
+> 签名且未公证；Windows 安装包没有 Authenticode；Linux AppImage 与 DEB 没有发布者/包签名。
+> 只在确认文件来自本仓库并校验 `SHA256SUMS` 后安装。
 
-## Install on macOS
+## Choose a download / 选择下载文件
 
-1. Download the file ending in `macOS-arm64-UNSIGNED-ALPHA.dmg` from this Release.
-2. Optional but recommended: download `SHA256SUMS`, then verify only the downloaded DMG with
-   `grep 'macOS-arm64-UNSIGNED-ALPHA.dmg$' SHA256SUMS | shasum -a 256 -c -`.
-3. Open the DMG and drag Restork into Applications.
-4. On first launch, macOS will warn that the developer cannot be verified. Control-click Restork,
-   choose **Open**, then confirm **Open**; or use **System Settings → Privacy & Security → Open
-   Anyway**. Do not disable Gatekeeper globally.
+| Platform / 平台 | File / 文件 |
+|---|---|
+| Apple Silicon macOS 13+ | `Restork-*-macOS-arm64-UNSIGNED-ALPHA.dmg` |
+| Windows 10/11 x64 | `Restork-*-Windows-x64-UNSIGNED-ALPHA-setup.exe` or `.msi` |
+| Desktop Linux x64 | `Restork-*-Linux-x64-UNSIGNED-ALPHA.AppImage` or `.deb` |
 
-The target Mac needs no Python, Node.js, Rust, `uv`, or package manager. Restork starts its bundled
-Rust Core on `127.0.0.1`, keeps API keys in native credentials, and stores no browser token on disk.
+The target machine needs no Python, Node.js, Rust, MinGW, GTK development package, `uv`, or other
+compiler toolchain. / 目标电脑不需要 Python、Node.js、Rust、MinGW、GTK 开发包、`uv` 或编译环境。
 
-## 在 macOS 安装
+## Verify the file / 校验文件
 
-1. 在本 Release 下载以 `macOS-arm64-UNSIGNED-ALPHA.dmg` 结尾的文件。
-2. 建议同时下载 `SHA256SUMS`，运行
-   `grep 'macOS-arm64-UNSIGNED-ALPHA.dmg$' SHA256SUMS | shasum -a 256 -c -`，只校验已下载的 DMG。
-3. 打开 DMG，把 Restork 拖入“应用程序”。
-4. 第一次启动时，macOS 会提示无法验证开发者。按住 Control 点击 Restork，选择**打开**并再次
-   确认；也可以进入**系统设置 → 隐私与安全性 → 仍要打开**。不要全局关闭 Gatekeeper。
+Download `SHA256SUMS` from the same Release. On macOS/Linux, filter the exact filename and run
+`shasum -a 256 -c -` or `sha256sum -c -`. On Windows PowerShell, run:
 
-目标 Mac 不需要 Python、Node.js、Rust、`uv` 或包管理器。Restork 会在 `127.0.0.1` 启动内置
-Rust Core；API Key 留在系统凭据库，浏览器会话 token 不会落盘。
+```powershell
+Get-FileHash .\Restork-*-Windows-x64-UNSIGNED-ALPHA.msi -Algorithm SHA256
+```
 
-## What is verified / 已验证内容
+Compare the result with the matching line in `SHA256SUMS`. GitHub build provenance and the
+CycloneDX file `restork.cdx.json` are attached for independent inspection. / 请把结果与
+`SHA256SUMS` 对应行比较；Release 同时提供 GitHub 构建来源证明与 CycloneDX SBOM。
 
-- annotated Alpha tag on a commit reachable from protected `main`;
-- privacy scan, release helper tests, Rust/Tauri build, ad-hoc signature verification;
-- three clean launches from the downloaded DMG with no surviving owned Core process;
-- SHA-256 ledger, CycloneDX SBOM, GitHub build provenance, and a Tauri-signed updater archive.
+## First launch / 首次启动
 
-This Alpha is currently Apple Silicon and macOS 13+ only. The protected stable workflow remains
-separate and still requires Apple Developer ID signing, notarization, and stapling, plus signed
-Windows/Linux packages and their clean-machine gates.
+### macOS
 
-当前公开内测包仅支持 Apple Silicon 与 macOS 13+。正式发布链路仍保持独立：它继续要求 Apple
-Developer ID、公证与 stapling，以及 Windows/Linux 的平台签名和干净机器门禁。
+Open the DMG and drag Restork to Applications. Control-click Restork, choose **Open**, then confirm;
+or use **System Settings → Privacy & Security → Open Anyway**. Never disable Gatekeeper globally.
+
+打开 DMG 并拖入“应用程序”。按住 Control 点击 Restork，选择**打开**并确认；也可以进入
+**系统设置 → 隐私与安全性 → 仍要打开**。不要全局关闭 Gatekeeper。
+
+### Windows
+
+Open the EXE or MSI. SmartScreen may show an unknown-publisher warning because this preview is not
+Authenticode-signed. Continue only after verifying the checksum and repository source. The EXE and
+MSI contain the same app; EXE is the simpler per-user path, while MSI is useful for Windows-managed
+installation testing.
+
+打开 EXE 或 MSI。由于技术预览尚无 Authenticode，SmartScreen 可能提示未知发布者；请先校验
+哈希与仓库来源。EXE 与 MSI 包含同一应用；普通用户优先 EXE，MSI 便于 Windows 管理式安装测试。
+
+### Linux
+
+AppImage needs no installation:
+
+```bash
+chmod +x Restork-*-Linux-x64-UNSIGNED-ALPHA.AppImage
+./Restork-*-Linux-x64-UNSIGNED-ALPHA.AppImage
+```
+
+On Debian/Ubuntu, open the DEB with the system installer or run:
+
+```bash
+sudo apt install ./Restork-*-Linux-x64-UNSIGNED-ALPHA.deb
+```
+
+AppImage 无需安装；Debian/Ubuntu 可用系统安装器打开 DEB，或执行上面的 `apt install`。
+
+## What CI proves / CI 验证了什么
+
+- the annotated Alpha tag belongs to protected `main`;
+- the public tree passes privacy scanning;
+- every installer contains the Rust Core and bilingual Dashboard;
+- the downloaded DMG, both Windows installers, AppImage, and DEB launch on fresh runners, own their
+  Core process, and stop it on exit; installer removal preserves user data where applicable;
+- one SHA-256 ledger, CycloneDX SBOM, release manifest, and GitHub provenance cover the assets.
+
+These checks prove build origin, integrity, and tested lifecycle behavior. They do **not** create
+Apple, Microsoft, or Linux publisher trust. Only the protected stable workflow may make that claim.
+
+以上检查证明构建来源、文件完整性与已测试的生命周期行为，但**不能**建立 Apple、Microsoft 或
+Linux 发布者信任。只有受保护正式发布工作流通过后，Restork 才会作出平台签名声明。
+
+The macOS updater archive retains Restork's independent Tauri signature. Windows and Linux preview
+updates are disabled until protected platform signing passes. / macOS 更新包保留 Restork 独立 Tauri
+签名；Windows/Linux 在受保护平台签名通过前禁用预览版更新。

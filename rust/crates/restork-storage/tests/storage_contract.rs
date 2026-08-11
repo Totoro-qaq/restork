@@ -93,6 +93,54 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
 }
 
 #[test]
+fn vault_switch_revokes_unconsumed_authority_but_keeps_audit_history() {
+    let directory = TestDirectory::new("vault-switch-authority");
+    let database = Database::open(directory.database()).expect("open database");
+    database
+        .save_approval(
+            "approval-pending",
+            "run-pending",
+            "2026-08-10T00:00:00Z",
+            &json!({"tool": "vault.write"}),
+        )
+        .expect("pending approval");
+    database
+        .save_approval(
+            "approval-approved",
+            "run-approved",
+            "2026-08-10T00:00:00Z",
+            &json!({"tool": "vault.write"}),
+        )
+        .expect("approved approval");
+    database
+        .decide_approval("approval-approved", "approved")
+        .expect("approve");
+
+    assert_eq!(
+        database
+            .invalidate_vault_bound_authority()
+            .expect("invalidate authority"),
+        2
+    );
+    assert_eq!(
+        database
+            .approval("approval-pending")
+            .expect("pending audit")
+            .expect("pending record")
+            .decision,
+        "rejected"
+    );
+    assert_eq!(
+        database
+            .approval("approval-approved")
+            .expect("approved audit")
+            .expect("approved record")
+            .decision,
+        "rejected"
+    );
+}
+
+#[test]
 fn event_append_is_monotonic_replayable_and_keyset_paginated() {
     let directory = TestDirectory::new("events");
     let database = Database::open(directory.database()).expect("open database");

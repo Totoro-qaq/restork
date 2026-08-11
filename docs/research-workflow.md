@@ -7,7 +7,7 @@ capability.
 ## Evidence contract
 
 1. Restork scans the local vault index in process and records only match counts in run events.
-2. Source adapters fetch bounded, untrusted public text through the governed network gateway.
+2. Source adapters fetch size-limited, untrusted public text through the outbound gateway.
 3. Exact URL and content-hash duplicates collapse before evidence extraction; primary sources sort
    ahead of secondary sources.
 4. Bounded Evidence Cards retain source identity, locator, excerpt, hash, authority, and retrieval
@@ -44,7 +44,7 @@ digest.
 
 ## Dashboard, CLI, and model selection
 
-Choosing **Research** in Dashboard creates the governed run, follows durable events, validates the
+Choosing **Research** in Dashboard creates the run, follows durable events, validates the
 artifact, and returns a Markdown preview. The authenticated API exposes:
 
 - `POST /v1/runs` and `POST /v1/runs/{run_id}/advance` for the bounded agent loop;
@@ -71,7 +71,7 @@ cargo run --manifest-path rust/Cargo.toml --bin restorkd -- doctor --connect
 
 The first command prompts through native credential storage. The key never enters the repository,
 SQLite, Dashboard, URL, or event stream. The built-in direct DeepSeek Profile is public-only;
-governed Profiles must explicitly declare any broader data class, while secret and credential
+Profiles that permit private data must declare that broader data class explicitly, while secret and credential
 payloads always fail closed.
 
 Run the slice gates with:

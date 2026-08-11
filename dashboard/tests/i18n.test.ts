@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { DashboardSnapshot } from "../src/api/types";
 import { detectLocale, LOCALE_STORAGE_KEY } from "../src/i18n";
 import { mountDashboard } from "../src/main";
-import { providerErrorMarkup } from "../src/ui/render";
+import { approvalsView, memoryView, providerErrorMarkup } from "../src/ui/render";
 
 const emptySnapshot: DashboardSnapshot = {
   runs: [],
@@ -42,9 +42,11 @@ describe("Dashboard locales", () => {
     mountDashboard(root, { snapshot: emptySnapshot, locale: "en" });
 
     expect(root.textContent).toContain("Dashboard");
-    expect(root.textContent).toContain("New run");
+    expect(root.querySelector(".start-mode-row")?.textContent).toContain("Research");
+    expect(root.querySelector(".sidebar .mode-grid")).toBeNull();
     expect(root.textContent).toContain("What will you research, study, or finish today?");
-    expect(root.textContent).toContain("Add or replace the API key in Terminal");
+    expect(root.textContent).toContain("SAVE API KEY SECURELY");
+    expect(root.textContent).toContain("The native prompt stores the key in system credentials");
     expect(root.textContent).not.toContain("仪表盘");
     expect(document.documentElement.lang).toBe("en");
     expect(document.title).toBe("Restork · Local Agent Workspace");
@@ -59,7 +61,8 @@ describe("Dashboard locales", () => {
 
     expect(root.textContent).toContain("仪表盘");
     expect(root.textContent).toContain("新建运行");
-    expect(root.textContent).toContain("请在终端添加或替换 API Key");
+    expect(root.textContent).toContain("安全保存 API Key");
+    expect(root.textContent).toContain("原生弹窗会把 Key 存入系统凭据库");
     expect(document.documentElement.lang).toBe("zh-CN");
     expect(document.title).toBe("Restork · 本地智能工作台");
     expect(localStorage).toHaveLength(1);
@@ -82,6 +85,62 @@ describe("Dashboard locales", () => {
     expect(providerErrorMarkup("zh-CN")).toContain("检查失败");
     expect(providerErrorMarkup("zh-CN", "invalid or expired access token"))
       .toContain("Core 返回：invalid or expired access token");
+  });
+
+  it("uses product language for memory without exposing storage taxonomy", () => {
+    const snapshot: DashboardSnapshot = {
+      ...emptySnapshot,
+      memory: {
+        architecture: ["working", "episodic", "semantic", "profile"],
+        counts: { working: 1, episodic: 1, semantic: 1, profile: 1 },
+        records: [{
+          memory_id: "memory-copy",
+          layer: "episodic",
+          kind: "decision",
+          summary: "Keep the original note.",
+          provenance: "user",
+          data_class: "personal",
+          retention_class: "session",
+          updated_at: "2026-08-11T00:00:00Z",
+          content_hash: "a".repeat(64),
+        }],
+      },
+    };
+
+    const english = memoryView(snapshot, "en");
+    const chinese = memoryView(snapshot, "zh-CN");
+    expect(english).toContain("What Restork remembers");
+    expect(english).toContain("Current conversation");
+    expect(english).toContain("Run history · Decision");
+    expect(chinese).toContain("Restork 记住的内容");
+    expect(chinese).toContain("当前对话");
+    expect(chinese).toContain("运行记录 · 决定");
+    expect(`${english}${chinese}`).not.toMatch(/Four-layer|四层记忆|TTL\/LRU|EPISODIC/);
+  });
+
+  it("localizes known approval summaries without changing English approval copy", () => {
+    const approval = {
+      approval_id: "approval-task-write",
+      run_id: "task-write",
+      action_kind: "vault_write",
+      risk_class: "local_file_write",
+      human_summary: "Apply the reviewed Markdown task change to Study/LoRA.md?",
+      action_digest: "a".repeat(64),
+      canonical_scope: "Study/LoRA.md",
+      resource_versions: {},
+      policy_version: "markdown-journal-v1",
+      preview_ref: "task-preview:approval-task-write",
+      nonce: "approval-nonce",
+      expires_at: "2026-08-11T21:39:00+08:00",
+      decision: "pending",
+    };
+
+    const chinese = approvalsView({ ...emptySnapshot, approvals: [approval] }, "zh-CN");
+    const english = approvalsView({ ...emptySnapshot, approvals: [approval] }, "en");
+
+    expect(chinese).toContain("将刚才预览的 Markdown 任务改动写入「Study/LoRA.md」？");
+    expect(chinese).not.toContain("Apply the reviewed Markdown task change");
+    expect(english).toContain("Apply the reviewed Markdown task change to Study/LoRA.md?");
   });
 });
 

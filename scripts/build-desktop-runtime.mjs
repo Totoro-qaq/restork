@@ -5,9 +5,18 @@ import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { requireWindowsMsvc } from "./windows-toolchain.mjs";
+
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const executableName = process.platform === "win32" ? "restorkd.exe" : "restorkd";
 const outputDirectory = join(projectRoot, "dist", "desktop-runtime");
+
+try {
+  requireWindowsMsvc();
+} catch (error) {
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.exit(2);
+}
 
 function run(command, args, environment = process.env, workingDirectory = projectRoot) {
   const result = spawnSync(command, args, {

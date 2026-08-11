@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "skill_id": "core.reports",
+  "version": 1,
+  "prompt_version": "reports-v1",
+  "bundled": true,
+  "user_runtime_dependencies": [],
+  "capabilities": [
+    "manual-daily-report",
+    "manual-weekly-report",
+    "model-assisted-draft",
+    "markdown-preview",
+    "markdown-download"
+  ],
+  "output_formats": ["markdown"]
+}

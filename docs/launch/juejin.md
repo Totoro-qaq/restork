@@ -12,9 +12,9 @@ Windows/Linux 安装包怎样失败关闭。
 - Rust `restorkd`、Tauri supervisor、三次心跳失败与进程树所有权；
 - SQLite 持久事件、可取消 SSE 与上下文哈希；
 - exact-argv、无 shell、清空环境的 MCP stdio runtime；
-- 确定性 PPTX/PDF 与 artifact manifest；
+- 可重复生成的 PPTX/PDF，以及记录文件来源和哈希的清单；
 - 真实文件检查点的前置哈希、同目录暂存、fsync 与原子替换；
-- 三平台受保护签名、SBOM、provenance、更新回滚与干净机器 workflow。
+- 三平台签名、软件物料清单、构建来源、更新回滚与干净机器测试。
 
 文末给出一键源码启动、测试命令和架构取舍。仓库：https://github.com/Totoro-qaq/restork
 ；签名内测版：[SIGNED RELEASE URL]；演示：[60-SECOND DEMO URL]。

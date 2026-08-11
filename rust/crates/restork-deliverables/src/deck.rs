@@ -12,6 +12,135 @@ use crate::{
     },
 };
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemeLayout {
+    Editorial,
+    Minimal,
+    Spotlight,
+    Research,
+    Narrative,
+    Blueprint,
+}
+
+/// A frozen, renderer-safe copy of a user-created presentation theme.
+///
+/// Only bounded text, six-digit RGB colors and one of Restork's built-in
+/// layouts are accepted. The snapshot deliberately cannot refer to files,
+/// fonts, scripts, remote assets or host applications.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ThemeSnapshot {
+    theme_id: String,
+    version: u64,
+    name: String,
+    background: String,
+    foreground: String,
+    muted: String,
+    accent: String,
+    accent_secondary: String,
+    layout: ThemeLayout,
+}
+
+impl ThemeSnapshot {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        theme_id: impl Into<String>,
+        version: u64,
+        name: impl Into<String>,
+        background: impl Into<String>,
+        foreground: impl Into<String>,
+        muted: impl Into<String>,
+        accent: impl Into<String>,
+        accent_secondary: impl Into<String>,
+        layout: ThemeLayout,
+    ) -> Result<Self> {
+        let theme_id = theme_id.into();
+        validate_id("theme_id", &theme_id)?;
+        if version == 0 {
+            return Err(DeliverableError::InvalidRevision);
+        }
+        let name = name.into();
+        validate_nonempty_text("theme_name", &name)?;
+        if name.len() > 120 {
+            return Err(DeliverableError::InvalidIdentifier {
+                field: "theme_name",
+                value: "theme name exceeds the safe contract boundary".to_owned(),
+            });
+        }
+        let background = normalized_rgb(background.into())?;
+        let foreground = normalized_rgb(foreground.into())?;
+        let muted = normalized_rgb(muted.into())?;
+        let accent = normalized_rgb(accent.into())?;
+        let accent_secondary = normalized_rgb(accent_secondary.into())?;
+        Ok(Self {
+            theme_id,
+            version,
+            name,
+            background,
+            foreground,
+            muted,
+            accent,
+            accent_secondary,
+            layout,
+        })
+    }
+
+    pub fn content_hash(&self) -> Result<String> {
+        let canonical = canonical_hash(self)?;
+        Ok(domain_hash("restork.presentation-theme.v1", &[&canonical]))
+    }
+
+    #[must_use]
+    pub fn theme_id(&self) -> &str {
+        &self.theme_id
+    }
+    #[must_use]
+    pub const fn version(&self) -> u64 {
+        self.version
+    }
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    #[must_use]
+    pub fn background(&self) -> &str {
+        &self.background
+    }
+    #[must_use]
+    pub fn foreground(&self) -> &str {
+        &self.foreground
+    }
+    #[must_use]
+    pub fn muted(&self) -> &str {
+        &self.muted
+    }
+    #[must_use]
+    pub fn accent(&self) -> &str {
+        &self.accent
+    }
+    #[must_use]
+    pub fn accent_secondary(&self) -> &str {
+        &self.accent_secondary
+    }
+    #[must_use]
+    pub const fn layout(&self) -> ThemeLayout {
+        self.layout
+    }
+}
+
+fn normalized_rgb(value: String) -> Result<String> {
+    let value = value.trim().trim_start_matches('#').to_ascii_uppercase();
+    if value.len() == 6 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Ok(value)
+    } else {
+        Err(DeliverableError::InvalidIdentifier {
+            field: "theme_color",
+            value: "theme colors must be six-digit RGB values".to_owned(),
+        })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeckAudience {
@@ -339,6 +468,8 @@ pub struct DeckSpec {
     language: String,
     audience: DeckAudience,
     theme: ThemeRef,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    theme_snapshot: Option<ThemeSnapshot>,
     ledger_hash: String,
     assets: BTreeMap<String, AssetRef>,
     claims: BTreeMap<String, DeckClaim>,
@@ -365,6 +496,36 @@ impl DeckSpec {
         C: IntoIterator<Item = DeckClaimDraft>,
         S: IntoIterator<Item = SlideDraft>,
     {
+        Self::build_with_theme_snapshot(
+            deck_id, revision, language, audience, theme, None, ledger, assets, claims, slides,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_with_theme_snapshot<A, C, S>(
+        deck_id: impl Into<String>,
+        revision: u64,
+        language: impl Into<String>,
+        audience: DeckAudience,
+        theme: ThemeRef,
+        theme_snapshot: Option<ThemeSnapshot>,
+        ledger: &EvidenceLedger,
+        assets: A,
+        claims: C,
+        slides: S,
+    ) -> Result<Self>
+    where
+        A: IntoIterator<Item = AssetRef>,
+        C: IntoIterator<Item = DeckClaimDraft>,
+        S: IntoIterator<Item = SlideDraft>,
+    {
+        if let Some(snapshot) = &theme_snapshot
+            && (snapshot.theme_id != theme.theme_id
+                || snapshot.version != theme.version
+                || snapshot.content_hash()? != theme.content_hash)
+        {
+            return Err(DeliverableError::InvalidHash("theme_content_hash"));
+        }
         let deck_id = deck_id.into();
         validate_id("deck_id", &deck_id)?;
         if revision == 0 {
@@ -389,6 +550,7 @@ impl DeckSpec {
             &language,
             &audience,
             &theme,
+            &theme_snapshot,
             &ledger_hash,
             &assets,
             &claims,
@@ -405,6 +567,7 @@ impl DeckSpec {
             language,
             audience,
             theme,
+            theme_snapshot,
             ledger_hash,
             assets,
             claims,

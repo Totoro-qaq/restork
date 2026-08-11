@@ -1,7 +1,7 @@
 # Restork launch kit
 
-These are owner-reviewable drafts, not published posts. Replace bracketed release/demo values only
-after a protected signed alpha exists. Never attach private screenshots or a real Vault.
+These are drafts for the maintainer to edit before publishing. Replace bracketed release and demo
+links only after a signed Alpha exists. Never attach private screenshots or a real Vault.
 
 | Community | Draft | Language |
 |---|---|---|
@@ -16,7 +16,7 @@ after a protected signed alpha exists. Never attach private screenshots or a rea
 Before publishing:
 
 1. merge the reviewed release commit;
-2. run the protected signing and clean-machine matrix;
+2. finish signing and test every installer on a clean machine;
 3. replace `[SIGNED RELEASE URL]` and `[60-SECOND DEMO URL]`;
 4. verify the linked README language and screenshots;
 5. stay available for technical questions and publish failures as openly as successes.

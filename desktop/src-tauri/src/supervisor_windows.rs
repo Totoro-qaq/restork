@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
@@ -24,58 +24,14 @@ use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CREATE_SUSPENDED, OpenThread, ResumeThread, THREAD_SUSPEND_RESUME,
 };
 
+use crate::vault_grant::{
+    append_launch_argument, configured_vault_dir, prepare_launch_vault_grant,
+    remove_launch_vault_grant,
+};
+use crate::workspace_grant::workspace_grant_dir;
+
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 const RETRY_LIMIT: usize = 3;
-const VAULT_DIR_FILE: &str = "vault-dir.txt";
-const VAULT_PATH_LIMIT: usize = 4_096;
-
-/// Resolve the user's knowledge-base directory for `restorkd --vault-dir`.
-/// A developer override via RESTORK_VAULT_DIR wins; otherwise the path saved
-/// from the dashboard Settings screen (vault-dir.txt next to restork.db) is
-/// used. Anything unreadable or missing disables the grant instead of
-/// blocking Core startup.
-pub(crate) fn configured_vault_dir(data_root: &std::path::Path) -> Option<PathBuf> {
-    let raw = std::env::var_os("RESTORK_VAULT_DIR")
-        .and_then(|value| value.into_string().ok())
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| fs::read_to_string(data_root.join(VAULT_DIR_FILE)).ok())?;
-    let candidate = raw.trim();
-    if candidate.is_empty() || candidate.len() > VAULT_PATH_LIMIT || candidate.contains('\0') {
-        return None;
-    }
-    let path = PathBuf::from(candidate);
-    if !path.is_dir() {
-        return None;
-    }
-    let canonical = fs::canonicalize(path).ok()?;
-    canonical.is_dir().then_some(canonical)
-}
-
-/// Persist the knowledge-base directory chosen in Settings. The Core picks it
-/// up on the next launch.
-pub(crate) fn save_vault_dir(
-    data_root: &std::path::Path,
-    raw: &str,
-) -> Result<PathBuf, &'static str> {
-    let candidate = raw.trim();
-    if candidate.is_empty() || candidate.len() > VAULT_PATH_LIMIT || candidate.contains('\0') {
-        return Err("vault_path_invalid");
-    }
-    let path = PathBuf::from(candidate);
-    if !path.is_dir() {
-        return Err("vault_path_not_directory");
-    }
-    let canonical = fs::canonicalize(path).map_err(|_| "vault_path_unavailable")?;
-    if !canonical.is_dir() {
-        return Err("vault_path_unavailable");
-    }
-    fs::write(
-        data_root.join(VAULT_DIR_FILE),
-        canonical.to_string_lossy().as_bytes(),
-    )
-    .map_err(|_| "vault_path_persist_failed")?;
-    Ok(canonical)
-}
 
 pub(crate) struct CoreProcess {
     pub(crate) child: Child,
@@ -132,27 +88,72 @@ struct BootstrapPayload {
 }
 
 pub(crate) fn start_core(app: &AppHandle) -> Result<CoreProcess, &'static str> {
-    let executable = core_executable(app)?;
-    let state_database = state_database(app)?;
     let vault_dir = app
         .path()
         .app_data_dir()
         .ok()
         .and_then(|directory| configured_vault_dir(&directory));
+    start_core_with_vault(app, vault_dir.as_deref())
+}
+
+pub(crate) fn start_core_with_vault(
+    app: &AppHandle,
+    vault_dir: Option<&Path>,
+) -> Result<CoreProcess, &'static str> {
+    let executable = core_executable(app)?;
+    let state_database = state_database(app)?;
+    let data_root = state_database.parent().ok_or("core_state_unavailable")?;
+    let grant_file = prepare_launch_vault_grant(data_root, vault_dir)?;
     let mut last_error = "core_start_failed";
+    let mut result = Err(last_error);
     for _attempt in 0..RETRY_LIMIT {
-        match start_attempt(&executable, &state_database, vault_dir.as_ref()) {
-            Ok(core) => return Ok(core),
+        match start_attempt(
+            &executable,
+            &state_database,
+            grant_file.as_deref(),
+            &workspace_grant_dir(data_root),
+        ) {
+            Ok(core) => {
+                result = Ok(core);
+                break;
+            }
             Err(error) => last_error = error,
         }
+        result = Err(last_error);
     }
-    Err(last_error)
+    match (result, remove_launch_vault_grant(grant_file.as_deref())) {
+        (Ok(mut core), Err(error)) => {
+            core.terminate();
+            Err(error)
+        }
+        (Err(_), Err(error)) => Err(error),
+        (result, Ok(())) => result,
+    }
+}
+
+pub(crate) fn invalidate_vault_authority(app: &AppHandle) -> Result<(), &'static str> {
+    let executable = core_executable(app)?;
+    let state_database = state_database(app)?;
+    Command::new(executable)
+        .arg("desktop")
+        .arg("invalidate-vault-authority")
+        .arg("--state-db")
+        .arg(state_database)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|_| "vault_authority_invalidation_failed")?
+        .success()
+        .then_some(())
+        .ok_or("vault_authority_invalidation_failed")
 }
 
 fn start_attempt(
     executable: &PathBuf,
     state_database: &PathBuf,
-    vault_dir: Option<&PathBuf>,
+    grant_file: Option<&Path>,
+    workspace_grants: &Path,
 ) -> Result<CoreProcess, &'static str> {
     let port = reserve_port()?;
     let mut command = Command::new(executable);
@@ -163,12 +164,11 @@ fn start_attempt(
         .arg(port.to_string())
         .arg("--state-db")
         .arg(state_database);
-    if let Some(vault) = vault_dir {
-        command.arg("--vault-dir").arg(vault);
-    }
+    append_launch_argument(&mut command, grant_file);
     command
         .env("RESTORK_DESKTOP_WINDOWS_JOB", "1")
         .env("RESTORK_DESKTOP_PARENT_PID", std::process::id().to_string())
+        .env("RESTORK_DESKTOP_WORKSPACE_GRANTS", workspace_grants)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

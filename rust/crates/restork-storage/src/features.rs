@@ -518,6 +518,23 @@ impl Database {
             .ok_or(StorageError::Invalid("approval disappeared"))
     }
 
+    /// Revoke authority that was reviewed against a previous Vault root.
+    ///
+    /// A desktop Vault switch keeps durable history but must never carry an
+    /// unconsumed approval or its write preview into the newly granted root.
+    pub fn invalidate_vault_bound_authority(&self) -> Result<usize, StorageError> {
+        let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let invalidated = transaction.execute(
+            "UPDATE approvals SET decision = 'rejected'
+             WHERE decision IN ('pending', 'approved')",
+            [],
+        )?;
+        transaction.execute("DELETE FROM task_write_previews", [])?;
+        transaction.commit()?;
+        Ok(invalidated)
+    }
+
     pub fn create_memory(&self, memory: NewMemoryRecord<'_>) -> Result<MemoryRecord, StorageError> {
         validate_memory(&memory)?;
         let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;

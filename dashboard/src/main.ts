@@ -1,7 +1,7 @@
 import "./styles.css";
 
 import { LocalApiClient, systemTimeZone } from "./api/client";
-import { detectDesktopBridge } from "./desktop";
+import { bindDesktopExternalLinks, detectDesktopBridge } from "./desktop";
 import type { DesktopBridge } from "./desktop";
 import type {
   ConversationTurn,
@@ -13,13 +13,8 @@ import type {
   RadarAction,
   ReasoningEffortV2,
   ProviderKindV2,
-  ScheduleCreateInputV2,
-  ScheduleRecordV2,
-  ScheduleUpdateSpecV2,
   RunEvent,
   RunSummary,
-  VaultNoteMetadataV2,
-  VaultSearchHitV2,
   WorkDataClass,
   WorkHandoffPreview,
   WorkResultManifest,
@@ -50,17 +45,32 @@ import {
   workVerificationMarkup,
   runEventsMarkup,
   runProposalMarkup,
-  scheduleCardsMarkup,
-  scheduleRunsMarkup,
   sessionMessagesMarkup,
   toolCallPreviewMarkup,
   toolSearchMarkup,
-  vaultFileListMarkup,
-  vaultNotePreviewMarkup,
   workspaceMarkup,
 } from "./ui/render";
 import type { AgentWaitStage } from "./ui/render";
 import { startClock } from "./ui/clock";
+import { activeView, bindRovingFocus, escapeMarkup } from "./ui/dom";
+import { configureAutomation } from "./features/automation";
+import {
+  bindRadarConfig,
+  configureWeather,
+  refreshRadarPanel,
+} from "./features/daily";
+import type { DailyEffects } from "./features/daily";
+import { configureDeliverables } from "./features/deliverables";
+import {
+  configureNativeSetup,
+  friendlyNativeSetupError,
+} from "./features/nativeSetup";
+import {
+  configureVaultBrowser,
+  openVaultWorkspace,
+  stopVaultStream,
+} from "./features/vault";
+import { configureStartWorkspace } from "./features/start";
 import {
   alternateLocale,
   detectLocale,
@@ -78,17 +88,14 @@ interface MountOptions {
 }
 
 const coverUrls = new WeakMap<HTMLElement, string>();
-const eventStreams = new WeakMap<HTMLElement, AbortController>();
+interface EventStreamEntry {
+  runId: string;
+  controller: AbortController;
+  listeners: Map<string, (event: RunEvent) => void>;
+}
+
+const eventStreams = new WeakMap<HTMLElement, EventStreamEntry>();
 const mailStreams = new WeakMap<HTMLElement, AbortController>();
-const vaultStreams = new WeakMap<HTMLElement, AbortController>();
-const vaultPreviewRequests = new WeakMap<HTMLElement, number>();
-const vaultStates = new WeakMap<HTMLElement, {
-  items: VaultNoteMetadataV2[];
-  nextCursor: string | null;
-  total: number;
-  selectedPath: string | null;
-  query: string;
-}>();
 const conversationStreams = new WeakMap<HTMLElement, {
   controller: AbortController;
   operationId: string;
@@ -98,6 +105,10 @@ const conversationStreams = new WeakMap<HTMLElement, {
 // The user's choice therefore lives outside the DOM and is restored after render.
 const selectedSessions = new WeakMap<HTMLElement, string>();
 const dismissHandlers = new WeakMap<HTMLElement, (event: KeyboardEvent) => void>();
+// A locale change or ordinary workspace refresh rebuilds the DOM on the same
+// root. Radar's startup refresh should happen once per opened workspace, not
+// once per render. Manual navigation and the Refresh button remain available.
+const radarStartupRefreshes = new WeakSet<HTMLElement>();
 
 /**
  * Escape closes the topmost dismissible surface regardless of where focus sits.
@@ -176,6 +187,74 @@ function syncReasoningControls(form: HTMLFormElement): void {
   }
 }
 
+const RECOMMENDED_PROVIDER_MODELS: Record<string, string[]> = {
+  deepseek: ["deepseek-v4-pro", "deepseek-v4-flash"],
+  openai: ["gpt-5.6", "gpt-5.6-terra", "gpt-5.6-luna"],
+  anthropic: ["claude-sonnet-5", "claude-opus-5", "claude-fable-5", "claude-haiku-4-5"],
+  minimax: ["MiniMax-M2.7", "MiniMax-M2.7-highspeed", "MiniMax-M2.5", "MiniMax-M2.5-highspeed"],
+  mimo: ["mimo-v2.5-pro", "mimo-v2.5"],
+  glm: ["glm-5.2"],
+  kimi: ["kimi-k2.5"],
+  qwen: ["qwen-max", "qwen-plus", "qwen-turbo"],
+};
+
+function syncProviderModelControls(form: HTMLFormElement, requestedModel?: string): void {
+  const kind = form.elements.namedItem("kind") as HTMLSelectElement | null;
+  const selected = kind?.selectedOptions[0];
+  const pickerField = form.querySelector<HTMLElement>("[data-provider-model-picker]");
+  const picker = form.querySelector<HTMLSelectElement>("[data-provider-model-select]");
+  const customField = form.querySelector<HTMLElement>("[data-provider-custom-model-field]");
+  const custom = form.querySelector<HTMLInputElement>("[data-provider-custom-model]");
+  const hidden = form.elements.namedItem("model") as HTMLInputElement | null;
+  const baseUrl = form.elements.namedItem("base_url") as HTMLInputElement | null;
+  const endpointNote = form.querySelector<HTMLElement>("[data-provider-endpoint-note]");
+  if (!kind || !selected || !picker || !custom || !hidden || !baseUrl) return;
+
+  let models: string[] = [];
+  try {
+    const parsed = JSON.parse(selected.dataset.recommendedModels ?? "[]") as unknown;
+    if (Array.isArray(parsed)) {
+      models = parsed.filter((value): value is string => (
+        typeof value === "string" && value.length > 0 && value.length <= 256
+      ));
+    }
+  } catch {
+    models = [];
+  }
+  if (!models.length) models = RECOMMENDED_PROVIDER_MODELS[kind.value] ?? [];
+  const defaultModel = selected.dataset.defaultModel
+    || RECOMMENDED_PROVIDER_MODELS[kind.value]?.[0]
+    || "";
+  const current = requestedModel?.trim() || hidden.value.trim() || defaultModel;
+  if (current && !models.includes(current)) models.unshift(current);
+  models = models.filter((value, index, values) => values.indexOf(value) === index);
+
+  const customMode = kind.value === "open_ai_compatible" || models.length === 0;
+  pickerField?.toggleAttribute("hidden", customMode);
+  customField?.toggleAttribute("hidden", !customMode);
+  picker.disabled = customMode;
+  custom.disabled = !customMode;
+  if (customMode) {
+    custom.value = current;
+    hidden.value = custom.value;
+  } else {
+    picker.innerHTML = models.map((model) => {
+      const option = document.createElement("option");
+      option.value = model;
+      option.textContent = model;
+      return option.outerHTML;
+    }).join("");
+    picker.value = models.includes(current) ? current : (defaultModel || models[0]);
+    hidden.value = picker.value;
+  }
+
+  const editableEndpoint = selected.dataset.endpointPolicy === "public_https";
+  baseUrl.readOnly = !editableEndpoint;
+  if (endpointNote) endpointNote.textContent = editableEndpoint
+    ? tr(localeOf(form), "Custom endpoints can be edited.", "自定义兼容端点可以修改地址。")
+    : tr(localeOf(form), "Official providers use a locked verified endpoint.", "官方供应商使用经过确认的固定地址。")
+}
+
 export function mountDashboard(root: HTMLElement, options: MountOptions = {}): void {
   const api = options.api ?? new LocalApiClient();
   applyLocale(root, options.locale ?? detectLocale());
@@ -184,6 +263,41 @@ export function mountDashboard(root: HTMLElement, options: MountOptions = {}): v
     return;
   }
   renderPairing(root, api);
+}
+
+export async function mountBrowserDashboard(
+  root: HTMLElement,
+  api = new LocalApiClient(),
+): Promise<void> {
+  applyLocale(root, detectLocale());
+  renderSessionRecovery(root);
+  try {
+    if (await api.resumeSession()) {
+      renderWorkspace(root, api, await api.loadDashboard());
+      return;
+    }
+    renderPairing(root, api);
+  } catch {
+    renderPairing(root, api);
+    const status = root.querySelector<HTMLElement>("#pair-status");
+    if (status) {
+      status.textContent = tr(
+        localeOf(root),
+        "The saved local session could not be renewed. Enter the current pairing code once.",
+        "已保存的本地会话未能续期，请输入当前配对码一次。",
+      );
+    }
+  }
+}
+
+function renderSessionRecovery(root: HTMLElement): void {
+  root.innerHTML = `
+    <main class="desktop-bootstrap" aria-labelledby="session-recovery-title">
+      <p class="kicker">RESTORK · LOCAL SESSION</p>
+      <h1 id="session-recovery-title">${tr(localeOf(root), "Opening your local workspace", "正在打开本地工作台")}</h1>
+      <p role="status">${tr(localeOf(root), "Renewing the protected loopback session…", "正在续期受保护的本地会话……")}</p>
+      <span class="agent-wait-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    </main>`;
 }
 
 function renderPairing(root: HTMLElement, api: DashboardApi): void {
@@ -219,12 +333,13 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   root.innerHTML = workspaceMarkup(snapshot, locale);
   applyTheme(snapshot.workspaceV2?.personal?.settings.theme);
   startClock(root);
+  bindProviderDiagnosticDismiss(root);
   root.querySelector<HTMLButtonElement>("#global-status-dismiss")?.addEventListener("click", () => {
     clearAnnouncement(root);
   });
   bindDismissStack(root);
   bindLocaleSwitch(root, () => {
-    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "overview";
+    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "start";
     renderWorkspace(root, api, snapshot);
     selectView(root, view);
     if (view === "vault") void openVaultWorkspace(root, api);
@@ -235,7 +350,8 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
       const view = button.dataset.view ?? "overview";
       selectView(root, view);
       if (view === "vault") void openVaultWorkspace(root, api);
-      if (view === "radar") void refreshRadarPanel(root, api, snapshot);
+      if (view === "radar") void refreshRadarPanel(root, api, snapshot, dailyEffects(root, api, snapshot));
+      if (view === "start") resumeStartRunFromSnapshot(root, api, snapshot);
     });
   });
   const nav = root.querySelector<HTMLElement>(".sidebar nav");
@@ -245,6 +361,25 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   });
   root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
     button.addEventListener("click", () => openRunForm(root, button.dataset.mode as Mode, button, snapshot));
+  });
+  const desktopBridge = detectDesktopBridge();
+  bindDesktopExternalLinks(root, desktopBridge, (error) => {
+    announceError(root, errorText(error, localeOf(root)));
+  });
+  configureStartWorkspace(root, snapshot, {
+    submit: (form) => { void createRun(root, api, form, snapshot); },
+    selectView: (view) => {
+      selectView(root, view);
+      if (view === "vault") void openVaultWorkspace(root, api);
+      if (view === "start") resumeStartRunFromSnapshot(root, api, snapshot);
+    },
+    resume: (runId, state) => resumeStartRun(root, api, runId, state),
+    cancel: (runId) => { void cancelStartRun(root, api, runId); },
+    ...(desktopBridge ? { chooseWorkspace: async () => {
+      const selection = await desktopBridge.chooseWorkspace();
+      if (!selection || selection.status === "cancelled") return null;
+      return { grantId: selection.grantId, label: selection.label };
+    } } : {}),
   });
   root.querySelector<HTMLButtonElement>("[data-run-panel-close]")?.addEventListener("click", () => {
     closeRunForm(root, true);
@@ -261,7 +396,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   root.querySelector<HTMLButtonElement>("#refresh")?.addEventListener("click", (event) => {
     const button = event.currentTarget as HTMLButtonElement;
     if (button.getAttribute("aria-busy") === "true") return;
-    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "overview";
+    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "start";
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
     void refresh(root, api, view).finally(() => {
@@ -274,19 +409,38 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   });
   bindListInteractions(root, api, snapshot, root);
   configureMusic(root, api);
-  configureWeather(root, api);
+  configureWeather(root, api, dailyEffects(root, api, snapshot));
   configureCalendar(root, api);
   configureMail(root, api, snapshot);
   configureProvider(root, api, snapshot);
+  configureNativeSetup(root, {
+    selectView: (view) => selectView(root, view),
+  });
   configureRustWorkspace(root, api, snapshot);
-  bindRadarConfig(root, api, snapshot);
-  bindVaultDir(root);
+  bindRadarConfig(root, api, snapshot, dailyEffects(root, api, snapshot));
   configureVaultBrowser(root, api);
   // Last, so it overrides any enabled state the feature wiring just set.
   applyCapabilityGuards(root, api, locale);
   if (snapshot.daily?.music?.recommendation?.cover_available) {
     void loadMusicCover(root, api);
   }
+  if (snapshot.radar.configured && api.loadPage && !radarStartupRefreshes.has(root)) {
+    radarStartupRefreshes.add(root);
+    void refreshRadarPanel(root, api, snapshot, dailyEffects(root, api, snapshot));
+  }
+}
+
+function dailyEffects(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+): DailyEffects {
+  return {
+    error: (message) => announceError(root, message),
+    refresh: () => refresh(root, api),
+    renderRadar: () => renderListPanel(root, api, snapshot, "radar"),
+    status: (message) => announceStatus(root, message),
+  };
 }
 
 function configureRustWorkspace(
@@ -511,8 +665,8 @@ function configureRustWorkspace(
       if (status) {
         status.textContent = tr(
           localeOf(root),
-          "Checking data boundaries and creating a conversation branch…",
-          "正在检查数据边界并创建对话分支…",
+          "Checking what the new model may receive and creating a conversation branch…",
+          "正在检查新模型可以接收哪些内容，并创建对话分支…",
         );
       }
       void api.forkSession(sessionId, title, profileId, expectedUpdatedAt, 24).then((fork) => {
@@ -769,7 +923,7 @@ function configureRustWorkspace(
     form.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
       "button, input, select",
     ).forEach((control) => { control.disabled = true; });
-    preview.innerHTML = `<div class="conversation-wait"><i></i><span>${tr(localeOf(root), "Building a local, tool-free proposal…", "正在本地生成无工具提案…")}</span></div>`;
+    preview.innerHTML = `<div class="conversation-wait"><i></i><span>${tr(localeOf(root), "Preparing a run preview on this device…", "正在这台设备上准备运行预览…")}</span></div>`;
     void api.createSessionProposal(sessionId, mode, goal).then((proposal) => {
       preview.innerHTML = runProposalMarkup(proposal, localeOf(root));
     }).catch((error) => {
@@ -788,7 +942,7 @@ function configureRustWorkspace(
     const query = String(new FormData(event.currentTarget as HTMLFormElement).get("query") ?? "").trim();
     const host = root.querySelector<HTMLElement>("#tool-search-results");
     if (!sessionId || !query || !host || !api.searchSessionTools) return;
-    host.innerHTML = `<div class="conversation-wait"><i></i><span>${tr(localeOf(root), "Searching the frozen catalog…", "正在搜索冻结目录…")}</span></div>`;
+    host.innerHTML = `<div class="conversation-wait"><i></i><span>${tr(localeOf(root), "Searching this conversation's tools…", "正在搜索本次对话可用的工具…")}</span></div>`;
     void api.searchSessionTools(sessionId, query).then((result) => {
       host.innerHTML = toolSearchMarkup(result, localeOf(root));
       bindToolPreview(root, api, host, sessionId);
@@ -827,8 +981,8 @@ function configureRustWorkspace(
         selectView(root, "settings");
         announceStatus(root, tr(
           localeOf(root),
-          "Profile, language, and appearance were saved on this device.",
-          "个人资料、语言与外观已保存在本设备。",
+          "Name, language, and appearance were saved on this device.",
+          "称呼、语言与外观已保存在本设备。",
         ));
       }).catch((error) => {
         if (status) status.textContent = errorText(error, localeOf(root));
@@ -872,30 +1026,97 @@ function configureRustWorkspace(
       const selected = select.selectedOptions[0];
       const form = root.querySelector<HTMLFormElement>("#provider-profile-form");
       const baseUrl = form?.elements.namedItem("base_url") as HTMLInputElement | null;
-      const model = form?.elements.namedItem("model") as HTMLInputElement | null;
       const secretRef = form?.elements.namedItem("secret_ref") as HTMLInputElement | null;
+      const secretButton = form?.querySelector<HTMLButtonElement>("[data-provider-secret-configure]");
+      const secretStatus = form?.querySelector<HTMLElement>("[data-provider-secret-status]");
       const authKind = selected?.dataset.authKind ?? (kind === "ollama" ? "none" : "bearer");
       const registryBaseUrl = selected?.dataset.baseUrl;
       if (baseUrl && registryBaseUrl) baseUrl.value = registryBaseUrl;
       if (authKind === "none") {
-        if (model) model.value = "";
         if (secretRef) {
           secretRef.value = "";
           secretRef.disabled = true;
         }
+        if (secretButton) secretButton.disabled = true;
+        if (secretStatus) secretStatus.textContent = tr(
+          localeOf(root),
+          "Local Ollama needs no API key",
+          "本地 Ollama 无需 API Key",
+        );
       } else {
         if (secretRef) secretRef.disabled = false;
-        if (kind === "deepseek") {
-          if (model) model.value = "deepseek-v4-pro";
-        } else if (model) {
-          model.value = "";
-        }
+        if (secretButton) secretButton.disabled = false;
+        if (secretStatus && !secretRef?.value) secretStatus.textContent = tr(
+          localeOf(root),
+          "Not saved on this device",
+          "尚未保存在这台设备上",
+        );
       }
-      if (form) syncReasoningControls(form);
+      if (form) {
+        syncProviderModelControls(form, selected?.dataset.defaultModel);
+        syncReasoningControls(form);
+      }
+    });
+  providerForm?.querySelector<HTMLSelectElement>("[data-provider-model-select]")
+    ?.addEventListener("change", (event) => {
+      const hidden = providerForm.elements.namedItem("model") as HTMLInputElement | null;
+      if (hidden) hidden.value = (event.currentTarget as HTMLSelectElement).value;
+    });
+  providerForm?.querySelector<HTMLInputElement>("[data-provider-custom-model]")
+    ?.addEventListener("input", (event) => {
+      const hidden = providerForm.elements.namedItem("model") as HTMLInputElement | null;
+      if (hidden) hidden.value = (event.currentTarget as HTMLInputElement).value;
     });
   providerForm?.querySelector<HTMLSelectElement>('[name="reasoning_effort"]')
     ?.addEventListener("change", () => syncReasoningControls(providerForm));
-  if (providerForm) syncReasoningControls(providerForm);
+  if (providerForm) {
+    syncProviderModelControls(providerForm);
+    syncReasoningControls(providerForm);
+  }
+
+  providerForm?.querySelector<HTMLButtonElement>("[data-provider-secret-configure]")
+    ?.addEventListener("click", (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      const kind = providerForm.elements.namedItem("kind") as HTMLSelectElement | null;
+      const secretRef = providerForm.elements.namedItem("secret_ref") as HTMLInputElement | null;
+      const status = providerForm.querySelector<HTMLElement>("[data-provider-secret-status]");
+      const bridge = detectDesktopBridge();
+      if (!kind || kind.value === "ollama") return;
+      if (!bridge) {
+        if (status) status.textContent = tr(
+          localeOf(root),
+          "Open Restork Desktop to use the secure system prompt.",
+          "请在 Restork 桌面版中使用系统安全输入框。",
+        );
+        return;
+      }
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+      if (status) status.textContent = tr(
+        localeOf(root),
+        "Waiting for the system credential prompt…",
+        "正在等待系统凭据弹窗…",
+      );
+      void bridge.configureProviderSecret(kind.value).then((result) => {
+        if (result.status === "cancelled") {
+          if (status) status.textContent = tr(localeOf(root), "Nothing changed.", "没有更改任何内容。");
+          return;
+        }
+        if (secretRef) secretRef.value = result.secretRef;
+        if (status) status.textContent = tr(
+          localeOf(root),
+          "Saved securely. No model request was sent.",
+          "已安全保存；尚未发送任何模型请求。",
+        );
+      }).catch((error: unknown) => {
+        if (status) status.textContent = friendlyNativeSetupError(error, localeOf(root));
+      }).finally(() => {
+        if (root.contains(button)) {
+          button.disabled = false;
+          button.removeAttribute("aria-busy");
+        }
+      });
+    });
 
   root.querySelectorAll<HTMLButtonElement>("[data-provider-profile-test]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -917,6 +1138,7 @@ function configureRustWorkspace(
           const field = form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
           if (field) field.value = String(record.provider[name] ?? "");
         }
+        syncProviderModelControls(form, String(record.provider.model ?? ""));
         const reasoning = record.provider.reasoning as
           | { effort?: string; max_tokens?: number | null }
           | undefined;
@@ -945,6 +1167,10 @@ function configureRustWorkspace(
       const expected = Number(form.dataset.version ?? "0") || null;
       const kind = String(data.get("kind") ?? "deepseek") as
         | "deepseek"
+        | "openai"
+        | "anthropic"
+        | "minimax"
+        | "mimo"
         | "glm"
         | "kimi"
         | "qwen"
@@ -1034,7 +1260,7 @@ function configureRustWorkspace(
       const status = form.querySelector<HTMLElement>("#configuration-profile-status");
       if (!api.saveConfigurationProfile || promptHash.length !== 64) return;
       const profileId = String(data.get("profile_id") ?? "").trim();
-      if (status) status.textContent = tr(localeOf(root), "Freezing profile boundaries…", "正在冻结 Profile 边界…");
+      if (status) status.textContent = tr(localeOf(root), "Preparing this run setup…", "正在准备这份运行配置…");
       void api.saveConfigurationProfile(expected, {
         profile_id: profileId,
         version: (expected ?? 0) + 1,
@@ -1053,8 +1279,18 @@ function configureRustWorkspace(
   );
 
   configureExtensionCenter(root, api, snapshot);
-  configureDeliverables(root, api);
-  configureAutomation(root, api, snapshot);
+  configureDeliverables(root, api, snapshot, {
+    confirm: (message, detail) => confirmAction(root, message, detail),
+    error: (message) => announceError(root, message),
+    reload: () => reloadWorkspaceView(root, api, "deliverables"),
+    status: (message) => announceStatus(root, message),
+  });
+  configureAutomation(root, api, snapshot, {
+    announceError: (message) => announceError(root, message),
+    announceStatus: (message) => announceStatus(root, message),
+    confirm: (message) => confirmAction(root, message),
+    reload: () => reloadWorkspaceView(root, api, "automation"),
+  });
 
   // Restore the user's own selection. Falling back to the first active session is
   // only correct when the user has not chosen one, or their choice is gone.
@@ -1086,8 +1322,8 @@ function bindToolPreview(
           if (!api.executeSessionToolCall) return;
           const confirmed = await confirmAction(root, tr(
             localeOf(root),
-            `Run ${preview.resolved_call.real_tool_id} with the exact reviewed input?`,
-            `使用刚才审查的精确输入运行 ${preview.resolved_call.real_tool_id}？`,
+            `Run ${preview.resolved_call.real_tool_id} with the input shown above?`,
+            `使用上面显示的输入运行 ${preview.resolved_call.real_tool_id}？`,
           ));
           if (!confirmed) return;
           execute.disabled = true;
@@ -1095,8 +1331,8 @@ function bindToolPreview(
           void api.executeSessionToolCall(sessionId, preview).then((execution) => {
             const untrusted = tr(
               localeOf(root),
-              "Tool output is untrusted data and grants no new authority.",
-              "工具输出是不受信任的数据，不会获得任何新权限。",
+              "Tool output is reference material, not a permission grant.",
+              "工具输出只能作为参考，不会因此获得新权限。",
             );
             host.innerHTML = `<article class="proposal-card"><header>`
               + `<strong>${tr(localeOf(root), "MCP execution", "MCP 执行")}</strong>`
@@ -1115,15 +1351,6 @@ function bindToolPreview(
       });
     });
   });
-}
-
-function escapeMarkup(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 
 function configureExtensionCenter(
@@ -1203,8 +1430,8 @@ function configureExtensionCenter(
       const title = document.createElement("strong");
       title.textContent = tr(
         localeOf(root),
-        "Review the exact install preview",
-        "审查精确安装预览",
+        "Review the install details",
+        "查看安装内容",
       );
       const explanation = document.createElement("p");
       explanation.textContent = tr(
@@ -1225,15 +1452,15 @@ function configureExtensionCenter(
       approve.textContent = tr(
         localeOf(root),
         "INSTALL REVIEWED VERSION",
-        "安装已审查版本",
+        "安装已核验版本",
       );
       approve.addEventListener("click", async () => {
         const confirmed = await confirmAction(
           root,
           tr(
             localeOf(root),
-            "Install this exact manifest in quarantine? It will remain unable to run until separately enabled.",
-            "按此精确清单安装到隔离区？在另行启用前，它仍无法运行。",
+            "Install this manifest in quarantine? It will stay off until you enable it separately.",
+            "将这份清单安装到隔离区？另行启用前，它不会运行。",
           ),
           preview.preview_digest,
         );
@@ -1247,7 +1474,7 @@ function configureExtensionCenter(
             approve.textContent = tr(
               localeOf(root),
               "INSTALL REVIEWED VERSION",
-              "安装已审查版本",
+              "安装已核验版本",
             );
             announceError(root, errorText(error, localeOf(root)));
           });
@@ -1269,7 +1496,7 @@ function configureExtensionCenter(
       if (action === "enable") {
         const confirmed = await confirmAction(
           root,
-          tr(localeOf(root), `Enable ${packageId} at this exact reviewed hash?`, `按当前已审查哈希启用 ${packageId}？`),
+          tr(localeOf(root), `Enable the verified version of ${packageId}?`, `启用已经核验的 ${packageId} 版本？`),
           hash,
         );
         if (!confirmed) return;
@@ -1301,11 +1528,11 @@ function configureExtensionCenter(
           if (record.manifest_hash !== currentHash && api.rollbackExtension) {
             const rollback = document.createElement("button");
             rollback.type = "button";
-            rollback.textContent = tr(localeOf(root), "REVIEW ROLLBACK", "审查回滚");
+            rollback.textContent = tr(localeOf(root), "VIEW ROLLBACK", "查看回滚内容");
             rollback.addEventListener("click", async () => {
               const confirmed = await confirmAction(
                 root,
-                tr(localeOf(root), "Create a reviewed rollback? It will not execute a tool.", "创建审查回滚记录？它不会执行工具。"),
+                tr(localeOf(root), "Create this rollback record? It will not run a tool.", "创建这条回滚记录？它不会运行工具。"),
                 record.manifest_hash ?? "",
               );
               if (!confirmed) return;
@@ -1337,7 +1564,7 @@ function configureExtensionCenter(
     const query = String(data.get("query") ?? "").trim();
     const host = form.querySelector<HTMLElement>("#extension-tool-results");
     if (!sessionId || !query || !host || !api.searchSessionTools) return;
-    host.innerHTML = `<p class="fine">${tr(localeOf(root), "Searching frozen catalog…", "正在搜索冻结目录…")}</p>`;
+    host.innerHTML = `<p class="fine">${tr(localeOf(root), "Searching available tools…", "正在搜索可用工具…")}</p>`;
     void api.searchSessionTools(sessionId, query).then((result) => {
       host.innerHTML = toolSearchMarkup(result, localeOf(root));
       bindToolPreview(root, api, host, sessionId);
@@ -1345,437 +1572,6 @@ function configureExtensionCenter(
   });
 }
 
-function configureDeliverables(root: HTMLElement, api: DashboardApi): void {
-  root.querySelectorAll<HTMLButtonElement>("[data-render-format]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const deliverableId = button.dataset.renderId ?? "";
-      const revision = Number(button.dataset.renderRevision ?? "0");
-      const format = button.dataset.renderFormat as "pptx" | "pdf";
-      if (!deliverableId || revision < 1 || !api.previewDeliverableRender || !api.exportDeliverableRender) return;
-      button.disabled = true;
-      button.textContent = tr(localeOf(root), "RENDERING PREVIEW…", "正在渲染预览…");
-      void api.previewDeliverableRender(deliverableId, revision, format).then(async (preview) => {
-        const approved = await confirmAction(
-          root,
-          tr(
-            localeOf(root),
-            `Download deterministic ${format.toUpperCase()} (${preview.manifest.byte_count} bytes)?`,
-            `下载可复现的 ${format.toUpperCase()}（${preview.manifest.byte_count} 字节）？`,
-          ),
-          `SHA-256 ${preview.manifest.artifact_hash}`,
-        );
-        if (!approved) return;
-        const download = await api.exportDeliverableRender?.(preview);
-        if (!download) return;
-        const url = URL.createObjectURL(download.blob);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = download.filename;
-        anchor.click();
-        URL.revokeObjectURL(url);
-        announceStatus(root, tr(
-          localeOf(root),
-          `${download.filename} is ready. SHA-256 ${download.artifactHash}`,
-          `${download.filename} 已生成。SHA-256 ${download.artifactHash}`,
-        ));
-      }).catch((error) => announceError(root, errorText(error, localeOf(root))))
-        .finally(() => {
-          button.disabled = false;
-          button.textContent = format === "pptx"
-            ? tr(localeOf(root), "REVIEW PPTX", "审查 PPTX")
-            : tr(localeOf(root), "REVIEW PDF", "审查 PDF");
-        });
-    });
-  });
-  root.querySelector<HTMLFormElement>("#manual-report-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const form = event.currentTarget as HTMLFormElement;
-    const data = new FormData(form);
-    const status = form.querySelector<HTMLElement>("#manual-report-status");
-    const entries = lines(data.get("entries"));
-    if (!entries.length || !api.composeManualReport) return;
-    if (status) status.textContent = tr(localeOf(root), "Building evidence-labelled Markdown…", "正在生成带证据标签的 Markdown…");
-    const section = String(data.get("section") ?? "completed") as
-      "summary" | "completed" | "progress" | "decisions" | "blockers" | "next" | "notes";
-    void api.composeManualReport({
-      report_id: String(data.get("report_id") ?? "").trim(),
-      revision: 1,
-      kind: String(data.get("kind") ?? "daily") as "daily" | "weekly",
-      title: String(data.get("title") ?? "").trim(),
-      language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
-      timezone: systemTimeZone(),
-      entries: entries.map((text) => ({ section, text })),
-    }).then(() => reloadWorkspaceView(root, api, "deliverables"))
-      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
-  });
-  root.querySelector<HTMLFormElement>("#ai-report-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const form = event.currentTarget as HTMLFormElement;
-    const data = new FormData(form);
-    const status = form.querySelector<HTMLElement>("#ai-report-status");
-    const button = form.querySelector<HTMLButtonElement>("button[type=submit]");
-    const providerProfileId = String(data.get("provider_profile_id") ?? "").trim();
-    if (!providerProfileId || !api.composeAiReportDraft) return;
-    if (button) button.disabled = true;
-    if (status) status.textContent = tr(localeOf(root), "The model is drafting from verified runs…", "模型正在基于已验证运行起草…");
-    void api.composeAiReportDraft({
-      report_id: String(data.get("report_id") ?? "").trim(),
-      revision: 1,
-      kind: String(data.get("kind") ?? "daily") as "daily" | "weekly",
-      title: String(data.get("title") ?? "").trim(),
-      language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
-      timezone: systemTimeZone(),
-      provider_profile_id: providerProfileId,
-    }).then(() => reloadWorkspaceView(root, api, "deliverables"))
-      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); })
-      .finally(() => { if (button) button.disabled = false; });
-  });
-  root.querySelector<HTMLFormElement>("#deck-from-report-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const form = event.currentTarget as HTMLFormElement;
-    const data = new FormData(form);
-    const select = form.elements.namedItem("report") as HTMLSelectElement | null;
-    const option = select?.selectedOptions[0];
-    const status = form.querySelector<HTMLElement>("#deck-from-report-status");
-    if (!option || !api.composeDeckFromReport) return;
-    if (status) status.textContent = tr(localeOf(root), "Freezing claims, citations, and slide roles…", "正在冻结主张、引用与页面角色…");
-    void api.composeDeckFromReport({
-      deck_id: String(data.get("deck_id") ?? "").trim(),
-      revision: 1,
-      report_id: option.value,
-      report_revision: Number(option.dataset.revision ?? "1"),
-      language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
-      audience: {
-        audience_id: String(data.get("audience") ?? "team").trim(),
-        purpose: String(data.get("purpose") ?? "").trim(),
-        expertise: String(data.get("expertise") ?? "").trim(),
-      },
-    }).then(() => reloadWorkspaceView(root, api, "deliverables"))
-      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
-  });
-}
-
-function configureAutomation(
-  root: HTMLElement,
-  api: DashboardApi,
-  snapshot: DashboardSnapshot,
-): void {
-  const panel = root.querySelector<HTMLElement>('[data-view-panel="automation"]');
-  if (!panel) return;
-  const providers = snapshot.workspaceV2?.providers ?? [];
-  panel.querySelectorAll<HTMLFormElement>("#schedule-create-form, [data-schedule-edit-form]")
-    .forEach(syncScheduleModelFields);
-
-  const loadActive = async (cursor?: string, append = false): Promise<void> => {
-    if (!api.listSchedules) return;
-    const page = await api.listSchedules(cursor);
-    updateScheduleList(panel, "active", page.items, page.page.next_cursor, append, localeOf(root), providers);
-  };
-  const loadTrash = async (cursor?: string, append = false): Promise<void> => {
-    if (!api.listDeletedSchedules) return;
-    const page = await api.listDeletedSchedules(cursor);
-    updateScheduleList(panel, "trash", page.items, page.page.next_cursor, append, localeOf(root), providers);
-  };
-  const loadRuns = async (scheduleId: string, cursor?: string, append = false): Promise<void> => {
-    if (!api.listScheduleRuns) return;
-    const page = await api.listScheduleRuns(scheduleId, cursor);
-    updateScheduleRuns(panel, scheduleId, page.items, page.page.next_cursor, append, localeOf(root));
-  };
-
-  root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.addEventListener("click", () => {
-    if (!panel.querySelector("[data-schedule-card]")) {
-      void loadActive().catch((error) => announceError(root, errorText(error, localeOf(root))));
-    }
-  });
-
-  panel.addEventListener("submit", (event) => {
-    const form = event.target as HTMLFormElement;
-    if (!(form instanceof HTMLFormElement)) return;
-    if (form.id === "schedule-create-form") {
-      event.preventDefault();
-      if (!api.createSchedule) return;
-      const status = form.querySelector<HTMLElement>("#schedule-create-status");
-      const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
-      if (submit?.disabled) return;
-      if (submit) submit.disabled = true;
-      if (status) status.textContent = tr(localeOf(root), "Saving automation…", "正在保存自动化…");
-      void api.createSchedule(scheduleInputFromForm(form, systemTimeZone(), localeOf(root)))
-        .then(async () => {
-          await reloadWorkspaceView(root, api, "automation");
-          announceStatus(root, tr(localeOf(root), "Schedule saved.", "自动化已保存。"));
-        })
-        .catch((error) => {
-          if (status) status.textContent = errorText(error, localeOf(root));
-          announceError(root, errorText(error, localeOf(root)));
-        })
-        .finally(() => {
-          if (submit && root.contains(submit)) submit.disabled = false;
-        });
-      return;
-    }
-    if (form.matches("[data-schedule-edit-form]")) {
-      event.preventDefault();
-      const scheduleId = form.dataset.scheduleId ?? "";
-      const revision = Number(form.dataset.scheduleRevision ?? "0");
-      if (!api.updateSchedule || !scheduleId || !revision) return;
-      const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
-      if (submit?.disabled) return;
-      if (submit) submit.disabled = true;
-      const input = scheduleInputFromForm(
-        form,
-        form.dataset.scheduleTimezone || systemTimeZone(),
-        localeOf(root),
-      );
-      const schedule: ScheduleUpdateSpecV2 = { ...input, schedule_id: scheduleId };
-      void api.updateSchedule(scheduleId, revision, schedule)
-        .then(async () => {
-          await reloadWorkspaceView(root, api, "automation");
-          announceStatus(root, tr(localeOf(root), "Schedule updated.", "自动化已更新。"));
-        })
-        .catch((error) => announceError(root, errorText(error, localeOf(root))))
-        .finally(() => {
-          if (submit && root.contains(submit)) submit.disabled = false;
-        });
-    }
-  });
-
-  panel.addEventListener("change", (event) => {
-    const select = (event.target as Element).closest<HTMLSelectElement>('select[name="job"]');
-    const form = select?.closest<HTMLFormElement>("form");
-    if (form) syncScheduleModelFields(form);
-  });
-
-  panel.addEventListener("click", (event) => {
-    const button = (event.target as Element).closest<HTMLButtonElement>("button");
-    if (!button) return;
-    if (button.matches("[data-schedule-active-load]")) {
-      button.disabled = true;
-      void loadActive().catch((error) => {
-        announceError(root, errorText(error, localeOf(root)));
-      }).finally(() => { if (root.contains(button)) button.disabled = false; });
-      return;
-    }
-    if (button.dataset.scheduleActiveMore) {
-      button.disabled = true;
-      void loadActive(button.dataset.scheduleActiveMore, true).catch((error) => {
-        announceError(root, errorText(error, localeOf(root)));
-      }).finally(() => { if (root.contains(button)) button.disabled = false; });
-      return;
-    }
-    if (button.matches("[data-schedule-trash-load]")) {
-      button.disabled = true;
-      void loadTrash().catch((error) => {
-        announceError(root, errorText(error, localeOf(root)));
-      }).finally(() => { if (root.contains(button)) button.disabled = false; });
-      return;
-    }
-    if (button.dataset.scheduleTrashMore) {
-      button.disabled = true;
-      void loadTrash(button.dataset.scheduleTrashMore, true).catch((error) => {
-        announceError(root, errorText(error, localeOf(root)));
-      }).finally(() => { if (root.contains(button)) button.disabled = false; });
-      return;
-    }
-    if (button.dataset.scheduleRunsMore) {
-      const scheduleId = button.dataset.scheduleId ?? "";
-      if (!scheduleId) return;
-      button.disabled = true;
-      void loadRuns(scheduleId, button.dataset.scheduleRunsMore, true).catch((error) => {
-        announceError(root, errorText(error, localeOf(root)));
-      }).finally(() => { if (root.contains(button)) button.disabled = false; });
-      return;
-    }
-    if (button.matches("[data-schedule-history]")) {
-      const scheduleId = button.dataset.scheduleId ?? "";
-      if (!scheduleId) return;
-      button.disabled = true;
-      void loadRuns(scheduleId).catch((error) => {
-        announceError(root, errorText(error, localeOf(root)));
-      }).finally(() => { if (root.contains(button)) button.disabled = false; });
-      return;
-    }
-    if (button.matches("[data-schedule-edit-cancel]")) {
-      const form = button.closest<HTMLFormElement>("[data-schedule-edit-form]");
-      if (form) form.hidden = true;
-      return;
-    }
-    const action = button.dataset.scheduleAction;
-    if (!action) return;
-    if (action === "edit") {
-      const form = button.closest("[data-schedule-card]")?.querySelector<HTMLFormElement>("[data-schedule-edit-form]");
-      if (form) {
-        form.hidden = !form.hidden;
-        if (!form.hidden) {
-          syncScheduleModelFields(form);
-          form.querySelector<HTMLInputElement>('input[name="name"]')?.focus();
-        }
-      }
-      return;
-    }
-    void handleScheduleAction(root, api, button, action);
-  });
-}
-
-function syncScheduleModelFields(form: HTMLFormElement): void {
-  const job = form.elements.namedItem("job") as HTMLSelectElement | null;
-  const fields = form.querySelector<HTMLElement>("[data-schedule-model-fields]");
-  if (!job || !fields) return;
-  const modelBacked = job.value.startsWith("model.");
-  fields.hidden = !modelBacked;
-  fields.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input, select, textarea")
-    .forEach((control) => {
-      control.disabled = !modelBacked;
-      if (control instanceof HTMLSelectElement && control.name === "provider_profile_id") {
-        control.required = modelBacked;
-      }
-    });
-}
-
-function scheduleInputFromForm(
-  form: HTMLFormElement,
-  timezone: string,
-  locale: Locale,
-): ScheduleCreateInputV2 {
-  const data = new FormData(form);
-  const [hour, minute] = String(data.get("time") ?? "09:00").split(":").map(Number);
-  const recurrenceKind = String(data.get("recurrence") ?? "daily");
-  const recurrence = recurrenceKind === "one_shot" && form.dataset.scheduleOneShotAt
-    ? { kind: "one_shot" as const, at: form.dataset.scheduleOneShotAt }
-    : recurrenceKind === "weekly"
-      ? { kind: "weekly" as const, weekday_monday_zero: Number(data.get("weekday") ?? "0"), hour, minute }
-      : { kind: "daily" as const, hour, minute };
-  const jobValue = String(data.get("job") ?? "health.check");
-  const name = String(data.get("name") ?? "").trim();
-  if (jobValue === "model.daily_report" || jobValue === "model.weekly_report") {
-    return {
-      name,
-      timezone,
-      recurrence,
-      missed_run_policy: "create_draft",
-      job: {
-        kind: "model_draft",
-        provider_profile_id: String(data.get("provider_profile_id") ?? "").trim(),
-        report_kind: jobValue === "model.weekly_report" ? "weekly_report" : "daily_report",
-        title: name,
-        language: locale === "zh-CN" ? "zh-CN" : "en-US",
-        focus: String(data.get("focus") ?? "").trim()
-          || tr(locale, "Summarize verified progress, blockers and next steps.", "总结有证据的进展、阻塞和下一步。"),
-        network_access_confirmed: data.get("network_access_confirmed") === "on",
-      },
-    };
-  }
-  return {
-    name,
-    timezone,
-    recurrence,
-    missed_run_policy: "create_draft",
-    job: {
-      kind: "deterministic",
-      job: jobValue === "daily.refresh" ? "daily.refresh" : "health.check",
-    },
-  };
-}
-
-function updateScheduleList(
-  panel: HTMLElement,
-  kind: "active" | "trash",
-  items: ScheduleRecordV2[],
-  nextCursor: string | null,
-  append: boolean,
-  locale: Locale,
-  providers: NonNullable<NonNullable<DashboardSnapshot["workspaceV2"]>["providers"]>,
-): void {
-  const list = panel.querySelector<HTMLElement>(`[data-schedule-${kind}-list]`);
-  const page = panel.querySelector<HTMLElement>(`[data-schedule-${kind}-page]`);
-  if (!list || !page) return;
-  if (!append) list.innerHTML = scheduleCardsMarkup(items, locale, kind === "trash", providers);
-  else if (items.length) {
-    list.querySelector(".empty")?.remove();
-    list.insertAdjacentHTML("beforeend", scheduleCardsMarkup(items, locale, kind === "trash", providers));
-  }
-  const attribute = kind === "active" ? "data-schedule-active-more" : "data-schedule-trash-more";
-  page.innerHTML = nextCursor
-    ? `<button type="button" ${attribute}="${escapeMarkup(nextCursor)}">${tr(locale, "LOAD MORE", "加载更多")}</button>`
-    : "";
-}
-
-function updateScheduleRuns(
-  panel: HTMLElement,
-  scheduleId: string,
-  items: Parameters<typeof scheduleRunsMarkup>[0],
-  nextCursor: string | null,
-  append: boolean,
-  locale: Locale,
-): void {
-  const host = [...panel.querySelectorAll<HTMLElement>("[data-schedule-run-host]")]
-    .find((candidate) => candidate.dataset.scheduleRunHost === scheduleId);
-  if (!host) return;
-  if (!append) host.innerHTML = scheduleRunsMarkup(items, locale);
-  else if (items.length) {
-    const wrapper = document.createElement("div");
-    wrapper.innerHTML = scheduleRunsMarkup(items, locale);
-    const current = host.querySelector("ol");
-    const incoming = wrapper.querySelector("ol");
-    if (current && incoming) current.append(...incoming.children);
-    else host.insertAdjacentHTML("beforeend", scheduleRunsMarkup(items, locale));
-  }
-  host.querySelector("[data-schedule-runs-more]")?.remove();
-  if (nextCursor) {
-    const cursor = escapeMarkup(nextCursor);
-    const id = escapeMarkup(scheduleId);
-    const label = tr(locale, "LOAD EARLIER RUNS", "加载更早记录");
-    host.insertAdjacentHTML(
-      "beforeend",
-      `<button type="button" data-schedule-runs-more="${cursor}" data-schedule-id="${id}">${label}</button>`,
-    );
-  }
-}
-
-async function handleScheduleAction(
-  root: HTMLElement,
-  api: DashboardApi,
-  button: HTMLButtonElement,
-  action: string,
-): Promise<void> {
-  const scheduleId = button.dataset.scheduleId ?? "";
-  const revision = Number(button.dataset.scheduleRevision ?? "0");
-  if (!scheduleId || !revision) return;
-  if (action === "delete") {
-    const confirmed = await confirmAction(root, tr(
-      localeOf(root),
-      "Move this automation to the local trash? Its run history will be preserved.",
-      "将这条自动化移入本地回收站？运行记录会保留。",
-    ));
-    if (!confirmed) return;
-  }
-  button.disabled = true;
-  try {
-    if (action === "run" && api.runScheduleNow) {
-      await api.runScheduleNow(scheduleId);
-      await reloadWorkspaceView(root, api, "automation");
-      announceStatus(root, tr(localeOf(root), "Manual run recorded.", "手动运行已记录。"));
-    } else if (action === "delete" && api.deleteSchedule) {
-      await api.deleteSchedule(scheduleId, revision);
-      await reloadWorkspaceView(root, api, "automation");
-      announceStatus(root, tr(localeOf(root), "Schedule moved to trash.", "自动化已移入回收站。"));
-    } else if (action === "restore" && api.restoreSchedule) {
-      await api.restoreSchedule(scheduleId, revision);
-      await reloadWorkspaceView(root, api, "automation");
-      announceStatus(root, tr(localeOf(root), "Schedule restored.", "自动化已恢复。"));
-    } else if ((action === "pause" || action === "resume") && api.changeScheduleState) {
-      await api.changeScheduleState(scheduleId, action, revision);
-      await reloadWorkspaceView(root, api, "automation");
-      announceStatus(root, action === "pause"
-        ? tr(localeOf(root), "Schedule paused.", "自动化已暂停。")
-        : tr(localeOf(root), "Schedule resumed.", "自动化已继续。"));
-    } else {
-      button.disabled = false;
-    }
-  } catch (error) {
-    button.disabled = false;
-    announceError(root, errorText(error, localeOf(root)));
-  }
-}
 
 function safeFilename(value: string): string {
   return value.normalize("NFKC").replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80) || "conversation";
@@ -1858,6 +1654,33 @@ function overviewProviderCommand(kind: ProviderKindV2): string {
     : `restorkd provider configure ${kind}`;
 }
 
+function bindProviderDiagnosticDismiss(root: HTMLElement): void {
+  root.querySelectorAll<HTMLElement>(
+    "#provider-diagnostic-result, [data-provider-profile-result]",
+  ).forEach((host) => {
+    host.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const dismiss = target.closest<HTMLButtonElement>("[data-provider-diagnostic-dismiss]");
+      if (!dismiss || !host.contains(dismiss)) return;
+      const profileCard = host.closest<HTMLElement>("[data-provider-profile-card]");
+      const returnFocus = profileCard?.querySelector<HTMLButtonElement>("[data-provider-profile-test]")
+        ?? root.querySelector<HTMLButtonElement>('[data-provider-diagnostic="smoke"]');
+      host.replaceChildren();
+      if (!host.hasAttribute("data-provider-profile-result")) {
+        const placeholder = document.createElement("p");
+        placeholder.textContent = tr(
+          localeOf(root),
+          "Test result closed. Run another check whenever you need it.",
+          "测试结果已关闭，需要时可以重新测试。",
+        );
+        host.append(placeholder);
+      }
+      returnFocus?.focus();
+    });
+  });
+}
+
 function setOverviewProviderActionAvailability(root: HTMLElement): void {
   const selected = overviewProviderSelection(root);
   root.querySelectorAll<HTMLButtonElement>("[data-provider-diagnostic]").forEach((button) => {
@@ -1877,6 +1700,8 @@ function syncOverviewProvider(
   const model = root.querySelector<HTMLElement>("[data-provider-selected-model]");
   const command = root.querySelector<HTMLElement>("[data-provider-command]");
   const help = root.querySelector<HTMLElement>("[data-provider-setup-help]");
+  const secretButton = root.querySelector<HTMLButtonElement>("[data-provider-overview-secret]");
+  const secretStatus = root.querySelector<HTMLElement>("[data-provider-overview-secret-status]");
   const summary = root.querySelector<HTMLElement>("[data-provider-summary]");
   const result = root.querySelector<HTMLElement>("#provider-diagnostic-result");
   const manage = root.querySelector<HTMLButtonElement>("[data-open-provider-settings]");
@@ -1885,19 +1710,23 @@ function syncOverviewProvider(
     : tr(locale, `Configure ${selected.displayName}`, `配置 ${selected.displayName}`);
   if (model) model.textContent = selected.configured
     ? `${selected.kind} / ${selected.model}`
-    : tr(locale, "No model profile saved", "尚未保存模型 Profile");
+    : tr(locale, "No model saved", "尚未保存模型");
   if (command) command.textContent = selected.setupCommand;
   if (help) help.textContent = selected.kind === "ollama"
     ? tr(
       locale,
-      "No API key is needed. Start Ollama locally, then save its exact loopback model profile.",
-      "无需 API Key。请先在本机启动 Ollama，再保存精确的 loopback 模型 Profile。",
+      "No API key is needed. Start Ollama locally, then save the local model setup.",
+      "无需 API Key。请先在本机启动 Ollama，再保存本地模型配置。",
     )
     : tr(
       locale,
-      "Run this in Terminal. The key stays in native credentials and never enters the browser.",
-      "请在终端运行这条命令。Key 只保存在系统凭据库中，不会进入浏览器。",
+      "The native prompt saves the key without testing the model or starting a paid request.",
+      "原生弹窗只负责保存 Key，不会测试模型，也不会产生计费请求。",
     );
+  if (secretButton) secretButton.disabled = selected.kind === "ollama";
+  if (secretStatus) secretStatus.textContent = selected.kind === "ollama"
+    ? tr(locale, "Local Ollama needs no API key.", "本地 Ollama 无需 API Key。")
+    : tr(locale, "The browser never receives it.", "浏览器永远不会接收到 Key。");
   const matchingReport = selected.configured
     && snapshot.provider?.provider === selected.profileId
       ? snapshot.provider
@@ -1912,8 +1741,8 @@ function syncOverviewProvider(
     result.innerHTML = matchingReport
       ? providerDiagnosticMarkup(matchingReport, locale)
       : `<p>${escapeStatus(selected.configured
-        ? tr(locale, "Run Test model to verify this exact saved model.", "请点击“测试模型”验证这个已保存的精确模型。")
-        : tr(locale, "Open Settings to enter the model ID and save this provider.", "请打开设置，填写模型 ID 并保存这个供应商。"))}</p>`;
+        ? tr(locale, "Run Test model to check this saved model.", "请点击“测试模型”检查这个已保存的模型。")
+        : tr(locale, "Open Settings to choose a model and save this provider.", "请打开设置，选择模型并保存这个供应商。"))}</p>`;
   }
   if (manage) manage.textContent = selected.configured
     ? tr(locale, "MANAGE MODELS", "管理模型")
@@ -1933,6 +1762,43 @@ function configureProvider(
   }
   syncOverviewProvider(root, snapshot);
   selector?.addEventListener("change", () => syncOverviewProvider(root, snapshot));
+  root.querySelector<HTMLButtonElement>("[data-provider-overview-secret]")?.addEventListener(
+    "click",
+    (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      const selected = overviewProviderSelection(root);
+      const status = root.querySelector<HTMLElement>("[data-provider-overview-secret-status]");
+      const bridge = detectDesktopBridge();
+      if (!selected || selected.kind === "ollama") return;
+      if (!bridge) {
+        if (status) status.textContent = tr(
+          localeOf(root),
+          "Open Restork Desktop, or expand the source-build command below.",
+          "请使用 Restork 桌面版，或展开下方源码运行命令。",
+        );
+        return;
+      }
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+      if (status) status.textContent = tr(
+        localeOf(root),
+        "Waiting for the system credential prompt…",
+        "正在等待系统凭据弹窗…",
+      );
+      void bridge.configureProviderSecret(selected.kind).then((result) => {
+        if (status) status.textContent = result.status === "saved"
+          ? tr(localeOf(root), "Saved securely. Test the model when ready.", "已安全保存；准备好后再单独测试模型。")
+          : tr(localeOf(root), "Nothing changed.", "没有更改任何内容。");
+      }).catch((error: unknown) => {
+        if (status) status.textContent = friendlyNativeSetupError(error, localeOf(root));
+      }).finally(() => {
+        if (root.contains(button)) {
+          button.disabled = false;
+          button.removeAttribute("aria-busy");
+        }
+      });
+    },
+  );
   root.querySelector<HTMLButtonElement>("[data-open-provider-settings]")?.addEventListener(
     "click", () => {
       const selected = overviewProviderSelection(root);
@@ -2038,8 +1904,8 @@ function safeProviderFailureDetail(error: unknown, activeLocale: Locale): string
   if (error instanceof TypeError || /fetch|network|connection|unreachable/.test(message)) {
     return tr(
       activeLocale,
-      "The local Core was still unreachable after one bounded retry.",
-      "经过一次有界重试后，仍无法连接本地 Core。",
+      "The local Core was still unreachable after one retry.",
+      "再次尝试后，仍无法连接本地 Core。",
     );
   }
   return tr(
@@ -2049,221 +1915,6 @@ function safeProviderFailureDetail(error: unknown, activeLocale: Locale): string
   );
 }
 
-function configureWeather(root: HTMLElement, api: DashboardApi): void {
-  bindSettingsDialog(root, "#weather-settings-dialog", "[data-weather-open]");
-  const form = root.querySelector<HTMLFormElement>("#weather-form");
-  form?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void saveWeather(root, api, form);
-  });
-  form?.querySelector<HTMLButtonElement>("[data-weather-disable]")?.addEventListener(
-    "click",
-    () => void disableWeather(root, api, form),
-  );
-  form?.querySelector<HTMLButtonElement>("[data-weather-locate]")?.addEventListener(
-    "click",
-    () => void locateWeather(root, api, form),
-  );
-}
-
-function bindRadarConfig(root: HTMLElement, api: DashboardApi, snapshot: DashboardSnapshot): void {
-  const form = root.querySelector<HTMLFormElement>("#radar-config-form");
-  form?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void saveRadarConfig(root, api, snapshot, form);
-  });
-}
-
-function bindVaultDir(root: HTMLElement): void {
-  const form = root.querySelector<HTMLFormElement>("#vault-dir-form");
-  if (!form) return;
-  const status = form.querySelector<HTMLElement>("#vault-dir-status");
-  const input = form.querySelector<HTMLInputElement>("[name=vault_dir]");
-  const bridge = detectDesktopBridge();
-  if (!bridge) {
-    form.querySelectorAll("input, button").forEach((control) => {
-      (control as HTMLInputElement | HTMLButtonElement).disabled = true;
-    });
-    if (status) {
-      status.textContent = tr(
-        localeOf(root),
-        "Vault setup is available in the desktop app.",
-        "知识库配置需要在桌面应用中进行。",
-      );
-    }
-    return;
-  }
-  void bridge.vaultDir()
-    .then((dir) => { if (dir && input) input.value = dir; })
-    .catch(() => undefined);
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const path = input?.value.trim() ?? "";
-    if (!path) return;
-    if (status) status.textContent = tr(localeOf(root), "Saving…", "正在保存…");
-    void bridge.setVaultDir(path)
-      .then((saved) => {
-        if (input) input.value = saved;
-        if (status) {
-          status.textContent = tr(
-            localeOf(root),
-            "Saved. Restart the app so the Core can read your vault.",
-            "已保存。重启应用后 Core 将读取你的知识库。",
-          );
-        }
-      })
-      .catch((error: unknown) => {
-        if (status) status.textContent = errorText(error, localeOf(root));
-      });
-  });
-}
-
-async function saveRadarConfig(
-  root: HTMLElement,
-  api: DashboardApi,
-  snapshot: DashboardSnapshot,
-  form: HTMLFormElement,
-): Promise<void> {
-  const data = new FormData(form);
-  const githubDiscovery = data.get("github_discovery") === "1";
-  const hackerNews = data.get("hacker_news") === "1";
-  const status = form.querySelector<HTMLElement>("#radar-config-status");
-  if (!githubDiscovery && !hackerNews) {
-    if (status) {
-      status.textContent = tr(
-        localeOf(root),
-        "Enable at least one source: public GitHub AI/Agent projects or Hacker News.",
-        "至少启用一个来源：GitHub 公开 AI/Agent 项目或 Hacker News。",
-      );
-    }
-    return;
-  }
-  if (status) status.textContent = tr(localeOf(root), "Saving sources and fetching…", "正在保存来源并拉取…");
-  try {
-    await api.configureRadar({
-      enabled: true,
-      github_discovery: githubDiscovery,
-      hacker_news: hackerNews,
-    });
-    await refreshRadarPanel(root, api, snapshot);
-    announceStatus(root, tr(localeOf(root), "Radar sources saved.", "Radar 来源已保存。"));
-  } catch (error) {
-    if (status) status.textContent = errorText(error, localeOf(root));
-  }
-}
-
-async function refreshRadarPanel(
-  root: HTMLElement,
-  api: DashboardApi,
-  snapshot: DashboardSnapshot,
-): Promise<void> {
-  if (!api.loadPage) return;
-  const panel = root.querySelector<HTMLElement>('[data-view-panel="radar"]');
-  if (!panel || panel.dataset.loading === "true") return;
-  panel.dataset.loading = "true";
-  panel.setAttribute("aria-busy", "true");
-  try {
-    const page = await api.loadPage("radar", "");
-    if (page.kind !== "radar") return;
-    snapshot.radar = {
-      configured: page.configured,
-      items: page.items,
-    };
-    snapshot.pagination ??= {};
-    snapshot.pagination.radar = page.page;
-    renderListPanel(root, api, snapshot, "radar");
-  } catch (error) {
-    announceError(root, errorText(error, localeOf(root)));
-  } finally {
-    panel.dataset.loading = "false";
-    panel.removeAttribute("aria-busy");
-  }
-}
-
-async function saveWeather(
-  root: HTMLElement,
-  api: DashboardApi,
-  form: HTMLFormElement,
-): Promise<void> {
-  const data = new FormData(form);
-  const query = String(data.get("query") ?? "").trim();
-  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
-  buttons.forEach((button) => { button.disabled = true; });
-  try {
-    const result = await api.configureWeather({
-      enabled: true,
-      mode: "query",
-      query,
-      language: localeOf(root) === "zh-CN" ? "zh" : "en",
-    });
-    form.reset();
-    await refresh(root, api);
-    announceStatus(root, tr(
-      localeOf(root),
-      `Weather enabled for ${result.location_label}.`,
-      `已为 ${result.location_label} 启用天气。`,
-    ));
-  } catch (error) {
-    buttons.forEach((button) => { button.disabled = false; });
-    announceError(root, errorText(error, localeOf(root)));
-  }
-}
-
-async function locateWeather(
-  root: HTMLElement,
-  api: DashboardApi,
-  form: HTMLFormElement,
-): Promise<void> {
-  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
-  buttons.forEach((button) => { button.disabled = true; });
-  announceStatus(root, tr(
-    localeOf(root),
-    "Waiting for browser location permission…",
-    "正在等待浏览器定位授权…",
-  ));
-  try {
-    const position = await currentPosition();
-    await api.configureWeather({
-      enabled: true,
-      mode: "coordinates",
-      label: tr(localeOf(root), "Current location", "当前位置"),
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-    });
-    form.reset();
-    await refresh(root, api);
-    announceStatus(root, tr(
-      localeOf(root),
-      "Weather enabled from the location you approved.",
-      "已使用你授权的位置启用天气。",
-    ));
-  } catch (error) {
-    buttons.forEach((button) => { button.disabled = false; });
-    announceError(root, geolocationError(error, localeOf(root)));
-  }
-}
-
-async function disableWeather(
-  root: HTMLElement,
-  api: DashboardApi,
-  form: HTMLFormElement,
-): Promise<void> {
-  const buttons = form.querySelectorAll<HTMLButtonElement>("button");
-  buttons.forEach((button) => { button.disabled = true; });
-  try {
-    await api.configureWeather({ enabled: false });
-    form.reset();
-    await refresh(root, api);
-    announceStatus(root, tr(
-      localeOf(root),
-      "Weather disabled and its saved location cleared.",
-      "天气已停用，保存的位置也已清除。",
-    ));
-  } catch (error) {
-    buttons.forEach((button) => { button.disabled = false; });
-    announceError(root, errorText(error, localeOf(root)));
-  }
-}
 
 function configureCalendar(root: HTMLElement, api: DashboardApi): void {
   bindSettingsDialog(root, "#calendar-settings-dialog", "[data-calendar-open]");
@@ -2401,273 +2052,6 @@ function stopMailStream(root: HTMLElement): void {
   mailStreams.delete(root);
 }
 
-function configureVaultBrowser(root: HTMLElement, api: DashboardApi): void {
-  const form = root.querySelector<HTMLFormElement>("#vault-search-form");
-  form?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const query = String(new FormData(form).get("query") ?? "").trim();
-    if (query) void searchVaultWorkspace(root, api, query);
-  });
-  root.querySelector<HTMLButtonElement>("[data-vault-clear]")?.addEventListener("click", () => {
-    form?.reset();
-    void loadVaultIndex(root, api);
-  });
-}
-
-async function openVaultWorkspace(root: HTMLElement, api: DashboardApi): Promise<void> {
-  if (!api.listVaultNotes || !api.readVaultNote || !api.searchVaultNotes) {
-    setVaultStatus(
-      root,
-      tr(
-        localeOf(root),
-        "This Core predates the Vault browser. Update and restart Restork.",
-        "当前 Core 版本尚未提供 Vault 浏览器，请更新并重启 Restork。",
-      ),
-      "error",
-    );
-    return;
-  }
-  const configured = await loadVaultIndex(root, api);
-  if (configured) startVaultStream(root, api);
-}
-
-async function loadVaultIndex(
-  root: HTMLElement,
-  api: DashboardApi,
-  cursor?: string,
-  append = false,
-): Promise<boolean> {
-  if (!api.listVaultNotes) return false;
-  const browser = root.querySelector<HTMLElement>(".vault-browser");
-  browser?.setAttribute("aria-busy", "true");
-  setVaultStatus(
-    root,
-    append
-      ? tr(localeOf(root), "Loading more local notes…", "正在加载更多本地笔记……")
-      : tr(localeOf(root), "Reading the safe local file index…", "正在读取安全的本地文件索引……"),
-    "loading",
-  );
-  try {
-    const page = await api.listVaultNotes(cursor);
-    const previous = vaultStates.get(root);
-    const items = append ? [...(previous?.items ?? []), ...page.items] : page.items;
-    const state = {
-      items,
-      nextCursor: page.page.next_cursor,
-      total: page.total,
-      selectedPath: previous?.selectedPath ?? null,
-      query: "",
-    };
-    vaultStates.set(root, state);
-    renderVaultFiles(root, api, items, page.total, page.page.has_more, "");
-    const count = root.querySelector<HTMLElement>("#vault-file-count");
-    if (count) count.textContent = String(page.total);
-    browser?.setAttribute("aria-busy", "false");
-    if (!page.configured) {
-      setVaultStatus(
-        root,
-        tr(localeOf(root), "No Vault is configured. Choose one in Settings.", "尚未配置 Vault，请先在设置中选择知识库。"),
-        "off",
-      );
-      return false;
-    }
-    setVaultStatus(
-      root,
-      tr(localeOf(root), `${page.total} notes ready · watching for changes`, `${page.total} 篇笔记已就绪 · 正在监听变化`),
-      "live",
-    );
-    if (state.selectedPath && items.some((item) => item.relative_path === state.selectedPath)) {
-      void readVaultPreview(root, api, state.selectedPath);
-    }
-    return true;
-  } catch (error) {
-    browser?.setAttribute("aria-busy", "false");
-    setVaultStatus(root, errorText(error, localeOf(root)), "error");
-    return false;
-  }
-}
-
-async function searchVaultWorkspace(
-  root: HTMLElement,
-  api: DashboardApi,
-  query: string,
-): Promise<void> {
-  if (!api.searchVaultNotes) return;
-  const browser = root.querySelector<HTMLElement>(".vault-browser");
-  browser?.setAttribute("aria-busy", "true");
-  setVaultStatus(root, tr(localeOf(root), "Searching local Markdown…", "正在搜索本地 Markdown……"), "loading");
-  try {
-    const hits = await api.searchVaultNotes(query);
-    const previous = vaultStates.get(root);
-    vaultStates.set(root, {
-      items: previous?.items ?? [],
-      nextCursor: null,
-      total: hits.length,
-      selectedPath: previous?.selectedPath ?? null,
-      query,
-    });
-    renderVaultFiles(root, api, hits, hits.length, false, query);
-    const count = root.querySelector<HTMLElement>("#vault-file-count");
-    if (count) count.textContent = String(hits.length);
-    browser?.setAttribute("aria-busy", "false");
-    setVaultStatus(
-      root,
-      tr(localeOf(root), `${hits.length} local matches · live updates remain on`, `${hits.length} 条本地结果 · 实时更新仍在运行`),
-      "live",
-    );
-  } catch (error) {
-    browser?.setAttribute("aria-busy", "false");
-    setVaultStatus(root, errorText(error, localeOf(root)), "error");
-  }
-}
-
-function renderVaultFiles(
-  root: HTMLElement,
-  api: DashboardApi,
-  items: Array<VaultNoteMetadataV2 | VaultSearchHitV2>,
-  total: number,
-  hasMore: boolean,
-  query: string,
-): void {
-  const host = root.querySelector<HTMLElement>("#vault-file-list");
-  if (!host) return;
-  host.innerHTML = vaultFileListMarkup(items, total, hasMore, localeOf(root), query);
-  host.querySelectorAll<HTMLButtonElement>("[data-vault-path]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const path = button.dataset.vaultPath;
-      if (path) void readVaultPreview(root, api, path);
-    });
-  });
-  host.querySelector<HTMLButtonElement>("[data-vault-load-more]")?.addEventListener(
-    "click",
-    () => {
-      const state = vaultStates.get(root);
-      if (state?.nextCursor) void loadVaultIndex(root, api, state.nextCursor, true);
-    },
-  );
-  bindRovingFocus(host, "[data-vault-path]");
-}
-
-async function readVaultPreview(
-  root: HTMLElement,
-  api: DashboardApi,
-  relativePath: string,
-): Promise<void> {
-  if (!api.readVaultNote) return;
-  const preview = root.querySelector<HTMLElement>("#vault-preview");
-  if (!preview) return;
-  const requestNumber = (vaultPreviewRequests.get(root) ?? 0) + 1;
-  vaultPreviewRequests.set(root, requestNumber);
-  const state = vaultStates.get(root);
-  if (state) state.selectedPath = relativePath;
-  root.querySelectorAll<HTMLElement>("[data-vault-path]").forEach((row) => {
-    row.classList.toggle("is-active", row.dataset.vaultPath === relativePath);
-  });
-  preview.setAttribute("aria-busy", "true");
-  preview.innerHTML = `<div class="vault-preview-empty">
-    <span class="agent-wait-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-    <h3>${tr(localeOf(root), "Reading the local note…", "正在读取本地笔记……")}</h3>
-  </div>`;
-  try {
-    const note = await api.readVaultNote(relativePath);
-    if (vaultPreviewRequests.get(root) !== requestNumber) return;
-    preview.innerHTML = vaultNotePreviewMarkup(note, localeOf(root));
-    preview.setAttribute("aria-busy", "false");
-  } catch (error) {
-    if (vaultPreviewRequests.get(root) !== requestNumber) return;
-    preview.innerHTML = `<div class="vault-preview-empty">
-      <span aria-hidden="true">!</span>
-      <h3>${tr(localeOf(root), "Preview unavailable", "无法预览")}</h3>
-      <p>${escapeMarkup(errorText(error, localeOf(root)))}</p>
-    </div>`;
-    preview.setAttribute("aria-busy", "false");
-  }
-}
-
-function startVaultStream(root: HTMLElement, api: DashboardApi): void {
-  if (!api.streamVaultEvents) {
-    setVaultStatus(
-      root,
-      tr(localeOf(root), "Files are ready · use Refresh after external edits", "文件已就绪 · 外部修改后请手动刷新"),
-      "off",
-    );
-    return;
-  }
-  stopVaultStream(root);
-  const controller = new AbortController();
-  vaultStreams.set(root, controller);
-  void api.streamVaultEvents((event) => {
-    if (controller.signal.aborted || activeView(root) !== "vault") return;
-    if (event.type === "vault.ready") {
-      setVaultStatus(
-        root,
-        tr(localeOf(root), "Live Vault updates connected", "Vault 实时更新已连接"),
-        "live",
-      );
-      return;
-    }
-    if (event.type === "vault.unavailable") {
-      setVaultStatus(
-        root,
-        tr(localeOf(root), "Vault temporarily unavailable · reconnecting", "Vault 暂时不可用 · 正在重连"),
-        "error",
-      );
-      return;
-    }
-    const changed = event.data.changed_count ?? 1;
-    setVaultStatus(
-      root,
-      tr(localeOf(root), `${changed} note changes detected · updating`, `检测到 ${changed} 项笔记变化 · 正在更新`),
-      "loading",
-    );
-    const state = vaultStates.get(root);
-    const selectedPath = state?.selectedPath;
-    void (async () => {
-      if (state?.query) {
-        await searchVaultWorkspace(root, api, state.query);
-      } else {
-        await loadVaultIndex(root, api);
-      }
-      if (state?.query && selectedPath && !(event.data.removed ?? []).includes(selectedPath)) {
-        await readVaultPreview(root, api, selectedPath);
-      }
-    })();
-  }, controller.signal).catch((error: unknown) => {
-    if (controller.signal.aborted) return;
-    setVaultStatus(
-      root,
-      tr(localeOf(root), `Live update stopped: ${errorText(error, localeOf(root))}`, `实时更新已停止：${errorText(error, localeOf(root))}`),
-      "error",
-    );
-  });
-}
-
-function stopVaultStream(root: HTMLElement): void {
-  vaultStreams.get(root)?.abort();
-  vaultStreams.delete(root);
-}
-
-function setVaultStatus(
-  root: HTMLElement,
-  message: string,
-  state: "live" | "loading" | "off" | "error",
-): void {
-  const status = root.querySelector<HTMLElement>("#vault-live-status");
-  if (status) status.textContent = message;
-  const line = root.querySelector<HTMLElement>(".vault-live-line");
-  if (line) line.dataset.state = state;
-  const badge = root.querySelector<HTMLElement>("#vault-live-badge");
-  if (badge) {
-    badge.textContent = state === "live"
-      ? tr(localeOf(root), "LIVE", "实时")
-      : state === "loading"
-        ? tr(localeOf(root), "SYNCING", "同步中")
-        : state === "error"
-          ? tr(localeOf(root), "RETRYING", "重试中")
-          : tr(localeOf(root), "MANUAL", "手动");
-  }
-}
-
 function updateMailUi(root: HTMLElement, mail: MailSnapshot): void {
   const locale = localeOf(root);
   const label = mail.configured && mail.unread_count !== null
@@ -2707,10 +2091,6 @@ function localizedMailStatus(mail: MailSnapshot, locale: Locale): string {
   if (mail.status === "stale") return tr(locale, "Waiting for macOS Mail", "正在等待 macOS 邮件");
   if (mail.status === "denied") return tr(locale, "Permission denied", "权限已被拒绝");
   return tr(locale, "Temporarily unavailable", "暂时不可用");
-}
-
-function activeView(root: HTMLElement): string {
-  return root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "overview";
 }
 
 async function connectNativeCalendar(
@@ -2823,43 +2203,11 @@ async function disableCalendar(
   }
 }
 
-function currentPosition(): Promise<GeolocationPosition> {
-  return new Promise((resolve, reject) => {
-    if (!("geolocation" in navigator)) {
-      reject(new Error("Browser location is unavailable"));
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: false,
-      maximumAge: 10 * 60 * 1000,
-      timeout: 15_000,
-    });
-  });
-}
-
-function geolocationError(error: unknown, locale: Locale): string {
-  const code = typeof error === "object" && error !== null && "code" in error
-    ? Number((error as { code: unknown }).code)
-    : 0;
-  if (code === 1) {
-    return tr(
-      locale,
-      "Location permission was not granted. You can still enter a city.",
-      "未授予定位权限，你仍可直接输入城市。",
-    );
-  }
-  return tr(
-    locale,
-    "Current location is unavailable. You can still enter a city.",
-    "无法获取当前位置，你仍可直接输入城市。",
-  );
-}
-
 function selectView(root: HTMLElement, view: string): void {
   const panels = [...root.querySelectorAll<HTMLElement>("[data-view-panel]")];
-  const resolvedView = panels.some((panel) => panel.dataset.viewPanel === view) ? view : "overview";
+  const resolvedView = panels.some((panel) => panel.dataset.viewPanel === view) ? view : "start";
   const previousView = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view;
-  if (resolvedView !== "runs") stopEventStream(root);
+  if (resolvedView !== "runs" && resolvedView !== "start") stopEventStream(root);
   if (resolvedView !== "vault") stopVaultStream(root);
   panels.forEach((panel) => {
     panel.hidden = panel.dataset.viewPanel !== resolvedView;
@@ -2982,18 +2330,23 @@ function capitalizedMode(mode: Mode): string {
 }
 
 async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormElement, snapshot?: DashboardSnapshot): Promise<void> {
+  const surface = form.closest<HTMLElement>("[data-run-surface]") ?? root;
   const data = new FormData(form);
   const mode = String(data.get("mode")) as Mode;
   const goal = String(data.get("goal") ?? "").trim();
   const dataClass = String(data.get("context_data_class") ?? "public") as WorkDataClass;
   const providerProfileId = String(data.get("provider_profile_id") ?? "deepseek").trim();
   const workspaceRoot = String(data.get("workspace_root") ?? "").trim();
+  const workspaceGrantId = String(data.get("workspace_grant_id") ?? "").trim();
   const targetFiles = lines(data.get("target_files"));
   const targetNote = String(data.get("target_note") ?? "").trim() || null;
-  const status = root.querySelector<HTMLElement>("#action-status");
-  const waitHost = root.querySelector<HTMLElement>("#agent-wait-host");
+  const status = surface.querySelector<HTMLElement>("[data-run-status]");
+  const waitHost = surface.querySelector<HTMLElement>("[data-run-wait]");
   if (!goal) return;
-  if (mode === "study" && snapshot && !snapshot.taskBoard.configured) {
+  const vaultReady = snapshot
+    ? (snapshot.taskBoard.vault_configured ?? snapshot.taskBoard.configured)
+    : true;
+  if (mode === "study" && !vaultReady) {
     if (status) {
       status.textContent = tr(
         localeOf(root),
@@ -3003,28 +2356,31 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
     }
     return;
   }
-  if (mode === "work" && (!workspaceRoot || !targetFiles.length)) {
+  if (mode === "work" && !workspaceRoot && !workspaceGrantId) {
     if (status) {
       status.textContent = tr(
         localeOf(root),
-        "Work requires a workspace root and at least one target file.",
-        "Work 需要工作区根路径和至少一个目标文件。",
+        "Choose a project folder before starting Work.",
+        "开始推进工作前，请先选择项目文件夹。",
       );
     }
     return;
   }
   if (status) status.textContent = tr(localeOf(root), "Creating a local run…", "正在创建本地运行…");
   if (waitHost) waitHost.innerHTML = agentWaitMarkup("prepare", localeOf(root));
+  if (form.id === "start-run-form") setStartRunBusy(form, true);
   let stream: AbortController | null = null;
   let createdRun: RunSummary | null = null;
   try {
     const run = await api.createRun(mode, goal, dataClass, providerProfileId);
     createdRun = run;
+    if (form.id === "start-run-form") prepareStartRunFeedback(surface, run.run_id);
     let waitStage: AgentWaitStage = "prepare";
     stream = startEventStream(root, api, run.run_id, 0, (event) => {
       waitStage = waitStageForEvent(waitStage, event);
       if (waitHost?.isConnected) waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root));
-    });
+      if (form.id === "start-run-form") paintStartRunEvent(surface, event, localeOf(root));
+    }, form.id === "start-run-form" ? "start" : "launcher");
     if (status) {
       status.textContent = tr(
         localeOf(root),
@@ -3035,47 +2391,56 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
     if (mode === "study") {
       if (waitHost) waitHost.innerHTML = agentWaitMarkup("sources", localeOf(root));
       const diagnostic = await api.prepareStudy(run.run_id, goal, targetNote);
-      const host = root.querySelector<HTMLElement>("#study-workspace");
+      const host = surface.querySelector<HTMLElement>("[data-study-workspace]");
       if (host) {
         host.innerHTML = studyDiagnosticMarkup(diagnostic, localeOf(root));
-        bindStudyDiagnostic(root, api);
+        bindStudyDiagnostic(root, api, host);
       }
     } else if (mode === "work") {
       if (waitHost) waitHost.innerHTML = agentWaitMarkup("sources", localeOf(root));
       const plan = await api.planWork(run.run_id, {
         goal,
-        workspace_root: workspaceRoot,
+        workspace_root: workspaceRoot || undefined,
+        workspace_grant_id: workspaceGrantId || undefined,
         target_files: targetFiles,
         context_files: lines(data.get("context_files")),
         constraints: lines(data.get("constraints")),
         non_goals: lines(data.get("non_goals")),
         completion_criteria: [tr(
           localeOf(root),
-          "produce a reviewable verified artifact",
-          "产出可审阅、可验证的结果",
+          "produce a result the user can inspect and verify",
+          "产出用户能够查看并核对的结果",
         )],
         verification_commands: lines(data.get("verification_commands")),
         context_data_class: dataClass,
       });
-      const host = root.querySelector<HTMLElement>("#work-workspace");
+      const host = surface.querySelector<HTMLElement>("[data-work-workspace]");
       if (host) {
         host.innerHTML = workPlanMarkup(plan, localeOf(root));
-        bindWorkPlan(root, api);
+        bindWorkPlan(root, api, host);
       }
       clearWorkFields(form);
     } else {
-      // Research runs execute in the background. Stay on the current view so
-      // the launch context is not lost; the run is one nav click away.
-      await refresh(root, api);
-      announceStatus(root, tr(
-        localeOf(root),
-        `Created ${run.run_id}. Track progress and the answer in Runs.`,
-        `已创建 ${run.run_id}，可在「运行」页查看进度和回答。`,
-      ));
+      if (form.id === "start-run-form") {
+        if (status) status.textContent = tr(
+          localeOf(root),
+          `Task started · ${run.run_id}`,
+          `任务已开始 · ${run.run_id}`,
+        );
+      } else {
+        // The compact sidebar launcher keeps its legacy hand-off to Dashboard.
+        await refresh(root, api);
+        announceStatus(root, tr(
+          localeOf(root),
+          `Created ${run.run_id}. Track progress and the answer in Runs.`,
+          `已创建 ${run.run_id}，可在「运行」页查看进度和回答。`,
+        ));
+      }
     }
     if (mode !== "research" && waitHost?.isConnected) {
       waitHost.innerHTML = agentWaitMarkup("complete", localeOf(root));
     }
+    if (mode !== "research" && form.id === "start-run-form") setStartRunBusy(form, false);
   } catch (error) {
     // A Study/Work run never auto-starts: if preparation or planning failed,
     // the run is still `proposed` and would stay in the run list forever.
@@ -3092,13 +2457,130 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       waitHost.innerHTML = agentWaitMarkup(neverStarted ? "blocked" : "error", localeOf(root));
     }
     if (status) status.textContent = errorText(error, localeOf(root));
+    if (form.id === "start-run-form") setStartRunBusy(form, false);
   } finally {
-    if (stream && eventStreams.get(root) === stream) stopEventStream(root);
+    if (stream && eventStreams.get(root)?.controller === stream && form.id !== "start-run-form") {
+      stopEventStream(root);
+    }
   }
 }
 
-function bindStudyDiagnostic(root: HTMLElement, api: DashboardApi): void {
-  const form = root.querySelector<HTMLFormElement>("[data-study-diagnostic]");
+function resumeStartRunFromSnapshot(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+): void {
+  const active = snapshot.runs.find(
+    (entry) => !["completed", "failed", "cancelled"].includes(entry.summary.state),
+  );
+  if (active) resumeStartRun(root, api, active.summary.run_id, active.summary.state);
+}
+
+function resumeStartRun(
+  root: HTMLElement,
+  api: DashboardApi,
+  runId: string,
+  state: string,
+): void {
+  const surface = root.querySelector<HTMLElement>(".start-workspace");
+  const panel = surface?.closest<HTMLElement>("[data-view-panel]");
+  if (!surface || panel?.hidden) return;
+  prepareStartRunFeedback(surface, runId);
+  setStartRunBusy(surface, true);
+  const status = surface.querySelector<HTMLElement>("[data-run-status]");
+  const waitHost = surface.querySelector<HTMLElement>("[data-run-wait]");
+  if (status) status.textContent = tr(
+    localeOf(root),
+    `Continuing ${runId} · ${state}`,
+    `继续显示任务 · ${runId}`,
+  );
+  let waitStage: AgentWaitStage = state === "running" ? "model" : "prepare";
+  if (waitHost) waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root));
+  startEventStream(root, api, runId, 0, (event) => {
+    waitStage = waitStageForEvent(waitStage, event);
+    if (waitHost?.isConnected) waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root));
+    paintStartRunEvent(surface, event, localeOf(root));
+  }, "start");
+}
+
+function prepareStartRunFeedback(surface: ParentNode, runId: string): void {
+  const cancel = surface.querySelector<HTMLButtonElement>("[data-start-cancel]");
+  const output = surface.querySelector<HTMLElement>("[data-start-output]");
+  const text = surface.querySelector<HTMLElement>("[data-start-output-text]");
+  if (cancel) {
+    cancel.hidden = false;
+    cancel.disabled = false;
+    cancel.dataset.runId = runId;
+  }
+  if (output) output.hidden = true;
+  if (text) text.replaceChildren();
+}
+
+function setStartRunBusy(surface: ParentNode, busy: boolean): void {
+  const form = surface instanceof HTMLFormElement
+    ? surface
+    : surface.querySelector<HTMLFormElement>("#start-run-form");
+  if (!form) return;
+  form.dataset.runBusy = String(busy);
+  form.setAttribute("aria-busy", String(busy));
+  const submit = form.querySelector<HTMLButtonElement>("[data-start-submit]");
+  if (!submit) return;
+  const disabled = busy || form.dataset.modeBlocked === "true";
+  submit.disabled = disabled;
+  submit.setAttribute("aria-disabled", String(disabled));
+}
+
+function paintStartRunEvent(surface: ParentNode, event: RunEvent, locale: Locale): void {
+  const status = surface.querySelector<HTMLElement>("[data-run-status]");
+  const cancel = surface.querySelector<HTMLButtonElement>("[data-start-cancel]");
+  const output = surface.querySelector<HTMLElement>("[data-start-output]");
+  const text = surface.querySelector<HTMLElement>("[data-start-output-text]");
+  if (event.type === "assistant.delta" && typeof event.data.content === "string" && text) {
+    if (output) output.hidden = false;
+    text.append(document.createTextNode(event.data.content));
+  }
+  if (event.type === "run.completed") {
+    if (status) status.textContent = tr(locale, "Task completed.", "任务已完成。");
+    if (cancel) cancel.hidden = true;
+    if (text?.textContent) {
+      const upgraded = assistantStreamMarkup(text.textContent, locale);
+      if (!upgraded.startsWith("<pre")) text.outerHTML = upgraded;
+    }
+    setStartRunBusy(surface, false);
+  } else if (event.type === "run.failed") {
+    if (status) status.textContent = tr(
+      locale,
+      "Task failed. Open Runs for details.",
+      "任务未完成，可到「运行」查看原因。",
+    );
+    if (cancel) cancel.hidden = true;
+    setStartRunBusy(surface, false);
+  } else if (event.type === "run.cancelled") {
+    if (status) status.textContent = tr(locale, "Task stopped.", "任务已停止。");
+    if (cancel) cancel.hidden = true;
+    setStartRunBusy(surface, false);
+  }
+}
+
+async function cancelStartRun(root: HTMLElement, api: DashboardApi, runId: string): Promise<void> {
+  const surface = root.querySelector<HTMLElement>("#start-run-form");
+  const cancel = surface?.querySelector<HTMLButtonElement>("[data-start-cancel]");
+  const status = surface?.querySelector<HTMLElement>("[data-run-status]");
+  if (cancel) cancel.disabled = true;
+  try {
+    await api.cancelRun(runId);
+    stopEventStream(root);
+    if (cancel) cancel.hidden = true;
+    if (status) status.textContent = tr(localeOf(root), "Task stopped.", "任务已停止。");
+    if (surface) setStartRunBusy(surface, false);
+  } catch (error) {
+    if (cancel) cancel.disabled = false;
+    if (status) status.textContent = errorText(error, localeOf(root));
+  }
+}
+
+function bindStudyDiagnostic(root: HTMLElement, api: DashboardApi, scope: ParentNode = root): void {
+  const form = scope.querySelector<HTMLFormElement>("[data-study-diagnostic]");
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
     void submitStudyDiagnostic(root, api, form);
@@ -3119,10 +2601,11 @@ async function submitStudyDiagnostic(
   form.reset();
   try {
     const artifact = await api.submitStudyDiagnostic(form.dataset.runId ?? "", answers);
-    const host = root.querySelector<HTMLElement>("#study-workspace");
+    const host = form.closest<HTMLElement>("[data-run-surface]")
+      ?.querySelector<HTMLElement>("[data-study-workspace]");
     if (host) {
       host.innerHTML = studyArtifactMarkup(artifact, localeOf(root));
-      bindStudyPractice(root, api);
+      bindStudyPractice(root, api, host);
       bindNoteSave(root, api, host);
     }
   } catch (error) {
@@ -3131,8 +2614,8 @@ async function submitStudyDiagnostic(
   }
 }
 
-function bindStudyPractice(root: HTMLElement, api: DashboardApi): void {
-  root.querySelectorAll<HTMLFormElement>("[data-study-practice]").forEach((form) => {
+function bindStudyPractice(root: HTMLElement, api: DashboardApi, scope: ParentNode = root): void {
+  scope.querySelectorAll<HTMLFormElement>("[data-study-practice]").forEach((form) => {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       void submitStudyPractice(root, api, form);
@@ -3173,8 +2656,8 @@ async function submitStudyPractice(
   }
 }
 
-function bindWorkPlan(root: HTMLElement, api: DashboardApi): void {
-  const button = root.querySelector<HTMLButtonElement>("[data-work-preview]");
+function bindWorkPlan(root: HTMLElement, api: DashboardApi, scope: ParentNode = root): void {
+  const button = scope.querySelector<HTMLButtonElement>("[data-work-preview]");
   button?.addEventListener("click", () => void previewWorkHandoff(root, api, button));
 }
 
@@ -3186,10 +2669,11 @@ async function previewWorkHandoff(
   button.disabled = true;
   try {
     const preview = await api.previewWorkHandoff(button.dataset.runId ?? "");
-    const host = root.querySelector<HTMLElement>("#work-workspace");
+    const host = button.closest<HTMLElement>("[data-run-surface]")
+      ?.querySelector<HTMLElement>("[data-work-workspace]");
     if (host) {
       host.innerHTML = workHandoffMarkup(preview, localeOf(root));
-      bindWorkHandoff(root, api, preview);
+      bindWorkHandoff(root, api, preview, host);
     }
   } catch (error) {
     button.disabled = false;
@@ -3201,12 +2685,13 @@ function bindWorkHandoff(
   root: HTMLElement,
   api: DashboardApi,
   preview: WorkHandoffPreview,
+  scope: ParentNode = root,
 ): void {
-  const exportButton = root.querySelector<HTMLButtonElement>("[data-work-export]");
+  const exportButton = scope.querySelector<HTMLButtonElement>("[data-work-export]");
   exportButton?.addEventListener("click", () => {
     void approveAndExportWork(root, api, preview, exportButton);
   });
-  const rejectButton = root.querySelector<HTMLButtonElement>("[data-work-reject]");
+  const rejectButton = scope.querySelector<HTMLButtonElement>("[data-work-reject]");
   rejectButton?.addEventListener("click", () => void rejectWork(root, api, rejectButton));
 }
 
@@ -3221,10 +2706,11 @@ async function approveAndExportWork(
     const approvalId = button.dataset.approvalId ?? "";
     await api.decideApproval(approvalId, "approve");
     const result = await api.exportWorkHandoff(button.dataset.runId ?? "", approvalId);
-    const host = root.querySelector<HTMLElement>("#work-workspace");
+    const host = button.closest<HTMLElement>("[data-run-surface]")
+      ?.querySelector<HTMLElement>("[data-work-workspace]");
     if (host) {
       host.innerHTML = workExportMarkup(result, preview.plan, localeOf(root));
-      bindWorkVerification(root, api);
+      bindWorkVerification(root, api, host);
     }
   } catch (error) {
     button.disabled = false;
@@ -3240,7 +2726,8 @@ async function rejectWork(
   button.disabled = true;
   try {
     await api.decideApproval(button.dataset.approvalId ?? "", "reject");
-    const host = root.querySelector<HTMLElement>("#work-workspace");
+    const host = button.closest<HTMLElement>("[data-run-surface]")
+      ?.querySelector<HTMLElement>("[data-work-workspace]");
     if (host) host.replaceChildren();
     announceStatus(root, tr(
       localeOf(root),
@@ -3253,8 +2740,8 @@ async function rejectWork(
   }
 }
 
-function bindWorkVerification(root: HTMLElement, api: DashboardApi): void {
-  const form = root.querySelector<HTMLFormElement>("[data-work-verify]");
+function bindWorkVerification(root: HTMLElement, api: DashboardApi, scope: ParentNode = root): void {
+  const form = scope.querySelector<HTMLFormElement>("[data-work-verify]");
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
     void verifyWorkResult(root, api, form);
@@ -3283,7 +2770,8 @@ async function verifyWorkResult(
       parsed as unknown as WorkResultManifest,
     );
     form.reset();
-    const host = root.querySelector<HTMLElement>("#work-workspace");
+    const host = form.closest<HTMLElement>("[data-run-surface]")
+      ?.querySelector<HTMLElement>("[data-work-workspace]");
     if (host) host.innerHTML = workVerificationMarkup(report, localeOf(root));
   } catch (error) {
     if (submit) submit.disabled = false;
@@ -3530,8 +3018,8 @@ function openTodoSuggestionConversation(
   profile?.focus();
   announceStatus(root, tr(
     locale,
-    "Choose a model profile and create the conversation. Restork will keep the request reviewable before anything changes.",
-    "请选择模型 Profile 并创建对话；在任何任务发生变化前，Restork 都会让你先审阅。",
+    "Choose a model and create the conversation. Restork will show the request before anything changes.",
+    "请选择模型并创建对话；实际修改任务前，Restork 会展示准备执行的请求。",
   ));
 }
 
@@ -3683,7 +3171,7 @@ async function showRun(
         // Append one row. Re-rendering the whole run per event made live
         // streaming quadratic and destroyed focus, selection, and scroll.
         if (!appendRunEvent(detail, event, localeOf(root))) render();
-      });
+      }, "run-detail");
     }
   } catch (error) {
     detail.textContent = errorText(error, localeOf(root));
@@ -3891,7 +3379,7 @@ const CAPABILITY_CONTROLS: ReadonlyArray<[keyof DashboardApi, string]> = [
   ["deleteSchedule", "[data-schedule-action=delete]"],
   ["composeManualReport", "#manual-report-form button[type=submit]"],
   ["composeAiReportDraft", "#ai-report-form button[type=submit]"],
-  ["composeDeckFromReport", "#deck-from-report-form button[type=submit]"],
+  ["composeDeckDraft", "#presentation-studio-form button[type=submit]"],
   ["previewDeliverableRender", "[data-render-format]"],
   ["exportDeliverableRender", "[data-render-format]"],
   ["saveProviderProfile", "#provider-profile-form button[type=submit]"],
@@ -3935,53 +3423,6 @@ function applyCapabilityGuards(root: HTMLElement, api: DashboardApi, locale: Loc
 }
 
 /**
- * Roving tabindex for composite widgets. A list of buttons is one tab stop and
- * arrow keys move within it; without this the navigation rail and the session
- * rail are traversed one Tab press per item.
- */
-function bindRovingFocus(container: HTMLElement, itemSelector: string): void {
-  const items = (): HTMLElement[] =>
-    Array.from(container.querySelectorAll<HTMLElement>(itemSelector))
-      .filter((item) => !item.hidden && !item.hasAttribute("disabled"));
-
-  const focusAt = (index: number): void => {
-    const list = items();
-    if (list.length === 0) return;
-    const next = list[(index + list.length) % list.length];
-    list.forEach((item) => { item.tabIndex = item === next ? 0 : -1; });
-    next.focus();
-  };
-
-  container.addEventListener("keydown", (event) => {
-    const list = items();
-    const current = list.indexOf(document.activeElement as HTMLElement);
-    if (current < 0) return;
-    const configured = container.dataset.rovingOrientation;
-    const first = list[0]?.getBoundingClientRect();
-    const second = list[1]?.getBoundingClientRect();
-    const visuallyHorizontal = Boolean(first && second
-      && Math.abs(first.top - second.top) < Math.max(2, Math.min(first.height, second.height) / 2)
-      && Math.abs(first.left - second.left) > 2);
-    const vertical = configured === "vertical"
-      || (configured !== "horizontal" && !visuallyHorizontal);
-    const forward = vertical ? "ArrowDown" : "ArrowRight";
-    const backward = vertical ? "ArrowUp" : "ArrowLeft";
-    if (event.key === forward) focusAt(current + 1);
-    else if (event.key === backward) focusAt(current - 1);
-    else if (event.key === "Home") focusAt(0);
-    else if (event.key === "End") focusAt(list.length - 1);
-    else return;
-    event.preventDefault();
-  });
-
-  // One tab stop: the active item, or the first when nothing is active yet.
-  const list = items();
-  const active = list.find((item) => item.classList.contains("is-active")
-    || item.getAttribute("aria-current") === "page");
-  list.forEach((item) => { item.tabIndex = item === (active ?? list[0]) ? 0 : -1; });
-}
-
-/**
  * Re-render exactly one paginated panel. Returns false when the panel is not
  * mounted so the caller can fall back to a full render.
  */
@@ -4000,7 +3441,7 @@ function renderListPanel(
   if (!panel) return false;
   panel.innerHTML = markup;
   bindListInteractions(root, api, snapshot, panel);
-  if (kind === "radar") bindRadarConfig(root, api, snapshot);
+  if (kind === "radar") bindRadarConfig(root, api, snapshot, dailyEffects(root, api, snapshot));
   return true;
 }
 
@@ -4187,18 +3628,28 @@ function startEventStream(
   runId: string,
   after: number,
   onEvent: (event: RunEvent) => void,
+  subscriber = "default",
 ): AbortController {
+  const current = eventStreams.get(root);
+  if (current && current.runId === runId && !current.controller.signal.aborted) {
+    current.listeners.set(subscriber, onEvent);
+    return current.controller;
+  }
   stopEventStream(root);
   const controller = new AbortController();
-  eventStreams.set(root, controller);
-  void api.streamEvents(runId, after, onEvent, controller.signal).catch((error: unknown) => {
+  const listeners = new Map([[subscriber, onEvent]]);
+  eventStreams.set(root, { runId, controller, listeners });
+  if (typeof api.streamEvents !== "function") return controller;
+  void api.streamEvents(runId, after, (event) => {
+    for (const listener of listeners.values()) listener(event);
+  }, controller.signal).catch((error: unknown) => {
     if (!controller.signal.aborted) announceError(root, errorText(error, localeOf(root)));
   });
   return controller;
 }
 
 function stopEventStream(root: HTMLElement): void {
-  eventStreams.get(root)?.abort();
+  eventStreams.get(root)?.controller.abort();
   eventStreams.delete(root);
 }
 
@@ -4215,7 +3666,7 @@ function waitStageForEvent(current: AgentWaitStage, event: RunEvent): AgentWaitS
   return current;
 }
 
-async function refresh(root: HTMLElement, api: DashboardApi, view = "overview"): Promise<void> {
+async function refresh(root: HTMLElement, api: DashboardApi, view = "start"): Promise<void> {
   try {
     renderWorkspace(root, api, await api.loadDashboard());
     selectView(root, view);
@@ -4434,7 +3885,7 @@ async function refreshMusic(
     setMusicBusy(form, true, tr(
       localeOf(root),
       "Refreshing the playlist, song details, and Cantonese chart evidence…",
-      "正在刷新歌单、歌曲资料和粤语榜单证据……",
+      "正在刷新歌单、歌曲资料和粤语榜单信息……",
     ));
     await api.refreshMusic(localDate());
     await refresh(root, api);
@@ -4537,8 +3988,8 @@ function musicResearchErrorText(error: unknown, locale: Locale): string {
       "模型服务暂时不可用；仍显示上次结果。",
     ],
     sources_missing: [
-      "The search finished without reviewable public sources. The previous result is still shown.",
-      "联网检索没有返回可审查的公开来源；仍显示上次结果。",
+      "The search finished without public sources that could be verified. The previous result is still shown.",
+      "联网检索没有找到能够核对的公开来源；仍显示上次结果。",
     ],
     structured_output_invalid: [
       "The researched result was incomplete. The previous result is still shown.",
@@ -4627,6 +4078,7 @@ function lines(value: FormDataEntryValue | null): string[] {
 function clearWorkFields(form: HTMLFormElement): void {
   for (const name of [
     "workspace_root",
+    "workspace_grant_id",
     "target_files",
     "context_files",
     "constraints",
@@ -4638,6 +4090,10 @@ function clearWorkFields(form: HTMLFormElement): void {
       field.value = "";
     }
   }
+  const workspaceLabel = form.querySelector<HTMLElement>("[data-start-workspace-label]");
+  if (workspaceLabel) {
+    workspaceLabel.textContent = workspaceLabel.dataset.emptyLabel ?? "";
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -4645,12 +4101,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const app = document.querySelector<HTMLElement>("#app");
-if (app) void mountDetectedDashboard(app);
+if (app && document.body.dataset.restorkDemo !== "true") void mountDetectedDashboard(app);
 
 async function mountDetectedDashboard(root: HTMLElement): Promise<void> {
   const bridge = detectDesktopBridge();
   if (!bridge) {
-    mountDashboard(root);
+    await mountBrowserDashboard(root);
     return;
   }
   const api = new LocalApiClient({ onSession: (session) => bridge.store(session) });
@@ -4676,18 +4132,19 @@ async function mountDesktopDashboard(
     if (session.kind === "pairing") {
       await api.pair(session.pairing_code);
     } else {
-      api.restoreSession({
+      const recovered = await api.resumeSession({
         accessToken: session.access_token,
         expiresAt: session.expires_at,
       });
+      if (!recovered) throw new Error("desktop_session_recovery_failed");
     }
     renderWorkspace(root, api, await api.loadDashboard());
   } catch {
     if (status) {
       status.textContent = `${desktopSessionError(localeOf(root))} ${tr(
         localeOf(root),
-        "Restart Restork to create a fresh local session.",
-        "请重启 Restork 以创建新的本地会话。",
+        "Reopen Restork only if the session has been offline for more than seven days.",
+        "仅当 Restork 已离线超过七天时，才需要重新打开应用。",
       )}`;
     }
   }

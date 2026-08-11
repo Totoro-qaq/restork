@@ -17,8 +17,12 @@ must still authenticate unless it is exchanging an interactive, single-use pairi
   the otherwise-expired token inside a seven-day recovery window; every data and effect endpoint
   continues to reject it. A successful recovery immediately replaces the old token, and Core
   process exit destroys both the active token and its recovery window.
-- Revocation and expiry fail closed. Core never accepts credentials in a query parameter,
-  cookie, or SSE URL; clients send a bearer token only in the `Authorization` header.
+- A paired browser also receives one host-only `HttpOnly`, `SameSite=Strict` resume cookie scoped to
+  `/v1/token`. JavaScript cannot read it. Only `/v1/token/resume` accepts it, only with an explicit
+  loopback browser `Origin`, and successful resume rotates both the in-memory access token and the
+  cookie. Normal API and SSE endpoints remain bearer-only.
+- Revocation clears the resume cookie and invalidates its server-side token. Core never accepts a
+  credential in a query parameter or SSE URL.
 
 The current lifecycle scopes are `runs:read`, `runs:write`, `approvals:read`,
 `approvals:decide`, `effects:resolve`, and `tokens:manage`. An endpoint checks its required
@@ -28,8 +32,9 @@ scope in code before reading or mutating state.
 
 Browser requests must use a Web-audience token. Core accepts only explicit HTTP origins
 whose host is `127.0.0.1`, `localhost`, or `::1` and whose port is present. CORS preflight
-allows only the methods and headers required by the local client; credentials are never
-enabled. A CLI client sends no fabricated `Origin` header.
+allows only the methods and headers required by the local client; credentialed cross-origin
+requests are never enabled. The resume cookie is same-origin only. A CLI client sends no
+fabricated `Origin` header and never receives the Web resume cookie.
 
 Pairing does not make a local machine safe from malware with the same user privileges.
 Credentials and private runtime data therefore remain outside the public repository, and
@@ -70,14 +75,16 @@ Dashboard exchanges it through the ordinary `/v1/pair` endpoint.
 Tauri exposes two separate generated capability allowlists. The bundled loader can request only
 desktop status, retry, and quit. A remote capability matching `http://127.0.0.1:*` can request or
 store only the short-lived Dashboard session. Each session call also checks the `main` window label,
-the exact randomly selected runtime origin, and `/` path in Rust. The token is retained only in Rust
-and WebView memory so reload and scheduled rotation work without Web Storage. Application quit clears
-the session and terminates the owned Core child.
+the exact randomly selected runtime origin, and `/` path in Rust. The access token is retained only
+in Rust and WebView memory. The narrowly scoped `HttpOnly` resume cookie lets a reload restore that
+memory without Web Storage. Application quit clears the Rust session and terminates the owned Core
+child, which invalidates any stale browser cookie server-side.
 
-When macOS sleeps or throttles the WebView past the five-minute access-token lifetime, the next
-Dashboard request renews through the rotation-only recovery window before touching user data. A
-loopback transport failure is retried once after a short delay; HTTP authorization, policy, model,
-and credential failures are never retried blindly.
+When any supported desktop OS sleeps or throttles the WebView past the access-token lifetime, the
+next Dashboard request renews through the rotation-only recovery window before touching user data.
+Transient SSE connections reconnect with capped backoff, the same `run_id` or `operation_id`, and
+the last durable event cursor. HTTP authorization, policy, model, and credential failures are never
+retried blindly.
 
 The Rust supervisor also owns Core availability without broadening API authority. It retains the
 direct child and process group and probes the public metadata-only `/v1/readiness` route every two
@@ -111,3 +118,5 @@ enters a URL. Core first replays the snapshot/cursor window, then emits new dura
 comment heartbeats, and closes after `completed`, `failed`, or `cancelled`. Reconnect supplies
 `Last-Event-ID`; the browser de-duplicates event IDs. Core sends `no-cache, no-store` and disables
 proxy buffering. The original one-shot replay remains available to CLI and deterministic tests.
+An HTTP request ID, when present, describes only that connection attempt. It is not reused as the
+run identity and cannot authorize a repeated effect.

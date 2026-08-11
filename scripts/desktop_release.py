@@ -26,7 +26,11 @@ def _parser() -> argparse.ArgumentParser:
         "--platform", choices=("generic", "macos", "windows", "linux"), default="generic"
     )
     config.add_argument("--version")
-    config.add_argument("--signing-mode", choices=("protected", "ad-hoc"), default="protected")
+    config.add_argument(
+        "--signing-mode",
+        choices=("protected", "ad-hoc", "unsigned"),
+        default="protected",
+    )
     manifest = commands.add_parser("manifest")
     manifest.add_argument("--directory", type=Path, required=True)
     manifest.add_argument("--repository", required=True)
@@ -34,7 +38,11 @@ def _parser() -> argparse.ArgumentParser:
     manifest.add_argument("--version", required=True)
     manifest.add_argument("--commit", default=os.environ.get("GITHUB_SHA", "unknown"))
     manifest.add_argument("--channel", choices=("alpha", "stable"), default="alpha")
-    manifest.add_argument("--trust", choices=("protected", "ad-hoc"), default="protected")
+    manifest.add_argument(
+        "--trust",
+        choices=("protected", "ad-hoc", "technical-preview"),
+        default="protected",
+    )
     return parser
 
 
@@ -47,6 +55,30 @@ def _updater_config(
     version: str | None = None,
     signing_mode: str = "protected",
 ) -> None:
+    if version is not None and not _VERSION.fullmatch(version):
+        raise ValueError("application version is invalid")
+    if signing_mode == "unsigned":
+        if platform not in {"windows", "linux"}:
+            raise ValueError("unsigned Alpha configuration is supported only for Windows and Linux")
+        targets = ["nsis", "msi"] if platform == "windows" else ["appimage", "deb"]
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps(
+                {
+                    "bundle": {
+                        "createUpdaterArtifacts": False,
+                        "targets": targets,
+                    },
+                    **({"version": version} if version is not None else {}),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return
+
     key = public_key.strip()
     if not 32 <= len(key) <= 4096 or "PRIVATE KEY" in key.upper() or "\x00" in key:
         raise ValueError("RESTORK_UPDATER_PUBLIC_KEY is missing or invalid")
@@ -60,8 +92,6 @@ def _updater_config(
         or parsed.fragment
     ):
         raise ValueError("RESTORK_UPDATER_ENDPOINT must be a credential-free HTTPS URL")
-    if version is not None and not _VERSION.fullmatch(version):
-        raise ValueError("application version is invalid")
     if signing_mode == "ad-hoc" and platform != "macos":
         raise ValueError("ad-hoc release signing is supported only for macOS")
     bundle: dict[str, object] = {"createUpdaterArtifacts": True}
@@ -151,17 +181,22 @@ def _update_manifest(
         raise ValueError("release tag or application version is invalid")
     if channel not in {"alpha", "stable"}:
         raise ValueError("release channel is invalid")
-    if trust not in {"protected", "ad-hoc"}:
+    if trust not in {"protected", "ad-hoc", "technical-preview"}:
         raise ValueError("release trust tier is invalid")
-    if trust == "ad-hoc" and channel != "alpha":
-        raise ValueError("ad-hoc artifacts are restricted to the alpha channel")
+    if trust in {"ad-hoc", "technical-preview"} and channel != "alpha":
+        raise ValueError("unprotected artifacts are restricted to the alpha channel")
     if commit != "unknown" and not re.fullmatch(r"[A-Fa-f0-9]{40}", commit):
         raise ValueError("release commit must be a full Git commit SHA")
-    signed = {
-        "darwin-aarch64": _signed_updater(directory, ("*.app.tar.gz",)),
-        "windows-x86_64": _signed_updater(directory, ("*-setup.exe", "*_setup.exe")),
-        "linux-x86_64": _signed_updater(directory, ("*.AppImage",)),
-    }
+    signed = {"darwin-aarch64": _signed_updater(directory, ("*.app.tar.gz",))}
+    if trust != "technical-preview":
+        signed.update(
+            {
+                "windows-x86_64": _signed_updater(
+                    directory, ("*-setup.exe", "*_setup.exe")
+                ),
+                "linux-x86_64": _signed_updater(directory, ("*.AppImage",)),
+            }
+        )
     platforms = {
         platform: {
             "signature": updater[1],
@@ -172,12 +207,18 @@ def _update_manifest(
     }
     if not platforms:
         raise ValueError("desktop release has no signed updater artifacts")
-    notes = (
-        f"Restork {tag} is an ad-hoc-signed macOS Alpha. "
-        "It has a Tauri updater signature but no Apple Developer ID or notarization."
-        if trust == "ad-hoc"
-        else f"Restork {tag}. See the GitHub release for verified release notes."
-    )
+    if trust == "technical-preview":
+        notes = (
+            f"Restork {tag} is a technical preview. The macOS app is ad-hoc signed and its "
+            "updater is independently signed; Windows and Linux installers are unsigned."
+        )
+    elif trust == "ad-hoc":
+        notes = (
+            f"Restork {tag} is an ad-hoc-signed macOS Alpha. "
+            "It has a Tauri updater signature but no Apple Developer ID or notarization."
+        )
+    else:
+        notes = f"Restork {tag}. See the GitHub release for verified release notes."
     payload = {
         "version": version,
         "notes": notes,
@@ -209,6 +250,15 @@ def _update_manifest(
         "commit": commit,
         "channel": channel,
         "trust": trust,
+        "platform_trust": (
+            {
+                "darwin-aarch64": "ad-hoc+updater-signature",
+                "windows-x86_64": "unsigned",
+                "linux-x86_64": "unsigned",
+            }
+            if trust == "technical-preview"
+            else {}
+        ),
         "workflow_run": os.environ.get("GITHUB_RUN_ID", "local"),
         "updater_targets": sorted(platforms),
         "artifacts": artifact_records,

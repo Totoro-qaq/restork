@@ -1,34 +1,48 @@
+mod commands;
 #[cfg(unix)]
 mod diagnostics;
 #[cfg(windows)]
 #[path = "diagnostics_windows.rs"]
 mod diagnostics;
+mod external_link;
+mod native_secret;
+mod onboarding;
 #[cfg(unix)]
 mod supervisor;
 #[cfg(windows)]
 #[path = "supervisor_windows.rs"]
 mod supervisor;
 mod updates;
+mod vault_grant;
+mod workspace_grant;
 
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use light_file_dialog::dialog::{Dialog, SelectFolder};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager, RunEvent, State, WebviewWindow};
 #[cfg(not(debug_assertions))]
 use tauri_plugin_updater::UpdaterExt;
 
 use diagnostics::Diagnostics;
+use native_secret::{SecretPromptResult, configure_provider_secret};
+use onboarding::{OnboardingState, load_onboarding_state, save_onboarding_state};
 use supervisor::{
-    CoreProcess, configured_vault_dir, readiness_request, save_vault_dir, start_core,
+    CoreProcess, invalidate_vault_authority, readiness_request, start_core, start_core_with_vault,
 };
-use updates::{RecoveryArtifact, UpdateStorage, recovery_artifacts};
 #[cfg(not(debug_assertions))]
-use updates::{accepts_update, archive_verified_update};
+use updates::{BackgroundUpdateAction, accepts_update, background_update_action};
+use updates::{RecoveryArtifact, UpdateStorage, recovery_artifacts};
+use vault_grant::{configured_vault_dir, save_vault_dir, validate_vault_dir};
+use workspace_grant::issue_workspace_grant;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
 const HEARTBEAT_FAILURE_LIMIT: u8 = 3;
+const NATIVE_PROMPT_TTL: Duration = Duration::from_secs(5 * 60);
 #[cfg(not(debug_assertions))]
 const UPDATE_CHECK_DELAY: Duration = Duration::from_secs(10);
 
@@ -46,8 +60,7 @@ enum HeartbeatObservation {
 enum DesktopPhase {
     Starting,
     Ready,
-    #[cfg_attr(debug_assertions, allow(dead_code))]
-    Updating,
+    Switching,
     Failed,
 }
 
@@ -81,6 +94,55 @@ struct BrowserSessionInput {
     expires_at: String,
 }
 
+struct VaultCandidate {
+    id: String,
+    path: PathBuf,
+    label: String,
+    created_at: Instant,
+}
+
+#[derive(Serialize)]
+struct VaultConfigResponse {
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    grant_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    label: Option<String>,
+    mutable: bool,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum VaultCandidateResponse {
+    Cancelled,
+    Selected {
+        candidate_id: String,
+        label: String,
+        same_as_active: bool,
+    },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum VaultApplyResponse {
+    Switching { label: String },
+    Unchanged { label: String },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum SecretResponse {
+    Cancelled,
+    Saved { secret_ref: String },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum WorkspaceGrantResponse {
+    Cancelled,
+    Selected { grant_id: String, label: String },
+}
+
 struct DesktopInner {
     status: DesktopStatus,
     core: Option<CoreProcess>,
@@ -88,6 +150,9 @@ struct DesktopInner {
     browser_session: Option<BrowserSession>,
     origin: Option<String>,
     diagnostics: Option<Diagnostics>,
+    vault_candidate: Option<VaultCandidate>,
+    native_prompt_active: bool,
+    switch_generation: u64,
 }
 
 struct DesktopState {
@@ -107,6 +172,9 @@ impl Default for DesktopState {
                 browser_session: None,
                 origin: None,
                 diagnostics: None,
+                vault_candidate: None,
+                native_prompt_active: false,
+                switch_generation: 0,
             }),
         }
     }
@@ -121,182 +189,11 @@ impl DesktopState {
             inner.pairing_code = None;
             inner.browser_session = None;
             inner.origin = None;
+            inner.vault_candidate = None;
+            inner.native_prompt_active = false;
             inner.record("core_stopped");
         }
     }
-}
-
-#[tauri::command]
-fn desktop_status(state: State<'_, DesktopState>) -> Result<DesktopStatus, String> {
-    let inner = state
-        .inner
-        .lock()
-        .map_err(|_| "desktop_state_unavailable")?;
-    Ok(inner.status.clone())
-}
-
-#[tauri::command]
-fn desktop_session(
-    window: WebviewWindow,
-    state: State<'_, DesktopState>,
-) -> Result<DesktopSession, String> {
-    let inner = state
-        .inner
-        .lock()
-        .map_err(|_| "desktop_state_unavailable")?;
-    require_dashboard_window(&window, inner.origin.as_deref())?;
-    inner.record("browser_session_requested");
-    if let Some(session) = &inner.browser_session {
-        inner.record("browser_session_issued");
-        return Ok(DesktopSession::Token {
-            access_token: session.access_token.clone(),
-            expires_at: session.expires_at.clone(),
-        });
-    }
-    let session = inner
-        .pairing_code
-        .as_ref()
-        .map(|pairing_code| DesktopSession::Pairing {
-            pairing_code: pairing_code.clone(),
-        })
-        .ok_or_else(|| "desktop_session_unavailable".to_owned())?;
-    inner.record("browser_session_issued");
-    Ok(session)
-}
-
-#[tauri::command]
-fn desktop_store_session(
-    window: WebviewWindow,
-    state: State<'_, DesktopState>,
-    session: BrowserSessionInput,
-) -> Result<(), String> {
-    let mut inner = state
-        .inner
-        .lock()
-        .map_err(|_| "desktop_state_unavailable")?;
-    require_dashboard_window(&window, inner.origin.as_deref())?;
-    if !(32..=512).contains(&session.access_token.len())
-        || session
-            .access_token
-            .contains(|character: char| character.is_whitespace())
-        || !(20..=64).contains(&session.expires_at.len())
-        || !session.expires_at.contains('T')
-    {
-        return Err("desktop_session_shape_invalid".into());
-    }
-    inner.browser_session = Some(BrowserSession {
-        access_token: session.access_token,
-        expires_at: session.expires_at,
-    });
-    inner.pairing_code = None;
-    inner.record("browser_session_stored");
-    Ok(())
-}
-
-#[tauri::command]
-fn desktop_vault_dir(
-    app: AppHandle,
-    window: WebviewWindow,
-    state: State<'_, DesktopState>,
-) -> Result<Option<String>, String> {
-    let inner = state
-        .inner
-        .lock()
-        .map_err(|_| "desktop_state_unavailable")?;
-    require_dashboard_window(&window, inner.origin.as_deref())?;
-    let data_root = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| "vault_path_unavailable")?;
-    Ok(configured_vault_dir(&data_root).map(|path| path.to_string_lossy().into_owned()))
-}
-
-#[tauri::command]
-fn desktop_set_vault_dir(
-    app: AppHandle,
-    window: WebviewWindow,
-    state: State<'_, DesktopState>,
-    path: String,
-) -> Result<String, String> {
-    let inner = state
-        .inner
-        .lock()
-        .map_err(|_| "desktop_state_unavailable")?;
-    require_dashboard_window(&window, inner.origin.as_deref())?;
-    let data_root = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| "vault_path_unavailable")?;
-    let canonical = save_vault_dir(&data_root, &path).map_err(str::to_owned)?;
-    inner.record("vault_dir_configured");
-    Ok(canonical.to_string_lossy().into_owned())
-}
-
-#[tauri::command]
-fn desktop_retry(app: AppHandle, state: State<'_, DesktopState>) -> Result<(), String> {
-    {
-        let mut inner = state
-            .inner
-            .lock()
-            .map_err(|_| "desktop_state_unavailable")?;
-        if !matches!(inner.status.phase, DesktopPhase::Failed) {
-            return Err("desktop_retry_not_available".into());
-        }
-        inner.status = DesktopStatus {
-            phase: DesktopPhase::Starting,
-            message: "Retrying with a new private local port…".into(),
-        };
-        inner.pairing_code = None;
-        inner.browser_session = None;
-        inner.origin = None;
-    }
-    launch_core(app);
-    Ok(())
-}
-
-#[tauri::command]
-fn desktop_quit(app: AppHandle) {
-    app.exit(0);
-}
-
-#[tauri::command]
-fn desktop_update_recovery(
-    app: AppHandle,
-    window: WebviewWindow,
-    state: State<'_, DesktopState>,
-) -> Result<Vec<RecoveryArtifact>, String> {
-    let inner = state
-        .inner
-        .lock()
-        .map_err(|_| "desktop_state_unavailable")?;
-    require_dashboard_window(&window, inner.origin.as_deref())?;
-    let data_root = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| "update_recovery_unavailable")?;
-    let storage = UpdateStorage::open(&data_root).map_err(str::to_owned)?;
-    Ok(recovery_artifacts(&storage))
-}
-
-fn require_dashboard_window(
-    window: &WebviewWindow,
-    expected_origin: Option<&str>,
-) -> Result<(), String> {
-    if window.label() != "main" {
-        return Err("desktop_window_not_allowed".into());
-    }
-    let expected = expected_origin.ok_or("desktop_origin_unavailable")?;
-    let url = window.url().map_err(|_| "desktop_origin_unavailable")?;
-    let actual = format!(
-        "{}://{}:{}",
-        url.scheme(),
-        url.host_str().unwrap_or_default(),
-        url.port_or_known_default().unwrap_or_default()
-    );
-    if actual != expected || url.path() != "/" {
-        return Err("desktop_origin_not_allowed".into());
-    }
-    Ok(())
 }
 
 fn launch_core(app: AppHandle) {
@@ -524,49 +421,12 @@ fn launch_update_check(app: AppHandle) {
                 }
                 return;
             }
-            let Ok(bytes) = update.download(|_, _| {}, || {}).await else {
-                if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
-                    inner.record("update_download_failed");
+            match background_update_action() {
+                BackgroundUpdateAction::NotifyOnly => {
+                    if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
+                        inner.record("update_available");
+                    }
                 }
-                return;
-            };
-            if archive_verified_update(&storage, &update.version, &update.target, &bytes).is_err() {
-                if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
-                    inner.record("update_recovery_archive_failed");
-                }
-                return;
-            }
-
-            let state = app.state::<DesktopState>();
-            if let Ok(mut inner) = state.inner.lock() {
-                inner.status = DesktopStatus {
-                    phase: DesktopPhase::Updating,
-                    message: "Installing a verified Restork update…".into(),
-                };
-                inner.record("update_verified");
-                if let Some(mut core) = inner.core.take() {
-                    core.terminate();
-                }
-                inner.pairing_code = None;
-                inner.browser_session = None;
-                inner.origin = None;
-            } else {
-                return;
-            }
-            navigate_to_loader(&app);
-            if update.install(bytes).is_ok() {
-                if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
-                    inner.record("update_installed");
-                }
-                app.restart();
-            } else if let Ok(mut inner) = app.state::<DesktopState>().inner.lock() {
-                inner.status = DesktopStatus {
-                    phase: DesktopPhase::Failed,
-                    message:
-                        "The verified update could not be installed. Retry Restork Core or quit."
-                            .into(),
-                };
-                inner.record("update_install_failed");
             }
         });
     });
@@ -588,14 +448,20 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(DesktopState::default())
         .invoke_handler(tauri::generate_handler![
-            desktop_status,
-            desktop_session,
-            desktop_store_session,
-            desktop_vault_dir,
-            desktop_set_vault_dir,
-            desktop_retry,
-            desktop_quit,
-            desktop_update_recovery,
+            commands::desktop_status,
+            commands::desktop_session,
+            commands::desktop_store_session,
+            commands::desktop_vault_config,
+            commands::desktop_choose_vault,
+            commands::desktop_apply_vault,
+            commands::desktop_choose_workspace,
+            commands::desktop_configure_provider_secret,
+            commands::desktop_onboarding_state,
+            commands::desktop_set_onboarding_dismissed,
+            external_link::desktop_open_external,
+            commands::desktop_retry,
+            commands::desktop_quit,
+            commands::desktop_update_recovery,
         ])
         .setup(|app| {
             let diagnostics = Diagnostics::create(app.handle()).ok();

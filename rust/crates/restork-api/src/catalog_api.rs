@@ -364,7 +364,7 @@ struct AiReportDraftOutput {
     entries: Vec<AiReportEntryOutput>,
 }
 
-fn sanitize_ai_draft_fragment(value: &str, maximum_chars: usize) -> String {
+pub(crate) fn sanitize_ai_draft_fragment(value: &str, maximum_chars: usize) -> String {
     value
         .chars()
         .filter(|character| !character.is_control())
@@ -1020,20 +1020,18 @@ pub(crate) async fn compose_deck_from_report(
         Ok(audience) => audience,
         Err(_) => return invalid_deliverable(),
     };
-    let theme = match ThemeRef::new(
-        "restork-print",
-        1,
-        "4d727e65ee14449ed3e5fc2c8b58eab621946b6693ef86d1a3dcbf61b7f80f56",
-    ) {
+    let theme_id = payload.theme_id.as_deref().unwrap_or("restork-print");
+    let (theme, theme_snapshot) = match deck_theme(&storage, theme_id) {
         Ok(theme) => theme,
-        Err(_) => return invalid_deliverable(),
+        Err(response) => return response,
     };
-    let deck = match DeckSpec::build(
+    let deck = match DeckSpec::build_with_theme_snapshot(
         &payload.deck_id,
         payload.revision,
         payload.language,
         audience,
         theme,
+        theme_snapshot,
         &ledger,
         Vec::<AssetRef>::new(),
         claims,
@@ -1066,6 +1064,7 @@ pub(crate) async fn compose_deck_from_report(
         Err(error) => storage_error_response(error),
     }
 }
+
 pub(crate) async fn list_deliverables(State(state): State<ApiState>, request: Request) -> Response {
     if let Err(response) = authorize(&state.authority, request.headers(), DELIVERABLES_READ) {
         return *response;
@@ -1087,6 +1086,7 @@ pub(crate) async fn list_deliverables(State(state): State<ApiState>, request: Re
         Err(error) => storage_error_response(error),
     }
 }
+
 pub(crate) async fn preview_deliverable_render(
     State(state): State<ApiState>,
     Path((deliverable_id, revision)): Path<(String, i64)>,

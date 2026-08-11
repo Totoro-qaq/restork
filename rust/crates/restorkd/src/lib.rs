@@ -1,4 +1,8 @@
 //! Process lifecycle and loopback listener ownership for `restorkd`.
+//!
+//! The daemon binds one local listener, owns the scheduler and database,
+//! reports readiness to the desktop shell, and exits when its parent lease or
+//! shutdown signal ends. It is the only Core process the desktop app may own.
 
 pub mod cli;
 pub mod desktop;
@@ -9,9 +13,9 @@ use std::{
     ffi::OsStr,
     fmt,
     future::Future,
-    io,
+    io::{self, Read},
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
@@ -27,13 +31,14 @@ use restork_storage::{Database, StorageError};
 use serde::Serialize;
 use tokio::net::TcpListener;
 
-pub const HELP: &str = "Restork local runtime\n\nUsage:\n  restorkd [--json] serve [--port <0-65535>] [--state-db <path>] [--vault-dir <path>]\n  restorkd provider configure [deepseek|glm|kimi|qwen|openrouter|open_ai_compatible]\n  restorkd doctor [--connect | --smoke | --web-search]\n  restorkd music apple configure\n  restorkd music apple configure-user-token\n  restorkd music apple status\n\nGlobal options:\n  --json        Emit the serve readiness record as JSON.\n  -h, --help    Show this help without executing a command.\n\nServe options:\n  --port <n>        Bind the chosen loopback port; 0 asks the OS for a free port.\n  --state-db <path> Open durable state at this path.\n  --vault-dir <dir> Grant read/write policy access only to this existing directory.\n\nThe listener is always bound to 127.0.0.1. Provider and Apple Music setup delegate secret prompts to native credential storage.\n";
+pub const HELP: &str = "Restork local runtime\n\nUsage:\n  restorkd [--json] serve [--port <0-65535>] [--state-db <path>] [--vault-dir <path>]\n  restorkd provider configure [deepseek|openai|anthropic|minimax|mimo|glm|kimi|qwen|openrouter|open_ai_compatible]\n  restorkd doctor [--connect | --smoke | --web-search]\n  restorkd music apple configure\n  restorkd music apple configure-user-token\n  restorkd music apple status\n\nGlobal options:\n  --json        Emit the serve readiness record as JSON.\n  -h, --help    Show this help without executing a command.\n\nServe options:\n  --port <n>                 Bind the chosen loopback port; 0 asks the OS for a free port.\n  --state-db <path>          Open durable state at this path.\n  --vault-dir <dir>          Grant access to an existing directory (source installs only).\n  --vault-grant-file <path> Read one owner-private desktop Vault descriptor.\n\nThe listener is always bound to 127.0.0.1. Provider and Apple Music setup delegate secret prompts to native credential storage.\n";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ServerConfig {
     pub port: u16,
     pub state_db: Option<PathBuf>,
     pub vault_dir: Option<PathBuf>,
+    pub vault_grant_file: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -44,6 +49,7 @@ pub enum ConfigError {
     UnknownArgument(String),
     MissingValue(&'static str),
     DuplicateArgument(&'static str),
+    ConflictingArguments(&'static str, &'static str),
     InvalidPort(String),
 }
 
@@ -57,6 +63,12 @@ impl fmt::Display for ConfigError {
             Self::MissingValue(argument) => write!(formatter, "missing value for `{argument}`"),
             Self::DuplicateArgument(argument) => {
                 write!(formatter, "argument `{argument}` may only be provided once")
+            }
+            Self::ConflictingArguments(left, right) => {
+                write!(
+                    formatter,
+                    "arguments `{left}` and `{right}` cannot be combined"
+                )
             }
             Self::InvalidPort(port) => write!(formatter, "invalid port `{port}`"),
         }
@@ -82,6 +94,7 @@ impl ServerConfig {
         let mut port_seen = false;
         let mut state_db = None;
         let mut vault_dir = None;
+        let mut vault_grant_file = None;
         while let Some(argument) = args.next() {
             let argument = to_text(argument.as_ref())?;
             match argument {
@@ -120,13 +133,33 @@ impl ServerConfig {
                     }
                     vault_dir = Some(path);
                 }
+                "--vault-grant-file" => {
+                    if vault_grant_file.is_some() {
+                        return Err(ConfigError::DuplicateArgument("--vault-grant-file"));
+                    }
+                    let value = args
+                        .next()
+                        .ok_or(ConfigError::MissingValue("--vault-grant-file"))?;
+                    let path = PathBuf::from(value.as_ref());
+                    if path.as_os_str().is_empty() {
+                        return Err(ConfigError::MissingValue("--vault-grant-file"));
+                    }
+                    vault_grant_file = Some(path);
+                }
                 unknown => return Err(ConfigError::UnknownArgument(unknown.to_owned())),
             }
+        }
+        if vault_dir.is_some() && vault_grant_file.is_some() {
+            return Err(ConfigError::ConflictingArguments(
+                "--vault-dir",
+                "--vault-grant-file",
+            ));
         }
         Ok(Self {
             port,
             state_db,
             vault_dir,
+            vault_grant_file,
         })
     }
 }
@@ -380,6 +413,10 @@ impl From<StorageError> for StartupError {
 }
 
 pub async fn bind(config: ServerConfig) -> Result<BoundServer, StartupError> {
+    let vault_dir = resolve_vault_dir(
+        config.vault_dir.as_deref(),
+        config.vault_grant_file.as_deref(),
+    )?;
     let requested = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), config.port);
     let listener = TcpListener::bind(requested).await?;
     let address = listener.local_addr()?;
@@ -388,16 +425,6 @@ pub async fn bind(config: ServerConfig) -> Result<BoundServer, StartupError> {
     // unusable five minutes after pairing, because it has no renewal path.
     let authority = PairingAuthority::with_ttls(DEFAULT_PAIRING_TTL, DEFAULT_TOKEN_TTL)?;
     let cli_pairing_code = authority.new_pairing_code(Audience::Cli, CLI_SCOPES)?;
-    let vault_dir = config
-        .vault_dir
-        .map(|path| path.canonicalize())
-        .transpose()?;
-    if vault_dir.as_ref().is_some_and(|path| !path.is_dir()) {
-        return Err(StartupError::Io(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "--vault-dir must name an existing directory",
-        )));
-    }
     let state_db = match config.state_db {
         Some(path) => path,
         None => default_state_database()?,
@@ -411,6 +438,85 @@ pub async fn bind(config: ServerConfig) -> Result<BoundServer, StartupError> {
         storage,
         vault_dir,
     })
+}
+
+fn resolve_vault_dir(
+    vault_dir: Option<&Path>,
+    grant_file: Option<&Path>,
+) -> io::Result<Option<PathBuf>> {
+    if vault_dir.is_some() && grant_file.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Vault directory and desktop grant cannot be combined",
+        ));
+    }
+    let selected = match (vault_dir, grant_file) {
+        (Some(path), None) => path.to_path_buf(),
+        (None, Some(path)) => read_vault_grant(path)?,
+        (None, None) => return Ok(None),
+        (Some(_), Some(_)) => unreachable!("conflict handled above"),
+    };
+    // This is an explicit local capability root chosen by the process owner,
+    // either as a CLI argument or through an owner-private desktop grant file.
+    // Vault operations still confine all later relative paths to this root.
+    let canonical = selected.canonicalize()?;
+    if !canonical.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Vault grant must name an existing directory",
+        ));
+    }
+    Ok(Some(canonical))
+}
+
+fn read_vault_grant(path: &Path) -> io::Result<PathBuf> {
+    const MAX_GRANT_BYTES: u64 = 4_096;
+    let metadata = path.symlink_metadata()?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Vault grant descriptor must be a regular file",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Vault grant descriptor must be owner-private",
+            ));
+        }
+    }
+    if metadata.len() == 0 || metadata.len() > MAX_GRANT_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Vault grant descriptor has an invalid size",
+        ));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    std::fs::File::open(path)?
+        .take(MAX_GRANT_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_GRANT_BYTES || bytes.contains(&0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Vault grant descriptor is invalid",
+        ));
+    }
+    let value = std::str::from_utf8(&bytes).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Vault grant descriptor must be UTF-8",
+        )
+    })?;
+    if value.is_empty() || value.contains(['\r', '\n']) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Vault grant descriptor is invalid",
+        ));
+    }
+    Ok(PathBuf::from(value))
 }
 
 fn default_state_database() -> io::Result<PathBuf> {

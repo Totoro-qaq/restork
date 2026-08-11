@@ -1013,7 +1013,7 @@ pub(crate) fn provider_for_session(
         if data_class != DataClass::Public {
             return Err(error_response(
                 StatusCode::FORBIDDEN,
-                "the direct DeepSeek profile is public-only; create a governed profile for private data",
+                "the direct DeepSeek profile is public-only; create a profile that explicitly allows private data",
             ));
         }
         return configured_provider(state, profile_id);

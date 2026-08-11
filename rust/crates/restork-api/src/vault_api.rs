@@ -24,9 +24,41 @@ use restork_core::{auth::VAULT_READ, workspace::SafeWorkspace};
 use serde_json::{Value, json};
 
 use super::{
-    ApiState, authorize, bounded_usize_query, error_response, invalid_query, single_query_value,
-    sse_response,
+    ApiState, authorize, bounded_usize_query, error_response, invalid_query, sha256_hex,
+    single_query_value, sse_response,
 };
+
+/// Filesystem-safe slug for a Study artifact written into the Vault. Keeps
+/// letters and digits (including CJK), collapses other characters to dashes,
+/// and falls back to a run-derived suffix when nothing survives.
+pub(super) fn study_note_slug(outcome: &str, run_id: &str) -> String {
+    let mut slug = String::new();
+    let mut pending_dash = false;
+    let mut kept = 0_usize;
+    for ch in outcome.chars() {
+        if kept >= 48 {
+            break;
+        }
+        if ch.is_alphanumeric() {
+            if pending_dash && !slug.is_empty() {
+                slug.push('-');
+            }
+            slug.push(ch);
+            kept += 1;
+            pending_dash = false;
+        } else {
+            pending_dash = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        format!("run-{}", &sha256_hex(run_id.as_bytes())[..12])
+    } else {
+        slug
+    }
+}
 
 /// List Markdown notes in the explicitly granted Vault. This is deliberately
 /// separate from `/v1/search`: a file browser should not need session, memory,

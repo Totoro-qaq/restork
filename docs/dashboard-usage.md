@@ -20,8 +20,10 @@ model, weather, calendar, or music configuration. To connect an existing Vault e
 ```
 
 Open `http://127.0.0.1:7337`, enter the Web pairing code printed in the foreground terminal, and keep
-that Core process running. A remote URL, hosted Dashboard, browser extension, or cloud database is not
-part of V1.
+that Core process running. Refreshing the page or waking the device renews the local browser session
+without another pairing code for up to seven days. The access token remains in memory; a host-only,
+JavaScript-inaccessible resume cookie is used only by Core's token endpoint. A remote URL, hosted
+Dashboard, browser extension, or cloud database is not part of V1.
 
 To open the Rust-first Step 12–17 alpha instead:
 
@@ -37,7 +39,7 @@ and shutdown automatically.
 The Dashboard detects `zh-*` browser locales as Simplified Chinese and defaults every other locale to
 English. Use the visible `EN`/`中文` control on either the pairing page or workspace to switch. An
 explicit switch may persist only `restork.locale` with the literal value `en` or `zh-CN`; session
-tokens and Core data remain memory-only.
+tokens and Core data are never placed in Web Storage.
 
 ## Browse an Obsidian Vault
 
@@ -117,9 +119,14 @@ quarantine. Enabling it binds the exact reviewed content hash. The session tool 
 only tools already granted by that conversation's frozen Profile; selecting a result produces a
 real-tool permission preview and does not execute it.
 
-**Deliverables** builds Daily/Weekly Markdown drafts from explicit assertions and labels those facts
-as self-asserted. A report can freeze a cited DeckSpec outline. PPTX/PDF rendering is deliberately
-absent until the constrained renderer and final export approval gates pass.
+**Deliverables** has two built-in Core Skills. Reports can start from text you enter or from a
+provider you select; model drafts remain tied to the run facts supplied by Core. Presentations can
+start from a plain-language brief, optionally use an existing report, and let you choose the model,
+audience, slide count, and one of six bundled layouts. Restork shows a slide-by-slide outline before
+its native Rust renderer creates macro-free PPTX or PDF. Markdown reports can be downloaded directly.
+No Node, Python, LibreOffice, MCP server, or separately installed Skill is required for these paths.
+Optional extensions may add sources, charts, assets, templates, or alternate exporters without
+becoming a dependency of the built-in renderer.
 
 **Automation** creates named, time-zone-aware daily or weekly schedules. Health and daily-cache
 refreshes are no-model jobs. A user can also choose an already configured provider and describe the
@@ -140,7 +147,7 @@ are read-only local imports. The record rotates only after user interaction and 
 preferences. Empty configuration renders setup states and performs no daily-context request.
 
 Weather can be enabled from its settings dialog by entering a city/place name or by explicitly
-pressing **Use current location**. A city submit performs a governed Open-Meteo geocoding request;
+pressing **Use current location**. A city submit performs one Open-Meteo geocoding request through the outbound gateway;
 the location button calls browser geolocation only after that click and the browser/system consent
 prompt. Restork never infers a location from an IP address, and denying permission leaves city input
 usable. Disabling weather clears its provider and saved location. The browser does not retain the

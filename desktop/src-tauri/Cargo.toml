@@ -26,14 +26,21 @@ sha2 = "=0.10.9"
 tauri = { version = "=2.11.5", features = [] }
 tauri-plugin-single-instance = "=2.4.3"
 tauri-plugin-updater = "=2.10.1"
+light-file-dialog = "=3.21.3"
+zeroize = "=1.9.0"
+getrandom = "=0.4.3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "=3.7.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = [
   "Win32_Foundation",
   "Win32_Security",
+  "Win32_Security_Credentials",
   "Win32_Storage_FileSystem",
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_System_JobObjects",

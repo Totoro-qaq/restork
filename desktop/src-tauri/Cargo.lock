@@ -1952,6 +1952,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "light-file-dialog"
+version = "3.21.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0ff68a194d2c895e07893a1651c2babd69cf7301b297a5d5ad3e25e684a0d13"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2795,7 +2804,10 @@ dependencies = [
 name = "restork-desktop"
 version = "0.1.2"
 dependencies = [
+ "getrandom 0.4.3",
  "libc",
+ "light-file-dialog",
+ "security-framework",
  "semver",
  "serde",
  "serde_json",
@@ -2806,6 +2818,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]

@@ -2,9 +2,9 @@
 
 use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use super::sha256_hex;
+use super::{sha256_hex, state::ApiState};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -78,6 +78,22 @@ pub(super) fn github_radar_record(item: &Value) -> Option<NewRadarOwned> {
         stars_total: Some(i64::try_from(stars).unwrap_or(i64::MAX)),
         published_at: item["pushed_at"].as_str().map(ToOwned::to_owned),
     })
+}
+
+pub(super) fn bootstrap_radar(state: &ApiState) -> Result<Option<Value>, ()> {
+    let storage = state.storage.as_ref().ok_or(())?;
+    let configured = storage
+        .daily_cache("radar-config")
+        .map_err(|_| ())?
+        .is_some_and(|record| record.payload["enabled"].as_bool() == Some(true));
+    if !configured {
+        return Ok(None);
+    }
+    // GitHub star totals and Hacker News scores are not comparable. Keep the
+    // complete bounded refresh set in bootstrap so one high-scoring lane
+    // cannot make another configured lane look empty on first paint.
+    let items = storage.radar_items(50, 0).map_err(|_| ())?;
+    Ok(Some(json!({"configured": true, "items": items})))
 }
 
 fn github_repository_relevance(item: &Value) -> u32 {

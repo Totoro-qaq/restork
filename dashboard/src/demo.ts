@@ -10,6 +10,7 @@ import type {
   DashboardApi,
   DashboardSnapshot,
   DeckFromReportInputV2,
+  DeckDraftInputV2,
   ExtensionInstallPreviewV2,
   ManualReportInputV2,
   Mode,
@@ -66,7 +67,7 @@ const demoVaultNotes = new Map<string, string>([
   ],
   [
     "Inbox/Reading queue.md",
-    "# Reading queue\n\n- [ ] Compare bounded context strategies\n- [ ] Review MCP sandbox evidence\n",
+    "# Reading queue\n\n- [ ] Compare focused context strategies\n- [ ] Review MCP sandbox results\n",
   ],
 ]);
 
@@ -150,7 +151,7 @@ const researchArtifact: ResearchArtifact = {
   claims: [
     {
       claim_id: "claim-synthetic-1",
-      statement: "The fixture binds each grounded claim to a bounded evidence card.",
+      statement: "The fixture links each checked claim to a source card.",
       kind: "grounded",
       evidence_refs: ["evidence-synthetic-1"],
       inference_basis: null,
@@ -170,7 +171,7 @@ const researchArtifact: ResearchArtifact = {
     action: "append",
     relative_path: "Research/Agent Harness.md",
     expected_hash: "e".repeat(64),
-    markdown: "## Research update\n\n- **grounded:** Claims bind to bounded evidence cards. [evidence-synthetic-1]\n",
+    markdown: "## Research update\n\n- **checked:** Claims link back to their source cards. [evidence-synthetic-1]\n",
     markdown_hash: "f".repeat(64),
   },
   metrics: {
@@ -191,8 +192,8 @@ const workPlan: WorkPlanArtifact = {
   request_hash: "b".repeat(64),
   workspace_id: "workspace-" + "c".repeat(24),
   workspace_snapshot_hash: "d".repeat(64),
-  goal: "Add bounded validation to a synthetic module",
-  scope_summary: "Read-only synthetic workspace; 2 bounded text files frozen for verification.",
+  goal: "Add focused validation to a synthetic module",
+  scope_summary: "Read-only synthetic workspace; 2 text files selected for verification.",
   target_files: ["src/validation.py"],
   context_manifest: [{
     relative_path: "src/validation.py",
@@ -205,7 +206,7 @@ const workPlan: WorkPlanArtifact = {
     redactions: [],
   }],
   instruction_refs: ["README.md"],
-  constraints: ["Keep the target set bounded."],
+  constraints: ["Keep the target set focused."],
   non_goals: ["No deployment."],
   completion_criteria: ["produce a reviewable verified artifact"],
   plan_steps: [{
@@ -453,7 +454,7 @@ const snapshot: DashboardSnapshot = {
         analysis: "Selected from a deterministic daily rotation and a user-authored focus tag.",
         recommendation_reason: "Selected from the private synthetic playlist by the stable daily rotation.",
         song_analysis: "A public synthetic fixture used to demonstrate the reviewable analysis layout.",
-        popularity_reason: "Synthetic chart evidence is shown only to exercise the bounded discovery panel.",
+        popularity_reason: "Synthetic chart data is shown only to demonstrate the discovery panel.",
         language: "Cantonese",
         genre: "Pop",
         published_on: "2026-07-18",
@@ -582,7 +583,7 @@ const snapshot: DashboardSnapshot = {
         tools: [{
           id: "paper.search",
           name: "Search reviewed papers",
-          description: "Searches a bounded public paper index.",
+          description: "Searches a focused public paper index.",
           input_schema: { type: "object", properties: { query: { type: "string" } } },
         }, {
           id: "paper.details",
@@ -1442,6 +1443,25 @@ class DemoApi implements DashboardApi {
         source_report_id: input.report_id,
         audience: input.audience,
         slides: [{ title: "Synthetic deck", body: ["Evidence first", "Review before export"] }],
+      },
+      updated_at: demoTimestamp(),
+    };
+    workspace().deliverables.unshift(record);
+    return record;
+  }
+  async composeDeckDraft(input: DeckDraftInputV2): Promise<CatalogRecordV2> {
+    const record: CatalogRecordV2 = {
+      deliverable_id: input.deck_id,
+      kind: "deck",
+      state: "outline_review",
+      revision: input.revision,
+      artifact: {
+        theme: { theme_id: input.theme_id },
+        claims: { "claim:brief": { text: input.brief } },
+        slides: [
+          { slide_id: "slide:title", role: "title", action_title: input.title, claim_refs: [], speaker_notes: [] },
+          { slide_id: "slide:brief", role: "evidence", action_title: input.brief.slice(0, 100), claim_refs: ["claim:brief"], speaker_notes: [] },
+        ],
       },
       updated_at: demoTimestamp(),
     };

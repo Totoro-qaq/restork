@@ -10,8 +10,14 @@
   "permissions": [
     "allow-desktop-session",
     "allow-desktop-store-session",
-    "allow-desktop-vault-dir",
-    "allow-desktop-set-vault-dir",
+    "allow-desktop-vault-config",
+    "allow-desktop-choose-vault",
+    "allow-desktop-apply-vault",
+    "allow-desktop-choose-workspace",
+    "allow-desktop-configure-provider-secret",
+    "allow-desktop-onboarding-state",
+    "allow-desktop-set-onboarding-dismissed",
+    "allow-desktop-open-external",
     "allow-desktop-update-recovery"
   ]
 }
