@@ -29,6 +29,7 @@ mod daily_api;
 mod error;
 mod feature_api;
 mod http_middleware;
+mod memory_suggestion_api;
 mod presentation_api;
 mod radar;
 mod routes;
@@ -215,6 +216,18 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
     ApiRouteDescription {
         path: "/v1/runs/{run_id}/conversation",
         methods: &["GET", "POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/runs/{run_id}/summary-suggestion",
+        methods: &["GET"],
+    },
+    ApiRouteDescription {
+        path: "/v1/runs/{run_id}/summary-suggestion/accept",
+        methods: &["POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/runs/{run_id}/summary-suggestion/dismiss",
+        methods: &["POST"],
     },
     ApiRouteDescription {
         path: "/v1/approvals",
@@ -1685,6 +1698,12 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
         .as_ref()
         .and_then(|storage| storage.has_completed_run().ok())
         .unwrap_or(false);
+    let pending_run_summaries = state.storage.as_ref().map_or_else(
+        || serde_json::json!([]),
+        |storage| {
+            memory_suggestion_api::pending_run_summaries_json(storage, &Utc::now().to_rfc3339())
+        },
+    );
     let (approvals, approvals_status) = state.storage.as_ref().map_or_else(
         || (serde_json::json!([]), unavailable.clone()),
         |storage| bootstrap_storage_value(storage.approvals(true, 12, 0), serde_json::json!([])),
@@ -1754,6 +1773,7 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
         "firstRun": {
             "has_completed_run": has_completed_run,
         },
+        "pendingRunSummaries": pending_run_summaries,
         "approvals": approvals,
         "taskBoard": task_board,
         "radar": radar,

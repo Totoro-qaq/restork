@@ -1808,10 +1808,11 @@ describe("Rust conversation workspace", () => {
 
     expect(root.querySelector("[data-first-run]")).toBeNull();
     expect(root.querySelector<HTMLElement>('[data-view-panel="start"]')?.hidden).toBe(false);
-    expect(root.textContent).toContain("今天想研究、学习，还是完成一项工作？");
-    expect(root.textContent).toContain("Research");
-    expect(root.textContent).toContain("Study");
-    expect(root.textContent).toContain("Work");
+    expect(root.querySelector("#start-title")?.textContent).toMatch(/好|夜深了/);
+    expect(root.textContent).not.toContain("今天想研究、学习，还是完成一项工作？");
+    expect(root.querySelector(".start-mode-row")?.textContent).toContain("查资料");
+    expect(root.querySelector(".start-mode-row")?.textContent).toContain("学知识");
+    expect(root.querySelector(".start-mode-row")?.textContent).toContain("推进工作");
     expect(root.querySelector("[data-start-examples]")).not.toBeNull();
   });
 

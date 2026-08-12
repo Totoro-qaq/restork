@@ -42,6 +42,32 @@ pub struct NewMemoryRecord<'a> {
     pub occurred_at: &'a str,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct MemorySuggestion {
+    pub suggestion_id: String,
+    pub run_id: String,
+    pub mode: String,
+    pub summary: String,
+    pub data_class: String,
+    pub content_hash: String,
+    pub status: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub accepted_memory_id: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+pub struct NewMemorySuggestion<'a> {
+    pub suggestion_id: &'a str,
+    pub run_id: &'a str,
+    pub mode: &'a str,
+    pub summary: &'a str,
+    pub data_class: &'a str,
+    pub content_hash: &'a str,
+    pub created_at: &'a str,
+    pub expires_at: &'a str,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RadarRecord {
     pub item_id: String,
@@ -668,6 +694,161 @@ impl Database {
                 [source_id],
             )
             .map_err(Into::into)
+    }
+
+    pub fn offer_memory_suggestion(
+        &self,
+        suggestion: NewMemorySuggestion<'_>,
+    ) -> Result<MemorySuggestion, StorageError> {
+        validate_memory_suggestion(&suggestion)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        connection.execute(
+            "INSERT OR IGNORE INTO memory_suggestions (
+                suggestion_id, run_id, mode, summary, data_class, content_hash, status,
+                created_at, expires_at, accepted_memory_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, NULL)",
+            params![
+                suggestion.suggestion_id,
+                suggestion.run_id,
+                suggestion.mode,
+                suggestion.summary,
+                suggestion.data_class,
+                suggestion.content_hash,
+                suggestion.created_at,
+                suggestion.expires_at,
+            ],
+        )?;
+        suggestion_by_run(&connection, suggestion.run_id)?
+            .ok_or(StorageError::Invalid("memory suggestion did not persist"))
+    }
+
+    pub fn pending_memory_suggestion(
+        &self,
+        run_id: &str,
+        now: &str,
+    ) -> Result<Option<MemorySuggestion>, StorageError> {
+        validate_identifier(run_id)?;
+        validate_timestamp(now)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        expire_memory_suggestions(&connection, now)?;
+        let suggestion = suggestion_by_run(&connection, run_id)?;
+        Ok(suggestion.filter(|entry| entry.status == "pending"))
+    }
+
+    pub fn latest_pending_memory_suggestion(
+        &self,
+        now: &str,
+    ) -> Result<Option<MemorySuggestion>, StorageError> {
+        validate_timestamp(now)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        expire_memory_suggestions(&connection, now)?;
+        connection
+            .query_row(
+                "SELECT suggestion_id, run_id, mode, summary, data_class, content_hash, status,
+                        created_at, expires_at, accepted_memory_id
+                 FROM memory_suggestions
+                 WHERE status = 'pending'
+                 ORDER BY created_at DESC, suggestion_id DESC LIMIT 1",
+                [],
+                suggestion_from_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn accept_memory_suggestion(
+        &self,
+        run_id: &str,
+        memory_id: &str,
+        now: &str,
+    ) -> Result<MemoryRecord, StorageError> {
+        validate_identifier(run_id)?;
+        validate_identifier(memory_id)?;
+        validate_timestamp(now)?;
+        let mut connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        expire_memory_suggestions(&transaction, now)?;
+        let suggestion = suggestion_by_run(&transaction, run_id)?.ok_or(StorageError::Conflict(
+            "memory suggestion is no longer pending",
+        ))?;
+        if suggestion.status == "accepted"
+            && let Some(memory_id) = suggestion.accepted_memory_id.as_deref()
+        {
+            return memory_by_id(&transaction, memory_id)?
+                .ok_or(StorageError::Invalid("accepted memory disappeared"));
+        }
+        if suggestion.status != "pending" {
+            return Err(StorageError::Conflict(
+                "memory suggestion is no longer pending",
+            ));
+        }
+        let memory = NewMemoryRecord {
+            memory_id,
+            kind: "run_summary",
+            summary: &suggestion.summary,
+            provenance: "user",
+            data_class: &suggestion.data_class,
+            retention_class: "session",
+            expires_at: None,
+            run_id: Some(run_id),
+            source_id: None,
+            content_hash: &suggestion.content_hash,
+            occurred_at: now,
+        };
+        validate_memory(&memory)?;
+        transaction.execute(
+            "INSERT INTO memory_records (
+                memory_id, layer, kind, summary, provenance, data_class, retention_class,
+                created_at, updated_at, expires_at, last_accessed_at, run_id, source_id,
+                content_hash, version
+             ) VALUES (?1, 'episodic', ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8, ?7, ?9, ?10, ?11, 1)",
+            params![
+                memory.memory_id,
+                memory.kind,
+                memory.summary,
+                memory.provenance,
+                memory.data_class,
+                memory.retention_class,
+                memory.occurred_at,
+                memory.expires_at,
+                memory.run_id,
+                memory.source_id,
+                memory.content_hash,
+            ],
+        )?;
+        let changed = transaction.execute(
+            "UPDATE memory_suggestions
+             SET status = 'accepted', accepted_memory_id = ?1, summary = ''
+             WHERE run_id = ?2 AND status = 'pending'",
+            params![memory_id, run_id],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::Conflict(
+                "memory suggestion is no longer pending",
+            ));
+        }
+        let record = memory_by_id(&transaction, memory_id)?
+            .ok_or(StorageError::Invalid("memory disappeared"))?;
+        transaction.commit()?;
+        Ok(record)
+    }
+
+    pub fn dismiss_memory_suggestion(&self, run_id: &str, now: &str) -> Result<(), StorageError> {
+        validate_identifier(run_id)?;
+        validate_timestamp(now)?;
+        let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
+        expire_memory_suggestions(&connection, now)?;
+        let changed = connection.execute(
+            "UPDATE memory_suggestions SET status = 'dismissed', summary = ''
+             WHERE run_id = ?1 AND status = 'pending'",
+            [run_id],
+        )?;
+        if changed != 1 {
+            return Err(StorageError::Conflict(
+                "memory suggestion is no longer pending",
+            ));
+        }
+        Ok(())
     }
 
     pub fn upsert_radar(&self, item: NewRadarRecord<'_>) -> Result<RadarRecord, StorageError> {
@@ -1321,6 +1502,69 @@ fn conversation_turn_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value
         "total_tokens": row.get::<_, Option<i64>>(14)?,
         "binding": row.get::<_, String>(17)?,
     }))
+}
+
+fn validate_memory_suggestion(suggestion: &NewMemorySuggestion<'_>) -> Result<(), StorageError> {
+    if suggestion.suggestion_id.is_empty()
+        || suggestion.suggestion_id.len() > 256
+        || suggestion.run_id.is_empty()
+        || suggestion.summary.is_empty()
+        || suggestion.summary.len() > 800
+        || suggestion.summary.contains('\0')
+        || !matches!(suggestion.mode, "research" | "study" | "work")
+        || !valid_data_class(suggestion.data_class)
+        || !valid_hash(suggestion.content_hash)
+    {
+        return Err(StorageError::Invalid("invalid memory suggestion"));
+    }
+    validate_identifier(suggestion.run_id)?;
+    validate_timestamp(suggestion.created_at)?;
+    validate_timestamp(suggestion.expires_at)?;
+    Ok(())
+}
+
+fn expire_memory_suggestions(
+    connection: &rusqlite::Connection,
+    now: &str,
+) -> Result<(), StorageError> {
+    connection.execute(
+        "UPDATE memory_suggestions
+         SET status = 'expired', summary = ''
+         WHERE status = 'pending' AND expires_at <= ?1",
+        [now],
+    )?;
+    Ok(())
+}
+
+fn suggestion_by_run(
+    connection: &rusqlite::Connection,
+    run_id: &str,
+) -> Result<Option<MemorySuggestion>, StorageError> {
+    connection
+        .query_row(
+            "SELECT suggestion_id, run_id, mode, summary, data_class, content_hash, status,
+                    created_at, expires_at, accepted_memory_id
+             FROM memory_suggestions WHERE run_id = ?1",
+            [run_id],
+            suggestion_from_row,
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
+fn suggestion_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemorySuggestion> {
+    Ok(MemorySuggestion {
+        suggestion_id: row.get(0)?,
+        run_id: row.get(1)?,
+        mode: row.get(2)?,
+        summary: row.get(3)?,
+        data_class: row.get(4)?,
+        content_hash: row.get(5)?,
+        status: row.get(6)?,
+        created_at: row.get(7)?,
+        expires_at: row.get(8)?,
+        accepted_memory_id: row.get(9)?,
+    })
 }
 
 fn validate_memory(memory: &NewMemoryRecord<'_>) -> Result<(), StorageError> {

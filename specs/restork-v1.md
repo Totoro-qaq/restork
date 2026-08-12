@@ -809,6 +809,9 @@ The exact wire schema is versioned under `/v1`.
 | `GET` | `/v1/runs/{run_id}/conversation` | Read a bounded page of local visible turns |
 | `POST` | `/v1/runs/{run_id}/conversation` | Add one idempotent tool-free run conversation turn |
 | `POST` | `/v1/runs/{run_id}/cancel` | Cancel a run |
+| `GET` | `/v1/runs/{run_id}/summary-suggestion` | Read a pending opt-in run-summary preview, or 204 |
+| `POST` | `/v1/runs/{run_id}/summary-suggestion/accept` | Write one episodic `run_summary` after explicit consent |
+| `POST` | `/v1/runs/{run_id}/summary-suggestion/dismiss` | Discard the preview without writing memory |
 | `POST` | `/v1/approvals/{approval_id}` | Approve or reject the immutable action digest |
 | `POST` | `/v1/approvals/{approval_id}/revision` | Reject the old digest and request a newly previewed action |
 | `GET` | `/v1/tasks` | Aggregate Markdown tasks |

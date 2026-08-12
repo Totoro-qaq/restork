@@ -44,7 +44,8 @@ describe("Dashboard locales", () => {
     expect(root.textContent).toContain("Dashboard");
     expect(root.querySelector(".start-mode-row")?.textContent).toContain("Research");
     expect(root.querySelector(".sidebar .mode-grid")).toBeNull();
-    expect(root.textContent).toContain("What will you research, study, or finish today?");
+    expect(root.textContent).toMatch(/Good morning\./);
+    expect(root.textContent).not.toContain("What will you research, study, or finish today?");
     expect(root.textContent).toContain("SAVE API KEY SECURELY");
     expect(root.textContent).toContain("The native prompt stores the key in system credentials");
     expect(root.textContent).not.toContain("仪表盘");

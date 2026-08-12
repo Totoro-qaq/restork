@@ -6,7 +6,9 @@ import type {
   DashboardListKind,
   DashboardListPage,
   DashboardSnapshot,
+  MemoryRecord,
   Mode,
+  PendingRunSummary,
   RadarAction,
   RadarActionResult,
   RadarConfiguration,
@@ -976,6 +978,25 @@ export class LocalApiClient implements DashboardApi {
       true,
       `dashboard-run-cancel-${crypto.randomUUID()}`,
     );
+  }
+
+  async loadRunSummary(runId: string): Promise<PendingRunSummary | null> {
+    const path = `/v1/runs/${encodeURIComponent(runId)}/summary-suggestion`;
+    const response = await this.#fetch(path, { method: "GET", headers: { Accept: "application/json" } }, true);
+    if (response.status === 204) return null;
+    if (!response.ok) throw await apiError(response);
+    const body = await response.text();
+    return body ? JSON.parse(body) as PendingRunSummary : null;
+  }
+
+  async acceptRunSummary(runId: string): Promise<MemoryRecord> {
+    const path = `/v1/runs/${encodeURIComponent(runId)}/summary-suggestion/accept`;
+    return this.#request<MemoryRecord>("POST", path, {}, true, `dashboard-run-summary-accept-${crypto.randomUUID()}`);
+  }
+
+  async dismissRunSummary(runId: string): Promise<void> {
+    const path = `/v1/runs/${encodeURIComponent(runId)}/summary-suggestion/dismiss`;
+    await this.#request<void>("POST", path, {}, true, `dashboard-run-summary-dismiss-${crypto.randomUUID()}`);
   }
 
   async previewTask(taskId: string, completed: boolean): Promise<TaskMutationPreview> {

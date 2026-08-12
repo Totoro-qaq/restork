@@ -14,7 +14,8 @@
 
 <p align="center">
   <a href="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <a href="https://github.com/Totoro-qaq/restork/releases"><img src="https://img.shields.io/github/v/release/Totoro-qaq/restork?display_name=tag&amp;sort=semver" alt="Latest GitHub release"></a>
+  <a href="https://github.com/Totoro-qaq/restork/releases"><img src="https://img.shields.io/github/v/release/Totoro-qaq/restork?display_name=tag&amp;include_prereleases&amp;sort=semver" alt="Latest GitHub release"></a>
+  <a href="https://github.com/Totoro-qaq/restork/actions/workflows/unsigned-alpha.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/unsigned-alpha.yml/badge.svg" alt="Unsigned alpha packages"></a>
   <a href="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml"><img src="https://github.com/Totoro-qaq/restork/actions/workflows/release.yml/badge.svg" alt="Release provenance status"></a>
   <a href="./rust-toolchain.toml"><img src="https://img.shields.io/badge/MSRV-1.97.1-dea584.svg" alt="Minimum supported Rust version 1.97.1"></a>
   <a href="https://github.com/Totoro-qaq/restork/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Totoro-qaq/restork/ci.yml?branch=main&amp;label=CI%20%2F%20Dashboard" alt="Dashboard test status"></a>

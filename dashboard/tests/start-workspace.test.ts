@@ -73,13 +73,15 @@ describe("run-first start workspace", () => {
     expect(root.querySelector<HTMLElement>('[data-view-panel="start"]')?.hidden).toBe(false);
     expect(root.querySelector<HTMLElement>('[data-view-panel="overview"]')?.hidden).toBe(true);
     expect(root.querySelector<HTMLFormElement>("#start-run-form")).not.toBeNull();
-    expect(root.textContent).toContain("今天想研究、学习，还是完成一项工作？");
+    expect(root.textContent).toContain("早上好");
+    expect(root.textContent).not.toContain("今天想研究、学习，还是完成一项工作？");
     expect(root.textContent).not.toContain("选一种任务，说清想得到什么");
     expect(root.textContent).toContain("开始任务");
     expect(root.querySelectorAll(".start-mode-row [data-start-mode]")).toHaveLength(3);
-    expect(root.querySelector(".start-mode-row")?.textContent).toContain("研究");
-    expect(root.querySelector(".start-mode-row")?.textContent).toContain("学习");
-    expect(root.querySelector(".start-mode-row")?.textContent).toContain("工作");
+    expect(root.querySelector(".start-mode-row")?.textContent).toContain("查资料");
+    expect(root.querySelector(".start-mode-row")?.textContent).toContain("学知识");
+    expect(root.querySelector(".start-mode-row")?.textContent).toContain("推进工作");
+    expect(root.querySelector(".start-mode-row .icon")).toBeNull();
     expect(root.querySelector(".sidebar .mode-grid")).toBeNull();
     expect(root.querySelector(".sidebar .session")).toBeNull();
   });
@@ -106,16 +108,57 @@ describe("run-first start workspace", () => {
     expect(root.querySelector<HTMLElement>("[data-start-work-fields]")?.hidden).toBe(false);
   });
 
-  it("keeps operational state one click away", () => {
+  it("omits the status row when the workspace has nothing to do", () => {
     const root = render();
-    const links = [...root.querySelectorAll<HTMLButtonElement>("[data-start-status-view]")];
+    expect(root.querySelector(".start-status-row")).toBeNull();
+    expect(root.querySelector('[data-start-status-view="settings"]')).toBeNull();
+  });
 
-    expect(links.map((button) => button.dataset.startStatusView)).toEqual([
-      "settings",
-      "vault",
-      "runs",
-      "approvals",
-    ]);
+  it("shows only exceptional status items", () => {
+    const state = snapshot();
+    state.taskBoard.configured = false;
+    state.taskBoard.vault_configured = false;
+    state.runs.push({
+      summary: {
+        run_id: "run-active",
+        task_id: "task-active",
+        mode: "research",
+        state: "running",
+        state_version: 1,
+        stop_reason: null,
+        created_at: "2026-08-11T00:00:00Z",
+        updated_at: "2026-08-11T00:01:00Z",
+      },
+      task: null,
+      budget: null,
+    });
+    state.approvals.push({
+      approval_id: "approval-pending",
+      run_id: "run-active",
+      action_kind: "vault_write",
+      risk_class: "local_write",
+      human_summary: "Save a note",
+      action_digest: "a".repeat(64),
+      canonical_scope: "Research/Note.md",
+      resource_versions: {},
+      policy_version: "v1",
+      preview_ref: null,
+      nonce: "nonce",
+      expires_at: "2026-08-11T12:00:00Z",
+      decision: "pending",
+    });
+    const root = render(state);
+    expect([...root.querySelectorAll<HTMLButtonElement>("[data-start-status-view]")].map(
+      (button) => button.dataset.startStatusView,
+    )).toEqual(["vault", "runs", "approvals"]);
+  });
+
+  it("does not invent a DeepSeek option when no provider is configured", () => {
+    const state = snapshot();
+    state.provider = null;
+    const root = render(state);
+    expect(root.querySelector("#start-run-form select[name='provider_profile_id']")).toBeNull();
+    expect(root.querySelector("#start-run-form")?.textContent).not.toContain("DeepSeek");
   });
 
   it("retires examples after the first completed run", () => {
@@ -171,6 +214,12 @@ describe("run-first start workspace", () => {
     expect(submit?.textContent).toContain("先连接模型");
     expect(hint?.hidden).toBe(false);
     expect(goal?.value).toBe("保留这段目标");
+  });
+
+  it("hides the connect-model hint once a provider is already configured", () => {
+    const root = render();
+    expect(root.querySelector("#start-run-form select[name='provider_profile_id']")).not.toBeNull();
+    expect(root.querySelector<HTMLElement>("[data-start-provider-hint]")?.hidden).toBe(true);
   });
 
   it("submits with Enter, keeps Shift+Enter for a new line, and supports arrow-key modes", () => {
@@ -252,5 +301,120 @@ describe("run-first start workspace", () => {
     expect(root.querySelector<HTMLElement>("[data-start-workspace-native]")?.hidden).toBe(true);
     expect(root.querySelector<HTMLElement>("[data-start-workspace-web]")?.hidden).toBe(false);
     expect(root.querySelector<HTMLInputElement>("#start-work-root")?.required).toBe(true);
+  });
+
+  it("offers a default-off run summary after a completed task", () => {
+    const state = snapshot();
+    state.pendingRunSummaries = [{
+      suggestion_id: "run-summary-1",
+      run_id: "run-done",
+      mode: "research",
+      summary: "两篇论文对因果识别的分歧主要在识别假设。",
+      data_class: "personal",
+      expires_at: "2026-08-14T00:00:00Z",
+    }];
+    const root = document.createElement("main");
+    root.dataset.locale = "zh-CN";
+    root.innerHTML = workspaceMarkup(state, "zh-CN");
+    const accept = vi.fn(async () => undefined);
+    const dismiss = vi.fn(async () => undefined);
+    configureStartWorkspace(root, state, {
+      submit: () => undefined,
+      selectView: () => undefined,
+      acceptRunSummary: accept,
+      dismissRunSummary: dismiss,
+    });
+
+    const host = root.querySelector<HTMLElement>("[data-start-run-summary]");
+    expect(host?.hidden).toBe(false);
+    expect(host?.textContent).toContain("要把这次结论记成一条运行摘要吗？");
+    expect(host?.textContent).toContain("默认不记");
+    expect(host?.textContent).toContain("点「不用了」立即丢弃");
+    expect(root.querySelector("[data-view-panel='memory']")?.textContent).not.toContain("要把这次结论记成一条运行摘要吗？");
+    expect(root.querySelector("[data-start-summary-dismiss]")?.textContent).toBe("不用了");
+
+    root.querySelector<HTMLButtonElement>("[data-start-summary-dismiss]")?.click();
+    expect(dismiss).toHaveBeenCalledWith("run-done");
+  });
+
+  it("keeps the run summary visible when saving fails", async () => {
+    const state = snapshot();
+    state.pendingRunSummaries = [{
+      suggestion_id: "run-summary-1",
+      run_id: "run-done",
+      mode: "research",
+      summary: "两篇论文对因果识别的分歧主要在识别假设。",
+      data_class: "personal",
+      expires_at: "2026-08-14T00:00:00Z",
+    }];
+    const root = document.createElement("main");
+    root.dataset.locale = "zh-CN";
+    root.innerHTML = workspaceMarkup(state, "zh-CN");
+    configureStartWorkspace(root, state, {
+      submit: () => undefined,
+      selectView: () => undefined,
+      acceptRunSummary: () => Promise.reject(new Error("write failed")),
+    });
+
+    root.querySelector<HTMLButtonElement>("[data-start-summary-accept]")?.click();
+    const host = root.querySelector<HTMLElement>("[data-start-run-summary]");
+    await vi.waitFor(() => {
+      expect(host?.textContent).toContain("没能记下这条摘要，请再试一次。");
+    });
+    expect(host?.hidden).toBe(false);
+    expect(host?.querySelector("[data-start-summary-accept]")).not.toBeNull();
+  });
+
+  it("confirms after the user opts in to a run summary", async () => {
+    const state = snapshot();
+    state.pendingRunSummaries = [{
+      suggestion_id: "run-summary-1",
+      run_id: "run-done",
+      mode: "research",
+      summary: "A completed conclusion.",
+      data_class: "personal",
+      expires_at: "2026-08-14T00:00:00Z",
+    }];
+    const root = document.createElement("main");
+    root.dataset.locale = "zh-CN";
+    root.innerHTML = workspaceMarkup(state, "zh-CN");
+    configureStartWorkspace(root, state, {
+      submit: () => undefined,
+      selectView: () => undefined,
+      acceptRunSummary: async () => undefined,
+    });
+
+    root.querySelector<HTMLButtonElement>("[data-start-summary-accept]")?.click();
+    await vi.waitFor(() => {
+      expect(root.querySelector("[data-start-run-summary]")?.textContent).toContain("已记成运行摘要。");
+    });
+  });
+
+  it("does not show a run summary while another task is still running", () => {
+    const state = snapshot();
+    state.pendingRunSummaries = [{
+      suggestion_id: "run-summary-1",
+      run_id: "run-done",
+      mode: "research",
+      summary: "A completed conclusion.",
+      data_class: "personal",
+      expires_at: "2026-08-14T00:00:00Z",
+    }];
+    state.runs.push({
+      summary: {
+        run_id: "run-active",
+        task_id: "task-active",
+        mode: "research",
+        state: "running",
+        state_version: 1,
+        stop_reason: null,
+        created_at: "2026-08-11T00:00:00Z",
+        updated_at: "2026-08-11T00:01:00Z",
+      },
+      task: null,
+      budget: null,
+    });
+    const root = render(state);
+    expect(root.querySelector<HTMLElement>("[data-start-run-summary]")?.hidden).toBe(true);
   });
 });

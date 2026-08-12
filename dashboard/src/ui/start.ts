@@ -1,4 +1,4 @@
-import type { DashboardSnapshot, Mode } from "../api/types";
+import type { DashboardSnapshot, Mode, PendingRunSummary } from "../api/types";
 import type { Locale } from "../i18n";
 import { tr } from "../i18n";
 import { escapeMarkup } from "./dom";
@@ -22,25 +22,14 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
     .filter(Boolean)
     .sort()[0];
   const vaultReady = snapshot.taskBoard.vault_configured ?? snapshot.taskBoard.configured;
-  const providerRecords = snapshot.workspaceV2?.providers ?? [];
-  const providerOptions = providerRecords.length
-    ? providerRecords.map(({ provider }) => ({
-        id: provider.profile_id,
-        label: `${provider.display_name} · ${provider.model}`,
-      }))
-    : [{ id: "deepseek", label: snapshot.provider?.model ?? "DeepSeek" }];
-  const modelReady = providerRecords.length > 0 || snapshot.provider?.config_present === true;
+  const providerOptions = startProviderOptions(snapshot);
+  const modelReady = providerOptions.length > 0;
   const showExamples = snapshot.firstRun?.has_completed_run !== true;
+  const suggestion = active.length === 0 ? snapshot.pendingRunSummaries?.[0] : undefined;
 
   return `<section class="start-workspace" data-run-surface aria-labelledby="start-title">
     <div class="start-intro">
       <h2 id="start-title">${escapeMarkup(greeting)}</h2>
-    </div>
-
-    <div class="start-mode-row" role="group" aria-label="${tr(locale, "Task type", "任务类型")}">
-      ${startModeButton("research", tr(locale, "Research", "研究"), true, locale)}
-      ${startModeButton("study", tr(locale, "Study", "学习"), false, locale)}
-      ${startModeButton("work", tr(locale, "Work", "工作"), false, locale)}
     </div>
 
     <form id="start-run-form" class="start-run-form" data-provider-ready="${String(modelReady)}">
@@ -49,16 +38,22 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
         <label class="sr-only" for="start-goal">${tr(locale, "Task", "任务")}</label>
         <textarea id="start-goal" name="goal" required maxlength="8000" rows="1"
           autocomplete="off" placeholder="${escapeMarkup(startPlaceholder("research", locale))}"></textarea>
-        <button type="submit" data-start-submit>${tr(locale, "START TASK", "开始任务")}</button>
+        <button type="submit" data-start-submit
+          data-connect-label="${escapeMarkup(tr(locale, "Connect a model first", "先连接模型"))}">${tr(locale, "START TASK", "开始任务")}</button>
       </div>
-      <div class="start-inline-options">
+      <div class="start-mode-row" role="group" aria-label="${tr(locale, "Task type", "任务类型")}">
+        ${startModeButton("research", tr(locale, "Research", "查资料"), true, locale)}
+        ${startModeButton("study", tr(locale, "Study", "学知识"), false, locale)}
+        ${startModeButton("work", tr(locale, "Work", "推进工作"), false, locale)}
+      </div>
+      ${providerOptions.length ? `<div class="start-inline-options">
         <label>${tr(locale, "Model", "模型")}
           <select name="provider_profile_id" required>
             ${providerOptions.map((provider) => `<option value="${escapeMarkup(provider.id)}">${escapeMarkup(provider.label)}</option>`).join("")}
           </select>
         </label>
         <input type="hidden" name="context_data_class" value="public">
-      </div>
+      </div>` : `<input type="hidden" name="context_data_class" value="public">`}
       <p class="form-hint start-inline-fix" data-start-provider-hint ${modelReady ? "hidden" : ""}><span>${tr(
         locale,
         "Connect a model first. Your task text will stay here.",
@@ -115,21 +110,86 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
     </section>
     <div class="study-workspace" data-study-workspace aria-live="polite"></div>
     <div class="work-workspace" data-work-workspace aria-live="polite"></div>
+    ${runSummaryHostMarkup(suggestion, locale)}
 
     ${showExamples ? startExamples(locale) : startExamplesCompact(locale)}
 
-    <div class="start-status-row" aria-label="${tr(locale, "Workspace status", "工作台状态")}">
-      ${statusButton("settings", modelReady ? providerOptions[0]?.label ?? "" : tr(locale, "Choose a model", "选择模型"), locale)}
-      ${statusButton("vault", vaultReady ? tr(locale, "Knowledge ready", "知识库已连接") : tr(locale, "Choose a knowledge library", "选择知识库"), locale)}
-      ${statusButton("runs", tr(locale, `${active.length} active`, `${active.length} 个进行中`), locale)}
-      ${statusButton("approvals", approvalStatusLabel(pending.length, nextExpiry, locale), locale, pending.length > 0)}
-    </div>
+    ${startStatusRow(vaultReady, active.length, pending.length, nextExpiry, locale)}
   </section>`;
+}
+
+export function fillRunSummaryHost(
+  host: HTMLElement,
+  suggestion: PendingRunSummary | null,
+  locale: Locale,
+): void {
+  if (!suggestion) {
+    host.hidden = true;
+    host.removeAttribute("data-run-id");
+    host.replaceChildren();
+    return;
+  }
+  host.hidden = false;
+  host.dataset.runId = suggestion.run_id;
+  host.setAttribute("aria-live", "polite");
+  host.setAttribute("aria-label", tr(locale, "Optional run summary", "可选运行摘要"));
+  host.innerHTML = runSummaryCardInner(suggestion, locale);
+}
+
+function startProviderOptions(snapshot: DashboardSnapshot): Array<{ id: string; label: string }> {
+  const records = snapshot.workspaceV2?.providers ?? [];
+  if (records.length) {
+    return records.map(({ provider }) => ({
+      id: provider.profile_id,
+      label: `${provider.display_name} · ${provider.model}`,
+    }));
+  }
+  if (snapshot.provider?.config_present) {
+    return [{
+      id: snapshot.provider.provider,
+      label: snapshot.provider.model || snapshot.provider.provider,
+    }];
+  }
+  return [];
+}
+
+function startStatusRow(
+  vaultReady: boolean,
+  activeCount: number,
+  pendingCount: number,
+  nextExpiry: string | undefined,
+  locale: Locale,
+): string {
+  const items: string[] = [];
+  if (!vaultReady) {
+    items.push(statusButton(
+      "vault",
+      tr(locale, "Choose a knowledge library", "选择知识库"),
+      tr(locale, "Open knowledge library", "打开知识库"),
+    ));
+  }
+  if (activeCount > 0) {
+    items.push(statusButton(
+      "runs",
+      tr(locale, `${activeCount} active`, `${activeCount} 个进行中`),
+      tr(locale, "Open runs", "打开运行"),
+    ));
+  }
+  if (pendingCount > 0) {
+    items.push(statusButton(
+      "approvals",
+      approvalStatusLabel(pendingCount, nextExpiry, locale),
+      tr(locale, "Open approvals", "打开审批"),
+      true,
+    ));
+  }
+  if (!items.length) return "";
+  return `<div class="start-status-row" aria-label="${tr(locale, "Workspace status", "工作台状态")}">${items.join("")}</div>`;
 }
 
 function approvalStatusLabel(count: number, expiresAt: string | undefined, locale: Locale): string {
   const base = tr(locale, `${count} awaiting review`, `${count} 个待审批`);
-  if (!expiresAt || count === 0) return base;
+  if (!expiresAt) return base;
   const deadline = new Date(expiresAt);
   if (Number.isNaN(deadline.valueOf())) return base;
   const time = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(deadline);
@@ -137,17 +197,8 @@ function approvalStatusLabel(count: number, expiresAt: string | undefined, local
 }
 
 function startModeButton(mode: Mode, label: string, active: boolean, locale: Locale): string {
-  const icon = mode === "research" ? "R" : mode === "study" ? "S" : "W";
-  const description = {
-    research: tr(locale, "Research sources and keep citations", "查资料、核来源、留引用"),
-    study: tr(locale, "Learning paths and active recall", "学习路径和主动回忆"),
-    work: tr(locale, "Read-only plans and handoffs", "只读规划和交接包"),
-  }[mode];
   return `<button type="button" data-start-mode="${mode}" data-placeholder="${escapeMarkup(startPlaceholder(mode, locale))}"
-    aria-pressed="${String(active)}" class="${active ? "is-active" : ""}" tabindex="${active ? "0" : "-1"}">
-      <b class="icon ${mode}" aria-hidden="true">${icon}</b>
-      <span><strong>${escapeMarkup(label)}</strong><small>${escapeMarkup(description)}</small></span>
-    </button>`;
+    aria-pressed="${String(active)}" class="${active ? "is-active" : ""}" tabindex="${active ? "0" : "-1"}">${escapeMarkup(label)}</button>`;
 }
 
 function startExamplesCompact(locale: Locale): string {
@@ -178,7 +229,30 @@ function startExamples(locale: Locale): string {
   </div>`;
 }
 
-function statusButton(view: string, label: string, locale: Locale, urgent = false): string {
+function statusButton(view: string, label: string, ariaLabel: string, urgent = false): string {
   return `<button type="button" data-start-status-view="${view}" class="${urgent ? "is-urgent" : ""}"
-    aria-label="${escapeMarkup(tr(locale, `Open ${view}`, `打开${label}`))}">${escapeMarkup(label)}</button>`;
+    aria-label="${escapeMarkup(ariaLabel)}">${escapeMarkup(label)}</button>`;
+}
+
+function runSummaryHostMarkup(suggestion: PendingRunSummary | undefined, locale: Locale): string {
+  if (!suggestion) {
+    return `<aside class="start-run-summary" data-start-run-summary hidden></aside>`;
+  }
+  return `<aside class="start-run-summary" data-start-run-summary data-run-id="${escapeMarkup(suggestion.run_id)}"
+    aria-live="polite" aria-label="${tr(locale, "Optional run summary", "可选运行摘要")}">${runSummaryCardInner(suggestion, locale)}</aside>`;
+}
+
+function runSummaryCardInner(suggestion: PendingRunSummary, locale: Locale): string {
+  return `<h3>${tr(locale, "Save this conclusion as a run summary?", "要把这次结论记成一条运行摘要吗？")}</h3>
+    <blockquote><p>${escapeMarkup(suggestion.summary)}</p></blockquote>
+    <p class="fine">${tr(
+      locale,
+      "Not saved unless you choose. Closing discards it now; ignoring it expires in 24 hours. Never writes your name or habits.",
+      "默认不记。点「不用了」立即丢弃；不操作则 24 小时后过期。不会写入称呼或习惯。",
+    )}</p>
+    <p class="start-run-summary-status" data-start-summary-status role="status"></p>
+    <div class="start-run-summary-actions">
+      <button type="button" data-start-summary-dismiss>${tr(locale, "Don't save", "不用了")}</button>
+      <button type="button" data-start-summary-accept>${tr(locale, "Save summary", "记下这条")}</button>
+    </div>`;
 }
