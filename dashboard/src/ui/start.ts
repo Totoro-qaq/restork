@@ -38,9 +38,9 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
     </div>
 
     <div class="start-mode-row" role="group" aria-label="${tr(locale, "Task type", "任务类型")}">
-      ${startModeButton("research", "Research", true, locale)}
-      ${startModeButton("study", "Study", false, locale)}
-      ${startModeButton("work", "Work", false, locale)}
+      ${startModeButton("research", tr(locale, "Research", "研究"), true, locale)}
+      ${startModeButton("study", tr(locale, "Study", "学习"), false, locale)}
+      ${startModeButton("work", tr(locale, "Work", "工作"), false, locale)}
     </div>
 
     <form id="start-run-form" class="start-run-form" data-provider-ready="${String(modelReady)}">
@@ -116,7 +116,7 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
     <div class="study-workspace" data-study-workspace aria-live="polite"></div>
     <div class="work-workspace" data-work-workspace aria-live="polite"></div>
 
-    ${showExamples ? startExamples(locale) : ""}
+    ${showExamples ? startExamples(locale) : startExamplesCompact(locale)}
 
     <div class="start-status-row" aria-label="${tr(locale, "Workspace status", "工作台状态")}">
       ${statusButton("settings", modelReady ? providerOptions[0]?.label ?? "" : tr(locale, "Choose a model", "选择模型"), locale)}
@@ -144,10 +144,24 @@ function startModeButton(mode: Mode, label: string, active: boolean, locale: Loc
     work: tr(locale, "Read-only plans and handoffs", "只读规划和交接包"),
   }[mode];
   return `<button type="button" data-start-mode="${mode}" data-placeholder="${escapeMarkup(startPlaceholder(mode, locale))}"
-    aria-pressed="${String(active)}" class="${active ? "is-active" : ""}">
+    aria-pressed="${String(active)}" class="${active ? "is-active" : ""}" tabindex="${active ? "0" : "-1"}">
       <b class="icon ${mode}" aria-hidden="true">${icon}</b>
       <span><strong>${escapeMarkup(label)}</strong><small>${escapeMarkup(description)}</small></span>
     </button>`;
+}
+
+function startExamplesCompact(locale: Locale): string {
+  const examples: Array<[Mode, string, string]> = [
+    ["research", "Compare how two papers explain the same claim and keep the citations.", "对比两篇论文对同一结论的说法，并保留引用"],
+    ["study", "Build a practice set for distributed consistency from my notes.", "用我的笔记出一套分布式一致性练习"],
+    ["work", "Draft this week's runs into a weekly report.", "把这周的运行记录起草成一份周报"],
+  ];
+  return `<details class="start-examples start-examples-compact" data-start-examples><summary>${tr(locale, "Examples", "示例")}</summary>
+    ${examples.map(([mode, en, zh]) => {
+      const goal = escapeMarkup(tr(locale, en, zh));
+      return `<button type="button" data-start-example="${mode}" data-example-goal="${goal}">${goal}</button>`;
+    }).join("")}
+  </details>`;
 }
 
 function startExamples(locale: Locale): string {

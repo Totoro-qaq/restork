@@ -100,7 +100,7 @@ describe("responsive readability", () => {
   });
 
   it("keeps the Start greeting and long-form reading at a readable measure", () => {
-    expect(stylesheet).toMatch(/\.start-intro h2\s*\{[^}]*max-width:\s*28ch[^}]*font-size:\s*clamp\(1\.75rem,\s*2\.15vw,\s*2\.5rem\)/);
+    expect(stylesheet).toMatch(/\.start-intro h2\s*\{[^}]*max-width:\s*28ch[^}]*font-family:\s*var\(--font-display\)[^}]*font-size:\s*clamp\(1\.75rem,\s*2\.15vw,\s*2\.5rem\)/);
     expect(stylesheet).toMatch(/\.vault-reading-view\s*\{[^}]*max-width:\s*72ch[^}]*font-family:\s*var\(--font-reading\)[^}]*line-height:\s*1\.78/);
     const narrow = stylesheet.slice(stylesheet.indexOf("@media (max-width: 680px)"));
     expect(narrow).toMatch(/\.start-intro h2\s*\{[^}]*font-size:\s*clamp\(1\.65rem,\s*8vw,\s*2\.2rem\)/);
@@ -159,5 +159,16 @@ describe("responsive readability", () => {
     expect(stylesheet).toMatch(/\.todo-trash-list\s*\{[^}]*max-height:/);
     expect(stylesheet).toMatch(/\.approval-list\s*\{[^}]*max-height:[^}]*overflow-y:\s*auto/);
     expect(stylesheet).toMatch(/\.trace-iterations,[\s\S]*?\.study-path\s*\{[^}]*max-height:[^}]*overflow-y:\s*auto/);
+  });
+
+  it("keeps the command palette filterable and accessible", () => {
+    expect(stylesheet).toMatch(/\.command-palette-results button\[hidden\]\s*\{[^}]*display:\s*none/);
+    expect(stylesheet).toMatch(/\.command-palette-results button:hover\s*\{[^}]*background:/);
+    expect(stylesheet).toMatch(/\.command-palette-results button\[aria-selected="true"\]\s*\{[^}]*border-color:/);
+  });
+
+  it("keeps the start mode active state visible and the submit button actionable when unready", () => {
+    expect(stylesheet).toMatch(/\.start-mode-row button\.is-active\s*\{[^}]*inset 3px 0 0 var\(--brand\)/);
+    expect(stylesheet).toMatch(/\.start-compose-row button\[data-action="open-settings"\]\s*\{[^}]*background:/);
   });
 });

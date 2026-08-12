@@ -1681,16 +1681,36 @@ describe("Rust conversation workspace", () => {
     if (!query) throw new Error("command palette query");
     query.value = "设置";
     query.dispatchEvent(new Event("input", { bubbles: true }));
-    const result = [...dialog.querySelectorAll<HTMLButtonElement>("[data-command-item]")]
-      .find((button) => !button.hidden);
-    expect(result?.textContent).toContain("设置");
-    result?.click();
+    const visible = [...dialog.querySelectorAll<HTMLButtonElement>("[data-command-item]")]
+      .filter((button) => !button.hidden);
+    expect(visible.length).toBeGreaterThan(0);
+    expect(visible[0]?.textContent).toContain("设置");
+    expect(query.getAttribute("aria-activedescendant")).toBe(visible[0]?.id);
+    visible[0]?.click();
     expect(dialog.open).toBe(false);
     expect(root.querySelector<HTMLElement>('[data-view-panel="settings"]')?.hidden).toBe(false);
     expect(window.localStorage.length).toBe(0);
     root.remove();
     window.localStorage.clear();
     window.sessionStorage.clear();
+  });
+
+  it("shows an empty state and keeps the dialog open on Enter with no matches", () => {
+    const root = document.createElement("main");
+    mountDashboard(root, { api: fakeApi(), snapshot: workspaceSnapshot(), locale: "zh-CN" });
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    const dialog = root.querySelector<HTMLDialogElement>("[data-command-palette]");
+    if (!dialog) throw new Error("command palette dialog");
+    const query = dialog?.querySelector<HTMLInputElement>("[data-command-palette-query]");
+    if (!query) throw new Error("command palette query");
+    query.value = "不存在的东西xyz";
+    query.dispatchEvent(new Event("input", { bubbles: true }));
+    const empty = dialog.querySelector<HTMLElement>("[data-command-palette-empty]");
+    expect(empty?.hidden).toBe(false);
+    expect(empty?.textContent).toContain("没有匹配项");
+    query.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(dialog.open).toBe(true);
+    root.remove();
   });
 
   it("uses native, recoverable setup controls instead of technical paths and secret references", async () => {
