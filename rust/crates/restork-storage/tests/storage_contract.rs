@@ -233,7 +233,7 @@ fn migration_creates_a_consistent_backup_and_is_idempotent_on_reopen() {
 
     let reopened = Database::open(&path).expect("reopen migrated database");
     assert!(reopened.migration_backup().is_none());
-    assert_eq!(reopened.migration_history().expect("history").len(), 14);
+    assert_eq!(reopened.migration_history().expect("history").len(), 15);
 }
 
 #[test]
