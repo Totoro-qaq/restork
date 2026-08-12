@@ -9,6 +9,7 @@ interface PaletteItem {
   view: string;
   mode?: Mode;
   keywords: string;
+  entityId?: string;
 }
 
 export function commandPaletteItems(
@@ -51,24 +52,28 @@ export function commandPaletteItems(
     detail: tr(locale, "Run", "运行记录"),
     view: "runs",
     keywords: `${task?.goal ?? ""} ${summary.run_id}`,
+    entityId: summary.run_id,
   })));
   commands.push(...snapshot.taskBoard.tasks.slice(0, 12).map((task) => ({
     label: task.text,
     detail: tr(locale, "Task", "任务"),
     view: "tasks",
     keywords: `${task.text} ${task.relative_path ?? ""}`,
+    entityId: task.relative_path ?? undefined,
   })));
   commands.push(...(snapshot.memory?.records ?? []).slice(0, 12).map((record) => ({
     label: record.summary || record.memory_id,
     detail: tr(locale, "Memory", "记忆"),
     view: "memory",
     keywords: `${record.summary ?? ""} ${record.memory_id}`,
+    entityId: record.memory_id,
   })));
   commands.push(...snapshot.radar.items.slice(0, 12).map((item) => ({
     label: item.title,
     detail: "Radar",
     view: "radar",
     keywords: `${item.title} ${item.summary ?? ""}`,
+    entityId: item.item_id,
   })));
   return commands;
 }
@@ -77,9 +82,10 @@ export function commandPaletteMarkup(snapshot: DashboardSnapshot, locale: Locale
   const items = commandPaletteItems(snapshot, locale);
   const itemMarkup = items.map((item, index) => {
     const modeAttribute = item.mode ? `data-mode-target="${item.mode}"` : "";
+    const entityAttribute = item.entityId ? `data-entity-id="${escapeMarkup(item.entityId)}"` : "";
     const search = escapeMarkup(item.keywords.toLocaleLowerCase());
-    return `<button type="button" role="option" data-command-item data-view-target="${item.view}"
-      ${modeAttribute} data-search="${search}" aria-selected="${String(index === 0)}">
+    return `<button type="button" role="option" id="command-palette-option-${index}" data-command-item data-view-target="${item.view}"
+      ${modeAttribute} ${entityAttribute} data-search="${search}" aria-selected="${String(index === 0)}">
         <span>${escapeMarkup(item.label)}</span><small>${escapeMarkup(item.detail)}</small>
       </button>`;
   }).join("");
@@ -89,10 +95,14 @@ export function commandPaletteMarkup(snapshot: DashboardSnapshot, locale: Locale
         <label id="command-palette-title" for="command-palette-query">${tr(locale, "Go to or start something", "搜索或发起任务")}</label>
         <button type="submit" value="cancel" aria-label="${tr(locale, "Close", "关闭")}">×</button>
       </header>
-      <input id="command-palette-query" type="search" autocomplete="off" placeholder="${tr(locale, "Type a page, task, run, or memory", "输入页面、任务、运行或记忆")}" data-command-palette-query>
+      <input id="command-palette-query" type="search" role="combobox" aria-expanded="true"
+        aria-controls="command-palette-results" aria-activedescendant="" autocomplete="off"
+        spellcheck="false" placeholder="${tr(locale, "Type a page, task, run, or memory", "输入页面、任务、运行或记忆")}"
+        data-command-palette-query>
       <div class="command-palette-results" role="listbox" aria-label="${tr(locale, "Results", "结果")}" data-command-palette-results>
         ${itemMarkup}
       </div>
+      <p class="command-palette-empty" data-command-palette-empty hidden>${tr(locale, "No matches", "没有匹配项")}</p>
       <p class="command-palette-help">${tr(locale, "↑↓ to move · Enter to open · Esc to close", "↑↓ 选择 · Enter 打开 · Esc 关闭")}</p>
     </form>
   </dialog>`;

@@ -77,9 +77,9 @@ describe("run-first start workspace", () => {
     expect(root.textContent).not.toContain("选一种任务，说清想得到什么");
     expect(root.textContent).toContain("开始任务");
     expect(root.querySelectorAll(".start-mode-row [data-start-mode]")).toHaveLength(3);
-    expect(root.querySelector(".start-mode-row")?.textContent).toContain("Research");
-    expect(root.querySelector(".start-mode-row")?.textContent).toContain("Study");
-    expect(root.querySelector(".start-mode-row")?.textContent).toContain("Work");
+    expect(root.querySelector(".start-mode-row")?.textContent).toContain("研究");
+    expect(root.querySelector(".start-mode-row")?.textContent).toContain("学习");
+    expect(root.querySelector(".start-mode-row")?.textContent).toContain("工作");
     expect(root.querySelector(".sidebar .mode-grid")).toBeNull();
     expect(root.querySelector(".sidebar .session")).toBeNull();
   });
@@ -120,7 +120,7 @@ describe("run-first start workspace", () => {
 
   it("retires examples after the first completed run", () => {
     expect(render(snapshot(false)).querySelector("[data-start-examples]")).not.toBeNull();
-    expect(render(snapshot(true)).querySelector("[data-start-examples]")).toBeNull();
+    expect(render(snapshot(true)).querySelector("[data-start-examples]")?.classList.contains("start-examples-compact")).toBe(true);
   });
 
   it("resumes the newest unfinished run and keeps cancellation available", () => {
@@ -166,7 +166,9 @@ describe("run-first start workspace", () => {
     const hint = root.querySelector<HTMLElement>("[data-start-provider-hint]");
 
     if (goal) goal.value = "保留这段目标";
-    expect(submit?.disabled).toBe(true);
+    expect(submit?.disabled).toBe(false);
+    expect(submit?.dataset.action).toBe("open-settings");
+    expect(submit?.textContent).toContain("先连接模型");
     expect(hint?.hidden).toBe(false);
     expect(goal?.value).toBe("保留这段目标");
   });

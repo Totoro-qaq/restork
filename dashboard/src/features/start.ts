@@ -23,6 +23,7 @@ export function configureStartWorkspace(
   const workRoot = form.querySelector<HTMLInputElement>("#start-work-root");
   const workspaceGrant = form.querySelector<HTMLInputElement>('[name="workspace_grant_id"]');
   const submit = form.querySelector<HTMLButtonElement>("[data-start-submit]");
+  if (submit && !submit.dataset.defaultLabel) submit.dataset.defaultLabel = submit.textContent ?? "";
   const providerHint = form.querySelector<HTMLElement>("[data-start-provider-hint]");
   const cancel = form.querySelector<HTMLButtonElement>("[data-start-cancel]");
   const providerReady = form.dataset.providerReady === "true";
@@ -41,6 +42,7 @@ export function configureStartWorkspace(
       const active = button.dataset.startMode === mode;
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", String(active));
+      button.tabIndex = active ? 0 : -1;
       if (active && goal) goal.placeholder = button.dataset.placeholder ?? "";
     });
     if (studyFields) studyFields.hidden = mode !== "study";
@@ -53,8 +55,17 @@ export function configureStartWorkspace(
       const blocked = !providerReady || studyBlocked;
       form.dataset.modeBlocked = String(blocked);
       const disabled = blocked || form.dataset.runBusy === "true";
-      submit.disabled = disabled;
-      submit.setAttribute("aria-disabled", String(disabled));
+      if (!providerReady) {
+        submit.disabled = false;
+        submit.setAttribute("aria-disabled", "false");
+        submit.dataset.action = "open-settings";
+        submit.textContent = "先连接模型";
+      } else {
+        submit.disabled = disabled;
+        submit.setAttribute("aria-disabled", String(disabled));
+        delete submit.dataset.action;
+        submit.textContent = submit.dataset.defaultLabel ?? "开始任务";
+      }
     }
   };
 
@@ -84,12 +95,17 @@ export function configureStartWorkspace(
     });
   });
   root.querySelectorAll<HTMLButtonElement>("[data-start-status-view]").forEach((button) => {
-    button.addEventListener("click", () => effects.selectView(button.dataset.startStatusView ?? "start"));
+    button.addEventListener("click", () => {
+      goal?.setAttribute("data-return-focus", "true");
+      effects.selectView(button.dataset.startStatusView ?? "start");
+    });
   });
   root.querySelector<HTMLButtonElement>("[data-start-open-settings]")?.addEventListener("click", () => {
+    goal?.setAttribute("data-return-focus", "true");
     effects.selectView("settings");
   });
   root.querySelector<HTMLButtonElement>("[data-start-open-vault]")?.addEventListener("click", () => {
+    goal?.setAttribute("data-return-focus", "true");
     effects.selectView("vault");
   });
   chooseWorkspace?.addEventListener("click", () => {
@@ -113,10 +129,18 @@ export function configureStartWorkspace(
   goal?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
     event.preventDefault();
+    if (submit?.dataset.action === "open-settings") {
+      effects.selectView("settings");
+      return;
+    }
     if (!submit?.disabled) form.requestSubmit();
   });
   form.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (submit?.dataset.action === "open-settings") {
+      effects.selectView("settings");
+      return;
+    }
     effects.submit(form);
   });
   cancel?.addEventListener("click", () => {
@@ -124,6 +148,11 @@ export function configureStartWorkspace(
     if (runId) effects.cancel?.(runId);
   });
   selectMode("research");
+
+  if (goal?.hasAttribute("data-return-focus")) {
+    goal.removeAttribute("data-return-focus");
+    goal.focus();
+  }
 
   const active = snapshot.runs.find(
     (entry) => !["completed", "failed", "cancelled"].includes(entry.summary.state),
