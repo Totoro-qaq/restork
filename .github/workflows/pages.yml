@@ -35,6 +35,7 @@ jobs:
           cp site/index.html site/zh-CN.html site/styles.css site/favicon.svg build/pages/
           cp assets/readme/architecture.svg assets/readme/architecture.zh-CN.svg build/pages/assets/readme/
           cp assets/readme/demo-poster.webp assets/readme/demo-poster.zh-CN.webp build/pages/assets/readme/
+          cp assets/readme/demo-hd.gif assets/readme/demo-hd.zh-CN.gif build/pages/assets/readme/
           cp assets/readme/social-preview.png assets/readme/social-preview.zh-CN.png build/pages/assets/readme/
           touch build/pages/.nojekyll
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
