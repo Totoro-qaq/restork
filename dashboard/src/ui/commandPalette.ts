@@ -86,7 +86,7 @@ export function commandPaletteMarkup(snapshot: DashboardSnapshot, locale: Locale
     const search = escapeMarkup(item.keywords.toLocaleLowerCase());
     return `<button type="button" role="option" id="command-palette-option-${index}" data-command-item data-view-target="${item.view}"
       ${modeAttribute} ${entityAttribute} data-search="${search}" aria-selected="${String(index === 0)}">
-        <span>${escapeMarkup(item.label)}</span><small>${escapeMarkup(item.detail)}</small>
+        <span title="${escapeMarkup(item.label)}">${escapeMarkup(item.label)}</span><small>${escapeMarkup(item.detail)}</small>
       </button>`;
   }).join("");
   return `<dialog class="command-palette" data-command-palette aria-labelledby="command-palette-title">
