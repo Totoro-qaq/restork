@@ -798,6 +798,7 @@ export interface PersonalSettingsRecord {
     timezone?: string;
     week_start?: string;
     theme?: string;
+    startup_page?: "start" | "dashboard";
   };
   version: number;
   updated_at: string | null;

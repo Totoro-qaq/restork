@@ -1551,5 +1551,20 @@ class DemoApi implements DashboardApi {
   async streamEvents(): Promise<void> {}
 }
 
+const demoParams = new URLSearchParams(window.location.search);
+const demoLocale = demoParams.get("locale") === "zh-CN" ? "zh-CN" : "en";
+if (snapshot.workspaceV2?.personal?.settings) {
+  snapshot.workspaceV2.personal.settings.locale = demoLocale;
+  snapshot.workspaceV2.personal.settings.startup_page = "dashboard";
+}
+
 const root = document.querySelector<HTMLElement>("#app");
-if (root) mountDashboard(root, { api: new DemoApi(), snapshot });
+if (root) {
+  mountDashboard(root, { api: new DemoApi(), snapshot, locale: demoLocale });
+  const requestedView = demoParams.get("view");
+  if (requestedView) {
+    requestAnimationFrame(() => {
+      root.querySelector<HTMLButtonElement>(`[data-view="${CSS.escape(requestedView)}"]`)?.click();
+    });
+  }
+}

@@ -33,10 +33,10 @@
     <main id="main">
       <section class="hero">
         <div class="hero-copy">
-          <p class="eyebrow">本地优先 · RUST CORE · MIT</p>
+          <p class="eyebrow">免费开源 · 本地文件 · MIT</p>
           <h1>查资料，学知识，<em>推进工作。</em></h1>
-          <p class="lede">Restork 可以检索本地 Markdown、查找公开资料、整理带出处的笔记，并在写回前
-            展示具体改动。MCP 工具运行在操作系统沙箱里；哪些内容值得存回 Vault，仍由你决定。</p>
+          <p class="lede">Restork 可以查找公开资料、整理本地 Markdown、安排学习和推进手头的工作。
+            要改文件时，它会先把具体内容列出来；你确认后才保存。</p>
           <div class="actions">
             <a class="primary" href="https://github.com/Totoro-qaq/restork/releases">下载桌面技术预览</a>
             <a href="https://github.com/Totoro-qaq/restork/blob/main/README.zh-CN.md#从源码运行贡献者">从源码构建</a>
@@ -50,7 +50,7 @@
       </section>
 
       <section id="why" class="paper-section">
-        <header><p class="eyebrow">一个 CORE，串起一天的事情</p><h2>研究、学习和工作，本来就会交织在一起。</h2></header>
+        <header><p class="eyebrow">一天里的几种事情</p><h2>研究、学习和工作，本来就会交织在一起。</h2></header>
         <div class="modes">
           <article><span class="mode research">R</span><h3>Research</h3><p>比较公开资料、记下出处，再决定要不要把整理好的 Markdown 笔记存进 Vault。</p></article>
           <article><span class="mode study">S</span><h3>Study</h3><p>以你的笔记为前提整理学习路径，练习不漏答案，再回去补真正漏掉的地方。</p></article>
@@ -65,25 +65,28 @@
       </section>
 
       <section class="proof">
-        <div><p class="eyebrow">写入前预览</p><h2>保存前看清具体内容。</h2><p>Restork 会先展示准备写入的内容。你的一次确认只对应当前版本，内容变了就需要重新确认。</p></div>
+        <div><p class="eyebrow">写入前预览</p><h2>保存前看清具体内容。</h2><p>Restork 会先展示准备写入的内容。这次确认只对应眼前这份改动；内容变了，需要重新确认。</p></div>
         <img src="./assets/readme/demo-poster.zh-CN.webp" alt="使用合成数据展示研究、审批、记忆、Radar 与每日上下文的 Restork 中文静态界面。" width="1600" height="1000" loading="lazy">
       </section>
 
       <section class="promises">
         <article><strong>01</strong><h3>Markdown 仍是普通文件</h3><p>指向你现有的 Obsidian Vault 或另选一个目录。笔记不会被锁进私有数据库，本地文件始终是真正的归宿。</p></article>
-        <article><strong>02</strong><h3>保存前确认</h3><p>Research 与 Study 笔记会先以预览呈现。一次确认只对应当前内容，不会静默覆盖，也不会自动执行。</p></article>
+        <article><strong>02</strong><h3>保存前确认</h3><p>Research 与 Study 笔记会先以预览呈现。一次确认只对应当前内容，不会悄悄覆盖文件。</p></article>
         <article><strong>03</strong><h3>MCP 跑在系统沙箱里</h3><p>macOS Seatbelt、Linux bubblewrap 与 Windows Job Objects 会限制工具能访问什么、能运行多久，不靠一段提示词碰运气。</p></article>
         <article><strong>04</strong><h3>思考是设置，不是泄漏</h3><p>可选 DeepSeek、GLM、Kimi、Qwen、Ollama、OpenRouter。界面只显示该模型真正支持的思考档位；私有思维链不展示、不留存。</p></article>
-        <article><strong>05</strong><h3>每一步都有记录</h3><p>模型做了什么、工具是否成功、哪里重试、你批准了什么，都能回头查看。中途停下，也能接着做。</p></article>
+        <article><strong>05</strong><h3>过程可以回头看</h3><p>调用过哪些工具、哪里重试、你确认了什么，都能回头查看。中途停下，也能接着做。</p></article>
         <article><strong>06</strong><h3>打开就用，退出不留后台</h3><p>Rust 桌面程序会自动启动并照看 Core；退出 Restork 时，相关进程会一起关闭。</p></article>
       </section>
 
       <section id="start" class="start">
         <div><p class="eyebrow">无需编译环境</p><h2>先下载，准备好时再连接自己的东西。</h2></div>
-        <pre><code>macOS   · DMG
-Windows · 安装 EXE 或 MSI
-Linux   · AppImage 或 DEB</code></pre>
+        <div class="download-grid" aria-label="三平台下载">
+          <a class="download-card" href="https://github.com/Totoro-qaq/restork/releases"><strong>macOS</strong><span>Apple Silicon · DMG</span><small>查看下载与安装说明</small></a>
+          <a class="download-card" href="https://github.com/Totoro-qaq/restork/releases"><strong>Windows</strong><span>Windows 10 / 11 x64 · EXE 或 MSI</span><small>查看下载与 SmartScreen 说明</small></a>
+          <a class="download-card" href="https://github.com/Totoro-qaq/restork/releases"><strong>Linux</strong><span>x64 · AppImage 或 DEB</span><small>查看下载与运行说明</small></a>
+        </div>
         <p>每个安装包都带有 Rust Core 与 Dashboard。Vault 和模型都可以以后再连；API Key 存进系统凭据库，保存时不会自己发起付费测试。刷新浏览器或重新打开应用后，Restork 会接回本地会话；运行中断时，也会从上一条收到的事件继续。Alpha 下载会清楚标出未签名，并附校验和与构建记录，方便你核对来源。</p>
+        <p>正式签名版会在应用里提醒更新：首次启动不检查，之后最多每天一次；只提醒，不会自己下载或重启。Stable 是默认通道，Beta 需要主动加入。你可以关闭当前版本的提醒，也可以在设置里完全关闭自动检查。</p>
         <p class="fine">Restork 免费、开源，由社区公开维护，希望帮研究者、开发者和每天跟资料打交道的人少走一点弯路。重要的 AI 结果仍需由人复核。请阅读<a href="https://github.com/Totoro-qaq/restork/blob/main/DISCLAIMER.zh-CN.md">为什么做 Restork，以及使用时需要知道的事</a>与<a href="https://github.com/Totoro-qaq/restork/blob/main/SECURITY.zh-CN.md">安全政策</a>。</p>
         <div class="actions">
           <a class="primary" href="https://github.com/Totoro-qaq/restork/releases">选择下载文件</a>

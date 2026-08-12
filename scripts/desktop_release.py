@@ -37,7 +37,9 @@ def _parser() -> argparse.ArgumentParser:
     manifest.add_argument("--tag", required=True)
     manifest.add_argument("--version", required=True)
     manifest.add_argument("--commit", default=os.environ.get("GITHUB_SHA", "unknown"))
-    manifest.add_argument("--channel", choices=("alpha", "stable"), default="alpha")
+    manifest.add_argument(
+        "--channel", choices=("alpha", "beta", "stable"), default="alpha"
+    )
     manifest.add_argument(
         "--trust",
         choices=("protected", "ad-hoc", "technical-preview"),
@@ -179,7 +181,7 @@ def _update_manifest(
         raise ValueError("repository must use OWNER/NAME")
     if not _RELEASE_TAG.fullmatch(tag) or not _VERSION.fullmatch(version):
         raise ValueError("release tag or application version is invalid")
-    if channel not in {"alpha", "stable"}:
+    if channel not in {"alpha", "beta", "stable"}:
         raise ValueError("release channel is invalid")
     if trust not in {"protected", "ad-hoc", "technical-preview"}:
         raise ValueError("release trust tier is invalid")
@@ -225,8 +227,15 @@ def _update_manifest(
         "pub_date": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "platforms": platforms,
     }
-    latest = directory / "latest.json"
-    latest.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    manifest_name = {
+        "stable": "latest.json",
+        "beta": "beta.json",
+        "alpha": "alpha.json",
+    }[channel]
+    updater_manifest = directory / manifest_name
+    updater_manifest.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     artifacts = sorted(
         path
         for path in directory.iterdir()

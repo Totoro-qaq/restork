@@ -18,7 +18,7 @@ pub use conversation::{
 };
 pub use error::{ContractError, ContractResult};
 pub use manifest::{BudgetLimits, FrozenRunManifestV2, PolicyRef, SourceBinding, VersionedHashRef};
-pub use personal::{DailyContext, PersonalSettings, Theme, TimeBand, WeekStart};
+pub use personal::{DailyContext, PersonalSettings, StartupPage, Theme, TimeBand, WeekStart};
 pub use profile::{ConfigurationProfile, DataClass, Mode};
 pub use prompt::{PromptLayer, PromptManifest, PromptRef, PromptRevision};
 pub use provider::{

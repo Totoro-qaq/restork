@@ -134,6 +134,20 @@ downgrade updates. A verified updater package is archived before install; Settin
 the two most recent recovery copies with their version, target, path, and SHA-256. Restork never
 executes one as an automatic downgrade and never places user data inside the application bundle.
 
+## Update reminders and install sources
+
+The current unsigned Alpha does not enable in-app installation. Future signed builds follow one
+policy: the first launch stays offline; from the second launch onward, an enabled check waits until
+Core is ready, then another 45 seconds, and runs at most once every 24 hours. Stable is the default;
+Beta is opt-in. Discovery only shows a notice. Restork never silently downloads, stops work,
+restarts, or installs an update.
+
+Dismissing a notice hides that exact version; a later release appears normally. Automatic checks can
+also be disabled in **Settings → Updates**. Every installation has one update owner: website DMG,
+EXE/MSI, and AppImage builds use Restork's signed updater; Microsoft Store owns Store installs;
+DEB/RPM stays with the system package manager; source checkouts receive instructions only. None of
+these paths asks an end user to install Rust, Node.js, Python, or a second updater.
+
 ## Checks required before release
 
 The public `v*-alpha.*` workflow verifies that an annotated tag belongs to `main`, builds all three

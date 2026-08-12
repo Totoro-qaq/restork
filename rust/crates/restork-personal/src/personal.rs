@@ -29,6 +29,14 @@ pub enum Theme {
     Dark,
 }
 
+/// Workspace shown after a local session is restored.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StartupPage {
+    Start,
+    Dashboard,
+}
+
 /// Optional personal display preferences. Empty values defer to the system.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct PersonalSettings {
@@ -37,6 +45,7 @@ pub struct PersonalSettings {
     timezone: Option<String>,
     week_start: Option<WeekStart>,
     theme: Option<Theme>,
+    startup_page: Option<StartupPage>,
 }
 
 #[derive(Deserialize)]
@@ -47,6 +56,7 @@ struct PersonalSettingsWire {
     timezone: Option<String>,
     week_start: Option<WeekStart>,
     theme: Option<Theme>,
+    startup_page: Option<StartupPage>,
 }
 
 impl PersonalSettings {
@@ -56,6 +66,7 @@ impl PersonalSettings {
         timezone: Option<&str>,
         week_start: Option<WeekStart>,
         theme: Option<Theme>,
+        startup_page: Option<StartupPage>,
     ) -> ContractResult<Self> {
         let locale = locale.map(validate_locale).transpose()?;
         let timezone = timezone.map(validate_timezone).transpose()?;
@@ -65,6 +76,7 @@ impl PersonalSettings {
             timezone,
             week_start,
             theme,
+            startup_page,
         })
     }
 
@@ -87,6 +99,11 @@ impl PersonalSettings {
     #[must_use]
     pub fn timezone(&self) -> Option<&str> {
         self.timezone.as_deref()
+    }
+
+    #[must_use]
+    pub const fn startup_page(&self) -> Option<StartupPage> {
+        self.startup_page
     }
 
     /// Display names enter prompts only through an explicitly opted-in profile.
@@ -114,6 +131,7 @@ impl<'de> Deserialize<'de> for PersonalSettings {
             wire.timezone.as_deref(),
             wire.week_start,
             wire.theme,
+            wire.startup_page,
         )
         .map_err(serde::de::Error::custom)
     }

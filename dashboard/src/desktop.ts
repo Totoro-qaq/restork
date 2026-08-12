@@ -46,13 +46,56 @@ export interface DesktopOnboardingState {
   dismissed: boolean;
 }
 
+export type DesktopUpdateChannel = "stable" | "beta";
+export type DesktopUpdatePhase =
+  | "idle"
+  | "checking"
+  | "up_to_date"
+  | "available"
+  | "downloading"
+  | "ready_to_restart"
+  | "waiting_for_idle"
+  | "installing"
+  | "completed"
+  | "install_failed"
+  | "check_failed"
+  | "verification_failed"
+  | "policy_rejected"
+  | "recovery_required";
+export type DesktopUpdateScheduleMode = "when_idle" | "now" | "next_launch";
+
+export interface DesktopUpdateStatus {
+  phase: DesktopUpdatePhase;
+  currentVersion: string;
+  availableVersion?: string;
+  progressPercent?: number;
+  owner: "restork" | "microsoft_store" | "system_package_manager" | "manual";
+  installSource:
+    | "website_dmg"
+    | "windows_store"
+    | "windows_direct"
+    | "linux_app_image"
+    | "linux_system_package"
+    | "source";
+  canSelfUpdate: boolean;
+  preferences: { channel: DesktopUpdateChannel; automaticChecks: boolean };
+  scheduledMode?: DesktopUpdateScheduleMode;
+  lastCheckedAtUnix?: number;
+  notificationDismissed: boolean;
+  detail?: string;
+}
+
 type NativeInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+type NativeUnlisten = () => void;
 
 declare global {
   interface Window {
     __TAURI__?: {
       core?: {
         invoke?: NativeInvoke;
+      };
+      event?: {
+        listen?: <T>(event: string, handler: (event: { payload: T }) => void) => Promise<NativeUnlisten>;
       };
     };
   }
@@ -69,6 +112,17 @@ export interface DesktopBridge {
   configureProviderSecret(providerKind: string): Promise<DesktopSecretResult>;
   onboardingState(): Promise<DesktopOnboardingState>;
   setOnboardingDismissed(dismissed: boolean): Promise<DesktopOnboardingState>;
+  updateStatus(): Promise<DesktopUpdateStatus>;
+  checkForUpdates(): Promise<DesktopUpdateStatus>;
+  downloadUpdate(version: string): Promise<DesktopUpdateStatus>;
+  cancelUpdateDownload(): Promise<DesktopUpdateStatus>;
+  scheduleUpdate(mode: DesktopUpdateScheduleMode): Promise<DesktopUpdateStatus>;
+  setUpdatePreferences(
+    channel: DesktopUpdateChannel,
+    automaticChecks: boolean,
+  ): Promise<DesktopUpdateStatus>;
+  dismissUpdate(version: string): Promise<DesktopUpdateStatus>;
+  subscribeUpdates(listener: (status: DesktopUpdateStatus) => void): Promise<NativeUnlisten>;
   openExternal(url: string): Promise<void>;
 }
 
@@ -189,6 +243,44 @@ export function detectDesktopBridge(
         throw new Error("The native onboarding bridge returned an invalid response");
       }
       return value;
+    },
+    async updateStatus(): Promise<DesktopUpdateStatus> {
+      return readUpdateStatus(await invoke<unknown>("desktop_update_status"));
+    },
+    async checkForUpdates(): Promise<DesktopUpdateStatus> {
+      return readUpdateStatus(await invoke<unknown>("desktop_check_for_updates"));
+    },
+    async downloadUpdate(version: string): Promise<DesktopUpdateStatus> {
+      return readUpdateStatus(await invoke<unknown>("desktop_download_update", { version }));
+    },
+    async cancelUpdateDownload(): Promise<DesktopUpdateStatus> {
+      return readUpdateStatus(await invoke<unknown>("desktop_cancel_update_download"));
+    },
+    async scheduleUpdate(mode: DesktopUpdateScheduleMode): Promise<DesktopUpdateStatus> {
+      return readUpdateStatus(await invoke<unknown>("desktop_schedule_update", { mode }));
+    },
+    async setUpdatePreferences(
+      channel: DesktopUpdateChannel,
+      automaticChecks: boolean,
+    ): Promise<DesktopUpdateStatus> {
+      return readUpdateStatus(await invoke<unknown>("desktop_set_update_preferences", {
+        preferences: { channel, automatic_checks: automaticChecks },
+      }));
+    },
+    async dismissUpdate(version: string): Promise<DesktopUpdateStatus> {
+      return readUpdateStatus(await invoke<unknown>("desktop_dismiss_update", { version }));
+    },
+    async subscribeUpdates(listener: (status: DesktopUpdateStatus) => void): Promise<NativeUnlisten> {
+      const listen = tauri?.event?.listen;
+      if (typeof listen !== "function") return () => undefined;
+      return listen<unknown>("restork://update-status", (event) => {
+        try {
+          listener(readUpdateStatus(event.payload));
+        } catch {
+          // A malformed native event is ignored; direct command responses still
+          // go through strict validation and surface an actionable error.
+        }
+      });
     },
     async openExternal(url: string): Promise<void> {
       await invoke("desktop_open_external", { url });
@@ -331,6 +423,61 @@ function isRecoveryArtifact(value: unknown): value is DesktopRecoveryArtifact {
     && typeof value.sha256 === "string"
     && value.sha256.length === 64
     && typeof value.verified_at_unix === "number";
+}
+
+function readUpdateStatus(value: unknown): DesktopUpdateStatus {
+  if (!isRecord(value) || !isRecord(value.preferences)) {
+    throw new Error("The native update bridge returned an invalid response");
+  }
+  const phases: DesktopUpdatePhase[] = [
+    "idle", "checking", "up_to_date", "available", "downloading",
+    "ready_to_restart", "waiting_for_idle", "installing", "completed",
+    "install_failed", "check_failed", "verification_failed", "policy_rejected",
+    "recovery_required",
+  ];
+  const owners: DesktopUpdateStatus["owner"][] = [
+    "restork", "microsoft_store", "system_package_manager", "manual",
+  ];
+  const sources: DesktopUpdateStatus["installSource"][] = [
+    "website_dmg", "windows_store", "windows_direct", "linux_app_image",
+    "linux_system_package", "source",
+  ];
+  if (
+    typeof value.phase !== "string"
+    || !phases.includes(value.phase as DesktopUpdatePhase)
+    || typeof value.current_version !== "string"
+    || typeof value.owner !== "string"
+    || !owners.includes(value.owner as DesktopUpdateStatus["owner"])
+    || typeof value.install_source !== "string"
+    || !sources.includes(value.install_source as DesktopUpdateStatus["installSource"])
+    || typeof value.can_self_update !== "boolean"
+    || (value.preferences.channel !== "stable" && value.preferences.channel !== "beta")
+    || typeof value.preferences.automatic_checks !== "boolean"
+    || typeof value.notification_dismissed !== "boolean"
+  ) {
+    throw new Error("The native update bridge returned an invalid response");
+  }
+  return {
+    phase: value.phase as DesktopUpdatePhase,
+    currentVersion: value.current_version,
+    availableVersion: typeof value.available_version === "string" ? value.available_version : undefined,
+    progressPercent: typeof value.progress_percent === "number" ? value.progress_percent : undefined,
+    owner: value.owner as DesktopUpdateStatus["owner"],
+    installSource: value.install_source as DesktopUpdateStatus["installSource"],
+    canSelfUpdate: value.can_self_update,
+    preferences: {
+      channel: value.preferences.channel as DesktopUpdateChannel,
+      automaticChecks: value.preferences.automatic_checks,
+    },
+    scheduledMode: typeof value.scheduled_mode === "string"
+      ? value.scheduled_mode as DesktopUpdateScheduleMode
+      : undefined,
+    lastCheckedAtUnix: typeof value.last_checked_at_unix === "number"
+      ? value.last_checked_at_unix
+      : undefined,
+    notificationDismissed: value.notification_dismissed,
+    detail: typeof value.detail === "string" ? value.detail : undefined,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

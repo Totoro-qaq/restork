@@ -42,6 +42,7 @@ import type { Locale } from "../i18n";
 import { alternateLocale, plural, tr } from "../i18n";
 import { providerDiagnosticMarkup } from "./provider";
 import { startWorkspaceMarkup } from "./start";
+import { commandPaletteMarkup } from "./commandPalette";
 import { deliverablesWorkspace } from "./presentations";
 export { presentationTemplateCardsMarkup, presentationTemplateTrashMarkup } from "./presentations";
 export { providerDiagnosticMarkup, providerErrorMarkup, providerWaitMarkup } from "./provider";
@@ -80,6 +81,9 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
   const memories = snapshot.memory?.records.filter((record) => record.summary) ?? [];
   const v2 = snapshot.workspaceV2;
   const greeting = personalGreeting(snapshot, locale);
+  const startupPage = snapshot.workspaceV2?.personal?.settings.startup_page === "dashboard"
+    ? "overview"
+    : "start";
   const runProviders = [
     { id: "deepseek", label: "DeepSeek V4 Pro / deepseek-v4-pro" },
     ...(v2?.providers ?? [])
@@ -96,8 +100,8 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
       <aside class="sidebar">
         <div class="brand"><h1>RES<span>TORK</span></h1><small>LOCAL-FIRST AGENT</small></div>
         <nav aria-label="${tr(locale, "Main navigation", "主导航")}">
-          ${navButton("start", "›", tr(locale, "Start", "开始"), true)}
-          ${navButton("overview", "R", tr(locale, "Dashboard", "仪表盘"), false)}
+          ${navButton("start", "›", tr(locale, "Start", "开始"), startupPage === "start")}
+          ${navButton("overview", "R", tr(locale, "Dashboard", "仪表盘"), startupPage === "overview")}
           ${navButton("runs", "›", tr(locale, "Runs", "运行"), false, active.length)}
           ${navButton("approvals", "✓", tr(locale, "Approvals", "审批"), false, pending.length)}
           ${navButton("tasks", "□", tr(locale, "Tasks", "任务"), false, incomplete.length)}
@@ -114,6 +118,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
       <main class="workspace" id="workspace-main" tabindex="-1">
         <header class="topline">
           <div class="topline-actions">
+            <button class="quiet-button command-palette-trigger" type="button" data-command-palette-open aria-keyshortcuts="Meta+K Control+K">⌘K</button>
             ${mailIndicator(snapshot, locale)}
             ${localeSwitch(locale)}
             <button class="quiet-button" id="refresh" type="button">${tr(locale, "REFRESH", "刷新")}</button>
@@ -130,7 +135,15 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
             aria-label="${tr(locale, "Dismiss message", "关闭提示")}"
           >×</button>
         </div>
+        <aside class="update-notice" data-update-notice hidden aria-live="polite">
+          <span data-update-notice-copy></span>
+          <div>
+            <button type="button" data-update-notice-open>${tr(locale, "VIEW UPDATE", "查看更新")}</button>
+            <button type="button" class="quiet-button" data-update-notice-dismiss>${tr(locale, "DISMISS THIS VERSION", "本版本不再提醒")}</button>
+          </div>
+        </aside>
         ${mailSettings(snapshot, locale)}
+        ${commandPaletteMarkup(snapshot, locale)}
         <section id="action-panel" class="action-panel" data-run-surface aria-labelledby="action-panel-title" hidden>
           <header class="action-panel-header">
             <div><small>${tr(locale, "NEW RUN", "新建运行")}</small><strong id="action-panel-title">${tr(locale, "Start a Research run", "新建 Research 运行")}</strong></div>
@@ -188,8 +201,8 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
           <div id="study-workspace" class="study-workspace" data-study-workspace aria-live="polite"></div>
           <div id="work-workspace" class="work-workspace" data-work-workspace aria-live="polite"></div>
         </section>
-        <section class="view is-visible" data-view-panel="start">${startWorkspaceMarkup(snapshot, locale, greeting)}</section>
-        <section class="view" data-view-panel="overview" hidden>
+        <section class="view ${startupPage === "start" ? "is-visible" : ""}" data-view-panel="start" ${startupPage === "start" ? "" : "hidden"}>${startWorkspaceMarkup(snapshot, locale, greeting)}</section>
+        <section class="view ${startupPage === "overview" ? "is-visible" : ""}" data-view-panel="overview" ${startupPage === "overview" ? "" : "hidden"}>
           <section class="metrics" aria-label="${tr(locale, "Run overview", "运行概览")}">
             ${metric("research", tr(locale, "Active runs", "进行中运行"), String(active.length), modeCounts(active, locale))}
             ${metric("approval", tr(locale, "Pending approvals", "待审批"), String(pending.length), tr(locale, "Single-use · expires", "单次能力 · 到期失效"))}
@@ -1201,6 +1214,7 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
           <label>${tr(locale, "Language", "语言")}<select name="locale"><option value="en" ${settings.locale === "en" ? "selected" : ""}>English</option><option value="zh-CN" ${settings.locale === "zh-CN" ? "selected" : ""}>简体中文</option></select></label>
           <label>${tr(locale, "Time zone", "时区")}<select name="timezone">${timeZoneOptions(settings.timezone, locale)}</select></label>
           <label>${tr(locale, "Theme", "主题")}<select name="theme"><option value="system">${tr(locale, "System", "跟随系统")}</option><option value="light" ${settings.theme === "light" ? "selected" : ""}>${tr(locale, "Light", "浅色")}</option><option value="dark" ${settings.theme === "dark" ? "selected" : ""}>${tr(locale, "Dark", "深色")}</option></select></label>
+          <label>${tr(locale, "Open on launch", "启动后打开")}<select name="startup_page"><option value="start" ${settings.startup_page !== "dashboard" ? "selected" : ""}>${tr(locale, "Start", "开始页")}</option><option value="dashboard" ${settings.startup_page === "dashboard" ? "selected" : ""}>${tr(locale, "Dashboard", "仪表盘")}</option></select></label>
           <button type="submit">${tr(locale, "SAVE LOCALLY", "保存到本地")}</button><p id="personal-settings-status" role="status"></p>
         </form>
         <p class="fine">${tr(locale, "Your display name is not sent to a model unless a run setup explicitly includes it.", "称呼默认不会发送给模型；只有你在运行配置中明确开启后才会包含它。")}</p>
@@ -1256,10 +1270,27 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
           <button type="submit" ${providers.length && activePrompt ? "" : "disabled"}>${tr(locale, "SAVE RUN SETUP", "保存运行配置")}</button><p id="configuration-profile-status" role="status">${providers.length && activePrompt ? "" : tr(locale, "Add a provider and activate instructions first.", "请先添加供应商并启用一份指令。")}</p>
         </form>
       </section>
-      <section class="settings-section"><header><div><small>UPDATES & RECOVERY</small><h3>${tr(locale, "Verified desktop recovery", "已验证的桌面恢复")}</h3></div></header>
-        <p>${tr(locale, "Restork keeps at most two updater packages after their Tauri signature has been verified. They are never executed as a downgrade automatically.", "Restork 最多保留两个已经通过 Tauri 签名校验的更新包，并且绝不会自动降级执行它们。")}</p>
+      <section class="settings-section desktop-updates" data-desktop-updates><header><div><small>DESKTOP UPDATES</small><h3>${tr(locale, "Updates", "版本更新")}</h3></div><span data-update-current>—</span></header>
+        <p data-update-owner>${tr(locale, "Checking how this installation receives updates…", "正在确认当前安装方式……")}</p>
+        <form class="update-preferences" data-update-preferences>
+          <label>${tr(locale, "Channel", "更新通道")}<select name="update_channel"><option value="stable">${tr(locale, "Stable", "正式版")}</option><option value="beta">Beta</option></select></label>
+          <label class="check-label"><input type="checkbox" name="automatic_checks" checked>${tr(locale, "Tell me when a new version is available", "发现新版本时提醒我")}</label>
+        </form>
+        <div class="update-actions">
+          <button type="button" data-update-check>${tr(locale, "CHECK NOW", "立即检查")}</button>
+          <button type="button" data-update-download hidden>${tr(locale, "DOWNLOAD & VERIFY", "下载并验证")}</button>
+          <button type="button" class="quiet-button" data-update-cancel hidden>${tr(locale, "CANCEL DOWNLOAD", "取消下载")}</button>
+        </div>
+        <progress data-update-progress max="100" value="0" hidden></progress>
+        <div class="update-actions" data-update-schedule-actions hidden>
+          <button type="button" data-update-schedule="next_launch">${tr(locale, "INSTALL NEXT LAUNCH", "下次启动安装")}</button>
+          <button type="button" class="quiet-button" data-update-schedule="when_idle">${tr(locale, "WHEN WORK FINISHES", "工作结束后安装")}</button>
+        </div>
+        <p data-update-message role="status" aria-live="polite">${tr(locale, "Loading update status…", "正在读取更新状态……")}</p>
+        <details class="update-recovery"><summary>${tr(locale, "Recovery copies", "恢复副本")}</summary><p>${tr(locale, "Restork keeps at most two packages after their Tauri signature has been verified. It never installs a downgrade on its own.", "Restork 最多保留两个通过 Tauri 签名校验的更新包，也不会自行安装旧版本。")}</p>
         <button type="button" data-update-recovery>${tr(locale, "SHOW RECOVERY COPIES", "查看恢复副本")}</button>
         <div id="update-recovery-results" class="settings-records" role="status"><p class="empty">${tr(locale, "Available in the signed desktop app.", "仅在已签名桌面应用中可用。")}</p></div>
+        </details>
       </section>
       <section class="settings-section" data-project-boundary><header><div><small>OPEN SOURCE</small><h3>${tr(locale, "About Restork & support", "关于 Restork 与支持")}</h3></div><span>MIT</span></header>
         <p>${tr(locale,
@@ -2612,7 +2643,7 @@ function eventSummary(event: RunEvent, locale: Locale): string {
 
 function navButton(view: string, icon: string, label: string, active: boolean, count?: number): string {
   const badge = count ? `<em data-nav-count="${view}" data-raw-count="${count}">${count}</em>` : "";
-  return `<button class="nav-item ${active ? "is-active" : ""}" type="button" data-view="${view}"${active ? ' aria-current="page"' : ""}><b class="icon">${icon}</b>${label}${badge}</button>`;
+  return `<button class="nav-item ${active ? "is-active" : ""}" type="button" data-view="${view}"${active ? ' aria-current="page"' : ""}><b class="icon" aria-hidden="true">${icon}</b>${label}${badge}</button>`;
 }
 
 function metric(kind: string, label: string, value: string, note: string): string {

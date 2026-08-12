@@ -18,6 +18,13 @@
     "allow-desktop-onboarding-state",
     "allow-desktop-set-onboarding-dismissed",
     "allow-desktop-open-external",
-    "allow-desktop-update-recovery"
+    "allow-desktop-update-recovery",
+    "allow-desktop-update-status",
+    "allow-desktop-check-for-updates",
+    "allow-desktop-download-update",
+    "allow-desktop-schedule-update",
+    "allow-desktop-cancel-update-download",
+    "allow-desktop-set-update-preferences",
+    "allow-desktop-dismiss-update"
   ]
 }

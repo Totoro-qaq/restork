@@ -337,7 +337,7 @@ jobs:
             dist/public-alpha/SHA256SUMS
             dist/public-alpha/release-manifest.json
             dist/public-alpha/restork.cdx.json
-            dist/public-alpha/latest.json
+            dist/public-alpha/alpha.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: restork-public-desktop-alpha
@@ -357,12 +357,12 @@ jobs:
         with:
           name: restork-public-desktop-alpha
           path: dist/publish
-      - name: Publish a clearly labeled desktop Alpha for the signed macOS updater endpoint
+      - name: Publish a clearly labeled desktop Alpha
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: >-
           gh release create "$GITHUB_REF_NAME" dist/publish/*
-          --repo "$GITHUB_REPOSITORY" --verify-tag --latest
+          --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease
           --title "Restork $GITHUB_REF_NAME — Desktop Technical Preview"
           --notes-file docs/unsigned-alpha-release.md

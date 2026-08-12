@@ -12,6 +12,9 @@ mod supervisor;
 #[cfg(windows)]
 #[path = "supervisor_windows.rs"]
 mod supervisor;
+mod update;
+mod update_commands;
+mod update_runtime;
 mod updates;
 mod vault_grant;
 mod workspace_grant;
@@ -21,21 +24,20 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use light_file_dialog::dialog::{Dialog, SelectFolder};
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Manager, RunEvent, State, WebviewWindow};
-#[cfg(not(debug_assertions))]
-use tauri_plugin_updater::UpdaterExt;
-
 use diagnostics::Diagnostics;
+use light_file_dialog::dialog::{Dialog, SelectFolder};
 use native_secret::{SecretPromptResult, configure_provider_secret};
 use onboarding::{OnboardingState, load_onboarding_state, save_onboarding_state};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use supervisor::{
     CoreProcess, invalidate_vault_authority, readiness_request, start_core, start_core_with_vault,
 };
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WebviewWindow};
+use update::UpdateCoordinator;
 #[cfg(not(debug_assertions))]
-use updates::{BackgroundUpdateAction, accepts_update, background_update_action};
+use update_runtime::install_scheduled_update;
+use update_runtime::{launch_update_check, restore_update_state};
 use updates::{RecoveryArtifact, UpdateStorage, recovery_artifacts};
 use vault_grant::{configured_vault_dir, save_vault_dir, validate_vault_dir};
 use workspace_grant::issue_workspace_grant;
@@ -43,8 +45,6 @@ use workspace_grant::issue_workspace_grant;
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
 const HEARTBEAT_FAILURE_LIMIT: u8 = 3;
 const NATIVE_PROMPT_TTL: Duration = Duration::from_secs(5 * 60);
-#[cfg(not(debug_assertions))]
-const UPDATE_CHECK_DELAY: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum HeartbeatObservation {
@@ -157,6 +157,7 @@ struct DesktopInner {
 
 struct DesktopState {
     inner: Mutex<DesktopInner>,
+    updates: Mutex<UpdateCoordinator>,
 }
 
 impl Default for DesktopState {
@@ -176,6 +177,7 @@ impl Default for DesktopState {
                 native_prompt_active: false,
                 switch_generation: 0,
             }),
+            updates: Mutex::new(UpdateCoordinator::new(env!("CARGO_PKG_VERSION"))),
         }
     }
 }
@@ -385,56 +387,6 @@ impl DesktopInner {
     }
 }
 
-#[cfg(not(debug_assertions))]
-fn launch_update_check(app: AppHandle) {
-    thread::spawn(move || {
-        thread::sleep(UPDATE_CHECK_DELAY);
-        tauri::async_runtime::spawn(async move {
-            let Ok(updater) = app.updater() else {
-                return;
-            };
-            let Ok(Some(update)) = updater.check().await else {
-                return;
-            };
-            let Ok(data_root) = app.path().app_data_dir() else {
-                return;
-            };
-            let Ok(storage) = UpdateStorage::open(&data_root) else {
-                return;
-            };
-            let Some(expected_target) = tauri_plugin_updater::target() else {
-                return;
-            };
-            if update.download_url.scheme() != "https"
-                || !update.download_url.username().is_empty()
-                || update.download_url.password().is_some()
-                || !accepts_update(
-                    &update.current_version,
-                    &update.version,
-                    &update.target,
-                    &expected_target,
-                    &storage,
-                )
-            {
-                if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
-                    inner.record("update_policy_rejected");
-                }
-                return;
-            }
-            match background_update_action() {
-                BackgroundUpdateAction::NotifyOnly => {
-                    if let Ok(inner) = app.state::<DesktopState>().inner.lock() {
-                        inner.record("update_available");
-                    }
-                }
-            }
-        });
-    });
-}
-
-#[cfg(debug_assertions)]
-fn launch_update_check(_app: AppHandle) {}
-
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(
@@ -462,6 +414,13 @@ pub fn run() {
             commands::desktop_retry,
             commands::desktop_quit,
             commands::desktop_update_recovery,
+            commands::desktop_update_status,
+            update_commands::desktop_check_for_updates,
+            update_commands::desktop_download_update,
+            update_commands::desktop_schedule_update,
+            update_commands::desktop_cancel_update_download,
+            update_commands::desktop_set_update_preferences,
+            update_commands::desktop_dismiss_update,
         ])
         .setup(|app| {
             let diagnostics = Diagnostics::create(app.handle()).ok();
@@ -469,6 +428,17 @@ pub fn run() {
                 inner.diagnostics = diagnostics;
                 inner.record("desktop_started");
             }
+            restore_update_state(app.handle());
+            #[cfg(not(debug_assertions))]
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if !install_scheduled_update(handle.clone()).await {
+                        launch_core(handle);
+                    }
+                });
+            }
+            #[cfg(debug_assertions)]
             launch_core(app.handle().clone());
             Ok(())
         });

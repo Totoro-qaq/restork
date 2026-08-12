@@ -567,6 +567,24 @@ pub(super) fn desktop_update_recovery(
     Ok(recovery_artifacts(&storage))
 }
 
+#[tauri::command]
+pub(super) fn desktop_update_status(
+    window: WebviewWindow,
+    state: State<'_, DesktopState>,
+) -> Result<update::UpdateStatus, String> {
+    let inner = state
+        .inner
+        .lock()
+        .map_err(|_| "desktop_state_unavailable")?;
+    require_dashboard_window(&window, inner.origin.as_deref())?;
+    drop(inner);
+    let coordinator = state
+        .updates
+        .lock()
+        .map_err(|_| "update_state_unavailable")?;
+    Ok(coordinator.status.clone())
+}
+
 pub(crate) fn require_dashboard_window(
     window: &WebviewWindow,
     expected_origin: Option<&str>,

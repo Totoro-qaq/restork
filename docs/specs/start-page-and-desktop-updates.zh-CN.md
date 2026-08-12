@@ -1,10 +1,10 @@
 # Restork 开始页与桌面更新 Spec
 
-- 状态：Gate 1–2 已实现；Gate 3–4 等待签名凭据与三平台发布验收
+- 状态：Gate 1–2 已实现；Gate 3–4 代码已落地，正式发布仍等待签名凭据与三平台干净机器验收
 - 日期：2026-08-11
 - 适用版本：0.2.x 规划
 - 涉及范围：Dashboard、Rust Core、Tauri Desktop、Release 工作流、官网与安装文档
-- 相关决策：[ADR 0005](../adr/0005-protected-release-trust.md)、[ADR 0006](../adr/0006-public-macos-alpha.md)、[ADR 0007](../adr/0007-cross-platform-technical-preview.md)、[ADR 0008](../adr/0008-loopback-session-recovery-and-sse-replay.md)
+- 相关决策：[ADR 0005](../adr/0005-protected-release-trust.md)、[ADR 0006](../adr/0006-public-macos-alpha.md)、[ADR 0007](../adr/0007-cross-platform-technical-preview.md)、[ADR 0008](../adr/0008-loopback-session-recovery-and-sse-replay.md)、[ADR 0009](../adr/0009-install-source-owned-desktop-updates.md)
 
 这份 Spec 合并两个彼此相关的产品问题：用户打开 Restork 后怎样立即开始一件事，以及产品发布新版本后怎样在不中断工作的前提下提醒并完成更新。
 
@@ -55,7 +55,7 @@ DeepSeek V4 Pro · 知识库已连接 · 1 个任务进行中 · 2 项待确认
 Restork 0.2.1 已准备好
 修复了知识库预览和 Windows 会话恢复问题。
 
-[查看更新内容] [下载] [稍后提醒]
+[查看更新内容] [下载] [本版本不再提醒]
 ```
 
 下载并验证完成后：
@@ -80,6 +80,7 @@ Restork 0.2.1 已准备好
 - 第一阶段不重做整个侧栏，不把导航折叠与开始页放进同一个 PR。
 - 用户偏好不能写入 `localStorage` 或 `sessionStorage`。
 - 更新检查默认开启，但首次启动不检查、不弹提醒。
+- 更新提醒可以关闭；关闭只对当前版本生效，后续版本正常提醒。
 - 自动检查只发现版本；默认不自动下载，也不自动重启。
 - Stable 是默认通道；Beta 必须由用户主动加入。
 - Stable 用户不会被静默切到 Beta，退出 Beta 也不会触发自动降级。
@@ -285,13 +286,31 @@ dashboard/src/features/start/
 
 Composition root 只注入窄接口：加载 bootstrap、创建 Run、取消 Run、订阅事件、选择 Vault/工作目录、选择 Provider。
 
+#### A11. 字体、字号与阅读密度
+
+字体是跨平台界面契约，不依赖用户额外安装字体包：
+
+- UI 使用系统无衬线栈：macOS 优先 `-apple-system` / `PingFang SC`，Windows 优先
+  `Segoe UI` / `Microsoft YaHei`，Linux 优先 `Noto Sans CJK SC` / `Ubuntu`；
+- 长文阅读区使用系统衬线回退：`Songti SC`、`SimSun`、`Noto Serif CJK SC`、Georgia；
+- 代码与标识使用系统等宽栈：`SFMono-Regular`、`Cascadia Mono`、`Liberation Mono`；
+- 不从公网加载字体，不把字体包变成安装依赖；
+- 正文字号不低于 14px，主要正文以 16px 为基准，辅助信息不低于 12px；
+- 问候标题使用 `clamp()` 限制在约 28–40px，不在全屏或中文环境膨胀成视觉黑块；
+- 阅读正文限制在约 72 个字符宽度，行高保持 1.6–1.8；
+- 320、680、900、1100、1440 与超宽屏断点均验证换行、截断和控件等高；
+- 浏览器缩放 200% 时不裁切内容，系统字体缺失时仍保持层级，而不是依赖某一个字体的字宽。
+
+Dashboard 用 CSS 合同测试锁住字体栈、字号范围、阅读宽度、响应式断点和滚动容器；发布前再运行
+Impeccable typography/adapt/craft-floor 扫描，检查结果与生成资源 freshness 一起进入 Gate。
+
 ---
 
 ### B. 更新提醒与安装
 
 #### B1. 当前实现与目标差异
 
-当前 release 桌面应用在 Core 就绪约 10 秒后检查更新；发现更新后会下载、停止 Core、安装并重启，缺少用户确认和活动任务保护。目标实现必须将该流程改为显式状态机，不允许继续静默安装。
+旧版 release 桌面应用曾在 Core 就绪后直接进入更新流程。当前实现已拆成显式状态机：首次启动不检查，第二次起延迟检查，发现版本只提醒；下载和安装都需要用户操作。
 
 #### B2. 更新通道
 
@@ -556,6 +575,7 @@ dashboard/src/features/updates/
 - **START-008**：状态行的模型、知识库、进行中和待确认数据均来自真实 Core 状态。
 - **START-009**：启动页偏好保存在 Core，不写 Web Storage。
 - **START-010**：320–超宽屏、键盘、读屏和 reduced-motion 验收通过。
+- **START-011**：macOS、Windows、Linux 的系统字体回退、200% 缩放、中文长标题和阅读区行宽通过 Impeccable 与 CSS 合同验收。
 
 #### 更新
 

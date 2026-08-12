@@ -90,10 +90,20 @@ describe("responsive readability", () => {
   it("uses one cross-platform type scale and equal-height dashboard cards", () => {
     expect(stylesheet).toContain("--font-ui:");
     expect(stylesheet).toContain("--font-display:");
+    expect(stylesheet).toContain("--font-reading:");
+    expect(stylesheet).toMatch(/--font-ui:[^;]*Segoe UI[^;]*PingFang SC[^;]*Microsoft YaHei/);
+    expect(stylesheet).toMatch(/--font-mono:[^;]*Cascadia Code[^;]*Consolas[^;]*Liberation Mono/);
     expect(stylesheet).toMatch(/:root\s*\{[\s\S]*?font-family:\s*var\(--font-ui\)/);
     expect(stylesheet).toMatch(/\.brand h1,[\s\S]*?\.paper-card h2,[\s\S]*?font-family:\s*var\(--font-display\)/);
     expect(stylesheet).toMatch(/\.board > \.dashboard-card\s*\{[^}]*block-size:\s*clamp\(280px,\s*30vh,\s*340px\)/);
     expect(stylesheet).toMatch(/\.dashboard-card-body\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/);
+  });
+
+  it("keeps the Start greeting and long-form reading at a readable measure", () => {
+    expect(stylesheet).toMatch(/\.start-intro h2\s*\{[^}]*max-width:\s*28ch[^}]*font-size:\s*clamp\(1\.75rem,\s*2\.15vw,\s*2\.5rem\)/);
+    expect(stylesheet).toMatch(/\.vault-reading-view\s*\{[^}]*max-width:\s*72ch[^}]*font-family:\s*var\(--font-reading\)[^}]*line-height:\s*1\.78/);
+    const narrow = stylesheet.slice(stylesheet.indexOf("@media (max-width: 680px)"));
+    expect(narrow).toMatch(/\.start-intro h2\s*\{[^}]*font-size:\s*clamp\(1\.65rem,\s*8vw,\s*2\.2rem\)/);
   });
 
   it("does not render navigation glyphs as white on a light surface", () => {

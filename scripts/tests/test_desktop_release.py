@@ -69,15 +69,52 @@ class UnsignedDesktopAlphaTests(unittest.TestCase):
                 trust="technical-preview",
             )
 
-            latest = json.loads((directory / "latest.json").read_text(encoding="utf-8"))
+            alpha = json.loads((directory / "alpha.json").read_text(encoding="utf-8"))
             manifest = json.loads(
                 (directory / "release-manifest.json").read_text(encoding="utf-8")
             )
 
-        self.assertEqual(sorted(latest["platforms"]), ["darwin-aarch64"])
+        self.assertEqual(sorted(alpha["platforms"]), ["darwin-aarch64"])
         self.assertEqual(manifest["trust"], "technical-preview")
         self.assertEqual(manifest["platform_trust"]["windows-x86_64"], "unsigned")
         self.assertEqual(manifest["platform_trust"]["linux-x86_64"], "unsigned")
+
+    def test_stable_and_beta_write_different_updater_manifests(self) -> None:
+        for channel, expected in (("stable", "latest.json"), ("beta", "beta.json")):
+            with self.subTest(channel=channel), tempfile.TemporaryDirectory() as temporary_directory:
+                directory = Path(temporary_directory)
+                updater = directory / "Restork-macOS-arm64.app.tar.gz"
+                updater.write_bytes(b"mac updater")
+                updater.with_name(f"{updater.name}.sig").write_text("a" * 64, encoding="utf-8")
+                desktop_release._update_manifest(
+                    directory,
+                    repository="Totoro-qaq/restork",
+                    tag=f"v0.2.0{'-beta.1' if channel == 'beta' else ''}",
+                    version=f"0.2.0{'-beta.1' if channel == 'beta' else ''}",
+                    commit="a" * 40,
+                    channel=channel,
+                    trust="protected",
+                )
+                self.assertTrue((directory / expected).is_file())
+                self.assertFalse((directory / ("beta.json" if expected == "latest.json" else "latest.json")).exists())
+
+    def test_alpha_has_its_own_manifest_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            updater = directory / "Restork-macOS-arm64.app.tar.gz"
+            updater.write_bytes(b"mac updater")
+            updater.with_name(f"{updater.name}.sig").write_text("a" * 64, encoding="utf-8")
+            desktop_release._update_manifest(
+                directory,
+                repository="Totoro-qaq/restork",
+                tag="v0.2.0-alpha.1",
+                version="0.2.0-alpha.1",
+                commit="a" * 40,
+                channel="alpha",
+                trust="ad-hoc",
+            )
+            self.assertTrue((directory / "alpha.json").is_file())
+            self.assertFalse((directory / "beta.json").exists())
 
 
 if __name__ == "__main__":
