@@ -98,6 +98,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           RESTORK_UPDATER_PUBLIC_KEY: ${{ secrets.RESTORK_UPDATER_PUBLIC_KEY }}
           RESTORK_UPDATER_ENDPOINT: ${{ secrets.RESTORK_UPDATER_ENDPOINT }}
+          RESTORK_SIGNED_UPDATES: "1"
+          RESTORK_INSTALL_SOURCE: website_dmg
         shell: bash
         run: |
           set -euo pipefail
@@ -195,6 +197,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           RESTORK_UPDATER_PUBLIC_KEY: ${{ secrets.RESTORK_UPDATER_PUBLIC_KEY }}
           RESTORK_UPDATER_ENDPOINT: ${{ secrets.RESTORK_UPDATER_ENDPOINT }}
+          RESTORK_SIGNED_UPDATES: "1"
+          RESTORK_INSTALL_SOURCE: windows_direct
         run: |
           $ErrorActionPreference = 'Stop'
           python scripts/desktop_release.py config --platform windows --output build/desktop-release-config.json
@@ -294,6 +298,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           RESTORK_UPDATER_PUBLIC_KEY: ${{ secrets.RESTORK_UPDATER_PUBLIC_KEY }}
           RESTORK_UPDATER_ENDPOINT: ${{ secrets.RESTORK_UPDATER_ENDPOINT }}
+          RESTORK_SIGNED_UPDATES: "1"
         run: |
           set -euo pipefail
           python3 scripts/desktop_release.py config --platform linux --output build/desktop-release-config.json
@@ -454,8 +459,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$GITHUB_REF_NAME" == *-beta.* || "$GITHUB_REF_NAME" == *-rc.* ]]; then
+            channel=beta
+          else
+            channel=stable
+          fi
+          echo "RESTORK_RELEASE_CHANNEL=$channel" >> "$GITHUB_ENV"
           python3 scripts/generate_sbom.py --root . --output dist/desktop-release/restork.cdx.json
-          python3 scripts/desktop_release.py manifest --directory dist/desktop-release --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --version "${GITHUB_REF_NAME#v}" --commit "$GITHUB_SHA" --channel alpha
+          python3 scripts/desktop_release.py manifest --directory dist/desktop-release --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --version "${GITHUB_REF_NAME#v}" --commit "$GITHUB_SHA" --channel "$channel"
       - name: Sign and verify aggregate checksums
         shell: bash
         env:
@@ -471,7 +482,7 @@ jobs:
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: |
-            dist/desktop-release/latest.json
+            dist/desktop-release/*.json
             dist/desktop-release/release-manifest.json
             dist/desktop-release/SHA256SUMS
             dist/desktop-release/restork.cdx.json
@@ -498,7 +509,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: >-
-          gh release create "$GITHUB_REF_NAME" dist/publish/*
-          --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
-          --title "Restork $GITHUB_REF_NAME"
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_NAME" == *-beta.* || "$GITHUB_REF_NAME" == *-rc.* ]]; then
+            gh release create "$GITHUB_REF_NAME" dist/publish/* \
+              --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --prerelease \
+              --title "Restork $GITHUB_REF_NAME"
+            if gh release view desktop-beta --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release upload desktop-beta dist/publish/beta.json --clobber --repo "$GITHUB_REPOSITORY"
+            else
+              gh release create desktop-beta dist/publish/beta.json \
+                --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+                --title "Restork Beta channel" \
+                --notes "Rolling signed manifest for Restork Beta desktop updates."
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" dist/publish/* \
+              --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --latest \
+              --title "Restork $GITHUB_REF_NAME"
+          fi

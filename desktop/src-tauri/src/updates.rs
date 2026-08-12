@@ -1,29 +1,28 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-};
-
-#[cfg(all(test, not(windows)))]
-use std::fs::File;
-#[cfg(test)]
-use std::{
-    fs::OpenOptions,
-    io::Write,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+#[cfg(not(windows))]
+use std::fs::File;
+use std::{fs::OpenOptions, io::Write};
 
 #[cfg(any(test, not(debug_assertions)))]
 use semver::Version;
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
+#[cfg(any(test, not(debug_assertions)))]
 use sha2::{Digest, Sha256};
 
-#[cfg(test)]
+use crate::update::{UpdatePreferences, UpdateScheduleMode};
+
+#[cfg(any(test, not(debug_assertions)))]
 const MAX_RECOVERY_ARTIFACTS: usize = 2;
 const APP_IDENTIFIER: &str = "io.github.totoro-qaq.restork";
-#[cfg(test)]
+#[cfg(any(test, not(debug_assertions)))]
 const ARCHIVE_DIRECTORY: &str = "verified-updates";
 const LEDGER_FILENAME: &str = "update-ledger.json";
+const PREFERENCES_FILENAME: &str = "update-preferences.json";
 
 pub struct UpdateStorage {
     root: PathBuf,
@@ -78,7 +77,11 @@ impl UpdateStorage {
         self.root.join(LEDGER_FILENAME)
     }
 
-    #[cfg(test)]
+    fn preferences_path(&self) -> PathBuf {
+        self.root.join(PREFERENCES_FILENAME)
+    }
+
+    #[cfg(any(test, not(debug_assertions)))]
     fn archive_directory(&self) -> Result<PathBuf, &'static str> {
         private_child_directory(&self.root, ARCHIVE_DIRECTORY)
             .map_err(|_| "update_archive_unavailable")
@@ -99,6 +102,81 @@ struct UpdateLedger {
     schema_version: u8,
     highest_seen_version: Option<String>,
     recovery_artifacts: Vec<RecoveryArtifact>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct PersistedUpdateState {
+    schema_version: u8,
+    pub preferences: UpdatePreferences,
+    pub scheduled_mode: Option<UpdateScheduleMode>,
+    pub pending_version: Option<String>,
+    pub last_checked_at_unix: Option<u64>,
+    #[serde(default)]
+    pub launch_count: u32,
+    #[serde(default)]
+    pub dismissed_version: Option<String>,
+}
+
+impl Default for PersistedUpdateState {
+    fn default() -> Self {
+        Self {
+            schema_version: 1,
+            preferences: UpdatePreferences::default(),
+            scheduled_mode: None,
+            pending_version: None,
+            last_checked_at_unix: None,
+            launch_count: 0,
+            dismissed_version: None,
+        }
+    }
+}
+
+impl PersistedUpdateState {
+    pub fn new(
+        preferences: UpdatePreferences,
+        scheduled_mode: Option<UpdateScheduleMode>,
+        pending_version: Option<String>,
+        last_checked_at_unix: Option<u64>,
+        launch_count: u32,
+        dismissed_version: Option<String>,
+    ) -> Self {
+        Self {
+            schema_version: 1,
+            preferences,
+            scheduled_mode,
+            pending_version,
+            last_checked_at_unix,
+            launch_count,
+            dismissed_version,
+        }
+    }
+}
+
+pub fn load_update_state(storage: &UpdateStorage) -> PersistedUpdateState {
+    let Some(path) = existing_child_file(&storage.root, &storage.preferences_path()) else {
+        return PersistedUpdateState::default();
+    };
+    let Ok(document) = fs::read(path) else {
+        return PersistedUpdateState::default();
+    };
+    if document.len() > 16 * 1024 {
+        return PersistedUpdateState::default();
+    }
+    serde_json::from_slice::<PersistedUpdateState>(&document)
+        .ok()
+        .filter(|state| state.schema_version == 1)
+        .unwrap_or_default()
+}
+
+pub fn save_update_state(
+    storage: &UpdateStorage,
+    state: &PersistedUpdateState,
+) -> Result<(), &'static str> {
+    let mut document = state.clone();
+    document.schema_version = 1;
+    let bytes = serde_json::to_vec_pretty(&document).map_err(|_| "update_state_unavailable")?;
+    atomic_write(&storage.root, &storage.preferences_path(), &bytes)
+        .map_err(|_| "update_state_unavailable")
 }
 
 #[cfg(any(test, not(debug_assertions)))]
@@ -123,7 +201,7 @@ pub fn accepts_update(
         .is_none_or(|highest| candidate >= highest)
 }
 
-#[cfg(test)]
+#[cfg(any(test, not(debug_assertions)))]
 pub fn archive_verified_update(
     storage: &UpdateStorage,
     version: &str,
@@ -184,6 +262,47 @@ pub fn recovery_artifacts(storage: &UpdateStorage) -> Vec<RecoveryArtifact> {
         .unwrap_or_default()
 }
 
+#[cfg(not(debug_assertions))]
+pub fn verified_update_bytes(
+    storage: &UpdateStorage,
+    version: &str,
+    target: &str,
+) -> Result<Vec<u8>, &'static str> {
+    const MAX_UPDATE_BYTES: u64 = 512 * 1024 * 1024;
+    let artifact = read_ledger(storage)
+        .and_then(|ledger| {
+            ledger
+                .recovery_artifacts
+                .into_iter()
+                .find(|item| item.version == version && item.target == target)
+        })
+        .ok_or("update_archive_missing")?;
+    let (directory, filename) = artifact
+        .filename
+        .split_once('/')
+        .ok_or("update_archive_invalid")?;
+    if directory != ARCHIVE_DIRECTORY || !safe_filename(filename) {
+        return Err("update_archive_invalid");
+    }
+    let directory = storage.archive_directory()?;
+    let requested = directory.join(filename);
+    let path = requested
+        .canonicalize()
+        .map_err(|_| "update_archive_missing")?;
+    if !path.starts_with(&storage.root) || path.parent() != Some(directory.as_path()) {
+        return Err("update_archive_invalid");
+    }
+    let metadata = path.metadata().map_err(|_| "update_archive_missing")?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_UPDATE_BYTES {
+        return Err("update_archive_invalid");
+    }
+    let bytes = fs::read(path).map_err(|_| "update_archive_missing")?;
+    if hex_digest(&bytes) != artifact.sha256 {
+        return Err("update_archive_tampered");
+    }
+    Ok(bytes)
+}
+
 fn read_ledger(storage: &UpdateStorage) -> Option<UpdateLedger> {
     let path = existing_child_file(&storage.root, &storage.ledger_path())?;
     let document = fs::read(path).ok()?;
@@ -194,7 +313,6 @@ fn read_ledger(storage: &UpdateStorage) -> Option<UpdateLedger> {
     (ledger.schema_version == 1).then_some(ledger)
 }
 
-#[cfg(test)]
 fn safe_filename(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 255
@@ -204,7 +322,7 @@ fn safe_filename(value: &str) -> bool {
         && !matches!(value, "." | "..")
 }
 
-#[cfg(test)]
+#[cfg(any(test, not(debug_assertions)))]
 fn safe_identifier(value: &str, maximum: usize) -> bool {
     !value.is_empty()
         && value.len() <= maximum
@@ -213,7 +331,6 @@ fn safe_identifier(value: &str, maximum: usize) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
-#[cfg(test)]
 fn atomic_write(root: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let parent = path
         .parent()
@@ -266,12 +383,12 @@ fn atomic_write(root: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(all(test, not(windows)))]
+#[cfg(not(windows))]
 fn replace_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
     fs::rename(temporary, destination)
 }
 
-#[cfg(all(test, windows))]
+#[cfg(windows)]
 fn replace_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
 
@@ -305,7 +422,7 @@ fn replace_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, not(debug_assertions)))]
 fn private_child_directory(root: &Path, name: &str) -> std::io::Result<PathBuf> {
     if !safe_filename(name) {
         return Err(std::io::Error::other("directory name is invalid"));
@@ -346,7 +463,7 @@ fn existing_child_file(root: &Path, requested: &Path) -> Option<PathBuf> {
     Some(path)
 }
 
-#[cfg(test)]
+#[cfg(any(test, not(debug_assertions)))]
 fn remove_recovery_artifact(storage: &UpdateStorage, relative: &str) {
     let Some((directory, filename)) = relative.split_once('/') else {
         return;
@@ -366,7 +483,7 @@ fn remove_recovery_artifact(storage: &UpdateStorage, relative: &str) {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, not(debug_assertions)))]
 fn hex_digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()

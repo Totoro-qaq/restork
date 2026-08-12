@@ -33,15 +33,14 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
   const showExamples = snapshot.firstRun?.has_completed_run !== true;
 
   return `<section class="start-workspace" data-run-surface aria-labelledby="start-title">
+    <div class="start-intro">
+      <h2 id="start-title">${escapeMarkup(greeting)}</h2>
+    </div>
+
     <div class="start-mode-row" role="group" aria-label="${tr(locale, "Task type", "任务类型")}">
       ${startModeButton("research", "Research", true, locale)}
       ${startModeButton("study", "Study", false, locale)}
       ${startModeButton("work", "Work", false, locale)}
-    </div>
-
-    <div class="start-intro">
-      <p class="eyebrow">RESTORK · ${tr(locale, "START A TASK", "开始一项任务")}</p>
-      <h2 id="start-title">${escapeMarkup(greeting)}</h2>
     </div>
 
     <form id="start-run-form" class="start-run-form" data-provider-ready="${String(modelReady)}">

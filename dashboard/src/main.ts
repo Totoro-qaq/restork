@@ -71,6 +71,8 @@ import {
   stopVaultStream,
 } from "./features/vault";
 import { configureStartWorkspace } from "./features/start";
+import { configureCommandPalette } from "./features/commandPalette";
+import { configureUpdates } from "./features/updates";
 import {
   alternateLocale,
   detectLocale,
@@ -109,6 +111,8 @@ const dismissHandlers = new WeakMap<HTMLElement, (event: KeyboardEvent) => void>
 // root. Radar's startup refresh should happen once per opened workspace, not
 // once per render. Manual navigation and the Refresh button remain available.
 const radarStartupRefreshes = new WeakSet<HTMLElement>();
+const commandPaletteCleanups = new WeakMap<HTMLElement, () => void>();
+const updateCleanups = new WeakMap<HTMLElement, () => void>();
 
 /**
  * Escape closes the topmost dismissible surface regardless of where focus sits.
@@ -338,6 +342,21 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
     clearAnnouncement(root);
   });
   bindDismissStack(root);
+  commandPaletteCleanups.get(root)?.();
+  commandPaletteCleanups.set(root, configureCommandPalette(root, {
+    selectView: (view) => {
+      selectView(root, view);
+      if (view === "vault") void openVaultWorkspace(root, api);
+      if (view === "radar") void refreshRadarPanel(root, api, snapshot, dailyEffects(root, api, snapshot));
+    },
+    selectMode: (mode) => {
+      root.querySelector<HTMLButtonElement>(`[data-start-mode="${mode}"]`)?.click();
+    },
+  }));
+  updateCleanups.get(root)?.();
+  updateCleanups.set(root, configureUpdates(root, detectDesktopBridge(), {
+    openSettings: () => selectView(root, "settings"),
+  }));
   bindLocaleSwitch(root, () => {
     const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "start";
     renderWorkspace(root, api, snapshot);
@@ -964,6 +983,7 @@ function configureRustWorkspace(
         timezone: String(data.get("timezone") ?? "").trim() || undefined,
         week_start: "monday",
         theme: String(data.get("theme") ?? "system"),
+        startup_page: String(data.get("startup_page") ?? "start") as "start" | "dashboard",
       };
       if (status) status.textContent = tr(localeOf(root), "Saving locally…", "正在保存到本地…");
       // Apply before the round trip so the control is not a placebo if the save

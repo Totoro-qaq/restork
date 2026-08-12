@@ -5,7 +5,7 @@ use restork_personal::{
     ExplicitFallback, FallbackPolicy, FrozenRunManifestV2, LocalIntakeBoundary, Mode,
     PROVIDER_REGISTRY_VERSION, PersonalSettings, PolicyRef, PromptLayer, PromptManifest,
     PromptRevision, ProviderKind, ProviderProfile, ReasoningEffort, RunProposal, SourceBinding,
-    Theme, TimeBand, VersionedHashRef, WeekStart, provider_definitions,
+    StartupPage, Theme, TimeBand, VersionedHashRef, WeekStart, provider_definitions,
 };
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
@@ -91,16 +91,18 @@ fn personal_settings_are_optional_clearable_and_strictly_deserialized() {
         Some("Asia/Shanghai"),
         Some(WeekStart::Monday),
         Some(Theme::System),
+        Some(StartupPage::Dashboard),
     )
     .expect("valid personal settings");
 
     assert_eq!(settings.display_name(), Some("Totoro"));
     assert_eq!(settings.locale(), Some("zh-CN"));
     assert_eq!(settings.timezone(), Some("Asia/Shanghai"));
+    assert_eq!(settings.startup_page(), Some(StartupPage::Dashboard));
     assert_eq!(settings.clone().clear(), PersonalSettings::default());
-    assert!(PersonalSettings::try_new(Some("bad\nname"), None, None, None, None).is_err());
-    assert!(PersonalSettings::try_new(None, Some("x"), None, None, None).is_err());
-    assert!(PersonalSettings::try_new(None, None, Some("../UTC"), None, None).is_err());
+    assert!(PersonalSettings::try_new(Some("bad\nname"), None, None, None, None, None).is_err());
+    assert!(PersonalSettings::try_new(None, Some("x"), None, None, None, None).is_err());
+    assert!(PersonalSettings::try_new(None, None, Some("../UTC"), None, None, None).is_err());
 
     let unknown = serde_json::json!({
         "display_name": null,
@@ -108,6 +110,7 @@ fn personal_settings_are_optional_clearable_and_strictly_deserialized() {
         "timezone": null,
         "week_start": null,
         "theme": null,
+        "startup_page": null,
         "ambient_location": true
     });
     assert!(serde_json::from_value::<PersonalSettings>(unknown).is_err());
@@ -116,7 +119,14 @@ fn personal_settings_are_optional_clearable_and_strictly_deserialized() {
 #[test]
 fn display_name_is_excluded_from_prompt_context_by_default() {
     let settings =
-        PersonalSettings::try_new(Some("Private Name"), Some("en"), Some("UTC"), None, None)
+        PersonalSettings::try_new(
+            Some("Private Name"),
+            Some("en"),
+            Some("UTC"),
+            None,
+            None,
+            None,
+        )
             .expect("valid settings");
     let default_profile = configuration(false);
     let explicit_profile = configuration(true);

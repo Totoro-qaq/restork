@@ -14,6 +14,7 @@ why the architecture changed.
 | [0006](0006-public-macos-alpha.md) | Allow a visibly ad-hoc-signed macOS Alpha without claiming Apple trust | Accepted | 2026-08-05 | Amends 0005; extended by 0007 |
 | [0007](0007-cross-platform-technical-preview.md) | Allow visibly unsigned Windows/Linux previews while keeping updates and stable trust gated | Accepted | 2026-08-10 | Amends 0005 and 0006 |
 | [0008](0008-loopback-session-recovery-and-sse-replay.md) | Separate loopback session recovery from durable SSE replay | Accepted | 2026-08-10 | Extends 0002 |
+| [0009](0009-install-source-owned-desktop-updates.md) | Give each desktop installation one update owner and keep Stable, Beta, and Alpha separate | Accepted | 2026-08-12 | Extends 0005 and 0007 |
 
 ## Adding an ADR
 
@@ -21,3 +22,5 @@ Copy the heading metadata used above, describe context before implementation det
 alternatives, and link the new record here. A decision that changes network access, credentials,
 file authority, updater trust, or data retention must include explicit failure and rollback
 consequences.
+
+本轮产品与实现边界见 [Gates 2–4 架构复审](../reviews/gates-2-4-architecture.zh-CN.md)。

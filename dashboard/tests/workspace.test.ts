@@ -1628,6 +1628,71 @@ describe("Rust conversation workspace", () => {
     submittedRoot.remove();
   });
 
+  it("persists the chosen launch page and opens it without browser storage", async () => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    const root = document.createElement("main");
+    const state = workspaceSnapshot();
+    if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.personal = {
+      settings: { locale: "zh-CN", theme: "light", startup_page: "dashboard" },
+      version: 3,
+      updated_at: "2026-08-12T08:00:00Z",
+    };
+    const savePersonalSettings = vi.fn(async (_version, settings) => ({
+      settings,
+      version: 4,
+      updated_at: "2026-08-12T08:01:00Z",
+    }));
+    const api = fakeApi();
+    api.savePersonalSettings = savePersonalSettings;
+    mountDashboard(root, { api, snapshot: state, locale: "zh-CN" });
+
+    expect(root.querySelector<HTMLElement>('[data-view-panel="overview"]')?.hidden).toBe(false);
+    expect(root.querySelector<HTMLElement>('[data-view-panel="start"]')?.hidden).toBe(true);
+    root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
+    const form = root.querySelector<HTMLFormElement>("#personal-settings-form");
+    const startupPage = form?.elements.namedItem("startup_page") as HTMLSelectElement | null;
+    if (!form || !startupPage) throw new Error("startup page setting");
+    expect(startupPage.value).toBe("dashboard");
+    startupPage.value = "start";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(savePersonalSettings).toHaveBeenCalledWith(
+      3,
+      expect.objectContaining({ startup_page: "start" }),
+    ));
+    expect(window.localStorage.getItem("restork.startup_page")).toBeNull();
+    expect(window.sessionStorage.length).toBe(0);
+    root.remove();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  });
+
+  it("opens a keyboard command palette and navigates without retaining the query", () => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    const root = document.createElement("main");
+    mountDashboard(root, { api: fakeApi(), snapshot: workspaceSnapshot(), locale: "zh-CN" });
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
+    const dialog = root.querySelector<HTMLDialogElement>("[data-command-palette]");
+    if (!dialog) throw new Error("command palette dialog");
+    expect(dialog.open).toBe(true);
+    const query = dialog?.querySelector<HTMLInputElement>("[data-command-palette-query]");
+    if (!query) throw new Error("command palette query");
+    query.value = "设置";
+    query.dispatchEvent(new Event("input", { bubbles: true }));
+    const result = [...dialog.querySelectorAll<HTMLButtonElement>("[data-command-item]")]
+      .find((button) => !button.hidden);
+    expect(result?.textContent).toContain("设置");
+    result?.click();
+    expect(dialog.open).toBe(false);
+    expect(root.querySelector<HTMLElement>('[data-view-panel="settings"]')?.hidden).toBe(false);
+    expect(window.localStorage.length).toBe(0);
+    root.remove();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  });
+
   it("uses native, recoverable setup controls instead of technical paths and secret references", async () => {
     const root = document.createElement("main");
     const state = workspaceSnapshot();

@@ -33,11 +33,10 @@
     <main id="main">
       <section class="hero">
         <div class="hero-copy">
-          <p class="eyebrow">LOCAL-FIRST · RUST CORE · MIT</p>
+          <p class="eyebrow">FREE · LOCAL FILES · MIT</p>
           <h1>Research, learn, and<br><em>get work done.</em></h1>
-          <p class="lede">Restork searches local Markdown and public sources, prepares cited notes, and shows the exact
-            change before writing it back. MCP tools run in OS-level sandboxes, and you decide what belongs
-            in your Vault.</p>
+          <p class="lede">Restork finds public sources, organizes local Markdown, supports learning, and helps move daily
+            work forward. Before it changes a file, it shows the exact edit and waits for your approval.</p>
           <div class="actions">
             <a class="primary" href="https://github.com/Totoro-qaq/restork/releases">Download desktop preview</a>
             <a href="https://github.com/Totoro-qaq/restork#build-from-source-contributors">Build from source</a>
@@ -45,13 +44,13 @@
           <p class="fine">Prebuilt DMG, MSI/EXE, AppImage, and DEB. These visibly unsigned Alpha packages need no compiler; no provider, Vault, weather, calendar, or location is enabled on first launch.</p>
         </div>
         <div class="window" aria-label="Restork architecture preview">
-          <div class="window-bar"><span></span><span></span><span></span><strong>RESTORK CORE · 127.0.0.1</strong></div>
+          <div class="window-bar"><span></span><span></span><span></span><strong>RUNS ON THIS COMPUTER</strong></div>
           <img src="./assets/readme/architecture.svg" alt="Local knowledge and four memory layers stay in Restork Core; only content you approve is shared with models or tools." width="1200" height="560">
         </div>
       </section>
 
       <section id="why" class="paper-section">
-        <header><p class="eyebrow">ONE CORE, YOU STAY IN CHARGE</p><h2>Work the way a real day unfolds.</h2></header>
+        <header><p class="eyebrow">THE THINGS A DAY CONTAINS</p><h2>Work the way a real day unfolds.</h2></header>
         <div class="modes">
           <article><span class="mode research">R</span><h3>Research</h3><p>Compare public claims, keep evidence attached, and review a cited Markdown note before it touches your Vault.</p></article>
           <article><span class="mode study">S</span><h3>Study</h3><p>Ground a learning path in your own notes, practice without answer leakage, and revisit what you missed.</p></article>
@@ -72,19 +71,22 @@
 
       <section class="promises">
         <article><strong>01</strong><h3>Markdown stays ordinary</h3><p>Point Restork at an existing Obsidian Vault or a separate folder. Notes never become a proprietary database; the durable home remains local files.</p></article>
-        <article><strong>02</strong><h3>Every write is reviewed</h3><p>Research and Study notes render as a preview you approve, then write through a single-use, content-bound approval. No silent overwrite, no auto-apply.</p></article>
+        <article><strong>02</strong><h3>See the change before it lands</h3><p>Research and Study notes appear as a preview first. One approval applies to the exact change on screen, with no silent overwrite.</p></article>
         <article><strong>03</strong><h3>MCP runs in a real sandbox</h3><p>Tool calls run inside platform-native isolation — macOS Seatbelt, Linux bubblewrap, Windows Job Objects — with strict time, network, and output limits.</p></article>
         <article><strong>04</strong><h3>Reasoning is a setting, not a leak</h3><p>Choose DeepSeek, GLM, Kimi, Qwen, Ollama, or OpenRouter. Only supported reasoning levels appear; private chain-of-thought is not displayed or retained.</p></article>
-        <article><strong>05</strong><h3>You can see what happened</h3><p>Runs keep a readable history of model steps, tool results, retries, approvals, and checkpoints. Stop one midway and continue without starting from zero.</p></article>
+        <article><strong>05</strong><h3>You can see what happened</h3><p>Runs keep a readable history of tool results, retries, approvals, and saved progress. Stop one midway and continue without starting from zero.</p></article>
         <article><strong>06</strong><h3>The app cleans up after itself</h3><p>The Rust desktop shell starts Core, checks that it is healthy, and closes the whole process tree when you quit.</p></article>
       </section>
 
       <section id="start" class="start">
         <div><p class="eyebrow">NO COMPILER REQUIRED</p><h2>Download first. Connect things when you are ready.</h2></div>
-        <pre><code>macOS   · DMG
-Windows · installer EXE or MSI
-Linux   · AppImage or DEB</code></pre>
+        <div class="download-grid" aria-label="Downloads for three platforms">
+          <a class="download-card" href="https://github.com/Totoro-qaq/restork/releases"><strong>macOS</strong><span>Apple Silicon · DMG</span><small>DOWNLOAD AND INSTALL NOTES</small></a>
+          <a class="download-card" href="https://github.com/Totoro-qaq/restork/releases"><strong>Windows</strong><span>Windows 10 / 11 x64 · EXE or MSI</span><small>DOWNLOAD AND SMARTSCREEN NOTES</small></a>
+          <a class="download-card" href="https://github.com/Totoro-qaq/restork/releases"><strong>Linux</strong><span>x64 · AppImage or DEB</span><small>DOWNLOAD AND RUN NOTES</small></a>
+        </div>
         <p>Every package includes the Rust Core and Dashboard. Choose a Vault and model provider when you are ready; saving a key uses your system credential store and never starts a paid test on its own. Refresh the browser or reopen the app and Restork reconnects to the local session. Interrupted runs continue from the last event received. Alpha downloads are clearly marked as unsigned and include checksums and build records you can verify.</p>
+        <p>Signed releases will surface updates inside the app: no check on the first launch, then at most once a day. Restork only notifies; it does not silently download or restart. Stable is the default and Beta is opt-in. You can dismiss one version or turn automatic checks off entirely.</p>
         <p class="fine">Restork is free, open source, and maintained in public for researchers, developers, and knowledge workers. Important AI output still needs human review. Read <a href="https://github.com/Totoro-qaq/restork/blob/main/DISCLAIMER.md">why Restork exists and what to expect</a>, plus the <a href="https://github.com/Totoro-qaq/restork/security/policy">security policy</a>.</p>
         <div class="actions">
           <a class="primary" href="https://github.com/Totoro-qaq/restork/releases">Choose a download</a>

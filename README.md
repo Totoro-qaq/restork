@@ -116,6 +116,12 @@ has Restork's independent signature; Windows/Linux preview updates stay disabled
 protected signing gates pass. See the [desktop guide](docs/desktop.md) for checksums and exact trust
 boundaries.
 
+Unsigned Alpha builds do not install updates in-app. Future signed builds keep the first launch
+quiet, check at most daily from the second launch onward, and only notify—never silently download or
+restart. Stable is the default, Beta is opt-in, and both the notice and automatic checks can be
+disabled in Settings. Microsoft Store, Linux package managers, and Restork's updater each own only
+their installation source, so end users never install a compiler toolchain just to update the app.
+
 ## Build from source (contributors)
 
 Use this path only when changing Restork. Install Node.js 22 and the pinned Rust toolchain. Windows
