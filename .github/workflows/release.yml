@@ -104,7 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/desktop_release.py config --platform macos --output build/desktop-release-config.json
-          npm --prefix desktop exec tauri build -- --config ../build/desktop-release-config.json
+          npm --prefix desktop exec tauri build -- --config build/desktop-release-config.json
       - name: Verify Developer ID, Gatekeeper, notarization, and stapling
         shell: bash
         run: |
@@ -202,7 +202,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           python scripts/desktop_release.py config --platform windows --output build/desktop-release-config.json
-          npm --prefix desktop exec tauri build -- --config ../build/desktop-release-config.json
+          npm --prefix desktop exec tauri build -- --config build/desktop-release-config.json
       - name: Verify downloaded-file Authenticode policy
         shell: pwsh
         run: |
@@ -302,7 +302,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/desktop_release.py config --platform linux --output build/desktop-release-config.json
-          npm --prefix desktop exec tauri build -- --config ../build/desktop-release-config.json
+          npm --prefix desktop exec tauri build -- --config build/desktop-release-config.json
           appimage="$(find desktop/src-tauri/target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)"
           "$appimage" --appimage-signature | grep -E '.+'
       - name: Add and verify detached package signatures

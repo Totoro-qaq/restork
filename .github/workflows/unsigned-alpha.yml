@@ -143,7 +143,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $version = $env:GITHUB_REF_NAME.Substring(1)
           python scripts/desktop_release.py config --platform windows --version $version --signing-mode unsigned --output build/desktop-alpha-config.json
-          npm --prefix desktop exec tauri build -- --config ../build/desktop-alpha-config.json
+          npm --prefix desktop exec tauri build -- --config build/desktop-alpha-config.json
       - name: Stage visibly labeled Windows technical-preview installers
         shell: pwsh
         run: |
@@ -199,7 +199,7 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           python3 scripts/desktop_release.py config --platform linux --version "$version" --signing-mode unsigned --output build/desktop-alpha-config.json
-          npm --prefix desktop exec tauri build -- --config ../build/desktop-alpha-config.json
+          npm --prefix desktop exec tauri build -- --config build/desktop-alpha-config.json
       - name: Stage visibly labeled Linux technical-preview packages
         shell: bash
         run: |

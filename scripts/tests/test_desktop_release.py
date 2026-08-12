@@ -11,6 +11,19 @@ import desktop_release  # noqa: E402
 
 
 class UnsignedDesktopAlphaTests(unittest.TestCase):
+    def test_release_workflows_resolve_generated_config_from_repository_root(self) -> None:
+        repository = Path(__file__).resolve().parents[2]
+        for workflow_name, config_name in (
+            ("unsigned-alpha.yml", "desktop-alpha-config.json"),
+            ("release.yml", "desktop-release-config.json"),
+        ):
+            with self.subTest(workflow=workflow_name):
+                workflow = (repository / ".github" / "workflows" / workflow_name).read_text(
+                    encoding="utf-8"
+                )
+                self.assertNotIn(f"--config ../build/{config_name}", workflow)
+                self.assertIn(f"--config build/{config_name}", workflow)
+
     def test_unsigned_windows_config_needs_no_release_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             output = Path(temporary_directory) / "windows-alpha.json"
