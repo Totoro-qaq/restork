@@ -24,7 +24,7 @@ platform signing, and notarization. Pull-request builds remain short-lived test 
 Open the [GitHub Releases page](https://github.com/Totoro-qaq/restork/releases) and choose one file:
 
 - macOS: `macOS-arm64-UNSIGNED-ALPHA.dmg`;
-- Windows: `Windows-x64-UNSIGNED-ALPHA-setup.exe` or `.msi`;
+- Windows: `Windows-x64-UNSIGNED-ALPHA-setup.exe`;
 - Linux: `Linux-x64-UNSIGNED-ALPHA.AppImage` or `.deb`.
 
 Download `SHA256SUMS` beside it and verify the exact file before installing. Examples:
@@ -39,7 +39,7 @@ chmod +x Restork-*-Linux-x64-UNSIGNED-ALPHA.AppImage
 ./Restork-*-Linux-x64-UNSIGNED-ALPHA.AppImage
 ```
 
-On Windows, use `Get-FileHash .\Restork-*-Windows-x64-UNSIGNED-ALPHA.msi -Algorithm SHA256` and
+On Windows, use `Get-FileHash .\Restork-*-Windows-x64-UNSIGNED-ALPHA-setup.exe -Algorithm SHA256` and
 compare it with `SHA256SUMS`. Windows SmartScreen may warn because the preview is not
 Authenticode-signed. On macOS, use the per-app **Open / Open Anyway** flow and never disable
 Gatekeeper globally. On Debian/Ubuntu, the DEB can be opened with the system installer or installed

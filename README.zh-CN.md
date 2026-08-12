@@ -103,7 +103,7 @@ Python 脚本只用于开发辅助，不是产品运行时或可安装包。
 | 平台 | 下载文件 | 首次启动 |
 |---|---|---|
 | Apple Silicon macOS 13+ | `macOS-arm64-UNSIGNED-ALPHA.dmg` | 拖入“应用程序”，再使用单个应用的**打开 / 仍要打开**；不要全局关闭 Gatekeeper。 |
-| Windows 10/11 x64 | `Windows-x64-UNSIGNED-ALPHA-setup.exe` 或 `.msi` | 技术预览尚无 Authenticode，SmartScreen 可能提示；校验 `SHA256SUMS` 后，只在确认来自本仓库时运行。 |
+| Windows 10/11 x64 | `Windows-x64-UNSIGNED-ALPHA-setup.exe` | 技术预览尚无 Authenticode，SmartScreen 可能提示；校验 `SHA256SUMS` 后，只在确认来自本仓库时运行。 |
 | 桌面 Linux x64 | `Linux-x64-UNSIGNED-ALPHA.AppImage` 或 `.deb` | AppImage 赋予执行权限后打开；Debian/Ubuntu 可用系统安装器安装 DEB。 |
 
 三种平台都内置同一份 Rust Core 与 Dashboard，并在干净环境中测试安装、启动、退出和卸载。它们

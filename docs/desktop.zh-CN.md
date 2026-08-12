@@ -22,7 +22,7 @@ Restork 现在把原生 Rust `restorkd` Core、中英文 Dashboard 与 Tauri 2 �
 打开 [GitHub Releases](https://github.com/Totoro-qaq/restork/releases)，选择一个文件：
 
 - macOS：`macOS-arm64-UNSIGNED-ALPHA.dmg`；
-- Windows：`Windows-x64-UNSIGNED-ALPHA-setup.exe` 或 `.msi`；
+- Windows：`Windows-x64-UNSIGNED-ALPHA-setup.exe`；
 - Linux：`Linux-x64-UNSIGNED-ALPHA.AppImage` 或 `.deb`。
 
 同时下载 `SHA256SUMS` 并校验你实际下载的文件，例如：
@@ -37,7 +37,7 @@ chmod +x Restork-*-Linux-x64-UNSIGNED-ALPHA.AppImage
 ./Restork-*-Linux-x64-UNSIGNED-ALPHA.AppImage
 ```
 
-Windows 可用 `Get-FileHash .\Restork-*-Windows-x64-UNSIGNED-ALPHA.msi -Algorithm SHA256` 与
+Windows 可用 `Get-FileHash .\Restork-*-Windows-x64-UNSIGNED-ALPHA-setup.exe -Algorithm SHA256` 与
 `SHA256SUMS` 对照。Windows 预览版尚无 Authenticode，SmartScreen 可能提示；macOS 请走单个
 应用的**打开 / 仍要打开**，不要全局关闭 Gatekeeper；Debian/Ubuntu 可用系统安装器或
 `sudo apt install ./Restork-*-Linux-x64-UNSIGNED-ALPHA.deb`。

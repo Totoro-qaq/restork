@@ -14,7 +14,7 @@
 | Platform / 平台 | File / 文件 |
 |---|---|
 | Apple Silicon macOS 13+ | `Restork-*-macOS-arm64-UNSIGNED-ALPHA.dmg` |
-| Windows 10/11 x64 | `Restork-*-Windows-x64-UNSIGNED-ALPHA-setup.exe` or `.msi` |
+| Windows 10/11 x64 | `Restork-*-Windows-x64-UNSIGNED-ALPHA-setup.exe` |
 | Desktop Linux x64 | `Restork-*-Linux-x64-UNSIGNED-ALPHA.AppImage` or `.deb` |
 
 The target machine needs no Python, Node.js, Rust, MinGW, GTK development package, `uv`, or other
@@ -26,7 +26,7 @@ Download `SHA256SUMS` from the same Release. On macOS/Linux, filter the exact fi
 `shasum -a 256 -c -` or `sha256sum -c -`. On Windows PowerShell, run:
 
 ```powershell
-Get-FileHash .\Restork-*-Windows-x64-UNSIGNED-ALPHA.msi -Algorithm SHA256
+Get-FileHash .\Restork-*-Windows-x64-UNSIGNED-ALPHA-setup.exe -Algorithm SHA256
 ```
 
 Compare the result with the matching line in `SHA256SUMS`. GitHub build provenance and the

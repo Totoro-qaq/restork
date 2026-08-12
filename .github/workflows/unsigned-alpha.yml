@@ -137,7 +137,7 @@ jobs:
       - run: node --test scripts/tests/windows-toolchain.test.mjs
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
-      - name: Build unsigned Windows MSI and EXE with no updater claim
+      - name: Build unsigned Windows EXE with no updater claim
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -151,10 +151,8 @@ jobs:
           $version = $env:GITHUB_REF_NAME.Substring(1)
           New-Item -ItemType Directory -Force dist/windows-alpha | Out-Null
           $nsis = Get-ChildItem desktop/src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
-          $msi = Get-ChildItem desktop/src-tauri/target/release/bundle/msi/*.msi | Select-Object -First 1
-          if ($null -eq $nsis -or $null -eq $msi) { throw 'Expected both NSIS and MSI installers' }
+          if ($null -eq $nsis) { throw 'Expected an NSIS installer' }
           Copy-Item $nsis.FullName "dist/windows-alpha/Restork-$version-Windows-x64-UNSIGNED-ALPHA-setup.exe"
-          Copy-Item $msi.FullName "dist/windows-alpha/Restork-$version-Windows-x64-UNSIGNED-ALPHA.msi"
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: dist/windows-alpha/*
@@ -264,11 +262,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $nsis = Get-ChildItem candidate/*-setup.exe | Select-Object -First 1
-          $msi = Get-ChildItem candidate/*.msi | Select-Object -First 1
-          if ($null -eq $nsis -or $null -eq $msi) { throw 'Expected both Windows installers' }
+          if ($null -eq $nsis) { throw 'Expected a Windows NSIS installer' }
           ./scripts/smoke-desktop-windows.ps1 `
             -NsisInstaller $nsis.FullName `
-            -MsiInstaller $msi.FullName `
             -ArtifactDirectory (Join-Path $env:RUNNER_TEMP 'restork-windows-alpha-e2e')
       - name: Upload Windows lifecycle diagnostics
         if: ${{ !cancelled() }}

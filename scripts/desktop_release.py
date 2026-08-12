@@ -62,7 +62,13 @@ def _updater_config(
     if signing_mode == "unsigned":
         if platform not in {"windows", "linux"}:
             raise ValueError("unsigned Alpha configuration is supported only for Windows and Linux")
-        targets = ["nsis", "msi"] if platform == "windows" else ["appimage", "deb"]
+        if platform == "windows":
+            # WiX/MSI rejects SemVer prerelease identifiers such as `alpha.2`.
+            # Keep the prerelease version truthful and publish the user-facing
+            # NSIS installer; stable Windows builds still produce both formats.
+            targets = ["nsis"] if version is not None and "-" in version else ["nsis", "msi"]
+        else:
+            targets = ["appimage", "deb"]
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(
             json.dumps(
