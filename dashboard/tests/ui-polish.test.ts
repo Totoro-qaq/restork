@@ -100,10 +100,10 @@ describe("responsive readability", () => {
   });
 
   it("keeps the Start greeting and long-form reading at a readable measure", () => {
-    expect(stylesheet).toMatch(/\.start-intro h2\s*\{[^}]*max-width:\s*28ch[^}]*font-family:\s*var\(--font-display\)[^}]*font-size:\s*clamp\(1\.75rem,\s*2\.15vw,\s*2\.5rem\)/);
+    expect(stylesheet).toMatch(/\.start-intro h2\s*\{[^}]*font-family:\s*var\(--font-ui\)[^}]*font-size:\s*2rem[^}]*white-space:\s*nowrap/);
     expect(stylesheet).toMatch(/\.vault-reading-view\s*\{[^}]*max-width:\s*72ch[^}]*font-family:\s*var\(--font-reading\)[^}]*line-height:\s*1\.78/);
     const narrow = stylesheet.slice(stylesheet.indexOf("@media (max-width: 680px)"));
-    expect(narrow).toMatch(/\.start-intro h2\s*\{[^}]*font-size:\s*clamp\(1\.65rem,\s*8vw,\s*2\.2rem\)/);
+    expect(narrow).toMatch(/\.start-intro h2\s*\{[^}]*font-size:\s*1\.75rem[^}]*white-space:\s*normal/);
   });
 
   it("does not render navigation glyphs as white on a light surface", () => {
@@ -162,9 +162,21 @@ describe("responsive readability", () => {
   });
 
   it("keeps the command palette filterable and accessible", () => {
+    expect(stylesheet).toMatch(/\.command-palette-shell\s*\{[^}]*grid-template-rows:\s*auto auto minmax\(0,\s*1fr\) auto auto/);
+    expect(stylesheet).toMatch(/\.command-palette-results\s*\{[^}]*grid-auto-rows:\s*minmax\(46px,\s*auto\)[^}]*min-height:\s*0/);
+    expect(stylesheet).toMatch(/\.command-palette-results button > span\s*\{[^}]*min-width:\s*0[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
+    expect(stylesheet).toMatch(/\.command-palette-results button > small\s*\{[^}]*flex:\s*0 0 auto/);
     expect(stylesheet).toMatch(/\.command-palette-results button\[hidden\]\s*\{[^}]*display:\s*none/);
     expect(stylesheet).toMatch(/\.command-palette-results button:hover\s*\{[^}]*background:/);
     expect(stylesheet).toMatch(/\.command-palette-results button\[aria-selected="true"\]\s*\{[^}]*border-color:/);
+  });
+
+  it("uses the UI typeface for functional extension and automation controls", () => {
+    expect(stylesheet).toMatch(/\.catalog-workspace\s*\{[^}]*font-family:\s*var\(--font-ui\)/);
+    expect(stylesheet).toMatch(/\.schedule-list-header\s*\{[^}]*display:\s*flex[^}]*align-items:\s*center/);
+    expect(stylesheet).toMatch(/\.schedule-list-title\s*\{[^}]*display:\s*flex[^}]*align-items:\s*baseline/);
+    expect(stylesheet).toMatch(/\.core-skill-card\s*\{[^}]*font-family:\s*var\(--font-ui\)/);
+    expect(stylesheet).toMatch(/\.core-skill-grid\s*\{[^}]*grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/);
   });
 
   it("keeps the start mode active state visible and the submit button actionable when unready", () => {

@@ -807,7 +807,7 @@ function automationWorkspace(snapshot: DashboardSnapshot, locale: Locale): strin
   const providers = snapshot.workspaceV2?.providers ?? [];
   const providerOptions = scheduleProviderOptions(providers, locale);
   return `<article class="paper-card full-card catalog-workspace"><header><div><p class="eyebrow">AUTOMATION & RECOVERY</p><h2>${tr(locale, "Automations and recovery", "自动化与恢复")}</h2></div><span class="ribbon work">${tr(locale, "LOCAL AND REVERSIBLE", "本地可恢复")}</span></header>
-    <section aria-labelledby="saved-schedules-title"><header><div><small>LOCAL SCHEDULES</small><h3 id="saved-schedules-title">${tr(locale, "Saved automations", "已保存的自动化")}</h3></div><button type="button" data-schedule-active-load>${tr(locale, "REFRESH LIST", "刷新列表")}</button></header><div class="catalog-grid automation-grid" data-schedule-active-list>${scheduleCardsMarkup(records, locale, false, providers)}</div><div data-schedule-active-page></div></section>
+    <section aria-labelledby="saved-schedules-title"><header class="schedule-list-header"><div class="schedule-list-title"><small>LOCAL SCHEDULES</small><h3 id="saved-schedules-title">${tr(locale, "Saved automations", "已保存的自动化")}</h3></div><button type="button" data-schedule-active-load>${tr(locale, "REFRESH LIST", "刷新列表")}</button></header><div class="catalog-grid automation-grid" data-schedule-active-list>${scheduleCardsMarkup(records, locale, false, providers)}</div><div data-schedule-active-page></div></section>
     <div class="catalog-compose-grid"><form id="schedule-create-form">
       <h3>${tr(locale, "New automation", "新建自动化")}</h3>
       <label>${tr(locale, "Name", "名称")}<input name="name" required maxlength="120" value="${tr(locale, "Morning local check", "每日本地检查")}"></label>
