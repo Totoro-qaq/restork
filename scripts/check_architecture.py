@@ -24,6 +24,8 @@ LINE_BUDGETS = {
     "rust/crates/restork-api/src/daily_api.rs": 1550,
     "desktop/src-tauri/src/lib.rs": 650,
     "desktop/src-tauri/src/commands.rs": 650,
+    "desktop/src-tauri/src/update_commands.rs": 400,
+    "desktop/src-tauri/src/update_runtime.rs": 325,
     "desktop/src-tauri/src/supervisor.rs": 475,
     "desktop/src-tauri/src/supervisor_windows.rs": 460,
     "desktop/src-tauri/src/updates.rs": 550,

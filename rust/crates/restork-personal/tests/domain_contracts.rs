@@ -118,16 +118,15 @@ fn personal_settings_are_optional_clearable_and_strictly_deserialized() {
 
 #[test]
 fn display_name_is_excluded_from_prompt_context_by_default() {
-    let settings =
-        PersonalSettings::try_new(
-            Some("Private Name"),
-            Some("en"),
-            Some("UTC"),
-            None,
-            None,
-            None,
-        )
-            .expect("valid settings");
+    let settings = PersonalSettings::try_new(
+        Some("Private Name"),
+        Some("en"),
+        Some("UTC"),
+        None,
+        None,
+        None,
+    )
+    .expect("valid settings");
     let default_profile = configuration(false);
     let explicit_profile = configuration(true);
     let manifest = prompt_manifest();
