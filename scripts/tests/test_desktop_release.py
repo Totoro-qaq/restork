@@ -38,10 +38,25 @@ class UnsignedDesktopAlphaTests(unittest.TestCase):
             payload = json.loads(output.read_text(encoding="utf-8"))
 
         self.assertEqual(payload["version"], "0.2.0-alpha.1")
-        self.assertEqual(payload["bundle"]["targets"], ["nsis", "msi"])
+        self.assertEqual(payload["bundle"]["targets"], ["nsis"])
         self.assertFalse(payload["bundle"]["createUpdaterArtifacts"])
         self.assertNotIn("windows", payload["bundle"])
         self.assertNotIn("plugins", payload)
+
+    def test_unsigned_stable_windows_config_keeps_nsis_and_msi(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "windows-stable.json"
+            desktop_release._updater_config(
+                output,
+                public_key="",
+                endpoint="",
+                platform="windows",
+                version="0.2.0",
+                signing_mode="unsigned",
+            )
+            payload = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["bundle"]["targets"], ["nsis", "msi"])
 
     def test_unsigned_linux_config_builds_appimage_and_deb(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

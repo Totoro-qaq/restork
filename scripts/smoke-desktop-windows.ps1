@@ -3,7 +3,6 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$NsisInstaller,
 
-    [Parameter(Mandatory = $true)]
     [string]$MsiInstaller,
 
     [string]$ArtifactDirectory = (Join-Path $env:RUNNER_TEMP 'restork-windows-e2e'),
@@ -354,14 +353,16 @@ function Test-InstallerLifecycle {
 }
 
 $NsisInstaller = Resolve-ExistingFile -Path $NsisInstaller -Label 'NSIS installer'
-$MsiInstaller = Resolve-ExistingFile -Path $MsiInstaller -Label 'MSI installer'
+if (-not [string]::IsNullOrWhiteSpace($MsiInstaller)) {
+    $MsiInstaller = Resolve-ExistingFile -Path $MsiInstaller -Label 'MSI installer'
+}
 New-Item -ItemType Directory -Force -Path $ArtifactDirectory | Out-Null
 
 try {
-    $results = @(
-        Test-InstallerLifecycle -Kind 'nsis' -InstallerPath $NsisInstaller
-        Test-InstallerLifecycle -Kind 'msi' -InstallerPath $MsiInstaller
-    )
+    $results = @(Test-InstallerLifecycle -Kind 'nsis' -InstallerPath $NsisInstaller)
+    if (-not [string]::IsNullOrWhiteSpace($MsiInstaller)) {
+        $results += Test-InstallerLifecycle -Kind 'msi' -InstallerPath $MsiInstaller
+    }
     $report = [PSCustomObject]@{
         schema_version = 1
         status = 'passed'
@@ -369,7 +370,8 @@ try {
         results = $results
     }
     $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $ArtifactDirectory 'report.json') -Encoding utf8
-    Write-Host 'Windows clean-machine smoke passed for NSIS and MSI: install, launch, Core ownership, owner-loss cleanup, uninstall, and user-data preservation.'
+    $packages = ($results | ForEach-Object { $_.package }) -join ' and '
+    Write-Host "Windows clean-machine smoke passed for ${packages}: install, launch, Core ownership, owner-loss cleanup, uninstall, and user-data preservation."
 }
 catch {
     $_ | Out-String | Set-Content -LiteralPath (Join-Path $ArtifactDirectory 'failure.txt') -Encoding utf8

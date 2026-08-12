@@ -106,7 +106,7 @@ package manager.
 | Platform | Download | First launch |
 |---|---|---|
 | Apple Silicon macOS 13+ | `macOS-arm64-UNSIGNED-ALPHA.dmg` | Drag to Applications, then use the per-app **Open / Open Anyway** flow. Never disable Gatekeeper globally. |
-| Windows 10/11 x64 | `Windows-x64-UNSIGNED-ALPHA-setup.exe` or `.msi` | The preview is not Authenticode-signed, so SmartScreen may warn. Verify `SHA256SUMS`, then choose to run only if you intentionally downloaded it here. |
+| Windows 10/11 x64 | `Windows-x64-UNSIGNED-ALPHA-setup.exe` | The preview is not Authenticode-signed, so SmartScreen may warn. Verify `SHA256SUMS`, then choose to run only if you intentionally downloaded it here. |
 | Desktop Linux x64 | `Linux-x64-UNSIGNED-ALPHA.AppImage` or `.deb` | AppImage: `chmod +x` and open it. Debian/Ubuntu: install the DEB with the system package installer. |
 
 All formats embed the same Rust Core and Dashboard and are tested for install, launch, quit, and
