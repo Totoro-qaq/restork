@@ -66,7 +66,7 @@ describe("responsive readability", () => {
   });
 
   it("keeps the Start task focused and collapses its controls on narrow windows", () => {
-    expect(stylesheet).toMatch(/\.start-workspace\s*\{[^}]*width:\s*min\(940px,\s*100%\)[^}]*margin:\s*0 auto/);
+    expect(stylesheet).toMatch(/\.start-workspace\s*\{[^}]*width:\s*100%[^}]*align-content:\s*start/);
     expect(stylesheet).toMatch(/\.start-compose-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
     expect(stylesheet).toMatch(/\.start-inline-fix\[hidden\]\s*\{\s*display:\s*none/);
     expect(stylesheet).toMatch(/\.start-run-summary-actions\s*\{[^}]*justify-content:\s*space-between/);
@@ -82,7 +82,7 @@ describe("responsive readability", () => {
   it("keeps presentation template actions typographically consistent and previews visible", () => {
     expect(stylesheet).toMatch(/\.template-action-button,[\s\S]*?font:\s*inherit/);
     expect(stylesheet).toMatch(/\.template-picker-header\s*>\s*\.template-picker-actions\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*86px\)/);
-    expect(stylesheet).toMatch(/\.template-action-button[^}]*\{[^}]*inline-size:\s*86px[^}]*block-size:\s*40px[^}]*color:\s*var\(--fg\)[^}]*font-size:\s*var\(--text-xs\)/);
+    expect(stylesheet).toMatch(/\.template-action-button[^}]*\{[^}]*inline-size:\s*86px[^}]*block-size:\s*max\(40px,\s*var\(--control-min\)\)[^}]*color:\s*var\(--fg\)[^}]*font-size:\s*var\(--text-xs\)/);
     expect(stylesheet).toMatch(/\.render-theme-option\s*\{[^}]*grid-template-rows:\s*28px\s+minmax\(0,\s*1fr\)/);
     expect(stylesheet).toMatch(/\.render-theme-option\s*\{[^}]*block-size:\s*132px/);
     expect(stylesheet).toMatch(/\.theme-thumbnail\s*\{[^}]*width:\s*112px[^}]*aspect-ratio:\s*16\s*\/\s*9/);
@@ -102,10 +102,10 @@ describe("responsive readability", () => {
   });
 
   it("keeps the Start greeting and long-form reading at a readable measure", () => {
-    expect(stylesheet).toMatch(/\.start-intro h2\s*\{[^}]*font-family:\s*var\(--font-ui\)[^}]*font-size:\s*2rem[^}]*white-space:\s*nowrap/);
+    expect(stylesheet).toMatch(/\.start-intro h2\s*\{[^}]*font-family:\s*var\(--font-ui\)[^}]*font-size:\s*1\.5rem[^}]*font-weight:\s*600[^}]*letter-spacing:\s*0[^}]*white-space:\s*normal/);
+    expect(stylesheet).toMatch(/\.start-owner\s*\{[^}]*font-size:\s*1\.25rem[^}]*font-weight:\s*600/);
+    expect(stylesheet).toMatch(/\.sidebar-identity\s*\{[^}]*margin-top:\s*auto/);
     expect(stylesheet).toMatch(/\.vault-reading-view\s*\{[^}]*max-width:\s*72ch[^}]*font-family:\s*var\(--font-reading\)[^}]*line-height:\s*1\.78/);
-    const narrow = stylesheet.slice(stylesheet.indexOf("@media (max-width: 680px)"));
-    expect(narrow).toMatch(/\.start-intro h2\s*\{[^}]*font-size:\s*1\.75rem[^}]*white-space:\s*normal/);
   });
 
   it("does not render navigation glyphs as white on a light surface", () => {
@@ -171,6 +171,14 @@ describe("responsive readability", () => {
     expect(stylesheet).toMatch(/\.command-palette-results button\[hidden\]\s*\{[^}]*display:\s*none/);
     expect(stylesheet).toMatch(/\.command-palette-results button:hover\s*\{[^}]*background:/);
     expect(stylesheet).toMatch(/\.command-palette-results button\[aria-selected="true"\]\s*\{[^}]*border-color:/);
+  });
+
+  it("lets deliverable cards shrink-wrap instead of leaving empty grid tracks", () => {
+    expect(stylesheet).toMatch(/\.deliverable-grid\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/);
+    expect(stylesheet).toMatch(/\.deliverable-grid > \.deck-record\s*\{[^}]*flex:\s*2 1 420px/);
+    expect(stylesheet).toMatch(
+      /\.slide-preview-grid\s*\{[^}]*minmax\(min\(100%, 210px\), 240px\)[^}]*justify-content:\s*start/,
+    );
   });
 
   it("uses the UI typeface for functional extension and automation controls", () => {

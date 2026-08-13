@@ -10,6 +10,7 @@ mod install;
 mod last30days;
 mod manifest;
 mod permissions;
+pub mod skill_import;
 mod transport;
 mod ui;
 mod validation;
@@ -27,5 +28,9 @@ pub use manifest::{
     Provenance, ResourceRef, SandboxPolicy, Sha256Digest, SkillManifest, ToolManifest,
 };
 pub use permissions::{EffectiveGrant, Permission, PermissionSet, resolve_effective_grant};
+pub use skill_import::{
+    ImportedPart, SkillImportError, SkillImportReport, SkillReference, StrippedPart,
+    import_agent_skill_package, is_agent_skill_package, normalize_skill_manifest,
+};
 pub use transport::{EnvironmentPolicy, McpTransport, RemoteDefinition, StdioDefinition};
 pub use ui::{UiAction, UiContribution, UiLocation};

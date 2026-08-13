@@ -41,12 +41,24 @@ import type {
 import type { Locale } from "../i18n";
 import { alternateLocale, plural, tr } from "../i18n";
 import { providerDiagnosticMarkup } from "./provider";
+import {
+  knowledgeSubviewSwitch,
+  primaryNav,
+  runSubviewSwitch,
+  settingsTabSwitch,
+} from "./navigation";
 import { startWorkspaceMarkup } from "./start";
 import { commandPaletteMarkup } from "./commandPalette";
 import { deliverablesWorkspace } from "./presentations";
 export { presentationTemplateCardsMarkup, presentationTemplateTrashMarkup } from "./presentations";
 export { providerDiagnosticMarkup, providerErrorMarkup, providerWaitMarkup } from "./provider";
 import { buildRunTrace, traceMarkup } from "./trace";
+import { navSpriteMarkup } from "./icons";
+import { runBudgetUsedCopy, DEFAULT_MODEL_TURNS } from "./budget";
+import { scheduleIntervalField } from "./schedules";
+import { timeZoneOptions } from "./timezone";
+import { previewDialogMarkup } from "./previewDialog";
+import { safeMarkdownPreview } from "./markdown";
 
 export type AgentWaitStage =
   | "prepare"
@@ -63,7 +75,7 @@ export function pairingMarkup(locale: Locale = "en"): string {
     <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <section class="pairing" aria-labelledby="pairing-title">
       ${localeSwitch(locale)}
-      <p class="eyebrow">Restork · LOCAL-FIRST AGENT · LOOPBACK ONLY</p>
+      <p class="eyebrow">${tr(locale, "Restork · local-first agent · loopback only", "Restork · 本地优先 · 仅本机回环")}</p>
       <h1 id="pairing-title">RES<span>TORK</span></h1>
       <p class="pairing-copy">${tr(locale, "One Core for <b>Research</b>, <b>Study</b>, and <b>Work</b>.", "一个 Core，串起<b>研究</b>、<b>学习</b>与<b>工作</b>。")}</p>
       <form id="pair-form" class="pair-form">
@@ -80,40 +92,20 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
   const incomplete = snapshot.taskBoard.tasks.filter((task) => !task.completed);
   const memories = snapshot.memory?.records.filter((record) => record.summary) ?? [];
   const v2 = snapshot.workspaceV2;
-  const greeting = personalGreeting(snapshot, locale);
   const startupPage = snapshot.workspaceV2?.personal?.settings.startup_page === "dashboard"
     ? "overview"
     : "start";
-  const runProviders = [
-    { id: "deepseek", label: "DeepSeek V4 Pro / deepseek-v4-pro" },
-    ...(v2?.providers ?? [])
-      .filter((record) => record.provider.profile_id !== "deepseek")
-      .map((record) => ({
-        id: record.provider.profile_id,
-        label: `${record.provider.display_name} / ${record.provider.model}`,
-      })),
-  ];
   return `
     <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    ${navSpriteMarkup()}
     <a class="skip-link" href="#workspace-main">${tr(locale, "Skip to main content", "跳到主要内容")}</a>
     <section class="dashboard" aria-label="${tr(locale, "Restork local workspace", "Restork 本地工作台")}">
       <aside class="sidebar">
         <div class="brand"><h1>RES<span>TORK</span></h1><small>LOCAL-FIRST AGENT</small></div>
         <nav aria-label="${tr(locale, "Main navigation", "主导航")}">
-          ${navButton("start", "›", tr(locale, "Start", "开始"), startupPage === "start")}
-          ${navButton("overview", "R", tr(locale, "Dashboard", "仪表盘"), startupPage === "overview")}
-          ${navButton("runs", "›", tr(locale, "Runs", "运行"), false, active.length)}
-          ${navButton("approvals", "✓", tr(locale, "Approvals", "审批"), false, pending.length)}
-          ${navButton("tasks", "□", tr(locale, "Tasks", "任务"), false, incomplete.length)}
-          ${navButton("vault", "K", tr(locale, "Knowledge", "知识库"), false)}
-          ${navButton("radar", "◇", tr(locale, "Radar", "雷达"), false, snapshot.radar.items.length)}
-          ${navButton("memory", "M", tr(locale, "Memory", "记忆"), false, memories.length)}
-          ${v2 ? navButton("conversation", "C", tr(locale, "Conversation", "对话"), false, v2.sessions.length) : ""}
-          ${v2 ? navButton("deliverables", "D", tr(locale, "Deliverables", "交付物"), false, v2.deliverables.length) : ""}
-          ${v2 ? navButton("extensions", "+", tr(locale, "Extensions", "扩展"), false, v2.extensions.length) : ""}
-          ${v2 ? navButton("automation", "A", tr(locale, "Automation", "自动化"), false, v2.schedules.length) : ""}
-          ${v2 ? navButton("settings", "⚙", tr(locale, "Settings", "设置"), false) : ""}
+          ${primaryNav(snapshot, locale)}
         </nav>
+        ${sidebarIdentity(snapshot, locale)}
       </aside>
       <main class="workspace" id="workspace-main" tabindex="-1">
         <header class="topline">
@@ -144,64 +136,8 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
         </aside>
         ${mailSettings(snapshot, locale)}
         ${commandPaletteMarkup(snapshot, locale)}
-        <section id="action-panel" class="action-panel" data-run-surface aria-labelledby="action-panel-title" hidden>
-          <header class="action-panel-header">
-            <div><small>${tr(locale, "NEW RUN", "新建运行")}</small><strong id="action-panel-title">${tr(locale, "Start a Research run", "新建 Research 运行")}</strong></div>
-            <button class="action-panel-close" type="button" data-run-panel-close aria-label="${tr(locale, "Close new run", "收起新建运行")}">×</button>
-          </header>
-          <form id="run-form">
-            <input type="hidden" name="mode" id="run-mode" value="research">
-            <label for="run-goal">${tr(locale, "Goal", "目标")}</label>
-            <div><input id="run-goal" name="goal" required maxlength="1000"><button id="run-submit" type="submit">${tr(locale, "START", "开始")}</button></div>
-            <label for="run-provider">${tr(locale, "Model", "模型")}</label>
-            <select id="run-provider" name="provider_profile_id" required>
-              ${runProviders.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.label)}</option>`).join("")}
-            </select>
-            <small>${tr(
-              locale,
-              "This run keeps the provider and model selected here, and records them in its history.",
-              "本次运行会一直使用这里选择的供应商和模型，并将它们保存在运行记录中。",
-            )}</small>
-            <label id="study-target-label" for="study-target-note" hidden>${tr(locale, "Optional Obsidian note", "可选 Obsidian 笔记")}</label>
-            <input id="study-target-note" name="target_note" maxlength="1024" hidden placeholder="Study/Topic.md">
-            <small id="study-vault-hint" class="form-hint" hidden>
-              ${tr(
-                locale,
-                "Study needs a connected Vault. Choose your knowledge library in Settings first.",
-                "Study 需要已连接的知识库。请先在设置中选择知识库目录。",
-              )}
-            </small>
-            <fieldset id="work-fields" class="work-fields" hidden>
-              <legend>${tr(locale, "PLANNING ONLY · RESTORK WILL NOT RUN CODE", "仅规划 · RESTORK 不会运行代码")}</legend>
-              <label for="work-root">${tr(locale, "Workspace root · absolute local path", "本地仓库绝对路径")}</label>
-              <input id="work-root" name="workspace_root" maxlength="4096" autocomplete="off" spellcheck="false" placeholder="/path/to/repository">
-              <label for="work-targets">${tr(locale, "Target files · one relative path per line", "目标文件 · 每行一个相对路径")}</label>
-              <textarea id="work-targets" name="target_files" maxlength="16000" rows="3" spellcheck="false" placeholder="src/app.py"></textarea>
-              <label for="work-context">${tr(locale, "Optional context files", "可选上下文文件")}</label>
-              <textarea id="work-context" name="context_files" maxlength="30000" rows="2" spellcheck="false" placeholder="README.md"></textarea>
-              <label for="work-class">${tr(locale, "Context class", "上下文分类")}</label>
-              <select id="work-class" name="context_data_class">
-                ${dataClassOptions(locale)}
-              </select>
-              <label for="work-constraints">${tr(locale, "Constraints · one per line", "约束 · 每行一项")}</label>
-              <textarea id="work-constraints" name="constraints" maxlength="30000" rows="2"></textarea>
-              <label for="work-non-goals">${tr(locale, "Non-goals · one per line", "非目标 · 每行一项")}</label>
-              <textarea id="work-non-goals" name="non_goals" maxlength="30000" rows="2"></textarea>
-              <label for="work-verification">${tr(locale, "Proposed verification commands · never executed by Restork", "建议验证命令 · Restork 永不执行")}</label>
-              <textarea id="work-verification" name="verification_commands" maxlength="30000" rows="2" spellcheck="false" placeholder="uv run pytest -q"></textarea>
-              <p class="fine">${tr(
-                locale,
-                "Paths go only to the paired app on this device. You can review the plan, redacted file content, and handoff package separately.",
-                "路径只会交给这台设备上已配对的 Restork。计划、脱敏后的文件内容和交接包都可以分别查看。",
-              )}</p>
-            </fieldset>
-          </form>
-          <p id="action-status" class="status" data-run-status role="status"></p>
-          <div id="agent-wait-host" data-run-wait></div>
-          <div id="study-workspace" class="study-workspace" data-study-workspace aria-live="polite"></div>
-          <div id="work-workspace" class="work-workspace" data-work-workspace aria-live="polite"></div>
-        </section>
-        <section class="view ${startupPage === "start" ? "is-visible" : ""}" data-view-panel="start" ${startupPage === "start" ? "" : "hidden"}>${startWorkspaceMarkup(snapshot, locale, greeting)}</section>
+        ${previewDialogMarkup(locale)}
+        <section class="view ${startupPage === "start" ? "is-visible" : ""}" data-view-panel="start" ${startupPage === "start" ? "" : "hidden"}>${startWorkspaceMarkup(snapshot, locale)}</section>
         <section class="view ${startupPage === "overview" ? "is-visible" : ""}" data-view-panel="overview" ${startupPage === "overview" ? "" : "hidden"}>
           <section class="metrics" aria-label="${tr(locale, "Run overview", "运行概览")}">
             ${metric("research", tr(locale, "Active runs", "进行中运行"), String(active.length), modeCounts(active, locale))}
@@ -228,18 +164,18 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
         <section class="view" data-view-panel="memory" hidden>${memoryView(snapshot, locale)}</section>
         ${v2 ? `<section class="view" data-view-panel="conversation" hidden>${conversationWorkspace(snapshot, locale)}</section>` : ""}
         ${v2 ? `<section class="view" data-view-panel="deliverables" hidden>${deliverablesWorkspace(snapshot, locale)}</section>` : ""}
-        ${v2 ? `<section class="view" data-view-panel="extensions" hidden>${extensionsWorkspace(snapshot, locale)}</section>` : ""}
+        ${v2 ? `<section class="view" data-view-panel="extensions" hidden>${settingsTabSwitch(locale, "extensions")}${extensionsWorkspace(snapshot, locale)}</section>` : ""}
         ${v2 ? `<section class="view" data-view-panel="automation" hidden>${automationWorkspace(snapshot, locale)}</section>` : ""}
-        ${v2 ? `<section class="view" data-view-panel="settings" hidden>${personalSettingsWorkspace(snapshot, locale)}</section>` : ""}
+        ${v2 ? `<section class="view" data-view-panel="settings" hidden>${settingsTabSwitch(locale)}${personalSettingsWorkspace(snapshot, locale)}</section>` : ""}
       </main>
     </section>`;
 }
 
 function vaultWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
   const configured = snapshot.taskBoard.configured;
-  return `<article class="paper-card full-card vault-workspace">
+  return `${knowledgeSubviewSwitch(locale, "vault")}<article class="paper-card full-card vault-workspace">
     <header class="vault-heading">
-      <div><p class="eyebrow">OBSIDIAN VAULT · ${tr(locale, "LOCAL READ-ONLY BROWSER", "本地只读浏览")}</p><h2>${tr(locale, "Knowledge library", "知识库")}</h2></div>
+      <div><p class="eyebrow">${tr(locale, "Obsidian vault · local read-only browser", "Obsidian 知识库 · 本地只读浏览")}</p><h2>${tr(locale, "Knowledge library", "知识库")}</h2></div>
       <span id="vault-live-badge" class="ribbon ${configured ? "study" : "work"}">${configured ? tr(locale, "CONNECTING", "连接中") : tr(locale, "NOT CONFIGURED", "未配置")}</span>
     </header>
     <p class="vault-boundary">${tr(
@@ -284,7 +220,7 @@ export function vaultFileListMarkup(
       : `${formatBytes(item.byte_count)} · ${formatTimestamp(item.modified_unix_ms, locale)}`;
     return `<button type="button" class="vault-file" data-vault-path="${escapeHtml(path)}" title="${escapeHtml(path)}"><span aria-hidden="true">¶</span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(folder)}</small><em>${escapeHtml(detail)}</em></button>`;
   }).join("");
-  return `<div class="vault-result-label">${escapeHtml(label)}</div>${rows || `<p class="empty">${tr(locale, "No matching Markdown notes.", "没有匹配的 Markdown 笔记。")}</p>`}${hasMore && !query ? `<button type="button" class="quiet-button vault-load-more" data-vault-load-more>${tr(locale, "LOAD MORE", "加载更多")}</button>` : ""}`;
+  return `<div class="vault-result-label">${escapeHtml(label)}</div>${rows || `<p class="empty">${tr(locale, "No matching Markdown notes. Try another word, or browse the library.", "没有匹配的笔记。换个词再搜，或打开知识库浏览。")}</p>`}${hasMore && !query ? `<button type="button" class="quiet-button vault-load-more" data-vault-load-more>${tr(locale, "LOAD MORE", "加载更多")}</button>` : ""}`;
 }
 
 export function vaultNotePreviewMarkup(note: VaultNotePreviewV2, locale: Locale): string {
@@ -293,43 +229,10 @@ export function vaultNotePreviewMarkup(note: VaultNotePreviewV2, locale: Locale)
     <header><div><p class="eyebrow">${tr(locale, "READ-ONLY PREVIEW", "只读预览")}</p><h3>${escapeHtml(note.relative_path.split("/").pop() ?? note.relative_path)}</h3><small>${escapeHtml(note.relative_path)}</small></div><span>${formatBytes(note.byte_count)} · SHA-256 ${escapeHtml(shortHash)}…</span></header>
     <div class="vault-untrusted"><b>${tr(locale, "UNTRUSTED NOTE CONTENT", "不受信任的笔记内容")}</b><span>${tr(locale, "Rendered as inert text; embedded HTML and scripts are never executed.", "仅以惰性文本渲染；内嵌 HTML 与脚本永不执行。")}</span></div>
     <section class="vault-reading-view" aria-label="${tr(locale, "Rendered Markdown preview", "Markdown 阅读预览")}">${safeMarkdownPreview(note.content)}</section>
-    <details class="vault-source"><summary>${tr(locale, "VIEW MARKDOWN SOURCE", "查看 Markdown 源文件")}</summary><pre>${escapeHtml(note.content)}</pre></details>
+    <button type="button" class="quiet-button" data-preview-open data-preview-kind="markdown"
+      data-preview-title="${escapeHtml(note.relative_path)}">${tr(locale, "VIEW MARKDOWN SOURCE", "查看 Markdown 源文件")}</button>
+    <div class="preview-source" data-preview-source hidden><pre>${escapeHtml(note.content)}</pre></div>
   </article>`;
-}
-
-function safeMarkdownPreview(markdown: string): string {
-  let fenced = false;
-  return markdown.split(/\r?\n/).map((line) => {
-    if (/^\s*```/.test(line)) {
-      fenced = !fenced;
-      return `<div class="vault-code-fence" aria-hidden="true">${fenced ? "CODE" : "END"}</div>`;
-    }
-    if (fenced) return `<pre class="vault-code-line"><code>${escapeHtml(line)}</code></pre>`;
-    if (!line.trim()) return `<div class="vault-markdown-space" aria-hidden="true"></div>`;
-    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
-    if (heading) {
-      const level = Math.min(6, heading[1].length + 1);
-      return `<h${level}>${safeMarkdownInline(heading[2])}</h${level}>`;
-    }
-    const task = /^\s*[-*]\s+\[([ xX])\]\s+(.+)$/.exec(line);
-    if (task) {
-      const marker = task[1].toLowerCase() === "x" ? "☑" : "☐";
-      return `<p class="vault-task"><span aria-hidden="true">${marker}</span>`
-        + `<span class="vault-markdown-line">${safeMarkdownInline(task[2])}</span></p>`;
-    }
-    const bullet = /^\s*[-*+]\s+(.+)$/.exec(line);
-    if (bullet) return `<p class="vault-bullet"><span aria-hidden="true">•</span><span class="vault-markdown-line">${safeMarkdownInline(bullet[1])}</span></p>`;
-    const quote = /^\s*>\s?(.*)$/.exec(line);
-    if (quote) return `<blockquote>${safeMarkdownInline(quote[1])}</blockquote>`;
-    return `<p>${safeMarkdownInline(line)}</p>`;
-  }).join("");
-}
-
-function safeMarkdownInline(value: string): string {
-  return escapeHtml(value)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\[\[([^\]]+)\]\]/g, '<span class="vault-wikilink">[[$1]]</span>');
 }
 
 function formatBytes(value: number): string {
@@ -397,22 +300,13 @@ function mailCapabilityText(available: boolean, platform: string, locale: Locale
   return tr(locale, "This build has no native mail adapter. Nothing will be requested.", "当前构建没有原生邮件适配器，不会请求任何账户数据。");
 }
 
-function personalGreeting(snapshot: DashboardSnapshot, locale: Locale): string {
-  const band = snapshot.workspaceV2?.dailyContext?.time_band;
+function sidebarIdentity(snapshot: DashboardSnapshot, locale: Locale): string {
   const name = snapshot.workspaceV2?.personal?.settings.display_name?.trim();
-  const salutation = {
-    morning: tr(locale, "Good morning", "早上好"),
-    noon: tr(locale, "Good afternoon", "中午好"),
-    afternoon: tr(locale, "Good afternoon", "下午好"),
-    evening: tr(locale, "Good evening", "晚上好"),
-    late_night: tr(locale, "Still awake", "夜深了"),
-  }[band ?? "morning"];
-  if (locale === "zh-CN") {
-    const who = name ? `，${name}` : "";
-    return `${salutation}${who}。`;
-  }
-  const who = name ? `, ${name}` : "";
-  return `${salutation}${who}.`;
+  const label = name || tr(locale, "Set a name", "设置称呼");
+  const hint = name
+    ? tr(locale, "This device", "本机工作台")
+    : tr(locale, "Optional · stays on this device", "可选，只留在这台设备");
+  return `<button class="sidebar-identity" type="button" data-view="settings" aria-label="${escapeHtml(tr(locale, "Name and appearance", "称呼与外观"))}"><strong>${escapeHtml(label)}</strong><small>${escapeHtml(hint)}</small></button>`;
 }
 
 function dataClassLabel(value: string, locale: Locale): string {
@@ -493,7 +387,7 @@ function conversationWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
     ({ profileId }) => profileId !== active?.profile_id,
   ).length;
   return `<article class="paper-card full-card conversation-workspace">
-    <header><div><p class="eyebrow">CONVERSATION</p><h2>${tr(locale, "Conversation", "对话工作区")}</h2></div><span class="ribbon study">LOCAL</span></header>
+    <header><div><p class="eyebrow">${tr(locale, "Conversation", "对话")}</p><h2>${tr(locale, "Conversation", "对话工作区")}</h2></div><span class="ribbon study">${tr(locale, "LOCAL", "本地")}</span></header>
     <div class="conversation-layout">
       <aside class="session-rail">
         <form id="session-create-form"><label for="session-title">${tr(locale, "New conversation", "新建对话")}</label><div><input id="session-title" name="title" maxlength="240" required placeholder="${tr(locale, "What are we working on?", "这次想做什么？")}"><button type="submit" aria-label="${tr(locale, "Create conversation", "创建对话")}">+</button></div><label for="session-profile" class="sr-only">${tr(locale, "Conversation setup", "对话配置")}</label><select id="session-profile" name="profile_id" aria-describedby="session-profile-help"><option value="safe-mode">${tr(locale, "Safe Mode / local only", "安全模式 / 仅本地")}</option><option value="deepseek-flash">${escapeHtml(builtInFlashLabel)} / ${tr(locale, "low latency / public only", "低延迟 / 仅公开内容")}</option><option value="deepseek">${escapeHtml(builtInDeepSeekLabel)} / ${tr(locale, "deeper reasoning / public only", "深度推理 / 仅公开内容")}</option>${customProfiles.map(({ profile }) => `<option value="${escapeHtml(profile.profile_id)}">${escapeHtml(profileLabel(profile))}</option>`).join("")}</select><small id="session-profile-help">${tr(locale, "This conversation keeps the provider and model selected here. Restork will not switch it to a cloud model in the background.", "本次对话会一直使用这里选择的供应商和模型；Restork 不会在后台换成其他云端模型。")}</small></form>
@@ -628,7 +522,7 @@ function extensionsWorkspace(snapshot: DashboardSnapshot, locale: Locale): strin
   const sessions = snapshot.workspaceV2?.sessions.filter((session) => session.status === "active") ?? [];
   const skills = coreSkills(locale);
   const tools = [...nativeCoreTools(snapshot, locale), ...records.flatMap(extensionTools)];
-  return `<article class="paper-card full-card catalog-workspace"><header><div><p class="eyebrow">EXTENSION CENTER</p><h2>${tr(locale, "Skills, MCP & plugins", "Skills、MCP 与插件")}</h2></div><span class="ribbon research">${tr(locale, "REVIEWED", "需确认")}</span></header>
+  return `<article class="paper-card full-card catalog-workspace"><header><div><p class="eyebrow">${tr(locale, "Extension center", "扩展中心")}</p><h2>${tr(locale, "Skills, MCP & plugins", "Skills、MCP 与插件")}</h2></div><span class="ribbon research">${tr(locale, "REVIEWED", "需确认")}</span></header>
     <div class="extension-overview" aria-label="${tr(locale, "Extension status", "扩展状态")}">
       <article><small>${tr(locale, "Installed", "已安装")}</small><strong>${records.length}</strong><span>${tr(locale, "pinned manifests", "份固定清单")}</span></article>
       <article><small>${tr(locale, "Core skills", "内置 Skills")}</small><strong>${skills.length}</strong><span>${tr(locale, "ready without installation", "无需安装即可使用")}</span></article>
@@ -654,7 +548,7 @@ function extensionsWorkspace(snapshot: DashboardSnapshot, locale: Locale): strin
       )}</p>
       <div class="tool-inventory-grid">${tools.map((tool) => `<details class="tool-inventory-card"><summary><strong>${escapeHtml(tool.name)}</strong><span class="extension-state ${tool.enabled ? "is-enabled" : ""}">${tool.origin === "core" ? (tool.enabled ? tr(locale, "BUILT-IN · READY", "内置 · 就绪") : tr(locale, "NEEDS SETUP", "需要配置")) : (tool.enabled ? tr(locale, "ENABLED PACKAGE", "扩展已启用") : tr(locale, "NOT ENABLED", "尚未启用"))}</span></summary><code>${escapeHtml(tool.id)}</code><small>${escapeHtml(tool.packageId)} · ${escapeHtml(tool.serverId)}</small><p>${escapeHtml(tool.description || tr(locale, "No description in the manifest.", "清单未提供说明。"))}</p><div class="extension-chips">${tool.profiles.map((profile) => `<span>${tr(locale, "Run setup", "运行配置")} · ${escapeHtml(profile)}</span>`).join("") || `<span>${tool.origin === "core" ? tr(locale, "Enabled separately for each conversation", "每个对话单独启用") : tr(locale, "Not assigned to a run setup", "未分配给运行配置")}</span>`}${tool.permissions.map((permission) => `<span>${escapeHtml(permission)}</span>`).join("")}</div></details>`).join("")}</div>
     </section>
-    <div class="catalog-compose-grid"><form id="extension-install-form"><h3>${tr(locale, "Add an extension", "添加扩展")}</h3><label>${tr(locale, "What are you adding?", "要添加什么？")}<select name="package_kind"><option value="skill">Skill</option><option value="mcp">MCP Server</option><option value="plugin">Plugin</option></select></label><label class="wide-label">${tr(locale, "Choose its signed manifest file", "选择扩展提供的签名清单文件")}<input name="manifest_file" type="file" accept=".json,application/json" required></label><p class="fine wide-label">${tr(locale, "You do not need to edit JSON. Restork reads the selected file locally, then explains its source, permissions and tools before anything is installed.", "你不需要编辑 JSON。Restork 只在本地读取所选文件，并在安装前用可读方式说明来源、权限与工具。")}</p><button type="submit">${tr(locale, "CHECK BEFORE INSTALLING", "安装前检查")}</button><div id="extension-install-status" role="status" aria-live="polite"></div></form>
+    <div class="catalog-compose-grid"><form id="extension-install-form"><h3>${tr(locale, "Add an extension", "添加扩展")}</h3><label>${tr(locale, "What are you adding?", "要添加什么？")}<select name="package_kind"><option value="skill">Skill</option><option value="mcp">MCP Server</option><option value="plugin">Plugin</option></select></label><label class="wide-label">${tr(locale, "Choose its signed manifest file", "选择扩展提供的签名清单文件")}<input name="manifest_file" type="file" accept=".json,application/json"></label><p class="wide-label">${tr(locale, "Or import a SKILL.md folder. Restork keeps the instructions and lists anything it cannot run.", "也可以导入 SKILL.md 文件夹。Restork 会留下方法论文本，并列出它无法运行的部分。")}</p><button type="button" class="quiet-button" data-skill-folder-import>${tr(locale, "IMPORT SKILL FOLDER", "从文件夹导入技能")}</button><input data-skill-folder-input type="file" multiple hidden><p class="fine wide-label">${tr(locale, "You do not need to edit JSON. Restork reads the selected file locally, then explains its source, permissions and tools before anything is installed.", "你不需要编辑 JSON。Restork 只在本地读取所选文件，并在安装前用可读方式说明来源、权限与工具。")}</p><button type="submit">${tr(locale, "CHECK BEFORE INSTALLING", "安装前检查")}</button><div id="extension-install-status" role="status" aria-live="polite"></div></form>
     <form id="extension-tool-search-form"><h3>${tr(locale, "Session tool search", "会话工具搜索")}</h3><label>${tr(locale, "Conversation", "对话")}<select name="session_id">${sessions.map((session) => `<option value="${escapeHtml(session.session_id)}">${escapeHtml(session.title)}</option>`).join("")}</select></label><label>${tr(locale, "Query", "查询")}<input name="query" maxlength="512" required></label><button type="submit" ${sessions.length ? "" : "disabled"}>${tr(locale, "SEARCH AVAILABLE TOOLS", "搜索可用工具")}</button><div id="extension-tool-results"></div></form></div>
     <p class="fine">${tr(
       locale,
@@ -806,15 +700,19 @@ function automationWorkspace(snapshot: DashboardSnapshot, locale: Locale): strin
     .filter((record): record is ScheduleRecordV2 => record !== null);
   const providers = snapshot.workspaceV2?.providers ?? [];
   const providerOptions = scheduleProviderOptions(providers, locale);
-  return `<article class="paper-card full-card catalog-workspace"><header><div><p class="eyebrow">AUTOMATION & RECOVERY</p><h2>${tr(locale, "Automations and recovery", "自动化与恢复")}</h2></div><span class="ribbon work">${tr(locale, "LOCAL AND REVERSIBLE", "本地可恢复")}</span></header>
-    <section aria-labelledby="saved-schedules-title"><header class="schedule-list-header"><div class="schedule-list-title"><small>LOCAL SCHEDULES</small><h3 id="saved-schedules-title">${tr(locale, "Saved automations", "已保存的自动化")}</h3></div><button type="button" data-schedule-active-load>${tr(locale, "REFRESH LIST", "刷新列表")}</button></header><div class="catalog-grid automation-grid" data-schedule-active-list>${scheduleCardsMarkup(records, locale, false, providers)}</div><div data-schedule-active-page></div></section>
-    <div class="catalog-compose-grid"><form id="schedule-create-form">
+  return `<article class="paper-card full-card catalog-workspace"><header><div><p class="eyebrow">${tr(locale, "Automation & recovery", "自动化与恢复")}</p><h2>${tr(locale, "Automations and recovery", "自动化与恢复")}</h2></div><span class="ribbon work">${tr(locale, "LOCAL AND REVERSIBLE", "本地可恢复")}</span></header>
+    <section aria-labelledby="saved-schedules-title"><header class="schedule-list-header"><div class="schedule-list-title"><small>${tr(locale, "Local schedules", "本地日程")}</small><h3 id="saved-schedules-title">${tr(locale, "Saved automations", "已保存的自动化")}</h3></div>
+        <div class="schedule-list-actions"><button type="button" data-schedule-active-load>${tr(locale, "REFRESH LIST", "刷新列表")}</button><button type="button" class="quiet-button" data-schedule-trash-load>${tr(locale, "OPEN TRASH", "打开回收站")}</button></div></header>
+      <div class="catalog-grid automation-grid" data-schedule-active-list>${scheduleCardsMarkup(records, locale, false, providers)}</div><div data-schedule-active-page></div>
+      <div class="catalog-grid automation-grid" data-schedule-trash-list></div><div data-schedule-trash-page></div></section>
+    <div class="catalog-compose-grid catalog-compose-single"><form id="schedule-create-form">
       <h3>${tr(locale, "New automation", "新建自动化")}</h3>
       <label>${tr(locale, "Name", "名称")}<input name="name" required maxlength="120" value="${tr(locale, "Morning local check", "每日本地检查")}"></label>
       <label>${tr(locale, "Time", "时间")}<input name="time" type="time" required value="09:00"></label>
-      <label>${tr(locale, "Recurrence", "重复")}<select name="recurrence"><option value="daily">${tr(locale, "Daily", "每天")}</option><option value="weekly">${tr(locale, "Weekly", "每周")}</option></select></label>
-      <label>${tr(locale, "Weekday", "星期")}<select name="weekday">${weekdayOptions(locale)}</select></label>
-      <label>${tr(locale, "Job", "任务")}<select name="job">${scheduleJobOptions(locale)}</select></label>
+      <label>${tr(locale, "Recurrence", "重复")}<select name="recurrence" data-schedule-recurrence><option value="daily">${tr(locale, "Daily", "每天")}</option><option value="weekly">${tr(locale, "Weekly", "每周")}</option><option value="every_n_days">${tr(locale, "Every few days", "每几天")}</option></select></label>
+      <label data-schedule-weekday-field hidden>${tr(locale, "Weekday", "星期")}<select name="weekday">${weekdayOptions(locale)}</select></label>
+      ${scheduleIntervalField(locale, 3, true)}
+      <label class="wide-label">${tr(locale, "Job", "任务")}<select name="job">${scheduleJobOptions(locale)}</select></label>
       <fieldset class="schedule-model-fields wide-label" data-schedule-model-fields hidden>
         <legend>${tr(locale, "Model for this draft", "起草所用模型")}</legend>
         <label>${tr(locale, "Model", "模型")}<select name="provider_profile_id">${providerOptions}</select></label>
@@ -832,8 +730,7 @@ function automationWorkspace(snapshot: DashboardSnapshot, locale: Locale): strin
         "Model automations use public run facts to create a draft on this device. The draft is not written to the Vault or exported until you confirm it.",
         "模型自动化只使用公开的运行记录，并在这台设备上生成草稿。确认之前，草稿不会写入知识库或导出。",
       )}</p>
-    </form>
-    <section class="automation-contracts"><h3>${tr(locale, "Recovery & history", "回收站与运行记录")}</h3><p>${tr(locale, "Deleting an automation moves it to the local trash and preserves its run history.", "删除自动化只会将它移入本地回收站，并保留运行记录。")}</p><button type="button" data-schedule-trash-load>${tr(locale, "OPEN TRASH", "打开回收站")}</button><div data-schedule-trash-list></div><div data-schedule-trash-page></div></section></div></article>`;
+    </form></div></article>`;
 }
 
 function scheduleRecordFromCatalog(record: CatalogRecordV2): ScheduleRecordV2 | null {
@@ -915,8 +812,8 @@ export function scheduleCardsMarkup(
 ): string {
   if (!records.length) {
     return `<p class="empty">${deleted
-      ? tr(locale, "Trash is empty.", "回收站为空。")
-      : tr(locale, "No saved automations yet.", "还没有已保存的自动化。")}</p>`;
+      ? tr(locale, "Trash is empty. Restored automations will appear in the active list.", "回收站是空的。恢复后会出现在当前列表里。")
+      : tr(locale, "No saved automations yet. Name one below and save it.", "还没有自动化。在下面填名称和时间，点保存即可。")}</p>`;
   }
   return records.map((record) => scheduleCard(record, locale, deleted, providers)).join("");
 }
@@ -937,6 +834,7 @@ function scheduleCard(
     : `${String(recurrence.hour).padStart(2, "0")}:${String(recurrence.minute).padStart(2, "0")}`;
   const recurrenceKind = recurrence.kind;
   const weekday = recurrence.kind === "weekly" ? recurrence.weekday_monday_zero : 0;
+  const intervalDays = recurrence.kind === "every_n_days" ? recurrence.interval_days : 3;
   const deletedCopy = record.deleted_at
     ? `${tr(locale, "Deleted", "删除于")} ${formatDate(record.deleted_at, locale)}`
     : tr(locale, "In trash", "位于回收站");
@@ -976,12 +874,14 @@ function scheduleCard(
       ${recurrence.kind === "one_shot" ? `data-schedule-one-shot-at="${escapeHtml(recurrence.at)}"` : ""} hidden>
       <label>${tr(locale, "Name", "名称")}<input name="name" required maxlength="120" value="${escapeHtml(name)}"></label>
       <label>${tr(locale, "Time", "时间")}<input name="time" type="time" required value="${time}"></label>
-      <label>${tr(locale, "Recurrence", "重复")}<select name="recurrence">
+      <label>${tr(locale, "Recurrence", "重复")}<select name="recurrence" data-schedule-recurrence>
         ${recurrence.kind === "one_shot" ? `<option value="one_shot" selected>${tr(locale, "Once · keep original time", "单次 · 保留原时间")}</option>` : ""}
         <option value="daily" ${recurrenceKind === "daily" ? "selected" : ""}>${tr(locale, "Daily", "每天")}</option>
         <option value="weekly" ${recurrenceKind === "weekly" ? "selected" : ""}>${tr(locale, "Weekly", "每周")}</option>
+        <option value="every_n_days" ${recurrenceKind === "every_n_days" ? "selected" : ""}>${tr(locale, "Every few days", "每几天")}</option>
       </select></label>
-      <label>${tr(locale, "Weekday", "星期")}<select name="weekday">${weekdayOptions(locale, weekday)}</select></label>
+      <label data-schedule-weekday-field ${recurrenceKind === "weekly" ? "" : "hidden"}>${tr(locale, "Weekday", "星期")}<select name="weekday">${weekdayOptions(locale, weekday)}</select></label>
+      ${scheduleIntervalField(locale, intervalDays, recurrenceKind !== "every_n_days")}
       <label>${tr(locale, "Job", "任务")}<select name="job">${scheduleJobOptions(locale, selectedJob)}</select></label>
       <fieldset class="schedule-model-fields wide-label" data-schedule-model-fields ${schedule.job.kind === "model_draft" ? "" : "hidden"}>
         <legend>${tr(locale, "Model for this draft", "起草所用模型")}</legend>
@@ -1007,7 +907,7 @@ function scheduleCard(
 }
 
 export function scheduleRunsMarkup(runs: ScheduleRunV2[], locale: Locale): string {
-  if (!runs.length) return `<p class="empty">${tr(locale, "No runs recorded yet.", "还没有运行记录。")}</p>`;
+  if (!runs.length) return `<p class="empty">${tr(locale, "No runs recorded yet. Save the automation to see them here.", "还没有运行记录。保存自动化后会显示在这里。")}</p>`;
   return `<ol class="event-list">${runs.map((run) => {
     const manual = run.period_key.startsWith("manual:") || run.result.manual === true;
     const state = scheduleRunStateLabel(
@@ -1045,9 +945,22 @@ function humanScheduleRecurrence(recurrence: ScheduleRecordV2["schedule"]["recur
   }
   const time = `${String(recurrence.hour).padStart(2, "0")}:${String(recurrence.minute).padStart(2, "0")}`;
   if (recurrence.kind === "daily") return tr(locale, `Every day at ${time}`, `每天 ${time}`);
+  if (recurrence.kind === "every_n_days") {
+    const days = recurrence.interval_days;
+    return tr(locale, `Every ${days} days at ${time}`, `每 ${days} 天 ${time}`);
+  }
   const weekday = weekdayNames(locale)[recurrence.weekday_monday_zero] ?? weekdayNames(locale)[0];
   return tr(locale, `Every ${weekday} at ${time}`, `每${weekday} ${time}`);
 }
+
+/**
+ * Cadence is the user's intent, not a safety boundary, so it takes a free
+ * number inside honest bounds instead of a short menu of blessed values.
+ */
+export {
+  MAX_SCHEDULE_INTERVAL_DAYS,
+  MIN_SCHEDULE_INTERVAL_DAYS,
+} from "../limits";
 
 function weekdayNames(locale: Locale): string[] {
   return locale === "zh-CN"
@@ -1140,57 +1053,6 @@ function reasoningEffortOptions(locale: Locale): string {
   return options.map(([value, en, zh]) => `<option value="${value}" data-reasoning-effort="${value}">${tr(locale, en, zh)}</option>`).join("");
 }
 
-function timeZoneOptions(savedTimeZone: string | undefined, locale: Locale): string {
-  let systemTimeZone = "UTC";
-  try {
-    const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (typeof resolved === "string" && resolved.length > 0 && resolved.length <= 128) {
-      systemTimeZone = resolved;
-    }
-  } catch {
-    // UTC remains the deterministic fallback when the runtime cannot expose a zone.
-  }
-  const saved = savedTimeZone?.trim();
-  const selectedTimeZone = saved || systemTimeZone;
-  const followsSystem = !saved;
-  let supportedTimeZones: string[] = [];
-  try {
-    const supportedValuesOf = Reflect.get(Intl, "supportedValuesOf");
-    if (typeof supportedValuesOf === "function") {
-      const values = Reflect.apply(supportedValuesOf, Intl, ["timeZone"]);
-      if (Array.isArray(values)) {
-        supportedTimeZones = values.filter((value): value is string => (
-          typeof value === "string" && value.length > 0 && value.length <= 128
-        ));
-      }
-    }
-  } catch {
-    // Older WebViews use the common bounded fallback below.
-  }
-  const availableTimeZones = [
-    selectedTimeZone,
-    "UTC",
-    "Asia/Shanghai",
-    "Asia/Hong_Kong",
-    "Asia/Singapore",
-    "Asia/Tokyo",
-    "Europe/London",
-    "Europe/Paris",
-    "America/New_York",
-    "America/Los_Angeles",
-    ...supportedTimeZones,
-  ].filter((value, index, values) => values.indexOf(value) === index);
-  const systemLabel = tr(
-    locale,
-    `Follow this device (${systemTimeZone})`,
-    `跟随系统（${systemTimeZone}）`,
-  );
-  return `<option value="" ${followsSystem ? "selected" : ""}>${escapeHtml(systemLabel)}</option>`
-    + availableTimeZones.map((timeZone) => (
-      `<option value="${escapeHtml(timeZone)}" ${timeZone === selectedTimeZone && !followsSystem ? "selected" : ""}>${escapeHtml(timeZone)}</option>`
-    )).join("");
-}
-
 function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
   const record = snapshot.workspaceV2?.personal;
   const settings = record?.settings ?? {};
@@ -1206,34 +1068,36 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
   const projectSecurityUrl = locale === "zh-CN" ? `${projectBaseUrl}/blob/main/SECURITY.zh-CN.md` : `${projectBaseUrl}/security/policy`;
   const projectSecurityLink = safeLink(projectSecurityUrl, tr(locale, "SECURITY", "安全政策"), externalLinkAttributes);
   const projectLicenseLink = safeLink(`${projectBaseUrl}/blob/main/LICENSE`, "MIT LICENSE", externalLinkAttributes);
-  return `<article class="paper-card full-card settings-workspace"><header><div><p class="eyebrow">SETTINGS</p><h2>${tr(locale, "Make Restork yours", "让 Restork 更像你的工作台")}</h2></div><span class="ribbon study">${tr(locale, "ON DEVICE", "保存在本机")}</span></header>
+  return `<article class="paper-card full-card settings-workspace"><header><div><p class="eyebrow">${tr(locale, "Settings", "设置")}</p><h2>${tr(locale, "Make Restork yours", "让 Restork 更像你的工作台")}</h2></div><span class="ribbon study">${tr(locale, "ON DEVICE", "保存在本机")}</span></header>
     <div class="settings-sections">
-      <section class="settings-section"><header><div><small>PERSONAL</small><h3>${tr(locale, "Name & appearance", "称呼与外观")}</h3></div></header>
+      <section class="settings-section" data-settings-panel="personal"><header><div><small>${tr(locale, "Personal", "个人")}</small><h3>${tr(locale, "Name & appearance", "称呼与外观")}</h3></div></header>
         <form id="personal-settings-form" data-version="${record?.version ?? 0}">
           <label>${tr(locale, "Display name (optional)", "称呼（可选）")}<input name="display_name" maxlength="80" value="${escapeHtml(settings.display_name ?? "")}" autocomplete="nickname"></label>
           <label>${tr(locale, "Language", "语言")}<select name="locale"><option value="en" ${settings.locale === "en" ? "selected" : ""}>English</option><option value="zh-CN" ${settings.locale === "zh-CN" ? "selected" : ""}>简体中文</option></select></label>
-          <label>${tr(locale, "Time zone", "时区")}<select name="timezone">${timeZoneOptions(settings.timezone, locale)}</select></label>
+          <label>${tr(locale, "Time zone", "时区")}${timeZoneOptions(settings.timezone, locale)}</label>
           <label>${tr(locale, "Theme", "主题")}<select name="theme"><option value="system">${tr(locale, "System", "跟随系统")}</option><option value="light" ${settings.theme === "light" ? "selected" : ""}>${tr(locale, "Light", "浅色")}</option><option value="dark" ${settings.theme === "dark" ? "selected" : ""}>${tr(locale, "Dark", "深色")}</option></select></label>
           <label>${tr(locale, "Open on launch", "启动后打开")}<select name="startup_page"><option value="start" ${settings.startup_page !== "dashboard" ? "selected" : ""}>${tr(locale, "Start", "开始页")}</option><option value="dashboard" ${settings.startup_page === "dashboard" ? "selected" : ""}>${tr(locale, "Dashboard", "仪表盘")}</option></select></label>
-          <button type="submit">${tr(locale, "SAVE LOCALLY", "保存到本地")}</button><p id="personal-settings-status" role="status"></p>
+          <button type="submit" class="btn-primary">${tr(locale, "SAVE LOCALLY", "保存到本地")}</button><p id="personal-settings-status" role="status"></p>
         </form>
         <p class="fine">${tr(locale, "Your display name is not sent to a model unless a run setup explicitly includes it.", "称呼默认不会发送给模型；只有你在运行配置中明确开启后才会包含它。")}</p>
         <div class="getting-started-return"><div><strong>${tr(locale, "Start page", "开始页")}</strong><small>${tr(locale, "Return to the focused task launcher at any time.", "随时回到一句话发起任务的开始页。")}</small></div><button type="button" class="quiet-button" data-start-page-return>${tr(locale, "OPEN START", "打开开始页")}</button></div>
       </section>
-      <section class="settings-section"><header><div><small>KNOWLEDGE BASE</small><h3>${tr(locale, "Vault directory", "知识库目录")}</h3></div></header>
+      <section class="settings-section" data-settings-panel="knowledge" hidden><header><div><small>${tr(locale, "Knowledge base", "知识库")}</small><h3>${tr(locale, "Vault directory", "知识库目录")}</h3></div></header>
         <form id="vault-dir-form">
           <div class="native-setup-summary"><span class="native-setup-icon" aria-hidden="true">K</span><div><strong data-vault-current>${tr(locale, "No knowledge library selected", "尚未选择知识库")}</strong><small>${tr(locale, "The absolute path stays inside the native desktop process.", "绝对路径只留在桌面原生进程中，不会交给网页界面。")}</small></div></div>
-          <button type="button" data-vault-choose>${tr(locale, "CHOOSE VAULT FOLDER", "选择知识库文件夹")}</button>
+          <button type="button" class="btn-primary" data-vault-choose>${tr(locale, "CHOOSE VAULT FOLDER", "选择知识库文件夹")}</button>
           <section class="vault-candidate" data-vault-candidate hidden><div><strong data-vault-candidate-label></strong><small>${tr(locale, "Restork will reconnect the local Core and invalidate old one-time approvals.", "Restork 会重新连接本地 Core，并使旧的一次性审批失效。")}</small></div><button type="button" data-vault-apply>${tr(locale, "APPLY & RECONNECT", "应用并重新连接")}</button><button type="button" class="quiet-button" data-vault-cancel>${tr(locale, "CANCEL", "取消")}</button></section>
           <p id="vault-dir-status" role="status" aria-live="polite"></p>
         </form>
         <p class="fine">${tr(locale, "Choosing a folder is optional. The desktop app validates it, reconnects Core automatically, and rolls back if the new Vault cannot start.", "选择文件夹是可选项。桌面应用会先校验，再自动重连 Core；如果新知识库无法启动，会回到上一次可用配置。")}</p>
       </section>
-      <section class="settings-section"><header><div><small>MODEL CENTER</small><h3>${tr(locale, "Providers", "模型供应商")}</h3></div><span>${providers.length}</span></header>
+      <section class="settings-section" data-settings-panel="models" hidden><header><div><small>${tr(locale, "Model center", "模型")}</small><h3>${tr(locale, "Providers", "模型供应商")}</h3></div><span>${providers.length}</span></header>
         <div class="settings-records">${providers.map((record) => `<article data-provider-profile-card="${escapeHtml(record.provider.profile_id)}"><strong>${escapeHtml(record.provider.display_name)}</strong><span>${escapeHtml(record.provider.kind)} · ${escapeHtml(record.provider.model)}</span><small>v${record.revision} · ${tr(locale, "reasoning", "思考强度")} ${escapeHtml(record.provider.reasoning?.effort ?? "auto")} · ${record.provider.secret_ref ? tr(locale, "API key saved in system credentials", "API Key 已存入系统凭据库") : tr(locale, "no API key needed", "无需 API Key")}</small><div class="provider-record-actions"><button type="button" data-provider-edit="${escapeHtml(record.provider.profile_id)}" data-provider-record="${escapeHtml(JSON.stringify(record))}">${tr(locale, "EDIT", "编辑")}</button><button type="button" data-provider-profile-test="${escapeHtml(record.provider.profile_id)}" data-provider-model="${escapeHtml(record.provider.model)}">${tr(locale, "TEST MODEL", "测试模型")}</button></div><div data-provider-profile-result role="status" aria-live="polite"></div></article>`).join("") || `<p class="empty">${tr(locale, "Choose a cloud provider, local Ollama, or a generic OpenAI-compatible endpoint.", "选择云端供应商、本地 Ollama 或通用 OpenAI 兼容端点。")}</p>`}</div>
         <form id="provider-profile-form" data-version="0">
-          <label>ID<input name="profile_id" required maxlength="80" pattern="[A-Za-z0-9._\\-]+" placeholder="deepseek-main"></label>
           <label>${tr(locale, "Name", "名称")}<input name="display_name" required maxlength="120" placeholder="DeepSeek V4 Pro"></label>
+          <details class="source-build-fallback"><summary>${tr(locale, "Advanced: profile ID", "高级：配置 ID")}</summary>
+            <label>ID<input name="profile_id" required maxlength="80" pattern="[A-Za-z0-9._\\-]+" placeholder="deepseek-main" autocomplete="off"></label>
+          </details>
           <label>${tr(locale, "Kind", "类型")}<select name="kind">${providerRegistry.length ? providerRegistry.map((definition) => providerRegistryOption(definition, locale)).join("") : `<option value="deepseek" data-base-url="https://api.deepseek.com" data-auth-kind="bearer" data-reasoning-efforts="high,max" data-reasoning-can-disable="true" data-reasoning-budget="false">DeepSeek</option><option value="glm" data-base-url="https://open.bigmodel.cn/api/paas/v4" data-auth-kind="bearer" data-reasoning-efforts="high,max" data-reasoning-can-disable="true" data-reasoning-budget="false">GLM</option><option value="kimi" data-base-url="https://api.moonshot.cn/v1" data-auth-kind="bearer" data-reasoning-efforts="" data-reasoning-can-disable="true" data-reasoning-budget="false">Kimi</option><option value="qwen" data-base-url="https://dashscope.aliyuncs.com/compatible-mode/v1" data-auth-kind="bearer" data-reasoning-efforts="minimal,low,medium,high,xhigh,max" data-reasoning-can-disable="true" data-reasoning-budget="true">Qwen</option><option value="ollama" data-base-url="http://127.0.0.1:11434" data-auth-kind="none" data-reasoning-efforts="low,medium,high" data-reasoning-can-disable="true" data-reasoning-budget="false">Ollama (${tr(locale, "local", "本地")})</option><option value="openrouter" data-base-url="https://openrouter.ai/api/v1" data-auth-kind="bearer" data-reasoning-efforts="minimal,low,medium,high,xhigh,max" data-reasoning-can-disable="true" data-reasoning-budget="true">OpenRouter</option><option value="open_ai_compatible" data-base-url="https://api.example.invalid/v1" data-auth-kind="bearer" data-reasoning-efforts="" data-reasoning-can-disable="false" data-reasoning-budget="false">OpenAI-compatible</option>`}</select></label>
           <label>${tr(locale, "Base URL", "服务地址")}<input name="base_url" required maxlength="2048" value="https://api.deepseek.com" readonly><small data-provider-endpoint-note>${tr(locale, "Official providers use a locked verified endpoint.", "官方供应商使用经过确认的固定地址。")}</small></label>
           <label data-provider-model-picker>${tr(locale, "Model", "模型")}<select data-provider-model-select required></select><small>${tr(locale, "Choose a recommended model; Restork saves it with this provider.", "从推荐模型中选择；Restork 会把它保存在这个供应商配置中。")}</small></label>
@@ -1243,12 +1107,18 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
           <label data-reasoning-budget-field hidden>${tr(locale, "Reasoning token budget (optional)", "思考 Token 预算（可选）")}<input name="reasoning_max_tokens" type="number" min="256" max="128000" step="1" disabled></label>
           <input name="secret_ref" type="hidden">
           <div class="native-secret-setup"><div><strong>${tr(locale, "API key", "API Key")}</strong><small data-provider-secret-status>${tr(locale, "Not saved on this device", "尚未保存在这台设备上")}</small></div><button type="button" data-provider-secret-configure>${tr(locale, "SAVE API KEY SECURELY", "安全保存 API Key")}</button></div>
-          <button type="submit">${tr(locale, "SAVE PROVIDER", "保存供应商")}</button><p id="provider-profile-status" role="status"></p>
+          <button type="submit" class="btn-primary">${tr(locale, "SAVE PROVIDER", "保存供应商")}</button><p id="provider-profile-status" role="status"></p>
         </form>
-        <details class="source-build-fallback"><summary>${tr(locale, "Source-build fallback", "源码运行备用方式")}</summary><p>${tr(locale, "Source builds can still use the provider command printed by Core. Desktop users do not need that terminal path.", "源码运行仍可使用 Core 提供的供应商配置命令；桌面版用户不需要走终端流程。")}</p></details>
+        <details class="source-build-fallback"><summary>${tr(locale, "Source-build fallback", "源码运行备用方式")}</summary><p>${tr(locale, "Source builds can still use the provider command printed by Core. Desktop builds do not need that terminal path.", "源码运行仍可使用 Core 提供的供应商配置命令；桌面版不需要走终端流程。")}</p></details>
         <p class="fine">${tr(locale, "The native prompt stores the key in this system's credential vault. Saving a key never tests it or starts a paid request; test the model separately from its card.", "原生弹窗只把 Key 存进系统凭据库。保存 Key 不会顺便测试，也不会发起计费请求；请在模型卡片中单独测试。")}</p>
       </section>
-      <section class="settings-section"><header><div><small>PROMPT STUDIO</small><h3>${tr(locale, "Versioned instructions", "版本化指令")}</h3></div><span>${prompts.length}</span></header>
+      <div data-settings-panel="advanced" hidden>
+        <p class="settings-intro">${tr(
+          locale,
+          "Prompt revisions and run setups change how Restork follows instructions. Skip this unless you need that.",
+          "指令修订和运行配置用来改 Restork 的遵循方式。不需要时可以先不管。",
+        )}</p>
+      <section class="settings-section"><header><div><small>${tr(locale, "Prompt studio", "指令工作室")}</small><h3>${tr(locale, "Versioned instructions", "版本化指令")}</h3></div><span>${prompts.length}</span></header>
         <div class="settings-records prompt-history">${prompts.map((record) => `<article><strong>${escapeHtml(record.prompt.prompt_id)} · v${record.prompt.revision}</strong><span>${escapeHtml(record.prompt.layer)} · ${escapeHtml(record.content_hash.slice(0, 12))}…</span><small>${record.active ? tr(locale, "ACTIVE", "当前启用") : formatDate(record.created_at, locale)}</small>${record.active ? "" : `<button type="button" data-prompt-activate="${record.prompt.revision}" data-prompt-id="${escapeHtml(record.prompt.prompt_id)}" data-active-revision="${activePrompt?.prompt.revision ?? 0}">${tr(locale, "ACTIVATE", "启用")}</button>`}</article>`).join("") || `<p class="empty">${tr(locale, "Create instructions for yourself or a Skill. Built-in permission rules cannot be changed here.", "可以为自己或 Skill 新建指令；应用内置的权限规则不能在这里修改。")}</p>`}</div>
         <form id="prompt-revision-form" data-version="${prompts[0]?.prompt.revision ?? 0}">
           <label>Prompt ID<input name="prompt_id" required maxlength="80" pattern="[A-Za-z0-9._\\-]+" value="personal"></label>
@@ -1257,20 +1127,31 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
           <button type="submit">${tr(locale, "SAVE NEW REVISION", "保存新修订")}</button><p id="prompt-revision-status" role="status"></p>
         </form>
       </section>
-      <section class="settings-section"><header><div><small>RUN SETUPS</small><h3>${tr(locale, "Run setups", "运行配置")}</h3></div><span>${profiles.length}</span></header>
+      <section class="settings-section"><header><div><small>${tr(locale, "Run setups", "运行配置")}</small><h3>${tr(locale, "Run setups", "运行配置")}</h3></div><span>${profiles.length}</span></header>
         <div class="settings-records">${profiles.map((record) => `<article><strong>${escapeHtml(record.profile.name)}</strong><span>${escapeHtml(record.profile.provider_profile_id)} · ${escapeHtml(dataClassLabel(record.profile.maximum_data_class, locale))}</span><small>v${record.revision}${record.builtin ? ` · ${tr(locale, "built-in", "内置")}` : ""}</small></article>`).join("") || `<p class="empty">${tr(locale, "A run setup keeps the model, instructions, tools, and allowed data together.", "运行配置会把模型、指令、工具和可用的数据范围放在一起。")}</p>`}</div>
         <form id="configuration-profile-form" data-version="0" data-prompt-hash="${escapeHtml(activePrompt?.content_hash ?? "")}">
           <label>ID<input name="profile_id" required maxlength="80" pattern="[A-Za-z0-9._\\-]+" placeholder="research-cloud"></label>
           <label>${tr(locale, "Name", "名称")}<input name="name" required maxlength="120" placeholder="Research Cloud"></label>
           <label>${tr(locale, "Provider", "供应商")}<select name="provider_profile_id" required>${providers.map((record) => `<option value="${escapeHtml(record.provider.profile_id)}">${escapeHtml(record.provider.display_name)}</option>`).join("")}</select></label>
           <label>${tr(locale, "Content this setup may use", "这个配置可使用的内容")}<select name="maximum_data_class">${dataClassOptions(locale)}</select></label>
-          <label>${tr(locale, "Enabled Skills (comma separated)", "启用的 Skills（逗号分隔）")}<input name="enabled_skill_ids" maxlength="4000" placeholder="research,last-30-days"></label>
-          <label>${tr(locale, "Allowed tools (comma separated)", "允许的工具（逗号分隔）")}<input name="allowed_tools" maxlength="4000" placeholder="source-read,vault-search"></label>
+          <label>${tr(locale, "Enabled Skills (comma separated)", "启用的 Skills（逗号分隔）")}<input name="enabled_skill_ids" maxlength="4000" list="skill-id-options" placeholder="core.research,core.study"></label>
+          <label>${tr(locale, "Allowed tools (comma separated)", "允许的工具（逗号分隔）")}<input name="allowed_tools" maxlength="4000" list="tool-id-options" placeholder="vault_search,source_read"></label>
           <label class="check-label"><input type="checkbox" name="include_display_name_in_prompt">${tr(locale, "Include my display name in this run setup's instructions", "允许这份运行配置在指令中包含我的称呼")}</label>
           <button type="submit" ${providers.length && activePrompt ? "" : "disabled"}>${tr(locale, "SAVE RUN SETUP", "保存运行配置")}</button><p id="configuration-profile-status" role="status">${providers.length && activePrompt ? "" : tr(locale, "Add a provider and activate instructions first.", "请先添加供应商并启用一份指令。")}</p>
         </form>
+        <datalist id="skill-id-options">
+          <option value="core.research"></option><option value="core.study"></option>
+          <option value="core.work"></option><option value="core.reports"></option>
+          <option value="core.presentation"></option>
+        </datalist>
+        <datalist id="tool-id-options">
+          <option value="vault_search"></option><option value="source_read"></option>
+          <option value="vault_write"></option><option value="web_search"></option>
+        </datalist>
       </section>
-      <section class="settings-section desktop-updates" data-desktop-updates><header><div><small>DESKTOP UPDATES</small><h3>${tr(locale, "Updates", "版本更新")}</h3></div><span data-update-current>—</span></header>
+      </div>
+      <div data-settings-panel="about" hidden>
+      <section class="settings-section desktop-updates" data-desktop-updates><header><div><small>${tr(locale, "Desktop updates", "版本更新")}</small><h3>${tr(locale, "Updates", "版本更新")}</h3></div><span data-update-current>—</span></header>
         <p data-update-owner>${tr(locale, "Checking how this installation receives updates…", "正在确认当前安装方式……")}</p>
         <form class="update-preferences" data-update-preferences>
           <label>${tr(locale, "Channel", "更新通道")}<select name="update_channel"><option value="stable">${tr(locale, "Stable", "正式版")}</option><option value="beta">Beta</option></select></label>
@@ -1292,7 +1173,7 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
         <div id="update-recovery-results" class="settings-records" role="status"><p class="empty">${tr(locale, "Available in the signed desktop app.", "仅在已签名桌面应用中可用。")}</p></div>
         </details>
       </section>
-      <section class="settings-section" data-project-boundary><header><div><small>OPEN SOURCE</small><h3>${tr(locale, "About Restork & support", "关于 Restork 与支持")}</h3></div><span>MIT</span></header>
+      <section class="settings-section" data-project-boundary><header><div><small>${tr(locale, "Open source", "开源")}</small><h3>${tr(locale, "About Restork & support", "关于 Restork 与支持")}</h3></div><span>MIT</span></header>
         <p>${tr(locale,
           "Restork is free and maintained in public to help researchers, developers, and knowledge workers. Important AI output can still be wrong: review it, keep backups, and keep provider keys under your control.",
           "Restork 免费、开源，希望帮助研究者、开发者与知识工作者。重要的 AI 结果仍可能出错：请复核内容、保留备份，并把模型 Key 掌握在自己手里。",
@@ -1307,6 +1188,7 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
           "社区使用问题走 GitHub Discussions；私密漏洞报告不需要公开维护者的个人邮箱。",
         )}</p>
       </section>
+      </div>
     </div>
   </article>`;
 }
@@ -1346,9 +1228,15 @@ export function runProposalMarkup(proposal: RunProposalV2, locale: Locale): stri
   return `<article class="proposal-card"><header><strong>${tr(locale, "Run preview", "运行预览")}</strong><span>${escapeHtml(proposal.mode)}</span></header><p>${escapeHtml(proposal.goal)}</p><dl><div><dt>${tr(locale, "Tools", "工具")}</dt><dd>${proposal.requested_tools.length}</dd></div><div><dt>${tr(locale, "Sources", "来源")}</dt><dd>${proposal.sources.length}</dd></div><div><dt>${tr(locale, "Created", "生成位置")}</dt><dd>${tr(locale, "On this device", "这台设备")}</dd></div></dl><small>${tr(locale, "Restork did not open files, connect to a model, or run tools while preparing this preview.", "准备这份预览时，Restork 没有打开文件、连接模型或运行工具。")}</small></article>`;
 }
 
+export interface AgentWaitNextStep {
+  action: "retry" | "settings" | "vault";
+  label: string;
+}
+
 export function agentWaitMarkup(
   stage: AgentWaitStage,
   locale: Locale = "en",
+  detail?: { reason?: string; next?: AgentWaitNextStep },
 ): string {
   const current = stage === "retry" ? 2 : Math.min(
     ["prepare", "sources", "model", "verify", "complete"].indexOf(stage),
@@ -1366,18 +1254,35 @@ export function agentWaitMarkup(
     model: tr(locale, "The selected model is working…", "所选模型正在整理内容…"),
     verify: tr(locale, "Checking sources, format and permissions…", "正在核对来源、格式与权限…"),
     retry: tr(locale, "Trying once more…", "正在再试一次…"),
-    complete: tr(locale, "The result is ready for you.", "结果已经准备好，等你查看。"),
-    blocked: tr(locale, "The run never started; inspect the status for details.", "运行未能启动；请查看状态详情。"),
-    error: tr(locale, "The run stopped; inspect the status for details.", "运行已经停止；请查看状态详情。"),
+    complete: tr(locale, "Done. The result is waiting here.", "完成了。结果在这里："),
+    blocked: tr(locale, "The run never started.", "运行未能启动。"),
+    error: tr(locale, "The run stopped.", "运行已经停止。"),
   }[stage];
   const busy = !["complete", "blocked", "error"].includes(stage);
+  const reason = detail?.reason && ["blocked", "error"].includes(stage)
+    ? `<p class="agent-wait-reason">${escapeHtml(detail.reason)}</p>`
+    : "";
+  const next = detail?.next && ["blocked", "error"].includes(stage)
+    ? `<p class="start-inline-fix"><button type="button" class="btn-secondary" data-wait-next="${detail.next.action}">${escapeHtml(detail.next.label)}</button></p>`
+    : "";
   return `<section class="agent-wait is-${stage}" role="status" aria-live="polite" aria-busy="${String(busy)}">
     <div class="typewriter-motion" aria-hidden="true"><i></i><i></i><i></i><span></span></div>
-    <div class="agent-wait-copy"><small>CORE EVENT STREAM · ${escapeHtml(stage.toUpperCase())}</small><strong>${escapeHtml(status)}</strong>
+    <div class="agent-wait-copy"><small>${tr(locale, `Core event stream · ${stage}`, `Core 事件流 · ${stage}`)}</small><strong>${escapeHtml(status)}</strong>
+      ${reason}
       <ol>${labels.map((label, index) => `<li class="${index < current || stage === "complete" ? "is-done" : index === current && stage !== "error" ? "is-current" : ""}">${escapeHtml(label)}</li>`).join("")}</ol>
       <p>${tr(locale, "Restork shows progress updates here. The model's private reasoning is not displayed.", "这里会显示运行进度，但不会展示模型的私有推理内容。")}</p>
+      ${next}
     </div>
   </section>`;
+}
+
+function runSkillsMarkup(run: RunListEntry, locale: Locale): string {
+  const skills = run.task?.skills ?? [];
+  if (!skills.length) return "";
+  const items = skills
+    .map((skill) => `${escapeHtml(skill.name)} · ${escapeHtml(skill.manifest_hash.slice(0, 12))}…`)
+    .join(" · ");
+  return `<div><dt>${tr(locale, "SKILLS", "使用的技能")}</dt><dd>${items}</dd></div>`;
 }
 
 export function runEventsMarkup(
@@ -1409,7 +1314,13 @@ export function runEventsMarkup(
         <div><dt>${tr(locale, "TYPE", "类型")}</dt><dd>${escapeHtml(modeLabel(summary.mode, locale))}</dd></div>
         <div><dt>${tr(locale, "STATUS", "状态")}</dt><dd>${escapeHtml(runStateLabel(summary.state, locale))}</dd></div>
         <div><dt>${tr(locale, "UPDATED", "更新时间")}</dt><dd>${formatDate(summary.updated_at, locale)}</dd></div>
-        <div><dt>${tr(locale, "MODEL USAGE", "模型用量")}</dt><dd>${String(run.budget?.usage.tokens ?? 0)} tokens</dd></div>
+        <div data-run-budget><dt>${tr(locale, "BUDGET", "预算")}</dt><dd>${escapeHtml(runBudgetUsedCopy(
+          locale,
+          run.task?.budgets?.max_steps ?? run.budget?.budget?.max_steps ?? DEFAULT_MODEL_TURNS,
+          run.budget?.usage?.steps ?? 0,
+          run.budget?.usage?.tokens ?? 0,
+        ))}</dd></div>
+        ${runSkillsMarkup(run, locale)}
       </dl>
       <details class="technical-details"><summary>${tr(locale, "Technical details", "技术详情")}</summary><code>${tr(locale, "Run reference", "运行标识")} · ${escapeHtml(summary.run_id)}</code></details>
       ${traceMarkup(buildRunTrace(events), locale)}
@@ -1418,13 +1329,14 @@ export function runEventsMarkup(
       <ol class="event-list">${phaseEvents.length ? phaseEvents.map((event) => eventRow(event, locale)).join("") : `<li>${tr(locale, "No new events.", "暂无新事件。")}</li>`}</ol>
       <section class="conversation-panel" aria-labelledby="conversation-title">
         <header>
-          <div><p class="eyebrow">THIS RUN · CHAT ONLY</p><h3 id="conversation-title">${tr(locale, "Conversation", "多轮对话")}</h3></div>
+          <div><p class="eyebrow">${tr(locale, "This run · chat only", "本次运行 · 仅对话")}</p><h3 id="conversation-title">${tr(locale, "Conversation", "多轮对话")}</h3></div>
           <span>${prompt ? `PROMPT ${escapeHtml(prompt.prompt_version)}` : tr(locale, "RECENT MESSAGES", "最近消息")}</span>
         </header>
         <div class="conversation-history" data-conversation-scroll role="log" aria-live="polite" tabindex="0">
           ${paginationControl("conversation", conversation?.page, locale, tr(locale, "LOAD EARLIER MESSAGES", "加载更早消息"))}
           ${turns.length ? turns.map((turn) => conversationTurnMarkup(turn, locale)).join("") : `<p class="empty">${tr(locale, "Ask about this run. Conversation history stays local.", "围绕此运行提问；对话历史留在本地。")}</p>`}
           ${conversation?.busy ? `<div class="conversation-wait" role="status" aria-busy="true"><i></i><i></i><i></i><span>${tr(locale, "The selected model is preparing an answer…", "所选模型正在整理回答…")}</span></div>` : ""}
+          <div class="skill-suggest-row" data-skill-conversation-suggest hidden></div>
         </div>
         ${conversation?.error ? `<p class="conversation-error" role="alert">${escapeHtml(conversation.error)}</p>` : ""}
         <form class="conversation-composer" data-conversation-form data-run-id="${escapeHtml(summary.run_id)}">
@@ -1520,7 +1432,11 @@ export function workHandoffMarkup(preview: WorkHandoffPreview, locale: Locale = 
   return `<article class="work-result" aria-labelledby="work-handoff-title">
     <header><div><p class="eyebrow">${tr(locale, "HANDOFF PACKAGE PREVIEW", "交接包预览")}</p><h3 id="work-handoff-title">${escapeHtml(preview.envelope.goal)}</h3></div><span>${tr(locale, "REVIEW BEFORE EXPORT", "导出前请确认")}</span></header>
     <dl class="work-metrics"><div><dt>${tr(locale, "PACKAGE", "交接包")}</dt><dd>${preview.byte_count} B</dd></div><div><dt>${tr(locale, "FILES", "文件")}</dt><dd>${preview.envelope.context.length}</dd></div><div><dt>${tr(locale, "FINGERPRINT", "内容指纹")}</dt><dd>${escapeHtml(preview.package_hash.slice(0, 12))}…</dd></div><div><dt>${tr(locale, "DESTINATION", "去向")}</dt><dd>${tr(locale, "External", "外部")}</dd></div></dl>
-    <section><h4>${tr(locale, "File content included in this package", "交接包将包含的文件内容")}</h4><div class="handoff-contexts">${preview.envelope.context.map((item) => `<details><summary><code>${escapeHtml(item.relative_path)}</code><span>${escapeHtml(item.data_class)} · ${item.byte_count} bytes · ${item.redactions.map(escapeHtml).join(", ") || tr(locale, "no redactions", "无脱敏项")}</span></summary><pre>${escapeHtml(item.content)}</pre></details>`).join("")}</div></section>
+    <section><h4>${tr(locale, "File content included in this package", "交接包将包含的文件内容")}</h4>
+      <button type="button" class="quiet-button" data-preview-open data-preview-kind="files"
+        data-preview-title="${tr(locale, "Handoff files", "交接包文件")}">${tr(locale, "Review file content", "查看文件内容")}</button>
+      <div class="preview-source handoff-contexts" data-preview-source hidden>${preview.envelope.context.map((item) => `<article data-preview-file><summary><code>${escapeHtml(item.relative_path)}</code><span>${escapeHtml(item.data_class)} · ${item.byte_count} bytes · ${item.redactions.map(escapeHtml).join(", ") || tr(locale, "no redactions", "无脱敏项")}</span></summary><pre>${escapeHtml(item.content)}</pre></article>`).join("")}</div>
+    </section>
     <section><h4>${tr(locale, "Handoff scope", "交接范围")}</h4><p><b>${tr(locale, "Targets:", "目标：")}</b> ${preview.envelope.target_files.map(escapeHtml).join(" · ")}</p><p><b>${tr(locale, "Criteria:", "完成条件：")}</b> ${preview.envelope.completion_criteria.map(escapeHtml).join(" · ")}</p><p><b>${tr(locale, "Suggested only:", "仅建议：")}</b> ${preview.envelope.proposed_verification_commands.map(escapeHtml).join(" · ") || tr(locale, "No command proposed", "未建议命令")}</p></section>
     <div class="work-actions"><button type="button" data-work-export data-run-id="${escapeHtml(preview.envelope.run_id)}" data-approval-id="${escapeHtml(preview.approval.approval_id)}">${tr(locale, "APPROVE &amp; EXPORT LOCALLY", "批准并在本地导出")}</button><button class="secondary" type="button" data-work-reject data-approval-id="${escapeHtml(preview.approval.approval_id)}">${tr(locale, "REJECT", "拒绝")}</button></div>
     <p class="fine">${tr(locale, "Your confirmation applies only to this package version. The exported file stays in Restork's private data directory.", "这次确认只适用于当前版本的交接包；导出文件会留在 Restork 的私有数据目录中。")}</p>
@@ -1543,7 +1459,7 @@ export function workExportMarkup(
     summary: tr(locale, "Describe the external result without secrets.", "描述外部执行结果，不要包含秘密。"),
   }, null, 2);
   return `<article class="work-result" aria-labelledby="work-export-title">
-    <header><div><p class="eyebrow">${tr(locale, "PRIVATE HANDOFF EXPORTED", "私有交接包已导出")}</p><h3 id="work-export-title">${tr(locale, "External execution remains user-started", "外部执行仍由用户自行启动")}</h3></div><span>0600 LOCAL</span></header>
+    <header><div><p class="eyebrow">${tr(locale, "PRIVATE HANDOFF EXPORTED", "私有交接包已导出")}</p><h3 id="work-export-title">${tr(locale, "External execution remains user-started", "外部执行仍由你自行启动")}</h3></div><span>0600 LOCAL</span></header>
     <dl class="work-metrics"><div><dt>${tr(locale, "REFERENCE", "引用")}</dt><dd>${escapeHtml(result.artifact_ref)}</dd></div><div><dt>${tr(locale, "BYTES", "字节")}</dt><dd>${result.byte_count}</dd></div><div><dt>HASH</dt><dd>${escapeHtml(result.package_hash.slice(0, 12))}…</dd></div><div><dt>${tr(locale, "NETWORK", "网络")}</dt><dd>${tr(locale, "none", "无")}</dd></div></dl>
     <p class="fine">${tr(locale, "Start your external coding session independently. Restork neither launches nor supervises it.", "请独立启动外部编码会话。Restork 既不启动，也不监督该会话。")}</p>
     <form data-work-verify data-run-id="${escapeHtml(result.run_id)}"><label>${tr(locale, "Paste result manifest", "粘贴结果清单")}<textarea name="manifest" required maxlength="2000000" rows="14" autocomplete="off" spellcheck="false">${escapeHtml(template)}</textarea></label><button type="submit">${tr(locale, "VERIFY READ-ONLY EVIDENCE", "验证只读证据")}</button></form>
@@ -1556,7 +1472,7 @@ export function workVerificationMarkup(
 ): string {
   const evidence = [...report.changed_files, ...report.artifacts];
   return `<article class="work-result ${report.completion_eligible ? "is-verified" : "is-failed"}" aria-labelledby="work-verification-title">
-    <header><div><p class="eyebrow">${tr(locale, "IMPORTED RESULT · INDEPENDENT CHECK", "导入结果 · 独立检查")}</p><h3 id="work-verification-title">${escapeHtml(report.status.toUpperCase())}</h3></div><span>${report.completion_eligible ? tr(locale, "ELIGIBLE", "符合条件") : tr(locale, "USER ACTION", "需要用户处理")}</span></header>
+    <header><div><p class="eyebrow">${tr(locale, "IMPORTED RESULT · INDEPENDENT CHECK", "导入结果 · 独立检查")}</p><h3 id="work-verification-title">${escapeHtml(report.status.toUpperCase())}</h3></div><span>${report.completion_eligible ? tr(locale, "ELIGIBLE", "符合条件") : tr(locale, "USER ACTION", "需要你处理")}</span></header>
     <section><h4>${tr(locale, "Filesystem evidence", "文件系统证据")}</h4><ul class="work-manifest">${evidence.map((item) => `<li><code>${escapeHtml(item.relative_path)}</code><span>${escapeHtml(item.status)} · ${escapeHtml(item.reason)}</span></li>`).join("") || `<li>${tr(locale, "No verifiable file evidence was supplied.", "未提供可验证的文件证据。")}</li>`}</ul></section>
     ${report.commands.length ? `<section><h4>${tr(locale, "Command claims", "命令声明")}</h4><p>${plural(locale, report.commands.length, {
       one: "{n} claim remains UNVERIFIED. Restork did not execute it.",
@@ -1586,6 +1502,31 @@ export function errorText(error: unknown, locale: Locale = "en"): string {
   if (lower.includes("not found")) return "没有找到对应内容，它可能已被移动或删除。";
   if (lower.includes("vault") && lower.includes("not configured")) return "尚未配置知识库，请先前往设置选择 Vault。";
   return "操作未完成，请稍后重试。";
+}
+
+export function waitNextForError(error: unknown, locale: Locale): AgentWaitNextStep {
+  const message = `${error instanceof Error ? error.message : ""} ${errorText(error, locale)}`.toLowerCase();
+  if (
+    (message.includes("provider") && (message.includes("not configured") || message.includes("unknown")))
+    || message.includes("尚未配置模型")
+  ) {
+    return { action: "settings", label: tr(locale, "Open Settings · Models", "打开设置 · 模型") };
+  }
+  if (message.includes("vault") || message.includes("知识库")) {
+    return { action: "vault", label: tr(locale, "Open knowledge library", "打开知识库") };
+  }
+  if (
+    message.includes("timeout")
+    || message.includes("timed out")
+    || message.includes("network")
+    || message.includes("fetch")
+    || message.includes("connection")
+    || message.includes("超时")
+    || message.includes("稍后重试")
+  ) {
+    return { action: "retry", label: tr(locale, "Retry", "重试") };
+  }
+  return { action: "retry", label: tr(locale, "Retry", "重试") };
 }
 
 /**
@@ -1651,7 +1592,7 @@ function providerSetup(snapshot: DashboardSnapshot, locale: Locale): string {
       : tr(locale, "Choose a provider, finish its local setup, then test the selected model.", "请选择供应商，完成本地配置后再测试所选模型。")}</p>`;
   return `<section class="provider-console" aria-labelledby="provider-title">
     <header>
-      <div><p class="eyebrow">MODEL CENTER · SYSTEM CREDENTIALS</p><h2 id="provider-title" data-provider-selected-name>${escapeHtml(selected?.displayName ?? tr(locale, "Choose a provider", "选择供应商"))}</h2><small data-provider-selected-model>${escapeHtml(selected ? `${selected.kind} / ${selectedModel}` : tr(locale, "No model saved", "尚未保存模型"))}</small></div>
+      <div><p class="eyebrow">${tr(locale, "Model center · system credentials", "模型中心 · 系统凭据")}</p><h2 id="provider-title" data-provider-selected-name>${escapeHtml(selected?.displayName ?? tr(locale, "Choose a provider", "选择供应商"))}</h2><small data-provider-selected-model>${escapeHtml(selected ? `${selected.kind} / ${selectedModel}` : tr(locale, "No model saved", "尚未保存模型"))}</small></div>
       <span class="provider-status" data-provider-summary="${escapeHtml(status)}">${escapeHtml(status.replaceAll("_", " "))}</span>
     </header>
     <div class="provider-instructions">
@@ -1712,7 +1653,10 @@ function overview(snapshot: DashboardSnapshot, locale: Locale): string {
     <article class="paper-card dashboard-card"><header><h2>${tr(locale, "Tasks", "任务")}</h2><span class="ribbon work">${tr(locale, "YOUR LIST", "你的清单")}</span></header>
       <div class="dashboard-card-body">${taskRows}</div>
     </article>
-    <article class="paper-card radar-summary dashboard-card"><header><h2>${tr(locale, "Radar highlights", "雷达精选")}</h2><span class="ribbon radar">24H · 7D</span></header>
+    <article class="paper-card radar-summary dashboard-card"><header>
+      <h2>${tr(locale, "Radar highlights", "雷达精选")}</h2>
+      <button type="button" class="quiet-button" data-open-view="radar">${tr(locale, "View all", "查看全部")}</button>
+    </header>
       <div class="dashboard-card-body">${radarRows}</div>
     </article>
   </div>`;
@@ -1722,9 +1666,12 @@ export function runsView(snapshot: DashboardSnapshot, locale: Locale): string {
   const runs = snapshot.runs;
   const page = snapshot.pagination?.runs;
   const notice = domainNotice(snapshot, "runs", locale);
-  if (notice) return `<article class="paper-card full-card"><header><h2>${tr(locale, "Runs", "运行")}</h2></header>${notice}</article>`;
-  return `<article class="paper-card full-card"><header><h2>${tr(locale, "Runs", "运行")}</h2><span class="ribbon research">CORE STATE</span></header>
-    <div class="split-view"><div><div class="item-list">${runs.map((run) => `<button type="button" class="list-item" data-run-id="${escapeHtml(run.summary.run_id)}"><b>${escapeHtml(modeLabel(run.summary.mode, locale).toUpperCase())}</b><span>${escapeHtml(run.task?.goal ?? run.summary.task_id)}</span><small>${escapeHtml(runStateLabel(run.summary.state, locale))} · ${formatDate(run.summary.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "No runs.", "没有运行。")}</p>`}</div>${paginationControl("runs", page, locale)}</div><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its activity.", "选择一个运行查看执行过程。")}</div></div>
+  const chrome = runSubviewSwitch(locale, "runs");
+  if (notice) {
+    return `${chrome}<article class="paper-card full-card"><header><h2>${tr(locale, "Runs", "运行")}</h2></header>${notice}</article>`;
+  }
+  return `${chrome}<article class="paper-card full-card"><header><h2>${tr(locale, "Runs", "运行")}</h2><span class="ribbon research">CORE STATE</span></header>
+    <div class="split-view"><div><div class="item-list">${runs.map((run) => `<button type="button" class="list-item" data-run-id="${escapeHtml(run.summary.run_id)}"><b>${escapeHtml(modeLabel(run.summary.mode, locale).toUpperCase())}</b><span>${escapeHtml(run.task?.goal ?? run.summary.task_id)}</span><small>${escapeHtml(runStateLabel(run.summary.state, locale))} · ${formatDate(run.summary.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "No runs yet. Start one from the home page.", "还没有运行。回开始页用一句话发起。")}</p>`}</div>${paginationControl("runs", page, locale)}</div><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its activity.", "选择一个运行查看执行过程。")}</div></div>
   </article>`;
 }
 
@@ -1732,12 +1679,15 @@ export function approvalsView(snapshot: DashboardSnapshot, locale: Locale): stri
   const approvals = snapshot.approvals;
   const page = snapshot.pagination?.approvals;
   const notice = domainNotice(snapshot, "approvals", locale);
-  if (notice) return `<article class="paper-card"><header><h2>${tr(locale, "Approvals", "审批")}</h2></header>${notice}</article>`;
+  const chrome = runSubviewSwitch(locale, "approvals");
+  if (notice) {
+    return `${chrome}<article class="paper-card"><header><h2>${tr(locale, "Approvals", "审批")}</h2></header>${notice}</article>`;
+  }
   const empty = emptyCard(
     tr(locale, "Approvals", "审批"),
     tr(locale, "No approval records.", "没有审批记录。"),
   );
-  return `<div class="stack"><div class="approval-list">
+  return `${chrome}<div class="stack"><div class="approval-list">
     ${approvals.map((approval) => approvalCard(approval, locale)).join("") || empty}
   </div>${paginationControl("approvals", page, locale)}</div>`;
 }
@@ -1888,12 +1838,20 @@ export function radarView(snapshot: DashboardSnapshot, locale: Locale): string {
 
 export function memoryView(snapshot: DashboardSnapshot, locale: Locale): string {
   const notice = domainNotice(snapshot, "memory", locale);
-  if (notice) return `<article class="paper-card full-card"><header><h2>${tr(locale, "What Restork remembers", "Restork 记住的内容")}</h2></header>${notice}</article>`;
-  if (!snapshot.memory) return emptyCard(tr(locale, "What Restork remembers", "Restork 记住的内容"), tr(locale, "Memory is not available yet.", "记忆功能尚未启用。"));
+  const chrome = knowledgeSubviewSwitch(locale, "memory");
+  if (notice) {
+    return `${chrome}<article class="paper-card full-card"><header><h2>${tr(locale, "What Restork remembers", "Restork 记住的内容")}</h2></header>${notice}</article>`;
+  }
+  if (!snapshot.memory) {
+    return chrome + emptyCard(
+      tr(locale, "What Restork remembers", "Restork 记住的内容"),
+      tr(locale, "Memory is not available yet.", "记忆功能尚未启用。"),
+    );
+  }
   const records = snapshot.memory.records.filter((record) => record.summary);
-  return `<article class="paper-card full-card"><header><h2>${tr(locale, "What Restork remembers", "Restork 记住的内容")}</h2><span class="ribbon study">LOCAL</span></header>
+  return `${chrome}<article class="paper-card full-card"><header><h2>${tr(locale, "What Restork remembers", "Restork 记住的内容")}</h2><span class="ribbon study">LOCAL</span></header>
     <div class="memory-layers">${snapshot.memory.architecture.map((layer) => `<section><b>${escapeHtml(memoryLayerLabel(layer, locale))}</b><strong>${snapshot.memory?.counts[layer] ?? 0}</strong></section>`).join("")}</div>
-    <div class="memory-list">${records.map((record) => memoryRow(record, locale)).join("") || `<p class="empty">${tr(locale, "Nothing has been saved here yet.", "这里还没有保存任何内容。")}</p>`}</div>${paginationControl("memory", snapshot.pagination?.memory, locale)}
+    <div class="memory-list">${records.map((record) => memoryRow(record, locale)).join("") || `<p class="empty">${tr(locale, "Nothing has been saved here yet. Keep a useful answer and it will appear.", "这里还没有保存任何内容。留下一条有用的回答，就会出现在这里。")}</p>`}</div>${paginationControl("memory", snapshot.pagination?.memory, locale)}
     <p class="fine">${tr(locale, "Automatic cleanup removes only temporary or rebuildable data. Your notes, settings, approvals, and run history remain.", "自动清理只会移除临时或可以重新生成的数据；你的笔记、设置、审批和运行记录会保留下来。")}</p>
   </article>`;
 }
@@ -2030,7 +1988,7 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
       </dialog>
     </article>
     <article class="daily-card music-card"><header><h2>${tr(locale, "Daily track", "每日一曲")}</h2><span>${escapeHtml(music?.source?.provider ?? dailyStatusLabel(music?.status ?? "offline", locale))}</span></header>
-      ${recommendation ? `<div class="music-layout"><div class="disc" data-music-disc><div class="disc-label"><span>RESTORK</span><img id="music-cover" alt="${escapeHtml(tr(locale, `${recommendation.title} cover`, `${recommendation.title} 封面`))}" hidden></div></div><div class="music-copy"><strong>${escapeHtml(recommendation.title)}</strong><p>${escapeHtml([recommendation.artist, recommendation.album].filter(Boolean).join(" · ") || tr(locale, "Private playlist", "私有歌单"))}</p>${musicRecommendationInsights(recommendation, music?.source?.provider ?? "", locale)}<div class="music-track-actions"><button type="button" data-music-toggle aria-pressed="false">${tr(locale, "ROTATE CD", "转动唱片")}</button><button type="button" data-music-research aria-describedby="music-research-consent">${tr(locale, "RESEARCH ONLINE", "联网分析")}</button>${recommendation.source_url ? `${safeLink(recommendation.source_url, tr(locale, "TRACK SOURCE", "歌曲来源"), 'target="_blank" rel="noopener noreferrer"')}` : ""}</div><small id="music-research-consent" class="music-research-consent" role="status">${tr(locale, "Uses the same API key with V4 Flash Web Search. Sends only this title, artist and album; a small API charge may apply.", "使用同一 API Key 调用 V4 Flash 联网检索；只发送当前歌名、歌手与专辑，可能产生少量 API 费用。")}</small></div></div>` : `<p class="daily-empty">${escapeHtml(localeCompatibleMessage(music?.message, locale) || tr(locale, "Connect a supported music source or import a private JSON/CSV playlist.", "连接受支持的音乐来源，或导入私有 JSON/CSV 歌单。"))}</p>`}
+      ${recommendation ? `<div class="music-layout"><div class="disc" data-music-disc><div class="disc-label"><span>RESTORK</span><img id="music-cover" alt="${escapeHtml(tr(locale, `${recommendation.title} cover`, `${recommendation.title} 封面`))}" hidden></div></div><div class="music-copy"><strong>${escapeHtml(recommendation.title)}</strong><p>${escapeHtml([recommendation.artist, recommendation.album].filter(Boolean).join(" · ") || tr(locale, "Private playlist", "私有歌单"))}</p><div class="music-track-actions"><button type="button" data-music-toggle aria-pressed="false">${tr(locale, "ROTATE CD", "转动唱片")}</button><button type="button" data-music-research aria-describedby="music-research-consent">${tr(locale, "RESEARCH ONLINE", "联网分析")}</button>${recommendation.source_url ? `${safeLink(recommendation.source_url, tr(locale, "TRACK SOURCE", "歌曲来源"), 'target="_blank" rel="noopener noreferrer"')}` : ""}</div><details class="music-research-panel"><summary>${tr(locale, "Research, sources and notes", "研究、来源与洞察")}</summary><small id="music-research-consent" class="music-research-consent" role="status">${tr(locale, "Uses the same API key with V4 Flash Web Search. Sends only this title, artist and album; a small API charge may apply.", "使用同一 API Key 调用 V4 Flash 联网检索；只发送当前歌名、歌手与专辑，可能产生少量 API 费用。")}</small>${musicRecommendationInsights(recommendation, music?.source?.provider ?? "", locale)}</details></div></div>` : `<p class="daily-empty">${escapeHtml(localeCompatibleMessage(music?.message, locale) || tr(locale, "Connect a supported music source or import a private JSON/CSV playlist.", "连接受支持的音乐来源，或导入私有 JSON/CSV 歌单。"))}</p>`}
       ${musicSourceSummary(music?.source, locale)}
       ${musicDiscoveries(music?.discoveries ?? [], locale)}
       <button type="button" class="settings-trigger" data-music-open>${music?.configured ? tr(locale, "MANAGE PLAYLIST", "管理歌单") : tr(locale, "CONNECT PLAYLIST", "连接歌单")}</button>
@@ -2243,7 +2201,7 @@ function dailyStatusLabel(status: string, locale: Locale): string {
     fresh: ["fresh", "最新"],
     stale: ["stale", "已过期"],
     error: ["error", "异常"],
-    system: ["system", "系统"],
+    system: ["device", "本机"],
     local: ["local", "本地"],
   };
   const label = labels[status];
@@ -2640,11 +2598,6 @@ function eventSummary(event: RunEvent, locale: Locale): string {
     default:
       return escapeHtml(event.type);
   }
-}
-
-function navButton(view: string, icon: string, label: string, active: boolean, count?: number): string {
-  const badge = count ? `<em data-nav-count="${view}" data-raw-count="${count}">${count}</em>` : "";
-  return `<button class="nav-item ${active ? "is-active" : ""}" type="button" data-view="${view}"${active ? ' aria-current="page"' : ""}><b class="icon" aria-hidden="true">${icon}</b>${label}${badge}</button>`;
 }
 
 function metric(kind: string, label: string, value: string, note: string): string {

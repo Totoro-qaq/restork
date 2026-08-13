@@ -34,9 +34,24 @@ function bindVaultDir(root: HTMLElement): void {
     if (status) {
       status.textContent = tr(
         localeOf(root),
-        "Folder selection is available in the desktop app. Source builds can still use --vault-dir.",
-        "文件夹选择需要在桌面应用中进行；源码运行仍可使用 --vault-dir。",
+        "A browser cannot hold a folder grant — that protects the directory on this device. Download the desktop app to choose a knowledge library, or continue read-only.",
+        "浏览器版拿不到文件夹授权（这是保护你的目录）。下载桌面版才能选择知识库，也可以继续只读浏览。",
       );
+      const actions = document.createElement("p");
+      actions.className = "start-inline-fix";
+      actions.innerHTML = `<a class="btn-secondary" href="https://github.com/Totoro-qaq/restork/releases">${tr(localeOf(root), "Download desktop app", "下载桌面版")}</a>`
+        + `<button type="button" class="quiet-button" data-vault-readonly>${tr(localeOf(root), "Continue read-only", "继续只读")}</button>`;
+      status.after(actions);
+      actions.querySelector("[data-vault-readonly]")?.addEventListener("click", () => {
+        actions.remove();
+        if (status) {
+          status.textContent = tr(
+            localeOf(root),
+            "Continuing without a folder grant. Search stays read-only.",
+            "未授权目录，继续只读浏览。",
+          );
+        }
+      });
     }
     return;
   }

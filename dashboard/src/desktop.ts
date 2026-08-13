@@ -41,6 +41,33 @@ export type DesktopWorkspaceGrant =
   | { status: "cancelled" }
   | { status: "selected"; grantId: string; label: string };
 
+export type DesktopSkillFolder =
+  | { status: "cancelled" }
+  | {
+      status: "selected";
+      candidateId: string;
+      label: string;
+      fileCount: number;
+      totalBytes: number;
+    };
+
+export interface DesktopSkillImportPreview {
+  previewDigest: string;
+  preview: {
+    imported: Array<Record<string, unknown>>;
+    stripped: Array<Record<string, unknown>>;
+    notice: string;
+    discourage: boolean;
+  };
+}
+
+export interface DesktopSkillInstallResult {
+  status: "installed";
+  packageId: string;
+  state: string;
+  manifestHash: string;
+}
+
 export interface DesktopOnboardingState {
   version: 1;
   dismissed: boolean;
@@ -109,6 +136,9 @@ export interface DesktopBridge {
   chooseVault(): Promise<DesktopVaultCandidate>;
   applyVault(candidateId: string): Promise<DesktopVaultApplyResult>;
   chooseWorkspace(): Promise<DesktopWorkspaceGrant>;
+  importSkillFolder(): Promise<DesktopSkillFolder>;
+  previewSkillImport(candidateId: string): Promise<DesktopSkillImportPreview>;
+  installSkillImport(candidateId: string, previewDigest: string): Promise<DesktopSkillInstallResult>;
   configureProviderSecret(providerKind: string): Promise<DesktopSecretResult>;
   onboardingState(): Promise<DesktopOnboardingState>;
   setOnboardingDismissed(dismissed: boolean): Promise<DesktopOnboardingState>;
@@ -220,6 +250,45 @@ export function detectDesktopBridge(
         status: "selected",
         grantId: value.grant_id,
         label: value.label,
+      };
+    },
+    async importSkillFolder(): Promise<DesktopSkillFolder> {
+      const value = await invoke<unknown>("desktop_import_skill_folder");
+      if (!isSkillFolder(value)) {
+        throw new Error("The native skill folder bridge returned an invalid response");
+      }
+      if (value.status === "cancelled") return { status: "cancelled" };
+      return {
+        status: "selected",
+        candidateId: value.candidate_id,
+        label: value.label,
+        fileCount: value.file_count,
+        totalBytes: value.total_bytes,
+      };
+    },
+    async previewSkillImport(candidateId: string): Promise<DesktopSkillImportPreview> {
+      const value = await invoke<unknown>("desktop_preview_skill_import", { candidateId });
+      if (!isSkillImportPreview(value)) {
+        throw new Error("The native skill preview bridge returned an invalid response");
+      }
+      return { previewDigest: value.preview_digest, preview: value.preview };
+    },
+    async installSkillImport(
+      candidateId: string,
+      previewDigest: string,
+    ): Promise<DesktopSkillInstallResult> {
+      const value = await invoke<unknown>("desktop_install_skill_import", {
+        candidateId,
+        previewDigest,
+      });
+      if (!isSkillInstallResult(value)) {
+        throw new Error("The native skill install bridge returned an invalid response");
+      }
+      return {
+        status: "installed",
+        packageId: value.package_id,
+        state: value.state,
+        manifestHash: value.manifest_hash,
       };
     },
     async configureProviderSecret(providerKind: string): Promise<DesktopSecretResult> {
@@ -352,6 +421,86 @@ function isVaultConfig(value: unknown): value is {
 type WorkspaceGrantWire =
   | { status: "cancelled" }
   | { status: "selected"; grant_id: string; label: string };
+
+type SkillFolderWire =
+  | { status: "cancelled" }
+  | {
+      status: "selected";
+      candidate_id: string;
+      label: string;
+      file_count: number;
+      total_bytes: number;
+    };
+
+function isSkillFolder(value: unknown): value is SkillFolderWire {
+  if (!isRecord(value)) return false;
+  if (value.status === "cancelled") return hasOnlyKeys(value, ["status"]);
+  return value.status === "selected"
+    && hasOnlyKeys(value, ["status", "candidate_id", "label", "file_count", "total_bytes"])
+    && typeof value.candidate_id === "string"
+    && /^[a-f0-9]{32}$/.test(value.candidate_id)
+    && typeof value.label === "string"
+    && value.label.length > 0
+    && value.label.length <= 120
+    && Number.isInteger(value.file_count)
+    && Number(value.file_count) > 0
+    && Number(value.file_count) <= 40
+    && Number.isInteger(value.total_bytes)
+    && Number(value.total_bytes) >= 0
+    && Number(value.total_bytes) <= 2 * 1024 * 1024;
+}
+
+function isSkillImportPreview(value: unknown): value is {
+  preview_digest: string;
+  preview: DesktopSkillImportPreview["preview"];
+} {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["preview_digest", "preview"])) return false;
+  if (typeof value.preview_digest !== "string" || !/^[a-f0-9]{64}$/i.test(value.preview_digest)) {
+    return false;
+  }
+  if (!isRecord(value.preview)) return false;
+  return hasOnlyKeys(value.preview, ["imported", "stripped", "notice", "discourage"])
+    && Array.isArray(value.preview.imported)
+    && value.preview.imported.every(isSkillCompatibilityPart)
+    && Array.isArray(value.preview.stripped)
+    && value.preview.stripped.every(isSkillCompatibilityPart)
+    && typeof value.preview.notice === "string"
+    && value.preview.notice.length <= 1_024
+    && typeof value.preview.discourage === "boolean";
+}
+
+function isSkillCompatibilityPart(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["kind", "name", "reason", "bytes", "sha256"])) {
+    return false;
+  }
+  if (value.kind !== undefined && typeof value.kind !== "string") return false;
+  if (value.name !== undefined && typeof value.name !== "string") return false;
+  if (value.reason !== undefined && typeof value.reason !== "string") return false;
+  if (value.bytes !== undefined && (!Number.isInteger(value.bytes) || Number(value.bytes) < 0)) {
+    return false;
+  }
+  return value.sha256 === undefined
+    || (typeof value.sha256 === "string" && /^[a-f0-9]{64}$/i.test(value.sha256));
+}
+
+function isSkillInstallResult(value: unknown): value is {
+  status: "installed";
+  package_id: string;
+  state: string;
+  manifest_hash: string;
+} {
+  return isRecord(value)
+    && hasOnlyKeys(value, ["status", "package_id", "state", "manifest_hash"])
+    && value.status === "installed"
+    && typeof value.package_id === "string"
+    && value.package_id.length > 0
+    && value.package_id.length <= 160
+    && typeof value.state === "string"
+    && value.state.length > 0
+    && value.state.length <= 40
+    && typeof value.manifest_hash === "string"
+    && /^[a-f0-9]{64}$/i.test(value.manifest_hash);
+}
 
 function isWorkspaceGrant(value: unknown): value is WorkspaceGrantWire {
   if (!isRecord(value) || !hasOnlyKeys(value, ["status", "grant_id", "label"])) return false;

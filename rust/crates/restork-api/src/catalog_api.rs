@@ -15,11 +15,15 @@ pub(crate) async fn install_extension(State(state): State<ApiState>, request: Re
         Ok(payload) => payload,
         Err(response) => return *response,
     };
-    let package_id = match validate_extension_manifest(&payload.package_kind, &payload.manifest) {
+    let manifest = match prepare_extension_manifest(&payload.package_kind, payload.manifest) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let package_id = match validate_extension_manifest(&payload.package_kind, &manifest) {
         Ok(package_id) => package_id,
         Err(response) => return response,
     };
-    let preview = match extension_install_preview(&payload.package_kind, &payload.manifest) {
+    let preview = match extension_install_preview(&payload.package_kind, &manifest) {
         Ok(preview) => preview,
         Err(response) => return response,
     };
@@ -40,13 +44,10 @@ pub(crate) async fn install_extension(State(state): State<ApiState>, request: Re
         Ok(value) => value,
         Err(response) => return response,
     };
-    match storage.install_extension(
-        &package_id,
-        &payload.package_kind,
-        &payload.manifest,
-        &occurred_at,
-    ) {
-        Ok(record) => (StatusCode::CREATED, Json(record)).into_response(),
+    match storage.install_extension(&package_id, &payload.package_kind, &manifest, &occurred_at) {
+        Ok(record) => {
+            (StatusCode::CREATED, Json(crate::skill_wire::record(record))).into_response()
+        }
         Err(error) => storage_error_response(error),
     }
 }
@@ -67,7 +68,7 @@ pub(crate) async fn list_extensions(State(state): State<ApiState>, request: Requ
         Err(response) => return response,
     };
     match storage.extensions_page(cursor.as_ref(), limit) {
-        Ok(page) => Json(page).into_response(),
+        Ok(page) => Json(crate::skill_wire::page(page)).into_response(),
         Err(error) => storage_error_response(error),
     }
 }
@@ -83,7 +84,7 @@ pub(crate) async fn get_extension(
         return storage_unavailable();
     };
     match storage.extension(&package_id) {
-        Ok(Some(record)) => Json(record).into_response(),
+        Ok(Some(record)) => Json(crate::skill_wire::record(record)).into_response(),
         Ok(None) => error_response(StatusCode::NOT_FOUND, "extension not found"),
         Err(error) => storage_error_response(error),
     }
@@ -114,7 +115,7 @@ pub(crate) async fn change_extension_state(
     };
     match storage.set_extension_state(&package_id, &payload.expected_hash, next_state, &updated_at)
     {
-        Ok(record) => Json(record).into_response(),
+        Ok(record) => Json(crate::skill_wire::record(record)).into_response(),
         Err(error) => storage_error_response(error),
     }
 }
@@ -134,7 +135,7 @@ pub(crate) async fn list_extension_revisions(
         Err(response) => return response,
     };
     match storage.extension_revisions(&package_id, limit) {
-        Ok(items) => Json(serde_json::json!({ "items": items })).into_response(),
+        Ok(items) => Json(crate::skill_wire::revisions(items)).into_response(),
         Err(error) => storage_error_response(error),
     }
 }
@@ -167,7 +168,7 @@ pub(crate) async fn rollback_extension(
         &occurred_at,
     ) {
         Ok(record) => Json(serde_json::json!({
-            "extension": record,
+            "extension": crate::skill_wire::record(record),
             "state": "review_required",
             "execution_started": false,
         }))
@@ -2050,6 +2051,14 @@ pub(crate) fn validate_extension_manifest(
         )
     })
 }
+pub(crate) fn prepare_extension_manifest(kind: &str, manifest: Value) -> Result<Value, Response> {
+    if kind != "skill" {
+        return Ok(manifest);
+    }
+    restork_extension::normalize_skill_manifest(&manifest).map_err(|error| {
+        error_response_owned(StatusCode::UNPROCESSABLE_ENTITY, error.message().to_owned())
+    })
+}
 pub(crate) fn extension_install_preview(kind: &str, manifest: &Value) -> Result<Value, Response> {
     if kind == "plugin" {
         let manifest =
@@ -2069,12 +2078,48 @@ pub(crate) fn extension_install_preview(kind: &str, manifest: &Value) -> Result<
             })?;
         return serde_json::to_value(preview).map_err(|_| storage_unavailable());
     }
+    if kind == "skill" {
+        return skill_install_preview(manifest);
+    }
     Ok(serde_json::json!({
         "package_kind": kind,
         "manifest": manifest,
         "status": {"state": "quarantined", "reason": "awaiting_install_review"},
         "secret_values_included": false,
     }))
+}
+fn skill_install_preview(manifest: &Value) -> Result<Value, Response> {
+    let parsed = serde_json::from_value::<SkillManifest>(manifest.clone()).map_err(|_| {
+        error_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "extension manifest failed validation",
+        )
+    })?;
+    parsed.validate().map_err(|_| {
+        error_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "extension manifest failed validation",
+        )
+    })?;
+    let report = parsed
+        .import_report
+        .clone()
+        .unwrap_or_else(SkillImportReport::declarative);
+    let instruction_chars = parsed
+        .instructions
+        .as_ref()
+        .map_or(0, |text| text.chars().count());
+    let preview_manifest = serde_json::to_value(&parsed).map_err(|_| storage_unavailable())?;
+    Ok(crate::skill_wire::redact_value(serde_json::json!({
+        "package_kind": "skill",
+        "manifest": preview_manifest,
+        "status": {"state": "quarantined", "reason": "awaiting_install_review"},
+        "secret_values_included": false,
+        "imported": report.imported,
+        "stripped": report.stripped,
+        "notice": report.notice,
+        "discourage": report.should_discourage(instruction_chars),
+    })))
 }
 pub(crate) fn build_evidence_ledger(input: LedgerInput) -> Result<EvidenceLedger, Response> {
     let start =

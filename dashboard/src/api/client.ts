@@ -830,6 +830,7 @@ export class LocalApiClient implements DashboardApi {
     goal: string,
     dataClass: WorkDataClass = "public",
     providerProfileId = "deepseek",
+    skillIds: string[] = [],
   ): Promise<RunSummary> {
     const identity = crypto.randomUUID();
     const response = await this.#request<{ run: RunSummary }>(
@@ -842,6 +843,7 @@ export class LocalApiClient implements DashboardApi {
         data_class: dataClass,
         auto_start: mode === "research",
         allowed_tools: [],
+        skill_ids: skillIds,
       },
       true,
       `dashboard-create-${identity}`,

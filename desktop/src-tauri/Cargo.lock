@@ -2807,6 +2807,7 @@ dependencies = [
  "getrandom 0.4.3",
  "libc",
  "light-file-dialog",
+ "reqwest",
  "security-framework",
  "semver",
  "serde",

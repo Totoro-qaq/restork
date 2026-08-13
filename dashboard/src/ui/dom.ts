@@ -56,3 +56,29 @@ export function bindRovingFocus(container: HTMLElement, itemSelector: string): v
     || item.getAttribute("aria-current") === "page");
   list.forEach((item) => { item.tabIndex = item === (current ?? list[0]) ? 0 : -1; });
 }
+
+/** Paint study/work results silently; only `[data-live-note]` may announce. */
+export function fillModeWorkspace(
+  host: HTMLElement | null,
+  html: string,
+  note = "",
+): HTMLElement | null {
+  if (!host) return null;
+  const live = host.querySelector<HTMLElement>("[data-live-note]");
+  const result = host.querySelector<HTMLElement>("[data-workspace-result]");
+  if (live) live.textContent = note;
+  if (result) result.innerHTML = html;
+  else host.innerHTML = html;
+  return host;
+}
+
+/** Update a nav count without dropping its sr-only sibling. */
+export function paintNavBadge(badge: HTMLElement, unseen: number, spoken: string): void {
+  badge.hidden = unseen <= 0;
+  badge.textContent = String(unseen);
+  const label = badge.nextElementSibling;
+  if (label instanceof HTMLElement && label.classList.contains("sr-only")) {
+    label.hidden = unseen <= 0;
+    label.textContent = spoken;
+  }
+}

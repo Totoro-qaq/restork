@@ -637,7 +637,18 @@ const snapshot: DashboardSnapshot = {
       revision: 1,
       artifact: {
         title: "A reviewable local agent",
-        slides: [{ title: "Why it matters", body: ["Local knowledge", "Exact approval", "OS sandbox"] }],
+        claims: {
+          "claim:local": { text: "Local knowledge" },
+          "claim:approval": { text: "Exact approval" },
+          "claim:sandbox": { text: "OS sandbox" },
+        },
+        slides: [{
+          slide_id: "slide:why",
+          role: "evidence",
+          action_title: "Why it matters",
+          claim_refs: ["claim:local", "claim:approval", "claim:sandbox"],
+          speaker_notes: [],
+        }],
       },
       updated_at: NOW,
     }],
@@ -1557,6 +1568,24 @@ if (snapshot.workspaceV2?.personal?.settings) {
   snapshot.workspaceV2.personal.settings.locale = demoLocale;
   snapshot.workspaceV2.personal.settings.startup_page = "dashboard";
 }
+if (demoLocale === "zh-CN") {
+  const deck = snapshot.workspaceV2?.deliverables.find((item) => item.kind === "deck");
+  const artifact = deck?.artifact;
+  if (artifact && typeof artifact === "object") {
+    artifact.title = "可审查的本地 Agent";
+    const slide = Array.isArray(artifact.slides) ? artifact.slides[0] : null;
+    if (slide && typeof slide === "object" && !Array.isArray(slide)) {
+      (slide as Record<string, unknown>).action_title = "为什么这很重要";
+    }
+    const claims = artifact.claims;
+    if (claims && typeof claims === "object" && !Array.isArray(claims)) {
+      const named = claims as Record<string, { text?: string }>;
+      if (named["claim:local"]) named["claim:local"].text = "知识留在本机";
+      if (named["claim:approval"]) named["claim:approval"].text = "每次调用都要确认";
+      if (named["claim:sandbox"]) named["claim:sandbox"].text = "系统沙箱隔离";
+    }
+  }
+}
 
 const root = document.querySelector<HTMLElement>("#app");
 if (root) {
@@ -1564,7 +1593,12 @@ if (root) {
   const requestedView = demoParams.get("view");
   if (requestedView) {
     requestAnimationFrame(() => {
-      root.querySelector<HTMLButtonElement>(`[data-view="${CSS.escape(requestedView)}"]`)?.click();
+      const escaped = CSS.escape(requestedView);
+      const button = root.querySelector<HTMLButtonElement>(`.sidebar nav [data-view="${escaped}"]`)
+        ?? root.querySelector<HTMLButtonElement>(`[data-subview="${escaped}"]`)
+        ?? root.querySelector<HTMLButtonElement>(`[data-open-view="${escaped}"]`)
+        ?? root.querySelector<HTMLButtonElement>(`[data-settings-tab="${escaped}"]`);
+      button?.click();
     });
   }
 }

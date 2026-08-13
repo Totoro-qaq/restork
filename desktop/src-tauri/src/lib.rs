@@ -7,6 +7,7 @@ mod diagnostics;
 mod external_link;
 mod native_secret;
 mod onboarding;
+mod skill_folder;
 #[cfg(unix)]
 mod supervisor;
 #[cfg(windows)]
@@ -151,6 +152,7 @@ struct DesktopInner {
     origin: Option<String>,
     diagnostics: Option<Diagnostics>,
     vault_candidate: Option<VaultCandidate>,
+    skill_candidate: Option<skill_folder::SkillCandidate>,
     native_prompt_active: bool,
     switch_generation: u64,
 }
@@ -174,6 +176,7 @@ impl Default for DesktopState {
                 origin: None,
                 diagnostics: None,
                 vault_candidate: None,
+                skill_candidate: None,
                 native_prompt_active: false,
                 switch_generation: 0,
             }),
@@ -192,6 +195,7 @@ impl DesktopState {
             inner.browser_session = None;
             inner.origin = None;
             inner.vault_candidate = None;
+            inner.skill_candidate = None;
             inner.native_prompt_active = false;
             inner.record("core_stopped");
         }
@@ -241,6 +245,7 @@ fn launch_core(app: AppHandle) {
                 inner.pairing_code = None;
                 inner.browser_session = None;
                 inner.origin = None;
+                inner.skill_candidate = None;
                 inner.record("core_start_failed");
             }
         }
@@ -362,6 +367,7 @@ fn fail_running_core(
         inner.pairing_code = None;
         inner.browser_session = None;
         inner.origin = None;
+        inner.skill_candidate = None;
         inner.record(event);
         core
     };
@@ -407,6 +413,9 @@ pub fn run() {
             commands::desktop_choose_vault,
             commands::desktop_apply_vault,
             commands::desktop_choose_workspace,
+            skill_folder::desktop_import_skill_folder,
+            skill_folder::desktop_preview_skill_import,
+            skill_folder::desktop_install_skill_import,
             commands::desktop_configure_provider_secret,
             commands::desktop_onboarding_state,
             commands::desktop_set_onboarding_dismissed,

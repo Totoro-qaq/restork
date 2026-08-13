@@ -6,6 +6,7 @@ import type {
 } from "../api/types";
 import type { Locale } from "../i18n";
 import { tr } from "../i18n";
+import { safeMarkdownPreview } from "./markdown";
 import {
   BUILTIN_RENDER_THEMES,
   type BuiltinRenderTheme,
@@ -13,6 +14,11 @@ import {
   recentPresentationTheme,
   templateRenderTheme,
 } from "../deliverables/themes";
+
+import {
+  MAX_SLIDE_COUNT,
+  MIN_SLIDE_COUNT,
+} from "../limits";
 
 export function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
   const records = snapshot.workspaceV2?.deliverables ?? [];
@@ -24,17 +30,17 @@ export function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Local
       + `${escapeHtml(record.provider.display_name)} · ${escapeHtml(record.provider.model)}</option>`
   )).join("");
   return `<article class="paper-card full-card catalog-workspace deliverables-studio">
-    <header><div><p class="eyebrow">DELIVERABLES</p><h2>${tr(locale, "Reports and presentations", "报告与演示文稿")}</h2>
-    <p>${tr(locale, "Write the brief in your own words, review the draft, then download the file you need.", "把要求说清楚，先看草稿，再下载需要的文件。")}</p></div>
-    <span class="ribbon work">${tr(locale, "BUILT IN", "随软件提供")}</span></header>
-    <section aria-labelledby="deliverable-library-title"><header><div><small>${tr(locale, "YOUR FILES", "已有内容")}</small>
+    <header><div><p class="eyebrow">${tr(locale, "Deliverables", "交付物")}</p><h2>${tr(locale, "Reports and presentations", "报告与演示文稿")}</h2>
+    <p>${tr(locale, "Tell Restork what you want to say. It drafts a cited outline first; download only after you are happy with it.", "说说你想讲什么，Restork 先给你一份带来源的草稿，看过满意再下载。")}</p></div>
+    <span class="ribbon work">${tr(locale, "Built in · no install", "内置 · 无需安装")}</span></header>
+    <section aria-labelledby="deliverable-library-title"><header><div><small>${tr(locale, "Your files", "你的文件")}</small>
     <h3 id="deliverable-library-title">${tr(locale, "Drafts and downloads", "草稿与下载")}</h3></div></header>
     <div class="catalog-grid deliverable-grid">${records
       .map((record) => deliverableCard(record, locale))
       .join("") || `<p class="empty">${tr(
         locale,
-        "Your report and presentation drafts will appear here.",
-        "生成的报告与演示稿会出现在这里。",
+        "No drafts yet. Go to Start and ask Restork to turn this week’s runs into a weekly report.",
+        "还没有草稿。回开始页说一句「把这周的运行整理成周报」，第一份就有了。",
       )}</p>`}</div></section>
     <div class="catalog-compose-grid">${manualReportForm(locale)}
     ${aiReportForm(snapshot, locale)}
@@ -56,10 +62,15 @@ export function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Local
         )}"></textarea>
       </label>
       <label>${tr(locale, "Model", "模型")}<select name="provider_profile_id" required>${providerOptions}</select></label>
-      <label>${tr(locale, "Slides", "页数")}<select name="slide_count">
-        <option value="5">5</option><option value="6" selected>6</option><option value="8">8</option>
-        <option value="10">10</option><option value="12">12</option><option value="15">15</option>
-      </select></label>
+      <label>${tr(locale, "Slides", "页数")}
+        <input name="slide_count" type="number" inputmode="numeric"
+          min="${MIN_SLIDE_COUNT}" max="${MAX_SLIDE_COUNT}" step="1"
+          placeholder="${tr(locale, "Auto", "自动")}" aria-describedby="presentation-slide-count-hint">
+        <small id="presentation-slide-count-hint">${tr(
+          locale,
+          `Leave blank and Restork decides from your brief, or pick any number from ${MIN_SLIDE_COUNT} to ${MAX_SLIDE_COUNT}.`,
+          `留空就由 Restork 按你的说明决定，也可以填 ${MIN_SLIDE_COUNT} 到 ${MAX_SLIDE_COUNT} 之间任意页数。`,
+        )}</small></label>
       <label>${tr(locale, "Audience", "给谁看")}<input name="audience" required maxlength="120" value="team"></label>
       <label>${tr(locale, "Purpose", "希望达成什么")}<input name="purpose" required maxlength="300" value="${tr(locale, "Share findings and agree on next steps", "同步结论并确定下一步")}"></label>
       <label>${tr(locale, "Audience familiarity", "听众熟悉程度")}<select name="expertise">
@@ -134,10 +145,17 @@ function deliverableCard(record: CatalogRecordV2, locale: Locale): string {
       ? tr(locale, "Weekly report", "周报")
       : tr(locale, "Daily report", "日报");
     return `<article><strong>${escapeHtml(title)}</strong><span>${kind} · ${tr(locale, "Draft", "草稿")}</span>
-      <small>${formatDate(record.updated_at, locale)}</small><details>
-        <summary>${tr(locale, "Preview", "预览")}</summary>
-        <pre class="deliverable-preview">${escapeHtml(markdown ?? "")}</pre>
-      </details><div class="record-actions">
+      <small>${formatDate(record.updated_at, locale)}</small>
+      <button type="button" class="quiet-button" data-preview-open data-preview-kind="markdown"
+        data-preview-title="${escapeHtml(title)}">${tr(locale, "Preview", "预览")}</button>
+      <div class="preview-source" data-preview-source hidden>
+        <section class="vault-reading-view deliverable-preview">${safeMarkdownPreview(markdown ?? "")}</section>
+        <div data-preview-actions-source hidden>
+          <button type="button" data-report-download data-report-title="${escapeHtml(title)}">
+            ${tr(locale, "DOWNLOAD MARKDOWN", "下载 Markdown")}
+          </button>
+        </div>
+      </div><div class="record-actions">
         <button type="button" data-report-download data-report-title="${escapeHtml(title)}">
           ${tr(locale, "DOWNLOAD MARKDOWN", "下载 Markdown")}
         </button>
@@ -147,7 +165,12 @@ function deliverableCard(record: CatalogRecordV2, locale: Locale): string {
   const revision = record.revision ?? 1;
   return `<article class="deck-record"><strong>${escapeHtml(title)}</strong>
     <span>${tr(locale, "Presentation", "演示文稿")} · ${tr(locale, "Ready to review", "可预览")}</span>
-    <small>${formatDate(record.updated_at, locale)}</small>${deckPreviewMarkup(record.artifact, locale)}
+    <small>${formatDate(record.updated_at, locale)}</small>${deckPreviewMarkup(
+      record.artifact,
+      locale,
+      record.deliverable_id ?? "",
+      revision,
+    )}
     <div class="record-actions">
       <button type="button" data-render-format="pptx" data-render-id="${deliverableId}"
         data-render-revision="${revision}">${tr(locale, "DOWNLOAD PPTX", "下载 PPTX")}</button>
@@ -156,7 +179,12 @@ function deliverableCard(record: CatalogRecordV2, locale: Locale): string {
     </div></article>`;
 }
 
-function deckPreviewMarkup(artifact: Record<string, unknown> | undefined, locale: Locale): string {
+function deckPreviewMarkup(
+  artifact: Record<string, unknown> | undefined,
+  locale: Locale,
+  deliverableId: string,
+  revision: number,
+): string {
   const themeRecord = artifact?.theme;
   const themeId = themeRecord && typeof themeRecord === "object" && !Array.isArray(themeRecord)
     ? (themeRecord as Record<string, unknown>).theme_id
@@ -170,24 +198,52 @@ function deckPreviewMarkup(artifact: Record<string, unknown> | undefined, locale
     : {};
   const slides = Array.isArray(artifact?.slides) ? artifact.slides : [];
   const themeName = escapeHtml(locale === "zh-CN" ? theme.nameZh : theme.nameEn);
-  return `<details open class="deck-preview">
-    <summary>${tr(locale, "Slide preview", "逐页预览")} · ${themeName}</summary>
-    <div class="slide-preview-grid">${slides.map((raw) => {
+  const cards = slides.map((raw) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
     const slide = raw as Record<string, unknown>;
-    const title = typeof slide.action_title === "string" ? slide.action_title : tr(locale, "Untitled slide", "未命名页面");
-    const references = Array.isArray(slide.claim_refs) ? slide.claim_refs : [];
-    const lines = references.flatMap((reference) => {
-      const claim = typeof reference === "string" ? claims[reference] : null;
-      return claim && typeof claim.text === "string" ? [claim.text] : [];
-    });
+    const title = slidePreviewTitle(slide, locale);
+    const lines = slidePreviewLines(slide, claims);
     const colors = `--slide-bg:${theme.background};--slide-fg:${theme.foreground};`
       + `--slide-accent:${theme.accent};--slide-accent-2:${theme.accentSecondary}`;
     const bullets = lines.slice(0, 5).map((line) => `<li>${escapeHtml(line)}</li>`).join("");
     return `<article class="slide-preview-card" data-slide-layout="${theme.layout}" style="${colors}">
       <i aria-hidden="true"></i><strong>${escapeHtml(title)}</strong><ul>${bullets}</ul>
     </article>`;
-  }).join("")}</div></details>`;
+  }).join("");
+  return `<button type="button" class="quiet-button" data-preview-open data-preview-kind="deck"
+      data-preview-title="${tr(locale, "Slide preview", "逐页预览")} · ${themeName}">
+      ${tr(locale, "Slide preview", "逐页预览")} · ${themeName}</button>
+    <div class="preview-source" data-preview-source hidden>${cards}
+      <div data-preview-actions-source hidden>
+        <button type="button" data-render-format="pptx" data-render-id="${escapeHtml(deliverableId)}"
+          data-render-revision="${revision}">${tr(locale, "DOWNLOAD PPTX", "下载 PPTX")}</button>
+        <button type="button" data-render-format="pdf" data-render-id="${escapeHtml(deliverableId)}"
+          data-render-revision="${revision}">${tr(locale, "DOWNLOAD PDF", "下载 PDF")}</button>
+      </div>
+    </div>`;
+}
+
+function slidePreviewTitle(slide: Record<string, unknown>, locale: Locale): string {
+  for (const key of ["action_title", "title"] as const) {
+    const value = slide[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return tr(locale, "Untitled slide", "未命名页面");
+}
+
+function slidePreviewLines(
+  slide: Record<string, unknown>,
+  claims: Record<string, Record<string, unknown>>,
+): string[] {
+  const references = Array.isArray(slide.claim_refs) ? slide.claim_refs : [];
+  const fromClaims = references.flatMap((reference) => {
+    const claim = typeof reference === "string" ? claims[reference] : null;
+    return claim && typeof claim.text === "string" ? [claim.text] : [];
+  });
+  if (fromClaims.length) return fromClaims;
+  return Array.isArray(slide.body)
+    ? slide.body.filter((line): line is string => typeof line === "string" && Boolean(line.trim()))
+    : [];
 }
 
 function presentationThemeFromArtifact(snapshot: Record<string, unknown>) {
@@ -398,7 +454,7 @@ function presentationTemplateDialog(locale: Locale): string {
   ].join("");
   return `<dialog id="presentation-template-dialog" class="restork-dialog template-dialog">
     <form method="dialog" id="presentation-template-form"><header><div>
-      <p class="eyebrow">PRESENTATION TEMPLATE</p>
+      <p class="eyebrow">${tr(locale, "Presentation template", "演示文稿模板")}</p>
       <h3>${tr(locale, "Template details", "模板设置")}</h3></div>
       <button type="button" data-template-dialog-close aria-label="${tr(locale, "Close", "关闭")}">×</button>
     </header>
@@ -420,7 +476,7 @@ function templateColorField(name: string, en: string, zh: string, value: string,
 
 function presentationTemplateTrashDialog(locale: Locale): string {
   return `<dialog id="presentation-template-trash" class="restork-dialog template-dialog"><section><header><div>
-    <p class="eyebrow">TEMPLATE TRASH</p><h3>${tr(locale, "Deleted templates", "模板回收站")}</h3>
+    <p class="eyebrow">${tr(locale, "Template trash", "模板回收站")}</p><h3>${tr(locale, "Deleted templates", "模板回收站")}</h3>
     </div><button type="button" data-template-trash-close aria-label="${tr(locale, "Close", "关闭")}">×</button>
     </header><div data-template-trash-list>
       <p class="empty">${tr(locale, "Loading…", "正在加载…")}</p>

@@ -73,7 +73,10 @@ describe("run-first start workspace", () => {
     expect(root.querySelector<HTMLElement>('[data-view-panel="start"]')?.hidden).toBe(false);
     expect(root.querySelector<HTMLElement>('[data-view-panel="overview"]')?.hidden).toBe(true);
     expect(root.querySelector<HTMLFormElement>("#start-run-form")).not.toBeNull();
-    expect(root.textContent).toContain("早上好");
+    expect(root.querySelector("#start-title")?.textContent).toBe("想研究什么？");
+    expect(root.querySelector("[data-start-owner]")).toBeNull();
+    expect(root.querySelector(".sidebar-identity")?.textContent).toContain("设置称呼");
+    expect(root.textContent).not.toContain("早上好");
     expect(root.textContent).not.toContain("今天想研究、学习，还是完成一项工作？");
     expect(root.textContent).not.toContain("选一种任务，说清想得到什么");
     expect(root.textContent).toContain("开始任务");
@@ -86,24 +89,46 @@ describe("run-first start workspace", () => {
     expect(root.querySelector(".sidebar .session")).toBeNull();
   });
 
+  it("shows the display name as ownership, not a salutation", () => {
+    const state = snapshot();
+    state.workspaceV2 = {
+      ...state.workspaceV2!,
+      personal: {
+        settings: { display_name: "Totoro", locale: "zh-CN" },
+        version: 1,
+        updated_at: "2026-08-13T00:00:00Z",
+      },
+    };
+    const root = render(state);
+
+    expect(root.querySelector("[data-start-owner]")?.textContent).toBe("Totoro");
+    expect(root.querySelector("#start-title")?.textContent).toBe("想研究什么？");
+    expect(root.querySelector(".sidebar-identity")?.textContent).toContain("Totoro");
+    expect(root.textContent).not.toContain("早上好，Totoro");
+    expect(root.querySelector(".sidebar-identity")?.getAttribute("data-view")).toBe("settings");
+  });
+
   it("reveals only the fields needed by each task mode", () => {
     const root = render();
     const research = root.querySelector<HTMLButtonElement>('[data-start-mode="research"]');
     const study = root.querySelector<HTMLButtonElement>('[data-start-mode="study"]');
     const work = root.querySelector<HTMLButtonElement>('[data-start-mode="work"]');
 
-    expect(research?.getAttribute("aria-pressed")).toBe("true");
-    expect(root.querySelector<HTMLTextAreaElement>("#start-goal")?.placeholder).toBe("想研究什么？");
+    expect(research?.getAttribute("aria-checked")).toBe("true");
+    expect(root.querySelector("#start-title")?.textContent).toBe("想研究什么？");
+    expect(root.querySelector<HTMLTextAreaElement>("#start-goal")?.placeholder).toBe("用一句话说清。");
     expect(root.querySelector<HTMLElement>("[data-start-study-fields]")?.hidden).toBe(true);
     expect(root.querySelector<HTMLElement>("[data-start-work-fields]")?.hidden).toBe(true);
 
     study?.click();
-    expect(root.querySelector<HTMLTextAreaElement>("#start-goal")?.placeholder).toBe("想学什么？");
+    expect(root.querySelector("#start-title")?.textContent).toBe("想学习什么？");
+    expect(root.querySelector<HTMLTextAreaElement>("#start-goal")?.placeholder).toBe("用一句话说清。");
     expect(root.querySelector<HTMLElement>("[data-start-study-fields]")?.hidden).toBe(false);
     expect(root.querySelector<HTMLElement>("[data-start-work-fields]")?.hidden).toBe(true);
 
     work?.click();
-    expect(root.querySelector<HTMLTextAreaElement>("#start-goal")?.placeholder).toBe("想推进什么工作？");
+    expect(root.querySelector("#start-title")?.textContent).toBe("想推进什么工作？");
+    expect(root.querySelector<HTMLTextAreaElement>("#start-goal")?.placeholder).toBe("用一句话说清。");
     expect(root.querySelector<HTMLElement>("[data-start-study-fields]")?.hidden).toBe(true);
     expect(root.querySelector<HTMLElement>("[data-start-work-fields]")?.hidden).toBe(false);
   });
@@ -243,7 +268,7 @@ describe("run-first start workspace", () => {
     expect(submit).toHaveBeenCalledOnce();
 
     research?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
-    expect(study?.getAttribute("aria-pressed")).toBe("true");
+    expect(study?.getAttribute("aria-checked")).toBe("true");
     expect(document.activeElement).toBe(study);
     root.remove();
   });
@@ -294,13 +319,16 @@ describe("run-first start workspace", () => {
     expect(root.innerHTML).not.toContain("/Users/example/Documents/restork");
   });
 
-  it("keeps a direct project-folder field for the standalone browser build", () => {
+  it("explains that a plain browser cannot hold a directory grant", () => {
     const root = render();
     root.querySelector<HTMLButtonElement>('[data-start-mode="work"]')?.click();
 
     expect(root.querySelector<HTMLElement>("[data-start-workspace-native]")?.hidden).toBe(true);
     expect(root.querySelector<HTMLElement>("[data-start-workspace-web]")?.hidden).toBe(false);
-    expect(root.querySelector<HTMLInputElement>("#start-work-root")?.required).toBe(true);
+    expect(root.textContent).toContain("浏览器版拿不到文件夹授权");
+    expect(root.querySelector("[data-start-download-desktop]")).not.toBeNull();
+    expect(root.querySelector("[data-start-workspace-readonly]")).not.toBeNull();
+    expect(root.querySelector<HTMLInputElement>("#start-work-root")?.required).toBe(false);
   });
 
   it("offers a default-off run summary after a completed task", () => {

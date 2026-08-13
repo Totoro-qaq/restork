@@ -47,7 +47,7 @@ describe("a broken backend is not an empty workspace", () => {
 
     expect(panelText(broken, "runs")).toContain("Core did not answer");
     expect(panelText(broken, "runs")).not.toContain("No runs yet");
-    expect(panelText(empty, "runs")).toContain("No runs.");
+    expect(panelText(empty, "runs")).toContain("No runs yet. Start one from the home page.");
     expect(panelText(empty, "runs")).not.toContain("Core did not answer");
   });
 
@@ -88,7 +88,7 @@ describe("a broken backend is not an empty workspace", () => {
     const root = mount({});
 
     expect(root.querySelector(".domain-notice")).toBeNull();
-    expect(panelText(root, "runs")).toContain("No runs.");
+    expect(panelText(root, "runs")).toContain("No runs yet. Start one from the home page.");
   });
 });
 

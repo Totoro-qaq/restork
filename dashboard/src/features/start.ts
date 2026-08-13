@@ -46,13 +46,17 @@ export function configureStartWorkspace(
     root.querySelectorAll<HTMLButtonElement>("[data-start-mode]").forEach((button) => {
       const active = button.dataset.startMode === mode;
       button.classList.toggle("is-active", active);
-      button.setAttribute("aria-pressed", String(active));
+      button.setAttribute("aria-checked", String(active));
       button.tabIndex = active ? 0 : -1;
       if (active && goal) goal.placeholder = button.dataset.placeholder ?? "";
+      if (active) {
+        const title = root.querySelector<HTMLElement>("#start-title");
+        if (title) title.textContent = button.dataset.title ?? "";
+      }
     });
     if (studyFields) studyFields.hidden = mode !== "study";
     if (workFields) workFields.hidden = mode !== "work";
-    if (workRoot) workRoot.required = mode === "work" && !hasNativeWorkspacePicker;
+    if (workRoot) workRoot.required = false;
     const studyBlocked = mode === "study"
       && !(snapshot.taskBoard.vault_configured ?? snapshot.taskBoard.configured);
     if (providerHint) providerHint.hidden = providerReady;
@@ -74,23 +78,30 @@ export function configureStartWorkspace(
     }
   };
 
-  const modeButtons = [...root.querySelectorAll<HTMLButtonElement>("[data-start-mode]")];
-  modeButtons.forEach((button, index) => {
+  root.querySelectorAll<HTMLButtonElement>("[data-start-mode]").forEach((button) => {
     button.addEventListener("click", () => {
       selectMode((button.dataset.startMode ?? "research") as Mode);
       goal?.focus();
     });
-    button.addEventListener("keydown", (event) => {
-      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-      event.preventDefault();
-      const nextIndex = event.key === "Home"
-        ? 0
-        : event.key === "End"
-          ? modeButtons.length - 1
-          : (index + (event.key === "ArrowRight" ? 1 : -1) + modeButtons.length) % modeButtons.length;
-      modeButtons[nextIndex]?.click();
-      modeButtons[nextIndex]?.focus();
-    });
+  });
+  // Radiogroup owns its keys. Do not add data-roving-group — bindRovingFocus
+  // would steal arrows without selecting the radio.
+  root.querySelector<HTMLElement>(".start-mode-row")?.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-start-mode]")];
+    const current = buttons.indexOf(event.target as HTMLButtonElement);
+    if (current < 0) return;
+    event.preventDefault();
+    const delta = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? buttons.length - 1
+        : (current + delta + buttons.length) % buttons.length;
+    const next = buttons[nextIndex];
+    if (!next) return;
+    selectMode((next.dataset.startMode ?? "research") as Mode);
+    next.focus();
   });
   root.querySelectorAll<HTMLButtonElement>("[data-start-example]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -112,6 +123,21 @@ export function configureStartWorkspace(
   root.querySelector<HTMLButtonElement>("[data-start-open-vault]")?.addEventListener("click", () => {
     goal?.setAttribute("data-return-focus", "true");
     effects.selectView("vault");
+  });
+  root.querySelector<HTMLButtonElement>("[data-start-workspace-readonly]")?.addEventListener("click", () => {
+    selectMode("research");
+    if (webWorkspace) webWorkspace.hidden = true;
+    goal?.focus();
+  });
+  root.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const next = target.closest<HTMLButtonElement>("[data-wait-next]");
+    if (!next || !root.contains(next)) return;
+    const action = next.dataset.waitNext;
+    if (action === "settings") effects.selectView("settings");
+    else if (action === "vault") effects.selectView("vault");
+    else if (action === "retry") form.requestSubmit();
   });
   chooseWorkspace?.addEventListener("click", () => {
     if (!effects.chooseWorkspace) return;
@@ -233,4 +259,43 @@ export async function offerRunSummaryAfterCompletion(
       return;
     }
   }
+}
+
+export function modeWorkspaceNote(
+  stage:
+    | "study-diagnostic"
+    | "study-path"
+    | "work-plan"
+    | "work-handoff"
+    | "work-export"
+    | "work-verified"
+    | "work-rejected",
+  locale: Locale,
+): string {
+  switch (stage) {
+    case "study-diagnostic":
+      return tr(locale, "Study diagnostic is ready.", "学习诊断已就绪。");
+    case "study-path":
+      return tr(locale, "Learning path is ready.", "学习路径已就绪。");
+    case "work-plan":
+      return tr(locale, "Work plan is ready.", "工作计划已就绪。");
+    case "work-handoff":
+      return tr(locale, "Handoff preview is ready.", "交接预览已就绪。");
+    case "work-export":
+      return tr(locale, "Handoff package exported.", "交接包已导出。");
+    case "work-verified":
+      return tr(locale, "Work result verified.", "工作结果已核对。");
+    case "work-rejected":
+      return tr(locale, "Work handoff rejected.", "工作交接已拒绝。");
+  }
+}
+
+/** All Run launchers share the start page. Carry mode only, never draft text. */
+export function jumpToStartMode(
+  root: HTMLElement,
+  mode: Mode,
+  selectView: (view: string) => void,
+): void {
+  selectView("start");
+  root.querySelector<HTMLButtonElement>(`[data-start-mode="${mode}"]`)?.click();
 }

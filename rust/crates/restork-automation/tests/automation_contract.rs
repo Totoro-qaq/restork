@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use restork_automation::{
     ArtifactResult, BudgetGrant, CheckpointFile, CheckpointSpec, ConcurrencyGate,
     EvaluationManifest, MissedRunPolicy, Recurrence, RestoreSelection, ScheduleJob, ScheduleSpec,
@@ -9,6 +9,91 @@ use restork_automation::{
 
 fn instant(value: &str) -> DateTime<Utc> {
     value.parse().expect("RFC3339 timestamp")
+}
+
+fn day(value: &str) -> NaiveDate {
+    value.parse().expect("ISO date")
+}
+
+#[test]
+fn custom_interval_schedules_keep_their_anchor_and_reject_unusable_cadences() {
+    let schedule = ScheduleSpec::new(
+        "schedule-every-3",
+        "Asia/Shanghai",
+        Recurrence::EveryNDays {
+            interval_days: 3,
+            anchor: day("2026-08-03"),
+            hour: 9,
+            minute: 0,
+        },
+        MissedRunPolicy::CreateDraft,
+        ScheduleJob::Deterministic {
+            job: "health.check".to_owned(),
+        },
+    )
+    .expect("valid custom cadence");
+
+    let occurrences = schedule
+        .due_between(
+            instant("2026-08-03T00:00:00Z"),
+            instant("2026-08-13T00:00:00Z"),
+        )
+        .expect("cadence occurrences");
+    let local_dates: Vec<String> = occurrences
+        .iter()
+        .map(|item| item.local_date.to_string())
+        .collect();
+    assert_eq!(
+        local_dates,
+        ["2026-08-03", "2026-08-06", "2026-08-09", "2026-08-12"]
+    );
+
+    // The anchor, not the query window, decides the cadence.
+    let later = schedule
+        .due_between(
+            instant("2026-08-07T00:00:00Z"),
+            instant("2026-08-13T00:00:00Z"),
+        )
+        .expect("cadence occurrences");
+    assert_eq!(
+        later
+            .iter()
+            .map(|item| item.local_date.to_string())
+            .collect::<Vec<_>>(),
+        ["2026-08-09", "2026-08-12"]
+    );
+
+    // Nothing fires before the anchor.
+    assert!(
+        schedule
+            .due_between(
+                instant("2026-07-20T00:00:00Z"),
+                instant("2026-08-02T00:00:00Z"),
+            )
+            .expect("pre-anchor window")
+            .is_empty()
+    );
+
+    for interval in [0_u16, 1, 366] {
+        assert!(
+            ScheduleSpec::new(
+                "schedule-bad",
+                "Asia/Shanghai",
+                Recurrence::EveryNDays {
+                    interval_days: interval,
+                    anchor: day("2026-08-03"),
+                    hour: 9,
+                    minute: 0,
+                },
+                MissedRunPolicy::Skip,
+                ScheduleJob::Deterministic {
+                    job: "health.check".to_owned(),
+                },
+            )
+            .is_err(),
+            "interval {interval} must be rejected"
+        );
+    }
 }
 
 #[test]

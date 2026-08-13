@@ -1,0 +1,5 @@
+{
+  "slide_count": { "min": 1, "max": 60 },
+  "schedule_interval_days": { "min": 2, "max": 365 },
+  "skill_ids_per_run": { "max": 8 }
+}

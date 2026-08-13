@@ -35,6 +35,15 @@ pub enum Recurrence {
         hour: u8,
         minute: u8,
     },
+    /// Fires every `interval_days` starting from `anchor`, in the schedule's
+    /// own timezone. The anchor keeps the cadence stable across restarts and
+    /// edits instead of drifting from "whenever the worker last ran".
+    EveryNDays {
+        interval_days: u16,
+        anchor: NaiveDate,
+        hour: u8,
+        minute: u8,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -202,15 +211,32 @@ impl ScheduleSpec {
             } if date.weekday().num_days_from_monday() == u32::from(weekday_monday_zero) => {
                 Some((hour, minute))
             }
-            Recurrence::OneShot { .. } | Recurrence::Weekly { .. } => None,
+            Recurrence::EveryNDays {
+                interval_days,
+                anchor,
+                hour,
+                minute,
+            } if date >= anchor && (date - anchor).num_days() % i64::from(interval_days) == 0 => {
+                Some((hour, minute))
+            }
+            Recurrence::OneShot { .. }
+            | Recurrence::Weekly { .. }
+            | Recurrence::EveryNDays { .. } => None,
         }
     }
 }
 
+/// A custom cadence must stay inside a year so one schedule cannot silently
+/// become "never runs again" from a typo.
+pub const MIN_INTERVAL_DAYS: u16 = 2;
+pub const MAX_INTERVAL_DAYS: u16 = 365;
+
 fn validate_recurrence(recurrence: &Recurrence) -> Result<(), &'static str> {
     match recurrence {
         Recurrence::OneShot { .. } => Ok(()),
-        Recurrence::Daily { hour, minute } | Recurrence::Weekly { hour, minute, .. }
+        Recurrence::Daily { hour, minute }
+        | Recurrence::Weekly { hour, minute, .. }
+        | Recurrence::EveryNDays { hour, minute, .. }
             if *hour < 24 && *minute < 60 =>
         {
             if matches!(
@@ -220,10 +246,14 @@ fn validate_recurrence(recurrence: &Recurrence) -> Result<(), &'static str> {
                     ..
                 }
             ) {
-                Err("weekly schedule weekday is invalid")
-            } else {
-                Ok(())
+                return Err("weekly schedule weekday is invalid");
             }
+            if let Recurrence::EveryNDays { interval_days, .. } = recurrence
+                && !(MIN_INTERVAL_DAYS..=MAX_INTERVAL_DAYS).contains(interval_days)
+            {
+                return Err("schedule interval is invalid");
+            }
+            Ok(())
         }
         _ => Err("schedule local time is invalid"),
     }

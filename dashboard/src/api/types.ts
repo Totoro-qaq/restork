@@ -119,6 +119,7 @@ export interface TaskSpec {
     max_wall_time_seconds: number;
     max_tokens: number | null;
   };
+  skills?: Array<{ skill_id: string; manifest_hash: string; name: string }>;
 }
 
 export interface RunListEntry {
@@ -1027,7 +1028,8 @@ export interface DeckDraftInputV2 {
   title: string;
   report: { report_id: string; report_revision: number } | null;
   brief: string;
-  slide_count: number;
+  /** Absent lets Core derive the length from the brief. */
+  slide_count?: number;
   theme_id: string;
   provider_profile_id: string;
   language: string;
@@ -1041,7 +1043,8 @@ export interface DeckDraftInputV2 {
 export type ScheduleRecurrenceV2 =
   | { kind: "one_shot"; at: string }
   | { kind: "daily"; hour: number; minute: number }
-  | { kind: "weekly"; weekday_monday_zero: number; hour: number; minute: number };
+  | { kind: "weekly"; weekday_monday_zero: number; hour: number; minute: number }
+  | { kind: "every_n_days"; interval_days: number; anchor: string; hour: number; minute: number };
 
 export type ScheduleJobV2 =
   | {
@@ -1416,6 +1419,7 @@ export interface DashboardApi {
     goal: string,
     dataClass?: WorkDataClass,
     providerProfileId?: string,
+    skillIds?: string[],
   ): Promise<RunSummary>;
   prepareStudy(
     runId: string,

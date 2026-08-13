@@ -21,6 +21,7 @@ import type {
   WorkPlanArtifact,
   WorkVerificationReport,
 } from "../src/api/types";
+import { openDashboardView } from "./open-view";
 
 const snapshot: DashboardSnapshot = {
   runs: [],
@@ -336,13 +337,14 @@ describe("authenticated workspace", () => {
     const api = fakeApi();
     mountDashboard(root, { api, snapshot });
 
-    root.querySelector<HTMLButtonElement>('[data-view="memory"]')?.click();
+    openDashboardView(root, "memory");
     root.querySelector<HTMLButtonElement>("#refresh")?.click();
 
     await vi.waitFor(() => {
       expect(api.loadDashboard).toHaveBeenCalledOnce();
       expect(root.querySelector<HTMLElement>('[data-view-panel="memory"]')?.hidden).toBe(false);
-      expect(root.querySelector('[data-view="memory"]')?.getAttribute("aria-current")).toBe("page");
+      expect(root.querySelector('[data-view="vault"]')?.getAttribute("aria-current")).toBe("page");
+      expect(root.querySelector('[data-subview="memory"]')?.getAttribute("aria-checked")).toBe("true");
     });
   });
 
@@ -1095,7 +1097,7 @@ describe("authenticated workspace", () => {
         },
       },
     });
-    root.querySelector<HTMLButtonElement>('[data-view="radar"]')?.click();
+    openDashboardView(root, "radar");
 
     expect(root.textContent).toContain("public AI, Agent and MCP projects");
     expect(root.querySelector('[name="github_user"]')).toBeNull();
@@ -1181,7 +1183,7 @@ describe("authenticated workspace", () => {
       api,
       snapshot: { ...snapshot, radar: { configured: true, items: [item] } },
     });
-    root.querySelector<HTMLButtonElement>('[data-view="radar"]')?.click();
+    openDashboardView(root, "radar");
     expect(root.querySelector("img")).toBeNull();
     root.querySelector<HTMLButtonElement>('[data-radar-action="research"]')?.click();
 
@@ -1214,7 +1216,7 @@ describe("authenticated workspace", () => {
       api,
       snapshot: { ...snapshot, radar: { configured: true, items: [item] } },
     });
-    root.querySelector<HTMLButtonElement>('[data-view="radar"]')?.click();
+    openDashboardView(root, "radar");
     root.querySelector<HTMLButtonElement>('[data-radar-action="research"]')?.click();
 
     const waiting = root.querySelector<HTMLElement>(".agent-wait");
@@ -1596,12 +1598,13 @@ describe("Rust conversation workspace", () => {
     root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
 
     const form = root.querySelector<HTMLFormElement>("#personal-settings-form");
-    expect(form?.querySelector('input[name="timezone"]')).toBeNull();
-    const timezone = form?.querySelector<HTMLSelectElement>('select[name="timezone"]');
+    expect(form?.querySelector('input[name="timezone"]')).not.toBeNull();
+    const timezone = form?.querySelector<HTMLInputElement>('input[name="timezone"]');
     expect(timezone).not.toBeNull();
-    expect(timezone?.textContent).toContain("跟随系统");
-    expect(timezone?.querySelector('option[value=""]')).not.toBeNull();
+    expect(timezone?.getAttribute("list")).toBe("timezone-options");
+    expect(form?.querySelector("#timezone-options")).not.toBeNull();
     expect(timezone?.value).toBe("Asia/Shanghai");
+    expect(timezone?.placeholder).toMatch(/跟随这台设备/);
 
     const savePersonalSettings = vi.fn(async (_version, settings) => ({
       settings,
@@ -1808,7 +1811,7 @@ describe("Rust conversation workspace", () => {
 
     expect(root.querySelector("[data-first-run]")).toBeNull();
     expect(root.querySelector<HTMLElement>('[data-view-panel="start"]')?.hidden).toBe(false);
-    expect(root.querySelector("#start-title")?.textContent).toMatch(/好|夜深了/);
+    expect(root.querySelector("#start-title")?.textContent).toBe("想研究什么？");
     expect(root.textContent).not.toContain("今天想研究、学习，还是完成一项工作？");
     expect(root.querySelector(".start-mode-row")?.textContent).toContain("查资料");
     expect(root.querySelector(".start-mode-row")?.textContent).toContain("学知识");
@@ -1834,7 +1837,7 @@ describe("Rust conversation workspace", () => {
     const state = workspaceSnapshot();
     mountDashboard(root, { api: fakeApi(), snapshot: state, locale: "zh-CN" });
 
-    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+    openDashboardView(root, "extensions");
 
     expect(root.textContent).toContain("Core 内置 Skills");
     expect(root.textContent).toContain("资料研究与核对");
@@ -2138,7 +2141,7 @@ describe("Rust conversation workspace", () => {
     });
     mountDashboard(root, { api: fakeApi(), snapshot: state, locale: "zh-CN" });
 
-    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+    openDashboardView(root, "extensions");
     expect(root.querySelector<HTMLElement>('[data-view-panel="extensions"]')?.hidden).toBe(false);
     expect(root.querySelector("#extension-install-form")).not.toBeNull();
     expect(root.textContent).toContain("添加扩展");
@@ -2146,7 +2149,7 @@ describe("Rust conversation workspace", () => {
     expect(reportSkill?.getAttribute("aria-label")).toContain("日报与周报");
     reportSkill?.click();
     expect(root.querySelector<HTMLElement>('[data-view-panel="deliverables"]')?.hidden).toBe(false);
-    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+    openDashboardView(root, "extensions");
     root.querySelector<HTMLButtonElement>('[data-extension-filter="plugin"]')?.click();
     expect(root.querySelector<HTMLElement>('[data-extension-card-kind="skill"]')?.hidden).toBe(true);
 
@@ -2157,7 +2160,7 @@ describe("Rust conversation workspace", () => {
 
     root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
     expect(root.querySelector("#schedule-create-form")).not.toBeNull();
-    expect(root.textContent).toContain("回收站与运行记录");
+    expect(root.textContent).toContain("打开回收站");
     expect(root.querySelector('input[type="password"]')).toBeNull();
   });
 
@@ -2207,7 +2210,7 @@ describe("Rust conversation workspace", () => {
     document.body.append(root);
     mountDashboard(root, { api, snapshot: state });
 
-    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+    openDashboardView(root, "extensions");
     expect(root.textContent).toContain("Tools Restork can run");
     expect(root.textContent).toContain("paper.search");
     expect(root.textContent).toContain("network:https://example.com");
@@ -2343,7 +2346,7 @@ describe("Rust conversation workspace", () => {
     expect(new Set(Array.from(root.querySelectorAll<HTMLElement>("[data-render-theme]"))
       .map((element) => element.dataset.themeLayout))).toHaveLength(6);
     expect(form?.querySelector('textarea[name="brief"]')).not.toBeNull();
-    expect(form?.querySelector('select[name="slide_count"]')).not.toBeNull();
+    expect(form?.querySelector('input[name="slide_count"][type="number"]')).not.toBeNull();
     expect(form?.querySelector('select[name="provider_profile_id"]')).not.toBeNull();
     expect(root.querySelectorAll(".slide-preview-card")).toHaveLength(1);
     expect(root.querySelector('[data-render-format="pptx"]')).not.toBeNull();
@@ -2352,10 +2355,13 @@ describe("Rust conversation workspace", () => {
     const brief = form?.elements.namedItem("brief");
     if (!(brief instanceof HTMLTextAreaElement)) throw new Error("brief field");
     brief.value = "把研究结论整理成六页团队汇报，并给出下一步。";
+    const slideCount = form?.elements.namedItem("slide_count");
+    if (!(slideCount instanceof HTMLInputElement)) throw new Error("slide_count field");
+    slideCount.value = "7";
     form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await vi.waitFor(() => expect(compose).toHaveBeenCalledOnce());
     expect(compose.mock.calls[0]?.[0]).toMatchObject({
-      slide_count: 6,
+      slide_count: 7,
       theme_id: "restork-print",
       provider_profile_id: "ollama",
       brief: "把研究结论整理成六页团队汇报，并给出下一步。",
@@ -2396,7 +2402,7 @@ describe("Rust conversation workspace", () => {
     document.body.append(root);
     mountDashboard(root, { api, snapshot: state });
 
-    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+    openDashboardView(root, "extensions");
     root.querySelector<HTMLButtonElement>("[data-extension-history]")?.click();
     await vi.waitFor(() => expect(api.extensionRevisions).toHaveBeenCalledWith("skill.synthetic"));
     const rollback = root.querySelector<HTMLButtonElement>(".extension-history button");

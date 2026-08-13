@@ -54,6 +54,7 @@ describe("theme is a real control, not a placebo", () => {
     for (const token of ["--bg", "--surface", "--fg", "--fg-secondary", "--fg-muted", "--border"]) {
       expect(stylesheet).toContain(`${token}:`);
     }
+    expect(stylesheet).toContain("--fg-muted: #75644e");
   });
 
   it("defines --muted, which was referenced but never declared", () => {

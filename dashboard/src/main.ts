@@ -21,6 +21,7 @@ import type {
 } from "./api/types";
 import {
   agentWaitMarkup,
+  waitNextForError,
   approvalsView,
   assistantStreamMarkup,
   conversationOperationWaitMarkup,
@@ -52,7 +53,7 @@ import {
 } from "./ui/render";
 import type { AgentWaitStage } from "./ui/render";
 import { startClock } from "./ui/clock";
-import { activeView, bindRovingFocus, escapeMarkup } from "./ui/dom";
+import { activeView, bindRovingFocus, escapeMarkup, fillModeWorkspace, paintNavBadge } from "./ui/dom";
 import { configureAutomation } from "./features/automation";
 import {
   bindRadarConfig,
@@ -70,8 +71,20 @@ import {
   openVaultWorkspace,
   stopVaultStream,
 } from "./features/vault";
-import { configureStartWorkspace, offerRunSummaryAfterCompletion } from "./features/start";
+import { configureStartWorkspace, jumpToStartMode, modeWorkspaceNote, offerRunSummaryAfterCompletion } from "./features/start";
 import { configureCommandPalette } from "./features/commandPalette";
+import { configurePreviewDialog } from "./features/previewDialog";
+import { configureSkillFolderImport } from "./features/skillImport";
+import {
+  configureSkillTriggers,
+  enabledSkills,
+  paintConversationSuggestion,
+  pinSkillOnStart,
+  selectedSkillIds,
+} from "./features/skillSuggest";
+import { applyView, bindNavigation, currentPanel } from "./features/navigation";
+import { captureWorkspaceChrome, restoreWorkspaceChrome } from "./features/workspaceChrome";
+import { bindProviderProfileId } from "./features/settings";
 import { configureUpdates } from "./features/updates";
 import {
   alternateLocale,
@@ -116,9 +129,6 @@ const updateCleanups = new WeakMap<HTMLElement, () => void>();
 
 /**
  * Escape closes the topmost dismissible surface regardless of where focus sits.
- * Binding it to `#action-panel` alone meant Escape did nothing unless the user
- * had already tabbed into the panel.
- *
  * A native `<dialog>` handles its own Escape, so an open modal is left alone.
  */
 function bindDismissStack(root: HTMLElement): void {
@@ -133,12 +143,6 @@ function bindDismissStack(root: HTMLElement): void {
     }
     if (root.querySelector("dialog[open]")) return;
 
-    const panel = root.querySelector<HTMLElement>("#action-panel");
-    if (panel && !panel.hidden) {
-      event.preventDefault();
-      closeRunForm(root, true);
-      return;
-    }
     const region = root.querySelector<HTMLElement>("#global-status-region");
     if (region?.dataset.visible === "true") {
       event.preventDefault();
@@ -329,6 +333,7 @@ async function pairAndLoad(root: HTMLElement, api: DashboardApi, data: FormData)
 }
 
 function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: DashboardSnapshot): void {
+  const chrome = captureWorkspaceChrome(root);
   const locale = localeOf(root);
   stopEventStream(root);
   stopMailStream(root);
@@ -344,33 +349,36 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   bindDismissStack(root);
   commandPaletteCleanups.get(root)?.();
   commandPaletteCleanups.set(root, configureCommandPalette(root, {
-    selectView: (view) => {
-      selectView(root, view);
-      if (view === "vault") void openVaultWorkspace(root, api);
-      if (view === "radar") void refreshRadarPanel(root, api, snapshot, dailyEffects(root, api, snapshot));
-    },
+    selectView: (view) => revealView(root, api, snapshot, view),
     selectMode: (mode) => {
       root.querySelector<HTMLButtonElement>(`[data-start-mode="${mode}"]`)?.click();
     },
+    pinSkill: (skillId) => {
+      const skill = enabledSkills(snapshot).find((item) => item.id === skillId);
+      if (skill) {
+        pinSkillOnStart(root, skill, {
+          selectView: (view) => revealView(root, api, snapshot, view),
+          selectMode: (mode) => {
+            root.querySelector<HTMLButtonElement>(`[data-start-mode="${mode}"]`)?.click();
+          },
+        });
+      }
+    },
   }));
+  configurePreviewDialog(root);
+  configureSkillTriggers(root, snapshot);
   updateCleanups.get(root)?.();
   updateCleanups.set(root, configureUpdates(root, detectDesktopBridge(), {
     openSettings: () => selectView(root, "settings"),
   }));
   bindLocaleSwitch(root, () => {
-    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "start";
+    const view = currentPanel(root);
     renderWorkspace(root, api, snapshot);
-    selectView(root, view);
-    if (view === "vault") void openVaultWorkspace(root, api);
+    revealView(root, api, snapshot, view);
   });
   root.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => {
     button.addEventListener("click", () => {
-      closeRunForm(root, false);
-      const view = button.dataset.view ?? "overview";
-      selectView(root, view);
-      if (view === "vault") void openVaultWorkspace(root, api);
-      if (view === "radar") void refreshRadarPanel(root, api, snapshot, dailyEffects(root, api, snapshot));
-      if (view === "start") resumeStartRunFromSnapshot(root, api, snapshot);
+      revealView(root, api, snapshot, button.dataset.view ?? "overview");
     });
   });
   const nav = root.querySelector<HTMLElement>(".sidebar nav");
@@ -378,8 +386,16 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   root.querySelectorAll<HTMLElement>("[data-roving-group]").forEach((group) => {
     bindRovingFocus(group, "button");
   });
+  bindNavigation(root, {
+    selectView: (view) => revealView(root, api, snapshot, view),
+  });
   root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
-    button.addEventListener("click", () => openRunForm(root, button.dataset.mode as Mode, button, snapshot));
+    button.addEventListener("click", () => {
+      const mode = button.dataset.mode;
+      if (mode === "research" || mode === "study" || mode === "work") {
+        jumpToStartMode(root, mode, (view) => revealView(root, api, snapshot, view));
+      }
+    });
   });
   const desktopBridge = detectDesktopBridge();
   bindDesktopExternalLinks(root, desktopBridge, (error) => {
@@ -387,11 +403,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   });
   configureStartWorkspace(root, snapshot, {
     submit: (form) => { void createRun(root, api, form, snapshot); },
-    selectView: (view) => {
-      selectView(root, view);
-      if (view === "vault") void openVaultWorkspace(root, api);
-      if (view === "start") resumeStartRunFromSnapshot(root, api, snapshot);
-    },
+    selectView: (view) => revealView(root, api, snapshot, view),
     resume: (runId, state) => resumeStartRun(root, api, runId, state),
     cancel: (runId) => { void cancelStartRun(root, api, runId); },
     loadRunSummary: api.loadRunSummary?.bind(api),
@@ -407,22 +419,10 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
       return { grantId: selection.grantId, label: selection.label };
     } } : {}),
   });
-  root.querySelector<HTMLButtonElement>("[data-run-panel-close]")?.addEventListener("click", () => {
-    closeRunForm(root, true);
-  });
-  root.querySelector<HTMLElement>("#action-panel")?.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    closeRunForm(root, true);
-  });
-  root.querySelector<HTMLFormElement>("#run-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void createRun(root, api, event.currentTarget as HTMLFormElement, snapshot);
-  });
   root.querySelector<HTMLButtonElement>("#refresh")?.addEventListener("click", (event) => {
     const button = event.currentTarget as HTMLButtonElement;
     if (button.getAttribute("aria-busy") === "true") return;
-    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "start";
+    const view = currentPanel(root);
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
     void refresh(root, api, view).finally(() => {
@@ -447,6 +447,9 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   configureVaultBrowser(root, api);
   // Last, so it overrides any enabled state the feature wiring just set.
   applyCapabilityGuards(root, api, locale);
+  if (chrome) {
+    restoreWorkspaceChrome(root, chrome, (view) => revealView(root, api, snapshot, view));
+  }
   if (snapshot.daily?.music?.recommendation?.cover_available) {
     void loadMusicCover(root, api);
   }
@@ -667,7 +670,10 @@ function configureRustWorkspace(
 
   root.querySelector<HTMLButtonElement>("[data-open-provider-settings]")?.addEventListener(
     "click",
-    () => selectView(root, "settings"),
+    () => {
+      root.dataset.settingsTab = "models";
+      selectView(root, "settings");
+    },
   );
   root.querySelector<HTMLFormElement>("#session-fork-form")?.addEventListener(
     "submit",
@@ -1046,6 +1052,7 @@ function configureRustWorkspace(
   );
 
   const providerForm = root.querySelector<HTMLFormElement>("#provider-profile-form");
+  if (providerForm) bindProviderProfileId(providerForm);
   root.querySelector<HTMLSelectElement>('#provider-profile-form [name="kind"]')
     ?.addEventListener("change", (event) => {
       const select = event.currentTarget as HTMLSelectElement;
@@ -1306,6 +1313,7 @@ function configureRustWorkspace(
   );
 
   configureExtensionCenter(root, api, snapshot);
+  configureSkillFolderImport(root, api);
   configureDeliverables(root, api, snapshot, {
     confirm: (message, detail) => confirmAction(root, message, detail),
     error: (message) => announceError(root, message),
@@ -1389,7 +1397,7 @@ function configureExtensionCenter(
     button.addEventListener("click", () => {
       const mode = button.dataset.coreSkillMode;
       if (mode === "research" || mode === "study" || mode === "work") {
-        openRunForm(root, mode, button, snapshot);
+        jumpToStartMode(root, mode, (view) => revealView(root, api, snapshot, view));
       }
     });
   });
@@ -1397,7 +1405,7 @@ function configureExtensionCenter(
     button.addEventListener("click", () => {
       const view = button.dataset.coreSkillView;
       if (view) {
-        selectView(root, view);
+        revealView(root, api, snapshot, view);
         const heading = root.querySelector<HTMLElement>(`[data-view-panel="${view}"] h2`);
         if (heading) {
           heading.tabIndex = -1;
@@ -1829,6 +1837,7 @@ function configureProvider(
   root.querySelector<HTMLButtonElement>("[data-open-provider-settings]")?.addEventListener(
     "click", () => {
       const selected = overviewProviderSelection(root);
+      root.dataset.settingsTab = "models";
       root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
       const kind = root.querySelector<HTMLSelectElement>('#provider-profile-form [name="kind"]');
       if (selected && kind && Array.from(kind.options).some((option) => option.value === selected.kind)) {
@@ -2230,23 +2239,26 @@ async function disableCalendar(
   }
 }
 
+function revealView(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+  view: string,
+): void {
+  selectView(root, view);
+  if (view === "vault") void openVaultWorkspace(root, api);
+  if (view === "radar") {
+    void refreshRadarPanel(root, api, snapshot, dailyEffects(root, api, snapshot));
+  }
+  if (view === "start") resumeStartRunFromSnapshot(root, api, snapshot);
+}
+
 function selectView(root: HTMLElement, view: string): void {
-  const panels = [...root.querySelectorAll<HTMLElement>("[data-view-panel]")];
-  const resolvedView = panels.some((panel) => panel.dataset.viewPanel === view) ? view : "start";
-  const previousView = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view;
-  if (resolvedView !== "runs" && resolvedView !== "start") stopEventStream(root);
-  if (resolvedView !== "vault") stopVaultStream(root);
-  panels.forEach((panel) => {
-    panel.hidden = panel.dataset.viewPanel !== resolvedView;
-    panel.classList.toggle("is-visible", !panel.hidden);
-  });
-  root.querySelectorAll<HTMLElement>("[data-view]").forEach((button) => {
-    const active = button.dataset.view === resolvedView;
-    button.classList.toggle("is-active", active);
-    if (active) button.setAttribute("aria-current", "page");
-    else button.removeAttribute("aria-current");
-  });
-  if (previousView && previousView !== resolvedView) {
+  const previousView = currentPanel(root);
+  const resolved = applyView(root, view);
+  if (resolved.panel !== "runs" && resolved.panel !== "start") stopEventStream(root);
+  if (resolved.panel !== "vault") stopVaultStream(root);
+  if (previousView && previousView !== resolved.panel) {
     const workspace = root.querySelector<HTMLElement>(".workspace");
     if (workspace) workspace.scrollTop = 0;
   }
@@ -2272,88 +2284,9 @@ function syncNavBadges(root: HTMLElement): void {
     const view = badge.dataset.navCount ?? "";
     const raw = Number(badge.dataset.rawCount ?? "0");
     if (button.classList.contains("is-active")) seen.set(view, raw);
-    const unseen = raw - (seen.get(view) ?? 0);
-    badge.hidden = unseen <= 0;
-    badge.textContent = String(Math.max(unseen, 0));
+    const unseen = Math.max(raw - (seen.get(view) ?? 0), 0);
+    paintNavBadge(badge, unseen, tr(localeOf(root), `${unseen} new`, `${unseen} 项新增`));
   });
-}
-
-function openRunForm(root: HTMLElement, mode: Mode, trigger?: HTMLButtonElement, snapshot?: DashboardSnapshot): void {
-  const panel = root.querySelector<HTMLElement>("#action-panel");
-  const field = root.querySelector<HTMLInputElement>("#run-mode");
-  if (!panel || !field) return;
-  if (!panel.hidden && field.value === mode) {
-    closeRunForm(root, true);
-    return;
-  }
-  const previousMode = field.value;
-  panel.hidden = false;
-  const workspace = root.querySelector<HTMLElement>(".workspace");
-  if (workspace) workspace.scrollTop = 0;
-  panel.dataset.activeMode = mode;
-  field.value = mode;
-  root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
-    const active = button.dataset.mode === mode;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-expanded", String(active));
-    button.setAttribute("aria-pressed", String(active));
-  });
-  if (trigger) panel.dataset.returnFocusMode = trigger.dataset.mode ?? mode;
-  const locale = localeOf(root);
-  const title = root.querySelector<HTMLElement>("#action-panel-title");
-  if (title) {
-    title.textContent = tr(locale, `Start a ${capitalizedMode(mode)} run`, `新建 ${capitalizedMode(mode)} 运行`);
-  }
-  if (previousMode !== mode) {
-    const status = root.querySelector<HTMLElement>("#action-status");
-    if (status) status.textContent = "";
-  }
-  const target = root.querySelector<HTMLInputElement>("#study-target-note");
-  const targetLabel = root.querySelector<HTMLElement>("#study-target-label");
-  if (target) target.hidden = mode !== "study";
-  if (targetLabel) targetLabel.hidden = mode !== "study";
-  const workFields = root.querySelector<HTMLFieldSetElement>("#work-fields");
-  if (workFields) workFields.hidden = mode !== "work";
-  const workRoot = root.querySelector<HTMLInputElement>("#work-root");
-  const workTargets = root.querySelector<HTMLTextAreaElement>("#work-targets");
-  if (workRoot) workRoot.required = mode === "work";
-  if (workTargets) workTargets.required = mode === "work";
-  const studyHost = root.querySelector<HTMLElement>("#study-workspace");
-  if (studyHost) studyHost.hidden = mode !== "study";
-  const workHost = root.querySelector<HTMLElement>("#work-workspace");
-  if (workHost) workHost.hidden = mode !== "work";
-  // Pre-submit guard: Study cannot start without a Core-side Vault. Disable
-  // the submit button up front instead of failing the run after creation.
-  const vaultReady = snapshot?.taskBoard.configured ?? true;
-  const studyBlocked = mode === "study" && !vaultReady;
-  const hint = root.querySelector<HTMLElement>("#study-vault-hint");
-  if (hint) hint.hidden = !studyBlocked;
-  const submit = root.querySelector<HTMLButtonElement>("#run-submit");
-  if (submit) {
-    submit.disabled = studyBlocked;
-    submit.setAttribute("aria-disabled", String(studyBlocked));
-  }
-  root.querySelector<HTMLInputElement>("#run-goal")?.focus();
-}
-
-function closeRunForm(root: HTMLElement, restoreFocus: boolean): void {
-  const panel = root.querySelector<HTMLElement>("#action-panel");
-  if (!panel || panel.hidden) return;
-  const returnFocusMode = panel.dataset.returnFocusMode ?? panel.dataset.activeMode;
-  panel.hidden = true;
-  delete panel.dataset.activeMode;
-  root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
-    button.classList.remove("is-active");
-    button.setAttribute("aria-expanded", "false");
-    button.setAttribute("aria-pressed", "false");
-  });
-  if (restoreFocus && returnFocusMode) {
-    root.querySelector<HTMLButtonElement>(`[data-mode="${returnFocusMode}"]`)?.focus();
-  }
-}
-
-function capitalizedMode(mode: Mode): string {
-  return `${mode.charAt(0).toUpperCase()}${mode.slice(1)}`;
 }
 
 async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormElement, snapshot?: DashboardSnapshot): Promise<void> {
@@ -2399,7 +2332,13 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
   let stream: AbortController | null = null;
   let createdRun: RunSummary | null = null;
   try {
-    const run = await api.createRun(mode, goal, dataClass, providerProfileId);
+    const run = await api.createRun(
+      mode,
+      goal,
+      dataClass,
+      providerProfileId,
+      form.id === "start-run-form" ? selectedSkillIds(form) : [],
+    );
     createdRun = run;
     if (form.id === "start-run-form") prepareStartRunFeedback(surface, run.run_id);
     let waitStage: AgentWaitStage = "prepare";
@@ -2420,7 +2359,7 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       const diagnostic = await api.prepareStudy(run.run_id, goal, targetNote);
       const host = surface.querySelector<HTMLElement>("[data-study-workspace]");
       if (host) {
-        host.innerHTML = studyDiagnosticMarkup(diagnostic, localeOf(root));
+        fillModeWorkspace(host, studyDiagnosticMarkup(diagnostic, localeOf(root)), modeWorkspaceNote("study-diagnostic", localeOf(root)));
         bindStudyDiagnostic(root, api, host);
       }
     } else if (mode === "work") {
@@ -2436,14 +2375,14 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
         completion_criteria: [tr(
           localeOf(root),
           "produce a result the user can inspect and verify",
-          "产出用户能够查看并核对的结果",
+          "产出你能够查看并核对的结果",
         )],
         verification_commands: lines(data.get("verification_commands")),
         context_data_class: dataClass,
       });
       const host = surface.querySelector<HTMLElement>("[data-work-workspace]");
       if (host) {
-        host.innerHTML = workPlanMarkup(plan, localeOf(root));
+        fillModeWorkspace(host, workPlanMarkup(plan, localeOf(root)), modeWorkspaceNote("work-plan", localeOf(root)));
         bindWorkPlan(root, api, host);
       }
       clearWorkFields(form);
@@ -2480,10 +2419,16 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       }
     }
     const neverStarted = createdRun != null && mode !== "research";
+    const locale = localeOf(root);
+    const reason = errorText(error, locale);
     if (waitHost?.isConnected) {
-      waitHost.innerHTML = agentWaitMarkup(neverStarted ? "blocked" : "error", localeOf(root));
+      waitHost.innerHTML = agentWaitMarkup(
+        neverStarted ? "blocked" : "error",
+        locale,
+        { reason, next: waitNextForError(error, locale) },
+      );
     }
-    if (status) status.textContent = errorText(error, localeOf(root));
+    if (status) status.textContent = reason;
     if (form.id === "start-run-form") setStartRunBusy(form, false);
   } finally {
     if (stream && eventStreams.get(root)?.controller === stream && form.id !== "start-run-form") {
@@ -2641,7 +2586,7 @@ async function submitStudyDiagnostic(
     const host = form.closest<HTMLElement>("[data-run-surface]")
       ?.querySelector<HTMLElement>("[data-study-workspace]");
     if (host) {
-      host.innerHTML = studyArtifactMarkup(artifact, localeOf(root));
+      fillModeWorkspace(host, studyArtifactMarkup(artifact, localeOf(root)), modeWorkspaceNote("study-path", localeOf(root)));
       bindStudyPractice(root, api, host);
       bindNoteSave(root, api, host);
     }
@@ -2709,7 +2654,7 @@ async function previewWorkHandoff(
     const host = button.closest<HTMLElement>("[data-run-surface]")
       ?.querySelector<HTMLElement>("[data-work-workspace]");
     if (host) {
-      host.innerHTML = workHandoffMarkup(preview, localeOf(root));
+      fillModeWorkspace(host, workHandoffMarkup(preview, localeOf(root)), modeWorkspaceNote("work-handoff", localeOf(root)));
       bindWorkHandoff(root, api, preview, host);
     }
   } catch (error) {
@@ -2746,7 +2691,7 @@ async function approveAndExportWork(
     const host = button.closest<HTMLElement>("[data-run-surface]")
       ?.querySelector<HTMLElement>("[data-work-workspace]");
     if (host) {
-      host.innerHTML = workExportMarkup(result, preview.plan, localeOf(root));
+      fillModeWorkspace(host, workExportMarkup(result, preview.plan, localeOf(root)), modeWorkspaceNote("work-export", localeOf(root)));
       bindWorkVerification(root, api, host);
     }
   } catch (error) {
@@ -2765,7 +2710,7 @@ async function rejectWork(
     await api.decideApproval(button.dataset.approvalId ?? "", "reject");
     const host = button.closest<HTMLElement>("[data-run-surface]")
       ?.querySelector<HTMLElement>("[data-work-workspace]");
-    if (host) host.replaceChildren();
+    if (host) fillModeWorkspace(host, "", modeWorkspaceNote("work-rejected", localeOf(root)));
     announceStatus(root, tr(
       localeOf(root),
       "Work handoff rejected. No package was exported.",
@@ -2809,7 +2754,7 @@ async function verifyWorkResult(
     form.reset();
     const host = form.closest<HTMLElement>("[data-run-surface]")
       ?.querySelector<HTMLElement>("[data-work-workspace]");
-    if (host) host.innerHTML = workVerificationMarkup(report, localeOf(root));
+    if (host) fillModeWorkspace(host, workVerificationMarkup(report, localeOf(root)), modeWorkspaceNote("work-verified", localeOf(root)));
   } catch (error) {
     if (submit) submit.disabled = false;
     announceError(root, errorText(error, localeOf(root)));
@@ -2862,7 +2807,12 @@ async function actOnRadar(root: HTMLElement, api: DashboardApi, button: HTMLButt
       }
     }
   } catch (error) {
-    if (target) target.innerHTML = agentWaitMarkup("error", localeOf(root));
+    if (target) {
+      target.innerHTML = agentWaitMarkup("error", localeOf(root), {
+        reason: errorText(error, localeOf(root)),
+        next: waitNextForError(error, localeOf(root)),
+      });
+    }
     button.disabled = false;
     announceError(root, errorText(error, localeOf(root)));
   }
@@ -3173,6 +3123,7 @@ async function showRun(
                 conversationDraft = "";
                 conversationBusy = false;
                 render(true);
+                paintConversationSuggestion(root, snapshot);
               },
               failed: (message) => {
                 conversationError = message;
@@ -3199,6 +3150,7 @@ async function showRun(
         nextInput.focus();
         nextInput.setSelectionRange(selectionStart, selectionEnd);
       }
+      paintConversationSuggestion(root, snapshot);
     };
     render(true);
     const after = received.at(-1)?.id ?? 0;
@@ -3584,6 +3536,7 @@ function bindListInteractions(
     button.addEventListener("click", () => void actOnRadar(root, api, button));
   });
   host.querySelectorAll<HTMLButtonElement>("[data-run-id]").forEach((button) => {
+    if (button.hasAttribute("data-start-cancel")) return;
     button.addEventListener("click", () => void showRun(root, api, snapshot, button));
   });
   host.querySelectorAll<HTMLButtonElement>("[data-page-kind]").forEach((button) => {

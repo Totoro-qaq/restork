@@ -157,6 +157,30 @@ describe("Automation workspace", () => {
     root.remove();
   });
 
+  it("serializes every_n_days as a custom interval instead of clamping to weekly", async () => {
+    const root = document.createElement("main");
+    const state = automationSnapshot([]);
+    const api = apiFor(state);
+    api.createSchedule = vi.fn(async () => scheduleRecord());
+    mountDashboard(root, { api, snapshot: state, locale: "zh-CN" });
+    root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
+    const form = root.querySelector<HTMLFormElement>("#schedule-create-form");
+    if (!form) throw new Error("create form unavailable");
+    (form.elements.namedItem("name") as HTMLInputElement).value = "每三天健康检查";
+    const recurrence = form.elements.namedItem("recurrence") as HTMLSelectElement;
+    recurrence.value = "every_n_days";
+    recurrence.dispatchEvent(new Event("change", { bubbles: true }));
+    const interval = form.elements.namedItem("interval_days") as HTMLInputElement;
+    expect(interval).not.toBeNull();
+    interval.value = "3";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(api.createSchedule).toHaveBeenCalledWith(expect.objectContaining({
+      name: "每三天健康检查",
+      recurrence: expect.objectContaining({ kind: "every_n_days", interval_days: 3 }),
+    })));
+    root.remove();
+  });
+
   it("creates a model automation from natural language and a saved model profile", async () => {
     const root = document.createElement("main");
     const state = automationSnapshot([]);

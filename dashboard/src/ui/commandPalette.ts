@@ -10,6 +10,7 @@ interface PaletteItem {
   mode?: Mode;
   keywords: string;
   entityId?: string;
+  skillId?: string;
 }
 
 export function commandPaletteItems(
@@ -75,6 +76,27 @@ export function commandPaletteItems(
     keywords: `${item.title} ${item.summary ?? ""}`,
     entityId: item.item_id,
   })));
+  commands.push(...(snapshot.workspaceV2?.extensions ?? [])
+    .filter((record) => record.package_kind === "skill" && record.state === "enabled" && record.package_id)
+    .map((record) => {
+      const name = typeof record.manifest?.display_name === "string" && record.manifest.display_name.trim()
+        ? record.manifest.display_name
+        : record.package_id ?? "skill";
+      const description = typeof record.manifest?.description === "string" ? record.manifest.description : "";
+      const mode = record.manifest?.default_mode;
+      const defaultMode: Mode | undefined = mode === "research" || mode === "study" || mode === "work"
+        ? mode
+        : undefined;
+      return {
+        label: tr(locale, `Use ${name}`, `用 ${name}`),
+        detail: description || tr(locale, "Imported skill", "已导入技能"),
+        view: "start",
+        mode: defaultMode,
+        keywords: `${name} ${description} skill`,
+        entityId: record.package_id,
+        skillId: record.package_id,
+      };
+    }));
   return commands;
 }
 
@@ -83,9 +105,10 @@ export function commandPaletteMarkup(snapshot: DashboardSnapshot, locale: Locale
   const itemMarkup = items.map((item, index) => {
     const modeAttribute = item.mode ? `data-mode-target="${item.mode}"` : "";
     const entityAttribute = item.entityId ? `data-entity-id="${escapeMarkup(item.entityId)}"` : "";
+    const skillAttribute = item.skillId ? `data-skill-id="${escapeMarkup(item.skillId)}"` : "";
     const search = escapeMarkup(item.keywords.toLocaleLowerCase());
     return `<button type="button" role="option" id="command-palette-option-${index}" data-command-item data-view-target="${item.view}"
-      ${modeAttribute} ${entityAttribute} data-search="${search}" aria-selected="${String(index === 0)}">
+      ${modeAttribute} ${entityAttribute} ${skillAttribute} data-search="${search}" aria-selected="${String(index === 0)}">
         <span title="${escapeMarkup(item.label)}">${escapeMarkup(item.label)}</span><small>${escapeMarkup(item.detail)}</small>
       </button>`;
   }).join("");

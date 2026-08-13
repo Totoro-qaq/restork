@@ -23,7 +23,11 @@ jobs:
           node-version: 22
       - run: node --test scripts/tests/windows-toolchain.test.mjs
       - run: python3 -m unittest scripts.tests.test_desktop_release
+      - run: python3 -m unittest scripts.tests.test_spacing_grid
       - run: python3 scripts/check_architecture.py
+      - run: python3 scripts/check_spacing_grid.py
+      - run: python3 scripts/check_intent_limits.py
+      - run: python3 scripts/check_voice.py
 
   rust-core:
     runs-on: ubuntu-latest

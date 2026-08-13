@@ -403,3 +403,173 @@ async fn proposed_agent_run_can_be_cancelled_before_it_starts() {
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
 }
+
+fn reviewed_skill_manifest() -> Value {
+    json!({
+        "schema_version": 1,
+        "id": "ppt-master",
+        "version": "1.0.0",
+        "provenance": {
+            "source": {"kind": "catalog", "catalog_id": "restork-reviewed", "version": "1.0.0"},
+            "license": "MIT",
+            "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "signature": null
+        },
+        "compatibility": {"minimum_core_version": "0.1.0", "maximum_core_version": null},
+        "enabled_profiles": ["safe-mode"],
+        "procedure": "skills/ppt.md",
+        "prompt_references": [],
+        "schema_references": [],
+        "template_references": [],
+        "requested_permissions": [],
+        "display_name": "ppt-master",
+        "instructions": "Write slides from the brief."
+    })
+}
+
+#[tokio::test]
+async fn run_skill_ids_are_validated_and_frozen_into_the_manifest() {
+    let (app, authorization, _directory) = paired_app().await;
+    let (status, preview) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/extensions",
+        Some(json!({"package_kind": "skill", "manifest": reviewed_skill_manifest()})),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let digest = preview.expect("preview")["preview_digest"]
+        .as_str()
+        .expect("digest")
+        .to_owned();
+    let (status, installed) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/extensions",
+        Some(json!({
+            "package_kind": "skill",
+            "manifest": reviewed_skill_manifest(),
+            "approved_preview_digest": digest
+        })),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let installed = installed.expect("installed");
+    assert!(installed["manifest"].get("instructions").is_none());
+    assert!(
+        !installed
+            .to_string()
+            .contains("Write slides from the brief.")
+    );
+    let hash = installed["manifest_hash"]
+        .as_str()
+        .expect("hash")
+        .to_owned();
+    let (status, disabled) = call_idempotent(
+        app.clone(),
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "goal": "Disabled skills must not bind.",
+            "mode": "research",
+            "provider_profile_id": "deepseek",
+            "auto_start": false,
+            "skill_ids": ["ppt-master"]
+        }),
+        &authorization,
+        "run-disabled-skill",
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{disabled:?}");
+    let (status, _) = call(
+        app.clone(),
+        Method::PATCH,
+        "/v1/extensions/ppt-master",
+        Some(json!({"action": "enable", "expected_hash": hash})),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, bootstrap) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/bootstrap?timezone=UTC",
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !bootstrap.expect("bootstrap")["workspaceV2"]["extensions"]
+            .to_string()
+            .contains("Write slides from the brief.")
+    );
+
+    let (status, created) = call_idempotent(
+        app.clone(),
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "goal": "Make a six-slide research update.",
+            "mode": "research",
+            "provider_profile_id": "deepseek",
+            "auto_start": false,
+            "skill_ids": ["ppt-master"]
+        }),
+        &authorization,
+        "run-with-skill",
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created:?}");
+    let created = created.expect("run");
+    assert_eq!(
+        created["run"]["task_spec"]["skills"][0]["skill_id"],
+        "ppt-master"
+    );
+    assert_eq!(
+        created["run"]["task_spec"]["skills"][0]["manifest_hash"],
+        hash
+    );
+    assert!(
+        created["run"]["task_spec"]["skills"][0]
+            .get("instructions")
+            .is_none()
+    );
+
+    let (status, unknown) = call_idempotent(
+        app.clone(),
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "goal": "Unknown skill should fail.",
+            "mode": "research",
+            "provider_profile_id": "deepseek",
+            "auto_start": false,
+            "skill_ids": ["missing-skill"]
+        }),
+        &authorization,
+        "run-unknown-skill",
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{unknown:?}");
+
+    let (status, extra) = call_idempotent(
+        app,
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "goal": "Unknown fields still fail.",
+            "mode": "research",
+            "provider_profile_id": "deepseek",
+            "auto_start": false,
+            "unexpected": true
+        }),
+        &authorization,
+        "run-unknown-field",
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{extra:?}");
+}
