@@ -3,7 +3,27 @@ import type { DashboardApi, DashboardSnapshot } from "../api/types";
 import { rememberPresentationThemeId } from "../deliverables/themes";
 import { localeOf, tr } from "../i18n";
 import { errorText } from "../ui/render";
+import { MAX_SLIDE_COUNT, MIN_SLIDE_COUNT, parseIntentCount } from "../limits";
 import { configurePresentationTemplates } from "./presentationTemplates";
+
+function requestedSlideCount(
+  form: HTMLFormElement,
+  raw: FormDataEntryValue | null,
+  locale: ReturnType<typeof localeOf>,
+): number | undefined | "invalid" {
+  const parsed = parseIntentCount(raw, MIN_SLIDE_COUNT, MAX_SLIDE_COUNT);
+  const input = form.querySelector<HTMLInputElement>('input[name="slide_count"]');
+  if (!parsed.ok) {
+    const message = locale === "zh-CN"
+      ? "渲染上限 60 页，也可留空由 Restork 按内容决定。"
+      : "The renderer stops at 60 slides. Leave the field blank to let Restork decide.";
+    input?.setCustomValidity(message);
+    input?.reportValidity();
+    return "invalid";
+  }
+  input?.setCustomValidity("");
+  return parsed.value;
+}
 
 interface DeliverablesEffects {
   confirm(message: string, detail?: string): Promise<boolean>;
@@ -18,9 +38,11 @@ export function configureDeliverables(
   snapshot: DashboardSnapshot,
   effects: DeliverablesEffects,
 ): void {
-  root.querySelectorAll<HTMLButtonElement>("[data-report-download]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const markdown = button.closest("article")?.querySelector<HTMLElement>(".deliverable-preview")?.textContent ?? "";
+  root.addEventListener("click", (event) => {
+    const button = (event.target as Element).closest<HTMLButtonElement>("[data-report-download]");
+    if (!button || !root.contains(button)) return;
+      const markdown = button.closest("article, [data-preview-dialog]")
+        ?.querySelector<HTMLElement>(".deliverable-preview")?.textContent ?? "";
       if (!markdown) return;
       const title = button.dataset.reportTitle ?? tr(localeOf(root), "report", "报告");
       const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
@@ -31,10 +53,10 @@ export function configureDeliverables(
       anchor.click();
       URL.revokeObjectURL(url);
       effects.status(tr(localeOf(root), "Markdown report downloaded.", "Markdown 报告已下载。"));
-    });
   });
-  root.querySelectorAll<HTMLButtonElement>("[data-render-format]").forEach((button) => {
-    button.addEventListener("click", () => {
+  root.addEventListener("click", (event) => {
+      const button = (event.target as Element).closest<HTMLButtonElement>("[data-render-format]");
+      if (!button || !root.contains(button)) return;
       const deliverableId = button.dataset.renderId ?? "";
       const revision = Number(button.dataset.renderRevision ?? "0");
       const format = button.dataset.renderFormat as "pptx" | "pdf";
@@ -71,7 +93,6 @@ export function configureDeliverables(
             ? tr(localeOf(root), "DOWNLOAD PPTX", "下载 PPTX")
             : tr(localeOf(root), "DOWNLOAD PDF", "下载 PDF");
         });
-    });
   });
   root.querySelector<HTMLFormElement>("#manual-report-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -127,6 +148,8 @@ export function configureDeliverables(
     const button = form.querySelector<HTMLButtonElement>("button[type=submit]");
     const providerProfileId = String(data.get("provider_profile_id") ?? "").trim();
     const brief = String(data.get("brief") ?? "").trim();
+    const slideCount = requestedSlideCount(form, data.get("slide_count"), localeOf(root));
+    if (slideCount === "invalid") return;
     if (!providerProfileId || !brief || !api.composeDeckDraft) return;
     if (button) button.disabled = true;
     if (status) status.textContent = tr(localeOf(root), "Building a cited slide outline for preview…", "正在生成带来源的演示大纲，稍后可以逐页预览…");
@@ -139,7 +162,7 @@ export function configureDeliverables(
         ? { report_id: option.value, report_revision: Number(option.dataset.revision ?? "1") }
         : null,
       brief,
-      slide_count: Number(data.get("slide_count") ?? "6"),
+      slide_count: slideCount,
       theme_id: themeId,
       provider_profile_id: providerProfileId,
       language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",

@@ -822,3 +822,166 @@ async fn schedules_generate_ids_are_editable_recoverable_and_expose_run_history(
     assert!(restored["deleted_at"].is_null());
     assert!(restored["next_run_at"].as_str().is_some());
 }
+
+fn agent_skill_package(name: &str, body: &str, extra: Vec<Value>) -> Value {
+    let mut files = vec![json!({
+        "path": "SKILL.md",
+        "content": format!("---\nname: {name}\ndescription: Imported skill\n---\n{body}\n")
+    })];
+    files.extend(extra);
+    json!({ "format": "agent_skill_v1", "files": files })
+}
+
+#[tokio::test]
+async fn skill_folder_import_reports_stripped_scripts_and_omits_file_bodies() {
+    let (app, authorization, _directory) = paired_app().await;
+    let package = agent_skill_package(
+        "cobsidian",
+        "Run the helper.",
+        vec![json!({
+            "path": "scripts/render-check.mjs",
+            "content": "console.log('nope')"
+        })],
+    );
+    let (status, preview) = call(
+        app,
+        Method::POST,
+        "/v1/extensions",
+        Some(json!({"package_kind": "skill", "manifest": package})),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{preview:?}");
+    let preview = preview.expect("preview");
+    let report = &preview["preview"];
+    assert_eq!(report["stripped"][0]["name"], "scripts/render-check.mjs");
+    assert_eq!(
+        report["stripped"][0]["reason"],
+        "script_execution_unsupported"
+    );
+    assert_eq!(report["discourage"], true);
+    let encoded = report.to_string();
+    assert!(!encoded.contains("console.log"));
+    assert!(!encoded.contains("/Users/"));
+    assert!(report["manifest"].get("instructions").is_none());
+}
+
+#[tokio::test]
+async fn instruction_skill_import_installs_without_scripts() {
+    let (app, authorization, directory) = paired_app().await;
+    let package = agent_skill_package(
+        "ppt-master",
+        "Write slides from the brief. Keep every claim cited.",
+        vec![json!({
+            "path": "references/outline.md",
+            "content": "# Outline"
+        })],
+    );
+    let (status, installed) =
+        install_reviewed_extension(app.clone(), &authorization, "skill", package).await;
+    assert_eq!(status, StatusCode::CREATED, "{installed:?}");
+    let installed = installed.expect("installed");
+    assert_eq!(installed["package_id"], "ppt-master");
+    assert_eq!(installed["state"], "quarantined");
+    assert!(installed["manifest"].get("instructions").is_none());
+    assert!(
+        installed["manifest"]["references"][0]
+            .get("content")
+            .is_none()
+    );
+    assert!(
+        installed["manifest"]["import_report"]["imported"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| {
+                item["kind"] == "instructions" && item["sha256"].as_str().is_some()
+            }))
+    );
+    assert!(
+        installed["manifest"]["import_report"]["stripped"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+    );
+    let encoded = installed.to_string();
+    assert!(!encoded.contains("Keep every claim cited"), "{encoded}");
+    assert!(!encoded.contains("# Outline"), "{encoded}");
+
+    let stored = Database::open(directory.0.join("restork.db"))
+        .expect("database")
+        .extension("ppt-master")
+        .expect("lookup")
+        .expect("stored");
+    assert!(
+        stored.manifest["instructions"]
+            .as_str()
+            .is_some_and(|text| text.contains("Keep every claim cited"))
+    );
+    assert!(
+        stored.manifest["references"][0]["content"]
+            .as_str()
+            .is_some_and(|text| text.contains("# Outline"))
+    );
+
+    let (status, listed) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/extensions?limit=20",
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !listed
+            .expect("list")
+            .to_string()
+            .contains("Keep every claim cited")
+    );
+
+    let (status, fetched) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/extensions/ppt-master",
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let fetched = fetched.expect("fetched");
+    assert!(fetched["manifest"].get("instructions").is_none());
+    assert!(
+        fetched["manifest"]["references"][0]
+            .get("content")
+            .is_none()
+    );
+
+    let (status, revisions) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/extensions/ppt-master/revisions?limit=10",
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !revisions
+            .expect("revisions")
+            .to_string()
+            .contains("Keep every claim cited")
+    );
+
+    let (status, bootstrap) = call(
+        app,
+        Method::GET,
+        "/v1/bootstrap?timezone=UTC",
+        None,
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !bootstrap.expect("bootstrap")["workspaceV2"]["extensions"]
+            .to_string()
+            .contains("Keep every claim cited")
+    );
+}

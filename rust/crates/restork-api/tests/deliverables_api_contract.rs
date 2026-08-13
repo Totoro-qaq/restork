@@ -484,6 +484,171 @@ async fn model_presentation_accepts_a_user_brief_theme_and_slide_count_without_a
     );
 }
 
+#[tokio::test]
+async fn presentation_length_accepts_any_bounded_count_and_derives_a_blank_one() {
+    let (app, authorization, _directory, _database) = paired_app_with_database().await;
+    let six_slides = json!({
+        "slides": (0..6).map(|index| json!({
+            "role": "evidence",
+            "action_title": format!("第 {} 页要说的事", index + 1),
+            "fact_refs": ["fact:brief"],
+            "speaker_notes": ["以用户的简述为依据。"]
+        })).collect::<Vec<_>>()
+    })
+    .to_string();
+    let base_url = spawn_mock_ollama_serving(&six_slides, 2).await;
+    configure_ollama_profile(&app, &authorization, &base_url).await;
+
+    let compose = |deck_id: &str, slide_count: Value, brief: &str| {
+        json!({
+            "deck_id": deck_id,
+            "revision": 1,
+            "title": "研究结论与下一步",
+            "report": null,
+            "brief": brief,
+            "slide_count": slide_count,
+            "theme_id": "restork-midnight",
+            "provider_profile_id": "ollama",
+            "language": "zh-CN",
+            "audience": {
+                "audience_id": "team",
+                "purpose": "同步研究结论并确定下一步",
+                "expertise": "混合"
+            }
+        })
+    };
+
+    let short_brief = "把今天的研究结论整理成一份可以直接向团队讲解的演示稿。";
+    // A mid-length brief lands in the automatic band that asks for six content
+    // slides, so the same mock draft satisfies both requests below.
+    let medium_brief = "把今天的研究结论整理成一份可以直接向团队讲解的演示稿，".repeat(9);
+    assert!(
+        (201..=600).contains(&medium_brief.chars().count()),
+        "fixture brief must stay inside the automatic band"
+    );
+
+    // 7 was never on the old menu of 5/6/8/10/12/15.
+    let (status, body) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/deliverables/decks/draft",
+        Some(compose("deck:seven", json!(7), short_brief)),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "body: {body:?}");
+    assert_eq!(
+        body.expect("deck record")["artifact"]["slides"]
+            .as_array()
+            .expect("slides")
+            .len(),
+        7,
+        "title plus six model slides"
+    );
+
+    // A blank length derives the shape from the brief instead of failing.
+    let (status, body) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/deliverables/decks/draft",
+        Some(compose("deck:auto", Value::Null, &medium_brief)),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "body: {body:?}");
+    assert_eq!(
+        body.expect("deck record")["artifact"]["slides"]
+            .as_array()
+            .expect("slides")
+            .len(),
+        7,
+        "the automatic band derives seven slides for this brief"
+    );
+
+    // One page is a deliberate title-only presentation, not a validation error.
+    // Use a provider fixture with no content slides because the title slide is
+    // created deterministically by Core.
+    let (single_app, single_authorization, _directory, _database) =
+        paired_app_with_database().await;
+    let single_base_url = spawn_mock_ollama_serving(r#"{"slides":[]}"#, 1).await;
+    configure_ollama_profile(&single_app, &single_authorization, &single_base_url).await;
+    let (status, body) = call(
+        single_app,
+        Method::POST,
+        "/v1/deliverables/decks/draft",
+        Some(compose("deck:single", json!(1), short_brief)),
+        Some(&single_authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "body: {body:?}");
+    assert_eq!(
+        body.expect("single page deck")["artifact"]["slides"]
+            .as_array()
+            .expect("slides")
+            .len(),
+        1,
+    );
+
+    for rejected in [json!(0), json!(61)] {
+        let (status, _) = call(
+            app.clone(),
+            Method::POST,
+            "/v1/deliverables/decks/draft",
+            Some(compose("deck:rejected", rejected.clone(), short_brief)),
+            Some(&authorization),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "slide_count {rejected} must be rejected"
+        );
+    }
+}
+
+/// Same shape as [`spawn_mock_ollama`], but serves `connections` sequential
+/// requests so one test can make more than a single paid-style call.
+async fn spawn_mock_ollama_serving(content: &str, connections: usize) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let port = listener.local_addr().expect("address").port();
+    let payload = json!({
+        "message": {"role": "assistant", "content": content},
+        "done": true,
+        "done_reason": "stop",
+        "prompt_eval_count": 42,
+        "eval_count": 24
+    })
+    .to_string();
+    tokio::spawn(async move {
+        for _ in 0..connections {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut chunk = [0_u8; 8_192];
+            let mut request = Vec::new();
+            loop {
+                let read = socket.read(&mut chunk).await.expect("read");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n")
+                    || request.len() > 64 * 1024
+                {
+                    break;
+                }
+            }
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                payload.len(),
+                payload
+            );
+            socket.write_all(response.as_bytes()).await.expect("write");
+        }
+    });
+    format!("http://127.0.0.1:{port}")
+}
+
 async fn spawn_mock_ollama(content: &str) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await

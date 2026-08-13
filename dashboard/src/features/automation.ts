@@ -6,6 +6,11 @@ import type {
   ScheduleRecordV2,
   ScheduleUpdateSpecV2,
 } from "../api/types";
+import {
+  MAX_SCHEDULE_INTERVAL_DAYS,
+  MIN_SCHEDULE_INTERVAL_DAYS,
+  parseIntentCount,
+} from "../limits";
 import { localeOf, tr } from "../i18n";
 import type { Locale } from "../i18n";
 import { escapeMarkup } from "../ui/dom";
@@ -14,6 +19,35 @@ import {
   scheduleCardsMarkup,
   scheduleRunsMarkup,
 } from "../ui/render";
+
+/**
+ * The cadence anchor is a local calendar day, so it must not go through
+ * `toISOString()` — that would shift the anchor for anyone east of UTC.
+ */
+function localDateKey(now = new Date()): string {
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function intervalDaysFromForm(form: HTMLFormElement, locale: Locale): number | "invalid" {
+  const parsed = parseIntentCount(
+    (form.elements.namedItem("interval_days") as HTMLInputElement | null)?.value,
+    MIN_SCHEDULE_INTERVAL_DAYS,
+    MAX_SCHEDULE_INTERVAL_DAYS,
+  );
+  const input = form.querySelector<HTMLInputElement>('input[name="interval_days"]');
+  if (!parsed.ok || parsed.value === undefined) {
+    const message = locale === "zh-CN"
+      ? "间隔必须是 2 到 365 天之间的整数。"
+      : "Use a whole number of days between 2 and 365.";
+    input?.setCustomValidity(message);
+    input?.reportValidity();
+    return "invalid";
+  }
+  input?.setCustomValidity("");
+  return parsed.value;
+}
 
 export interface AutomationUiEffects {
   announceError(message: string): void;
@@ -33,7 +67,10 @@ export function configureAutomation(
   if (!panel) return;
   const providers = snapshot.workspaceV2?.providers ?? [];
   panel.querySelectorAll<HTMLFormElement>("#schedule-create-form, [data-schedule-edit-form]")
-    .forEach(syncScheduleModelFields);
+    .forEach((form) => {
+      syncScheduleModelFields(form);
+      syncScheduleRecurrenceFields(form);
+    });
 
   const loadActive = async (cursor?: string, append = false): Promise<void> => {
     if (!api.listSchedules) return;
@@ -67,8 +104,13 @@ export function configureAutomation(
       const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
       if (submit?.disabled) return;
       if (submit) submit.disabled = true;
+      const input = scheduleInputFromForm(form, systemTimeZone(), localeOf(root));
+      if (!input) {
+        if (submit) submit.disabled = false;
+        return;
+      }
       if (status) status.textContent = tr(localeOf(root), "Saving automation…", "正在保存自动化…");
-      void api.createSchedule(scheduleInputFromForm(form, systemTimeZone(), localeOf(root)))
+      void api.createSchedule(input)
         .then(async () => {
           // A dashboard refresh may be slower on CI or a cold desktop Core. Confirm
           // persistence immediately, then repaint the same notice after the view reload.
@@ -99,6 +141,10 @@ export function configureAutomation(
         form.dataset.scheduleTimezone || systemTimeZone(),
         localeOf(root),
       );
+      if (!input) {
+        if (submit) submit.disabled = false;
+        return;
+      }
       const schedule: ScheduleUpdateSpecV2 = { ...input, schedule_id: scheduleId };
       void api.updateSchedule(scheduleId, revision, schedule)
         .then(async () => {
@@ -113,9 +159,13 @@ export function configureAutomation(
   });
 
   panel.addEventListener("change", (event) => {
-    const select = (event.target as Element).closest<HTMLSelectElement>('select[name="job"]');
-    const form = select?.closest<HTMLFormElement>("form");
-    if (form) syncScheduleModelFields(form);
+    const target = event.target as Element;
+    const jobForm = target.closest<HTMLSelectElement>('select[name="job"]')?.closest<HTMLFormElement>("form");
+    if (jobForm) syncScheduleModelFields(jobForm);
+    const recurrenceForm = target
+      .closest<HTMLSelectElement>("[data-schedule-recurrence]")
+      ?.closest<HTMLFormElement>("form");
+    if (recurrenceForm) syncScheduleRecurrenceFields(recurrenceForm);
   });
 
   panel.addEventListener("click", (event) => {
@@ -167,6 +217,7 @@ export function configureAutomation(
         form.hidden = !form.hidden;
         if (!form.hidden) {
           syncScheduleModelFields(form);
+          syncScheduleRecurrenceFields(form);
           form.querySelector<HTMLInputElement>('input[name="name"]')?.focus();
         }
       }
@@ -190,6 +241,19 @@ function runListAction(
     });
 }
 
+/**
+ * Weekday only matters for a weekly cadence, and the interval only for a
+ * custom one. Hiding the other keeps one decision visible at a time.
+ */
+function syncScheduleRecurrenceFields(form: HTMLFormElement): void {
+  const recurrence = form.querySelector<HTMLSelectElement>("[data-schedule-recurrence]");
+  if (!recurrence) return;
+  const weekday = form.querySelector<HTMLElement>("[data-schedule-weekday-field]");
+  const interval = form.querySelector<HTMLElement>("[data-schedule-interval-field]");
+  if (weekday) weekday.hidden = recurrence.value !== "weekly";
+  if (interval) interval.hidden = recurrence.value !== "every_n_days";
+}
+
 function syncScheduleModelFields(form: HTMLFormElement): void {
   const job = form.elements.namedItem("job") as HTMLSelectElement | null;
   const fields = form.querySelector<HTMLElement>("[data-schedule-model-fields]");
@@ -209,15 +273,29 @@ function scheduleInputFromForm(
   form: HTMLFormElement,
   timezone: string,
   locale: Locale,
-): ScheduleCreateInputV2 {
+): ScheduleCreateInputV2 | null {
   const data = new FormData(form);
   const [hour, minute] = String(data.get("time") ?? "09:00").split(":").map(Number);
   const recurrenceKind = String(data.get("recurrence") ?? "daily");
+  let intervalDays: number | undefined;
+  if (recurrenceKind === "every_n_days") {
+    const parsed = intervalDaysFromForm(form, locale);
+    if (parsed === "invalid") return null;
+    intervalDays = parsed;
+  }
   const recurrence = recurrenceKind === "one_shot" && form.dataset.scheduleOneShotAt
     ? { kind: "one_shot" as const, at: form.dataset.scheduleOneShotAt }
     : recurrenceKind === "weekly"
       ? { kind: "weekly" as const, weekday_monday_zero: Number(data.get("weekday") ?? "0"), hour, minute }
-      : { kind: "daily" as const, hour, minute };
+      : recurrenceKind === "every_n_days"
+        ? {
+            kind: "every_n_days" as const,
+            interval_days: intervalDays ?? MIN_SCHEDULE_INTERVAL_DAYS,
+            anchor: localDateKey(),
+            hour,
+            minute,
+          }
+        : { kind: "daily" as const, hour, minute };
   const jobValue = String(data.get("job") ?? "health.check");
   const name = String(data.get("name") ?? "").trim();
   if (jobValue === "model.daily_report" || jobValue === "model.weekly_report") {

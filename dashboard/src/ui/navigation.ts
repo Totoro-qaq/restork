@@ -85,7 +85,7 @@ export function primaryNav(snapshot: DashboardSnapshot, locale: Locale): string 
   return [
     navGroup("core", locale, "Core", "核心", core),
     navGroup("knowledge", locale, "Knowledge", "知识", knowledge),
-    navGroup("system", locale, "System", "系统", system),
+    navGroup("system", locale, "Device", "本机", system),
   ].join("");
 }
 

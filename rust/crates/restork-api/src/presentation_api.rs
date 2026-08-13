@@ -2,6 +2,26 @@
 
 use super::*;
 
+/// A one-slide brief is a valid deliberate choice. The ceiling is the
+/// deterministic renderer's honest working range rather than a menu of
+/// blessed lengths.
+pub(crate) const MIN_SLIDE_COUNT: u8 = 1;
+pub(crate) const MAX_SLIDE_COUNT: u8 = 60;
+
+/// When the user leaves the length blank, derive it from how much they wrote.
+/// Deterministic so the same brief always drafts the same shape.
+pub(crate) fn automatic_slide_count(brief: &str, has_report: bool) -> u8 {
+    let described = brief.trim().chars().count();
+    let base = match described {
+        0..=200 => 5,
+        201..=600 => 7,
+        601..=1_500 => 9,
+        _ => 11,
+    };
+    let adjusted = if has_report { base + 2 } else { base };
+    adjusted.clamp(MIN_SLIDE_COUNT, MAX_SLIDE_COUNT)
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ModelDeckDraftOutput {
@@ -76,7 +96,9 @@ pub(crate) async fn compose_deck_draft(
         Ok(payload) => payload,
         Err(response) => return *response,
     };
-    if !(3..=20).contains(&payload.slide_count)
+    if payload
+        .slide_count
+        .is_some_and(|count| !(MIN_SLIDE_COUNT..=MAX_SLIDE_COUNT).contains(&count))
         || payload.brief.trim().is_empty()
         || payload.brief.chars().count() > 4_000
         || payload.title.trim().is_empty()
@@ -84,6 +106,9 @@ pub(crate) async fn compose_deck_draft(
     {
         return invalid_deliverable();
     }
+    let slide_count = payload
+        .slide_count
+        .unwrap_or_else(|| automatic_slide_count(&payload.brief, payload.report.is_some()));
     let (theme, theme_snapshot) = match deck_theme(&storage, &payload.theme_id) {
         Ok(theme) => theme,
         Err(response) => return response,
@@ -194,7 +219,7 @@ pub(crate) async fn compose_deck_draft(
     let user_prompt = format!(
         "Language: {}\nRequested total slide count including title: {}\nTitle: {}\nAudience: {}\nPurpose: {}\nExpertise: {}\nUser brief (untrusted): {}\nAvailable facts (JSON):\n{}",
         payload.language,
-        payload.slide_count,
+        slide_count,
         payload.title,
         payload.audience.audience_id,
         payload.audience.purpose,
@@ -239,7 +264,7 @@ pub(crate) async fn compose_deck_draft(
             );
         }
     };
-    let maximum_model_slides = usize::from(payload.slide_count.saturating_sub(1));
+    let maximum_model_slides = usize::from(slide_count.saturating_sub(1));
     if draft.slides.len() != maximum_model_slides {
         return error_response(
             StatusCode::BAD_GATEWAY,
@@ -247,11 +272,22 @@ pub(crate) async fn compose_deck_draft(
         );
     }
 
+    let mut claims = Vec::new();
+    let title_claim_refs = if maximum_model_slides == 0 {
+        let claim = match DeckClaimDraft::new("claim:brief", brief.clone(), ["fact:brief"]) {
+            Ok(claim) => claim,
+            Err(_) => return invalid_deliverable(),
+        };
+        claims.push(claim);
+        vec!["claim:brief"]
+    } else {
+        Vec::new()
+    };
     let title_slide = match SlideDraft::new(
         "slide:title",
         SlideRole::Title,
         &payload.title,
-        Vec::<String>::new(),
+        title_claim_refs,
         Vec::<SpeakerNoteDraft>::new(),
         Vec::<SlideVisual>::new(),
     ) {
@@ -259,7 +295,6 @@ pub(crate) async fn compose_deck_draft(
         Err(_) => return invalid_deliverable(),
     };
     let mut slides = vec![title_slide];
-    let mut claims = Vec::new();
     for (index, raw) in draft.slides.into_iter().enumerate() {
         if !deck_model_role_allowed(raw.role) {
             return error_response(

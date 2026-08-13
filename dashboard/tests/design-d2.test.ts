@@ -126,7 +126,7 @@ describe("Gate D2 navigation", () => {
     expect(root.querySelectorAll("[data-nav-group]")).toHaveLength(3);
     expect(root.querySelector('[data-nav-group="core"] .sr-only')?.textContent).toBe("核心");
     expect(root.querySelector('[data-nav-group="knowledge"] .sr-only')?.textContent).toBe("知识");
-    expect(root.querySelector('[data-nav-group="system"] .sr-only')?.textContent).toBe("系统");
+    expect(root.querySelector('[data-nav-group="system"] .sr-only')?.textContent).toBe("本机");
     for (const view of ALIASES) {
       expect(root.querySelector(`.sidebar nav [data-view="${view}"]`)).toBeNull();
     }

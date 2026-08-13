@@ -233,6 +233,20 @@ pub struct SkillManifest {
     pub template_references: Vec<ResourceRef>,
     #[serde(default)]
     pub requested_permissions: PermissionSet,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub import_report: Option<crate::skill_import::SkillImportReport>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<crate::skill_import::SkillReference>,
 }
 
 impl SkillManifest {
@@ -247,7 +261,28 @@ impl SkillManifest {
         )?;
         validate_refs(&self.prompt_references)?;
         validate_refs(&self.schema_references)?;
-        validate_refs(&self.template_references)
+        validate_refs(&self.template_references)?;
+        if let Some(name) = &self.display_name
+            && !validate_plain_text(name, 160)
+        {
+            return Err(ExtensionError::InvalidIdentifier(self.id.clone()));
+        }
+        if let Some(description) = &self.description
+            && !validate_plain_text(description, 4096)
+        {
+            return Err(ExtensionError::InvalidIdentifier(self.id.clone()));
+        }
+        if let Some(mode) = &self.default_mode
+            && !matches!(mode.as_str(), "research" | "study" | "work")
+        {
+            return Err(ExtensionError::InvalidIdentifier(self.id.clone()));
+        }
+        if let Some(instructions) = &self.instructions
+            && (instructions.trim().is_empty() || instructions.len() > 64 * 1024)
+        {
+            return Err(ExtensionError::InvalidIdentifier(self.id.clone()));
+        }
+        Ok(())
     }
 }
 

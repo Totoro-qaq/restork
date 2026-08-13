@@ -175,6 +175,6 @@ describe("DSN-004 adjacent copy", () => {
     expect(insights?.closest("details.music-research-panel")).not.toBeNull();
     expect(root.querySelector("details.music-research-panel")?.hasAttribute("open")).toBe(false);
     expect(root.querySelector(".music-copy strong")?.textContent).toBe("Night");
-    expect(root.textContent).toContain("普通浏览器不能持有系统目录授权");
+    expect(root.textContent).toContain("浏览器版拿不到文件夹授权");
   });
 });

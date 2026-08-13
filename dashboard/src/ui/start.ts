@@ -57,6 +57,7 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
         ${startModeButton("study", tr(locale, "Study", "学知识"), false, locale)}
         ${startModeButton("work", tr(locale, "Work", "推进工作"), false, locale)}
       </div>
+      <div class="skill-suggest-row" data-skill-suggest data-empty="true" aria-live="polite"></div>
       ${providerOptions.length ? `<div class="start-inline-options">
         <label>${tr(locale, "Model", "模型")}
           <select name="provider_profile_id" required>
@@ -91,8 +92,8 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
         <div class="start-workspace-grant" data-start-workspace-web>
           <p>${tr(
             locale,
-            "A plain browser cannot hold a system folder grant. The desktop app can keep that permission on this device.",
-            "普通浏览器不能持有系统目录授权。只有桌面版才能在这台设备上保存文件夹权限。",
+            "A browser cannot hold a folder grant — that protects the directory on this device. Use the desktop app to choose one, or continue with a relative path.",
+            "浏览器版拿不到文件夹授权（这是保护你的目录）。用桌面版选择，或先填相对路径继续。",
           )}</p>
           <p class="start-inline-fix">
             <a class="btn-secondary" data-start-download-desktop href="https://github.com/Totoro-qaq/restork/releases">${tr(locale, "Download desktop app", "下载桌面版")}</a>

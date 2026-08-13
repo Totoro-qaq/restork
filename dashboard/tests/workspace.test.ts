@@ -1598,12 +1598,13 @@ describe("Rust conversation workspace", () => {
     root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
 
     const form = root.querySelector<HTMLFormElement>("#personal-settings-form");
-    expect(form?.querySelector('input[name="timezone"]')).toBeNull();
-    const timezone = form?.querySelector<HTMLSelectElement>('select[name="timezone"]');
+    expect(form?.querySelector('input[name="timezone"]')).not.toBeNull();
+    const timezone = form?.querySelector<HTMLInputElement>('input[name="timezone"]');
     expect(timezone).not.toBeNull();
-    expect(timezone?.textContent).toContain("跟随系统");
-    expect(timezone?.querySelector('option[value=""]')).not.toBeNull();
+    expect(timezone?.getAttribute("list")).toBe("timezone-options");
+    expect(form?.querySelector("#timezone-options")).not.toBeNull();
     expect(timezone?.value).toBe("Asia/Shanghai");
+    expect(timezone?.placeholder).toMatch(/跟随这台设备/);
 
     const savePersonalSettings = vi.fn(async (_version, settings) => ({
       settings,
@@ -2345,7 +2346,7 @@ describe("Rust conversation workspace", () => {
     expect(new Set(Array.from(root.querySelectorAll<HTMLElement>("[data-render-theme]"))
       .map((element) => element.dataset.themeLayout))).toHaveLength(6);
     expect(form?.querySelector('textarea[name="brief"]')).not.toBeNull();
-    expect(form?.querySelector('select[name="slide_count"]')).not.toBeNull();
+    expect(form?.querySelector('input[name="slide_count"][type="number"]')).not.toBeNull();
     expect(form?.querySelector('select[name="provider_profile_id"]')).not.toBeNull();
     expect(root.querySelectorAll(".slide-preview-card")).toHaveLength(1);
     expect(root.querySelector('[data-render-format="pptx"]')).not.toBeNull();
@@ -2354,10 +2355,13 @@ describe("Rust conversation workspace", () => {
     const brief = form?.elements.namedItem("brief");
     if (!(brief instanceof HTMLTextAreaElement)) throw new Error("brief field");
     brief.value = "把研究结论整理成六页团队汇报，并给出下一步。";
+    const slideCount = form?.elements.namedItem("slide_count");
+    if (!(slideCount instanceof HTMLInputElement)) throw new Error("slide_count field");
+    slideCount.value = "7";
     form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await vi.waitFor(() => expect(compose).toHaveBeenCalledOnce());
     expect(compose.mock.calls[0]?.[0]).toMatchObject({
-      slide_count: 6,
+      slide_count: 7,
       theme_id: "restork-print",
       provider_profile_id: "ollama",
       brief: "把研究结论整理成六页团队汇报，并给出下一步。",

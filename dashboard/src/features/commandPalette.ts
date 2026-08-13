@@ -7,6 +7,7 @@ export interface CommandPaletteEffects {
   openTask?(path: string): void;
   openMemoryRecord?(id: string): void;
   openRadarItem?(id: string): void;
+  pinSkill?(skillId: string): void;
 }
 
 let activePaletteCleanup: (() => void) | undefined;
@@ -62,6 +63,7 @@ export function configureCommandPalette(
     effects.selectView(view);
     const mode = item.dataset.modeTarget as Mode | undefined;
     if (mode) effects.selectMode(mode);
+    if (item.dataset.skillId) effects.pinSkill?.(item.dataset.skillId);
   };
   const open = (): void => {
     if (!dialog.open) openDialog(dialog);

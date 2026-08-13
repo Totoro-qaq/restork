@@ -30,6 +30,7 @@ light-file-dialog = "=3.21.3"
 zeroize = "=1.9.0"
 getrandom = "=0.4.3"
 url = "=2.5.8"
+reqwest = { version = "=0.13.4", default-features = false, features = ["json"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"

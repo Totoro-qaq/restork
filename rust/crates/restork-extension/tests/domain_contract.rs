@@ -103,6 +103,13 @@ fn skill(requested: &[&str]) -> SkillManifest {
         ],
         template_references: vec![ResourceRef::parse("templates/review.md").expect("template ref")],
         requested_permissions: permissions(requested),
+        display_name: None,
+        description: None,
+        keywords: Vec::new(),
+        default_mode: None,
+        instructions: None,
+        import_report: None,
+        references: Vec::new(),
     }
 }
 

@@ -73,6 +73,15 @@ import {
 } from "./features/vault";
 import { configureStartWorkspace, jumpToStartMode, modeWorkspaceNote, offerRunSummaryAfterCompletion } from "./features/start";
 import { configureCommandPalette } from "./features/commandPalette";
+import { configurePreviewDialog } from "./features/previewDialog";
+import { configureSkillFolderImport } from "./features/skillImport";
+import {
+  configureSkillTriggers,
+  enabledSkills,
+  paintConversationSuggestion,
+  pinSkillOnStart,
+  selectedSkillIds,
+} from "./features/skillSuggest";
 import { applyView, bindNavigation, currentPanel } from "./features/navigation";
 import { captureWorkspaceChrome, restoreWorkspaceChrome } from "./features/workspaceChrome";
 import { bindProviderProfileId } from "./features/settings";
@@ -344,7 +353,20 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
     selectMode: (mode) => {
       root.querySelector<HTMLButtonElement>(`[data-start-mode="${mode}"]`)?.click();
     },
+    pinSkill: (skillId) => {
+      const skill = enabledSkills(snapshot).find((item) => item.id === skillId);
+      if (skill) {
+        pinSkillOnStart(root, skill, {
+          selectView: (view) => revealView(root, api, snapshot, view),
+          selectMode: (mode) => {
+            root.querySelector<HTMLButtonElement>(`[data-start-mode="${mode}"]`)?.click();
+          },
+        });
+      }
+    },
   }));
+  configurePreviewDialog(root);
+  configureSkillTriggers(root, snapshot);
   updateCleanups.get(root)?.();
   updateCleanups.set(root, configureUpdates(root, detectDesktopBridge(), {
     openSettings: () => selectView(root, "settings"),
@@ -1291,6 +1313,7 @@ function configureRustWorkspace(
   );
 
   configureExtensionCenter(root, api, snapshot);
+  configureSkillFolderImport(root, api);
   configureDeliverables(root, api, snapshot, {
     confirm: (message, detail) => confirmAction(root, message, detail),
     error: (message) => announceError(root, message),
@@ -2309,7 +2332,13 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
   let stream: AbortController | null = null;
   let createdRun: RunSummary | null = null;
   try {
-    const run = await api.createRun(mode, goal, dataClass, providerProfileId);
+    const run = await api.createRun(
+      mode,
+      goal,
+      dataClass,
+      providerProfileId,
+      form.id === "start-run-form" ? selectedSkillIds(form) : [],
+    );
     createdRun = run;
     if (form.id === "start-run-form") prepareStartRunFeedback(surface, run.run_id);
     let waitStage: AgentWaitStage = "prepare";
@@ -2346,7 +2375,7 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
         completion_criteria: [tr(
           localeOf(root),
           "produce a result the user can inspect and verify",
-          "产出用户能够查看并核对的结果",
+          "产出你能够查看并核对的结果",
         )],
         verification_commands: lines(data.get("verification_commands")),
         context_data_class: dataClass,
@@ -3094,6 +3123,7 @@ async function showRun(
                 conversationDraft = "";
                 conversationBusy = false;
                 render(true);
+                paintConversationSuggestion(root, snapshot);
               },
               failed: (message) => {
                 conversationError = message;
@@ -3120,6 +3150,7 @@ async function showRun(
         nextInput.focus();
         nextInput.setSelectionRange(selectionStart, selectionEnd);
       }
+      paintConversationSuggestion(root, snapshot);
     };
     render(true);
     const after = received.at(-1)?.id ?? 0;

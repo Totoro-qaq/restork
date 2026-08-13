@@ -34,8 +34,8 @@ function bindVaultDir(root: HTMLElement): void {
     if (status) {
       status.textContent = tr(
         localeOf(root),
-        "A plain browser cannot hold a system folder grant. Download the desktop app to choose a knowledge library, or continue read-only.",
-        "普通浏览器不能持有系统目录授权。下载桌面版才能选择知识库，也可以继续只读浏览。",
+        "A browser cannot hold a folder grant — that protects the directory on this device. Download the desktop app to choose a knowledge library, or continue read-only.",
+        "浏览器版拿不到文件夹授权（这是保护你的目录）。下载桌面版才能选择知识库，也可以继续只读浏览。",
       );
       const actions = document.createElement("p");
       actions.className = "start-inline-fix";

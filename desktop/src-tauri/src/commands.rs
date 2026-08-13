@@ -270,6 +270,7 @@ pub(super) fn desktop_apply_vault(
         inner.pairing_code = None;
         inner.browser_session = None;
         inner.origin = None;
+        inner.skill_candidate = None;
         inner.record("vault_switch_started");
         (candidate, previous, generation, inner.core.take())
     };
@@ -477,6 +478,7 @@ fn fail_vault_restart(app: &AppHandle, generation: u64) {
         inner.pairing_code = None;
         inner.browser_session = None;
         inner.origin = None;
+        inner.skill_candidate = None;
         inner.record("vault_switch_failed");
     }
     navigate_to_loader(app);
@@ -538,6 +540,7 @@ pub(super) fn desktop_retry(app: AppHandle, state: State<'_, DesktopState>) -> R
         inner.pairing_code = None;
         inner.browser_session = None;
         inner.origin = None;
+        inner.skill_candidate = None;
     }
     launch_core(app);
     Ok(())

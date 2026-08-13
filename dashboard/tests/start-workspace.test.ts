@@ -325,7 +325,7 @@ describe("run-first start workspace", () => {
 
     expect(root.querySelector<HTMLElement>("[data-start-workspace-native]")?.hidden).toBe(true);
     expect(root.querySelector<HTMLElement>("[data-start-workspace-web]")?.hidden).toBe(false);
-    expect(root.textContent).toContain("普通浏览器不能持有系统目录授权");
+    expect(root.textContent).toContain("浏览器版拿不到文件夹授权");
     expect(root.querySelector("[data-start-download-desktop]")).not.toBeNull();
     expect(root.querySelector("[data-start-workspace-readonly]")).not.toBeNull();
     expect(root.querySelector<HTMLInputElement>("#start-work-root")?.required).toBe(false);

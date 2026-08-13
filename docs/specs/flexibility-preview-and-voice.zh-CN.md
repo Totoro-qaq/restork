@@ -1,6 +1,6 @@
 # Restork 参数灵活性、预览交互与产品语气 Spec
 
-- 状态：Gate 1 待评审
+- 状态：F1–F3 已实现，待交付审查
 - 日期：2026-08-13
 - 适用范围：Dashboard 全部表单参数控件、所有内联预览、全部用户可见文案（zh/en）
 - 相关文档：[dashboard-design-coherence.zh-CN.md](dashboard-design-coherence.zh-CN.md)（D4 拥有 i18n 机制与错误下一步；本 Spec 拥有参数形态、预览容器与语气）
@@ -33,7 +33,7 @@
 - 不改 API 路由与响应结构；参数放开只动请求值域与前后端校验，Core 仍是最终判定者（超界返回既有本地化错误）。
 - 安全边界枚举**禁止**改为自由输入：`data_class` / `maximum_data_class`、`update_channel`、`package_kind`、`recurrence` 的种类本身、`priority`、`expertise`、`theme/locale/startup_page`。
 - 预览统一走 `<dialog>`（复用既有 confirm/settings/template dialog 语法家族），焦点困于框内、Esc 关闭、关闭后焦点返回触发器；`prefers-reduced-motion` 下无过渡。
-- 短内联展开（≤10 行的技术详情类 `<details>`）允许保留，但必须 `max-height + overflow:auto`，不得推动相邻卡片。
+- 短内联展开（≤10 行的技术详情类 `<details>`）允许保留，但内容必须 `max-height + overflow:auto`，不能无限拉长所在卡片。
 - 文案改写不得削弱既有安全语义（审批一次性、预算边界、隐私承诺等句子的事实内容不变，只调语气）。
 - zh/en 同步改写；中文使用全角标点；不得出现机翻腔。
 - `main.ts` 架构预算不破；新交互进 `features/`。
@@ -124,7 +124,7 @@
 | PREV-001 | 四处长内容预览全部走 preview-dialog；打开时页面布局零位移 |
 | PREV-002 | dialog：Esc/关闭钮/backdrop 关闭、焦点困于框内、关闭后焦点返回触发器、reduced-motion 无过渡 |
 | PREV-003 | 逐页预览 ←→ 翻页 + 页码；窄屏全屏可滚 |
-| PREV-004 | 保留的内联 details 全部有 max-height，不推动相邻卡片 |
+| PREV-004 | 保留的内联 details 全部有 max-height，不会无限拉长所在卡片 |
 | VOICE-001 | `docs/voice.zh-CN.md` 落库；八条规则齐备 |
 | VOICE-002 | 首批清单全部改写，PR 附 before/after 表；安全语义零削弱（审阅项） |
 | VOICE-003 | 空状态抽查 10 处：全部含下一步动词；禁用词（系统/用户/本产品）全库为零（脚本扫描） |
@@ -154,11 +154,11 @@
 - 不做吉祥物、表情包、感叹号式活泼；温度 ≠ 卖萌。
 - 不改英文品牌词（RESTORK、PPTX 等术语照旧）。
 
-## OPEN QUESTIONS
+## 已决问题
 
-1. 「每 N 天」是否需要同时支持「每 N 小时」？（倾向不做，等真实需求）
-2. preview-dialog 是否给逐页预览加「导出当前页为图片」？（本轮不做，记录需求）
-3. 禁用词扫描是否扩展到英文（"the system"/"the user"）？
+1. 本轮只支持「每 N 天」，不增加小时级后台频率；等真实需求和电量成本数据。
+2. 逐页预览本轮不增加「导出当前页为图片」；PPTX/PDF 仍是正式交付格式。
+3. 禁用词脚本覆盖中英文用户可见文案；代码术语与安全事实使用白名单，不做机械误删。
 
 ## HANDOFF
 

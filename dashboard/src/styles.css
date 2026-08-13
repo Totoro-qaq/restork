@@ -2285,3 +2285,61 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
 :root:lang(zh-CN) .ribbon {
   letter-spacing: .14em;
 }
+
+.preview-dialog {
+  width: min(920px, calc(100vw - 48px));
+  max-height: min(860px, calc(100dvh - 40px));
+  overflow: hidden;
+}
+.preview-dialog-shell {
+  display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 12px;
+  min-width: 0; min-height: 0; margin: 0; padding: 20px;
+}
+.preview-dialog-body {
+  min-width: 0; min-height: 0; max-height: min(70dvh, 640px); overflow: auto;
+  overflow-wrap: anywhere; scrollbar-gutter: stable;
+}
+.preview-dialog-body pre,
+.preview-dialog-body table { display: block; max-width: 100%; overflow: auto; }
+.preview-dialog-body code { max-width: 100%; overflow-wrap: anywhere; }
+.preview-dialog-pager {
+  display: flex; gap: 8px; align-items: center; justify-content: center;
+}
+.preview-source[hidden] { display: none !important; }
+[data-preview-actions-source][hidden] { display: none !important; }
+.preview-dialog-actions {
+  justify-content: flex-end; padding-top: 12px; border-top: 1px dashed var(--line);
+}
+.skill-suggest-row {
+  display: flex; flex-wrap: wrap; gap: 8px; min-height: 44px; align-items: center;
+}
+.skill-suggest-row[data-empty="true"] { visibility: hidden; }
+.skill-suggest-row[hidden] { display: none; }
+.skill-chip {
+  display: grid; gap: 4px; max-width: 360px; padding: 8px 12px; text-align: left;
+  border: 1px solid rgb(var(--line-rgb) / 28%); border-radius: 8px;
+}
+.skill-chip[aria-pressed="true"] { border-color: var(--brand); }
+.skill-chip small { color: var(--fg-muted); font-size: var(--text-micro); }
+.skill-import-report { display: grid; gap: 4px; margin: 8px 0; padding-left: 20px; }
+details.technical-details > *:not(summary),
+details.tool-inventory-card > *:not(summary),
+details.update-recovery > *:not(summary),
+details.source-build-fallback > *:not(summary),
+details.todo-trash > *:not(summary),
+.extension-install-preview pre,
+.assistant-answer details > pre,
+.event-detail details > code,
+.trace-iterations details > .trace-tools,
+.trace-iterations details > .trace-empty {
+  max-height: 320px; overflow: auto;
+}
+@media (max-width: 680px) {
+  .preview-dialog {
+    width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0;
+  }
+  .preview-dialog-shell { height: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-dialog, .preview-dialog::backdrop { transition: none; }
+}

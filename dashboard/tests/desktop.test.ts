@@ -94,6 +94,34 @@ describe("desktop session bridge", () => {
           label: "restork",
         } as T;
       }
+      if (command === "desktop_import_skill_folder") {
+        return {
+          status: "selected",
+          candidate_id: "a".repeat(32),
+          label: "ppt-master",
+          file_count: 2,
+          total_bytes: 120,
+        } as T;
+      }
+      if (command === "desktop_preview_skill_import") {
+        return {
+          preview_digest: "b".repeat(64),
+          preview: {
+            imported: [{ kind: "instructions", name: "SKILL.md", bytes: 54, sha256: "c".repeat(64) }],
+            stripped: [{ kind: "script", name: "scripts/render.mjs", reason: "script_execution_unsupported" }],
+            notice: "Scripts are not executed.",
+            discourage: true,
+          },
+        } as T;
+      }
+      if (command === "desktop_install_skill_import") {
+        return {
+          status: "installed",
+          package_id: "skill.ppt-master",
+          state: "installed",
+          manifest_hash: "d".repeat(64),
+        } as T;
+      }
       if (command === "desktop_configure_provider_secret") {
         return {
           status: "saved",
@@ -143,6 +171,23 @@ describe("desktop session bridge", () => {
       grantId: "0123456789abcdef0123456789abcdef",
       label: "restork",
     });
+    await expect(bridge.importSkillFolder()).resolves.toEqual({
+      status: "selected",
+      candidateId: "a".repeat(32),
+      label: "ppt-master",
+      fileCount: 2,
+      totalBytes: 120,
+    });
+    await expect(bridge.previewSkillImport("a".repeat(32))).resolves.toMatchObject({
+      previewDigest: "b".repeat(64),
+      preview: { discourage: true },
+    });
+    await expect(bridge.installSkillImport("a".repeat(32), "b".repeat(64))).resolves.toEqual({
+      status: "installed",
+      packageId: "skill.ppt-master",
+      state: "installed",
+      manifestHash: "d".repeat(64),
+    });
     await expect(bridge.configureProviderSecret("deepseek")).resolves.toEqual({
       status: "saved",
       secretRef: "keychain:restork/provider/deepseek",
@@ -161,6 +206,14 @@ describe("desktop session bridge", () => {
       candidateId: "candidate-42",
     });
     expect(invoke).toHaveBeenCalledWith("desktop_choose_workspace");
+    expect(invoke).toHaveBeenCalledWith("desktop_import_skill_folder");
+    expect(invoke).toHaveBeenCalledWith("desktop_preview_skill_import", {
+      candidateId: "a".repeat(32),
+    });
+    expect(invoke).toHaveBeenCalledWith("desktop_install_skill_import", {
+      candidateId: "a".repeat(32),
+      previewDigest: "b".repeat(64),
+    });
     expect(invoke).toHaveBeenCalledWith("desktop_configure_provider_secret", {
       providerKind: "deepseek",
     });
@@ -171,6 +224,7 @@ describe("desktop session bridge", () => {
     });
     expect(JSON.stringify(invoke.mock.calls)).not.toContain("/Users/");
     expect(JSON.stringify(invoke.mock.calls)).not.toContain("sk-test-secret");
+    expect(JSON.stringify(invoke.mock.calls)).not.toContain("Write slides");
   });
 
   it("opens public links in the system browser only in the desktop shell", async () => {
