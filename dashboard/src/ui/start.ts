@@ -5,16 +5,24 @@ import { escapeMarkup } from "./dom";
 
 const MODE_COPY: Record<Mode, { en: string; zh: string }> = {
   research: { en: "What do you want to research?", zh: "想研究什么？" },
-  study: { en: "What do you want to learn?", zh: "想学什么？" },
+  study: { en: "What do you want to learn?", zh: "想学习什么？" },
   work: { en: "What work do you want to move forward?", zh: "想推进什么工作？" },
 };
 
-export function startPlaceholder(mode: Mode, locale: Locale): string {
+export function startTitle(mode: Mode, locale: Locale): string {
   const copy = MODE_COPY[mode];
   return tr(locale, copy.en, copy.zh);
 }
 
-export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale, greeting: string): string {
+export function startPlaceholder(locale: Locale): string {
+  return tr(locale, "One sentence.", "用一句话说清。");
+}
+
+export function startOwnerName(snapshot: DashboardSnapshot): string {
+  return snapshot.workspaceV2?.personal?.settings.display_name?.trim() ?? "";
+}
+
+export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale): string {
   const active = snapshot.runs.filter((entry) => !["completed", "failed", "cancelled"].includes(entry.summary.state));
   const pending = snapshot.approvals.filter((approval) => approval.decision === "pending");
   const nextExpiry = pending
@@ -27,9 +35,11 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
   const showExamples = snapshot.firstRun?.has_completed_run !== true;
   const suggestion = active.length === 0 ? snapshot.pendingRunSummaries?.[0] : undefined;
 
+  const owner = startOwnerName(snapshot);
   return `<section class="start-workspace" data-run-surface aria-labelledby="start-title">
     <div class="start-intro">
-      <h2 id="start-title">${escapeMarkup(greeting)}</h2>
+      ${owner ? `<p class="start-owner" data-start-owner>${escapeMarkup(owner)}</p>` : ""}
+      <h2 id="start-title">${escapeMarkup(startTitle("research", locale))}</h2>
     </div>
 
     <form id="start-run-form" class="start-run-form" data-provider-ready="${String(modelReady)}">
@@ -37,11 +47,11 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
       <div class="start-compose-row">
         <label class="sr-only" for="start-goal">${tr(locale, "Task", "任务")}</label>
         <textarea id="start-goal" name="goal" required maxlength="8000" rows="1"
-          autocomplete="off" placeholder="${escapeMarkup(startPlaceholder("research", locale))}"></textarea>
+          autocomplete="off" placeholder="${escapeMarkup(startPlaceholder(locale))}"></textarea>
         <button type="submit" data-start-submit
           data-connect-label="${escapeMarkup(tr(locale, "Connect a model first", "先连接模型"))}">${tr(locale, "START TASK", "开始任务")}</button>
       </div>
-      <div class="start-mode-row" role="group" aria-label="${tr(locale, "Task type", "任务类型")}">
+      <div class="start-mode-row" role="radiogroup" aria-label="${tr(locale, "Task type", "任务类型")}">
         ${startModeButton("research", tr(locale, "Research", "查资料"), true, locale)}
         ${startModeButton("study", tr(locale, "Study", "学知识"), false, locale)}
         ${startModeButton("work", tr(locale, "Work", "推进工作"), false, locale)}
@@ -108,8 +118,8 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
     <section class="start-run-output" data-start-output hidden aria-label="${tr(locale, "Task output", "任务输出")}">
       <pre data-start-output-text></pre>
     </section>
-    <div class="study-workspace" data-study-workspace aria-live="polite"></div>
-    <div class="work-workspace" data-work-workspace aria-live="polite"></div>
+    ${modeWorkspaceMarkup("study")}
+    ${modeWorkspaceMarkup("work")}
     ${runSummaryHostMarkup(suggestion, locale)}
 
     ${showExamples ? startExamples(locale) : startExamplesCompact(locale)}
@@ -196,9 +206,15 @@ function approvalStatusLabel(count: number, expiresAt: string | undefined, local
   return tr(locale, `${base} · next expires ${time}`, `${base} · 最近 ${time} 到期`);
 }
 
+export function modeWorkspaceMarkup(kind: "study" | "work", id?: string): string {
+  const idAttr = id ? ` id="${id}"` : "";
+  return `<div${idAttr} class="${kind}-workspace" data-${kind}-workspace><p class="sr-only" data-live-note role="status" aria-live="polite"></p><div data-workspace-result></div></div>`;
+}
+
 function startModeButton(mode: Mode, label: string, active: boolean, locale: Locale): string {
-  return `<button type="button" data-start-mode="${mode}" data-placeholder="${escapeMarkup(startPlaceholder(mode, locale))}"
-    aria-pressed="${String(active)}" class="${active ? "is-active" : ""}" tabindex="${active ? "0" : "-1"}">${escapeMarkup(label)}</button>`;
+  return `<button type="button" role="radio" data-start-mode="${mode}" data-title="${escapeMarkup(startTitle(mode, locale))}"
+    data-placeholder="${escapeMarkup(startPlaceholder(locale))}"
+    aria-checked="${String(active)}" class="${active ? "is-active" : ""}" tabindex="${active ? "0" : "-1"}">${escapeMarkup(label)}</button>`;
 }
 
 function startExamplesCompact(locale: Locale): string {

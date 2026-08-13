@@ -41,7 +41,7 @@ import type {
 import type { Locale } from "../i18n";
 import { alternateLocale, plural, tr } from "../i18n";
 import { providerDiagnosticMarkup } from "./provider";
-import { startWorkspaceMarkup } from "./start";
+import { modeWorkspaceMarkup, startWorkspaceMarkup } from "./start";
 import { commandPaletteMarkup } from "./commandPalette";
 import { deliverablesWorkspace } from "./presentations";
 export { presentationTemplateCardsMarkup, presentationTemplateTrashMarkup } from "./presentations";
@@ -80,7 +80,6 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
   const incomplete = snapshot.taskBoard.tasks.filter((task) => !task.completed);
   const memories = snapshot.memory?.records.filter((record) => record.summary) ?? [];
   const v2 = snapshot.workspaceV2;
-  const greeting = personalGreeting(snapshot, locale);
   const startupPage = snapshot.workspaceV2?.personal?.settings.startup_page === "dashboard"
     ? "overview"
     : "start";
@@ -102,18 +101,19 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
         <nav aria-label="${tr(locale, "Main navigation", "主导航")}">
           ${navButton("start", "›", tr(locale, "Start", "开始"), startupPage === "start")}
           ${navButton("overview", "R", tr(locale, "Dashboard", "仪表盘"), startupPage === "overview")}
-          ${navButton("runs", "›", tr(locale, "Runs", "运行"), false, active.length)}
-          ${navButton("approvals", "✓", tr(locale, "Approvals", "审批"), false, pending.length)}
-          ${navButton("tasks", "□", tr(locale, "Tasks", "任务"), false, incomplete.length)}
+          ${navButton("runs", "›", tr(locale, "Runs", "运行"), false, active.length, locale)}
+          ${navButton("approvals", "✓", tr(locale, "Approvals", "审批"), false, pending.length, locale)}
+          ${navButton("tasks", "□", tr(locale, "Tasks", "任务"), false, incomplete.length, locale)}
           ${navButton("vault", "K", tr(locale, "Knowledge", "知识库"), false)}
-          ${navButton("radar", "◇", tr(locale, "Radar", "雷达"), false, snapshot.radar.items.length)}
-          ${navButton("memory", "M", tr(locale, "Memory", "记忆"), false, memories.length)}
-          ${v2 ? navButton("conversation", "C", tr(locale, "Conversation", "对话"), false, v2.sessions.length) : ""}
-          ${v2 ? navButton("deliverables", "D", tr(locale, "Deliverables", "交付物"), false, v2.deliverables.length) : ""}
-          ${v2 ? navButton("extensions", "+", tr(locale, "Extensions", "扩展"), false, v2.extensions.length) : ""}
-          ${v2 ? navButton("automation", "A", tr(locale, "Automation", "自动化"), false, v2.schedules.length) : ""}
+          ${navButton("radar", "◇", tr(locale, "Radar", "雷达"), false, snapshot.radar.items.length, locale)}
+          ${navButton("memory", "M", tr(locale, "Memory", "记忆"), false, memories.length, locale)}
+          ${v2 ? navButton("conversation", "C", tr(locale, "Conversation", "对话"), false, v2.sessions.length, locale) : ""}
+          ${v2 ? navButton("deliverables", "D", tr(locale, "Deliverables", "交付物"), false, v2.deliverables.length, locale) : ""}
+          ${v2 ? navButton("extensions", "+", tr(locale, "Extensions", "扩展"), false, v2.extensions.length, locale) : ""}
+          ${v2 ? navButton("automation", "A", tr(locale, "Automation", "自动化"), false, v2.schedules.length, locale) : ""}
           ${v2 ? navButton("settings", "⚙", tr(locale, "Settings", "设置"), false) : ""}
         </nav>
+        ${sidebarIdentity(snapshot, locale)}
       </aside>
       <main class="workspace" id="workspace-main" tabindex="-1">
         <header class="topline">
@@ -198,10 +198,10 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
           </form>
           <p id="action-status" class="status" data-run-status role="status"></p>
           <div id="agent-wait-host" data-run-wait></div>
-          <div id="study-workspace" class="study-workspace" data-study-workspace aria-live="polite"></div>
-          <div id="work-workspace" class="work-workspace" data-work-workspace aria-live="polite"></div>
+          ${modeWorkspaceMarkup("study", "study-workspace")}
+          ${modeWorkspaceMarkup("work", "work-workspace")}
         </section>
-        <section class="view ${startupPage === "start" ? "is-visible" : ""}" data-view-panel="start" ${startupPage === "start" ? "" : "hidden"}>${startWorkspaceMarkup(snapshot, locale, greeting)}</section>
+        <section class="view ${startupPage === "start" ? "is-visible" : ""}" data-view-panel="start" ${startupPage === "start" ? "" : "hidden"}>${startWorkspaceMarkup(snapshot, locale)}</section>
         <section class="view ${startupPage === "overview" ? "is-visible" : ""}" data-view-panel="overview" ${startupPage === "overview" ? "" : "hidden"}>
           <section class="metrics" aria-label="${tr(locale, "Run overview", "运行概览")}">
             ${metric("research", tr(locale, "Active runs", "进行中运行"), String(active.length), modeCounts(active, locale))}
@@ -397,22 +397,13 @@ function mailCapabilityText(available: boolean, platform: string, locale: Locale
   return tr(locale, "This build has no native mail adapter. Nothing will be requested.", "当前构建没有原生邮件适配器，不会请求任何账户数据。");
 }
 
-function personalGreeting(snapshot: DashboardSnapshot, locale: Locale): string {
-  const band = snapshot.workspaceV2?.dailyContext?.time_band;
+function sidebarIdentity(snapshot: DashboardSnapshot, locale: Locale): string {
   const name = snapshot.workspaceV2?.personal?.settings.display_name?.trim();
-  const salutation = {
-    morning: tr(locale, "Good morning", "早上好"),
-    noon: tr(locale, "Good afternoon", "中午好"),
-    afternoon: tr(locale, "Good afternoon", "下午好"),
-    evening: tr(locale, "Good evening", "晚上好"),
-    late_night: tr(locale, "Still awake", "夜深了"),
-  }[band ?? "morning"];
-  if (locale === "zh-CN") {
-    const who = name ? `，${name}` : "";
-    return `${salutation}${who}。`;
-  }
-  const who = name ? `, ${name}` : "";
-  return `${salutation}${who}.`;
+  const label = name || tr(locale, "Set a name", "设置称呼");
+  const hint = name
+    ? tr(locale, "This device", "本机工作台")
+    : tr(locale, "Optional · stays on this device", "可选，只留在这台设备");
+  return `<button class="sidebar-identity" type="button" data-view="settings" aria-label="${escapeHtml(tr(locale, "Name and appearance", "称呼与外观"))}"><strong>${escapeHtml(label)}</strong><small>${escapeHtml(hint)}</small></button>`;
 }
 
 function dataClassLabel(value: string, locale: Locale): string {
@@ -2642,8 +2633,17 @@ function eventSummary(event: RunEvent, locale: Locale): string {
   }
 }
 
-function navButton(view: string, icon: string, label: string, active: boolean, count?: number): string {
-  const badge = count ? `<em data-nav-count="${view}" data-raw-count="${count}">${count}</em>` : "";
+function navButton(
+  view: string,
+  icon: string,
+  label: string,
+  active: boolean,
+  count?: number,
+  locale: Locale = "en",
+): string {
+  const badge = count
+    ? `<em data-nav-count="${view}" data-raw-count="${count}" aria-hidden="true">${count}</em><span class="sr-only">${escapeHtml(tr(locale, `${count} new`, `${count} 项新增`))}</span>`
+    : "";
   return `<button class="nav-item ${active ? "is-active" : ""}" type="button" data-view="${view}"${active ? ' aria-current="page"' : ""}><b class="icon" aria-hidden="true">${icon}</b>${label}${badge}</button>`;
 }
 

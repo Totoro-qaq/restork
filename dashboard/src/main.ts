@@ -52,7 +52,7 @@ import {
 } from "./ui/render";
 import type { AgentWaitStage } from "./ui/render";
 import { startClock } from "./ui/clock";
-import { activeView, bindRovingFocus, escapeMarkup } from "./ui/dom";
+import { activeView, bindRovingFocus, escapeMarkup, fillModeWorkspace, paintNavBadge } from "./ui/dom";
 import { configureAutomation } from "./features/automation";
 import {
   bindRadarConfig,
@@ -70,7 +70,7 @@ import {
   openVaultWorkspace,
   stopVaultStream,
 } from "./features/vault";
-import { configureStartWorkspace, offerRunSummaryAfterCompletion } from "./features/start";
+import { configureStartWorkspace, modeWorkspaceNote, offerRunSummaryAfterCompletion } from "./features/start";
 import { configureCommandPalette } from "./features/commandPalette";
 import { configureUpdates } from "./features/updates";
 import {
@@ -2240,7 +2240,7 @@ function selectView(root: HTMLElement, view: string): void {
     panel.hidden = panel.dataset.viewPanel !== resolvedView;
     panel.classList.toggle("is-visible", !panel.hidden);
   });
-  root.querySelectorAll<HTMLElement>("[data-view]").forEach((button) => {
+  root.querySelectorAll<HTMLElement>(".nav-item[data-view]").forEach((button) => {
     const active = button.dataset.view === resolvedView;
     button.classList.toggle("is-active", active);
     if (active) button.setAttribute("aria-current", "page");
@@ -2272,9 +2272,8 @@ function syncNavBadges(root: HTMLElement): void {
     const view = badge.dataset.navCount ?? "";
     const raw = Number(badge.dataset.rawCount ?? "0");
     if (button.classList.contains("is-active")) seen.set(view, raw);
-    const unseen = raw - (seen.get(view) ?? 0);
-    badge.hidden = unseen <= 0;
-    badge.textContent = String(Math.max(unseen, 0));
+    const unseen = Math.max(raw - (seen.get(view) ?? 0), 0);
+    paintNavBadge(badge, unseen, tr(localeOf(root), `${unseen} new`, `${unseen} 项新增`));
   });
 }
 
@@ -2420,7 +2419,7 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       const diagnostic = await api.prepareStudy(run.run_id, goal, targetNote);
       const host = surface.querySelector<HTMLElement>("[data-study-workspace]");
       if (host) {
-        host.innerHTML = studyDiagnosticMarkup(diagnostic, localeOf(root));
+        fillModeWorkspace(host, studyDiagnosticMarkup(diagnostic, localeOf(root)), modeWorkspaceNote("study-diagnostic", localeOf(root)));
         bindStudyDiagnostic(root, api, host);
       }
     } else if (mode === "work") {
@@ -2443,7 +2442,7 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       });
       const host = surface.querySelector<HTMLElement>("[data-work-workspace]");
       if (host) {
-        host.innerHTML = workPlanMarkup(plan, localeOf(root));
+        fillModeWorkspace(host, workPlanMarkup(plan, localeOf(root)), modeWorkspaceNote("work-plan", localeOf(root)));
         bindWorkPlan(root, api, host);
       }
       clearWorkFields(form);
@@ -2641,7 +2640,7 @@ async function submitStudyDiagnostic(
     const host = form.closest<HTMLElement>("[data-run-surface]")
       ?.querySelector<HTMLElement>("[data-study-workspace]");
     if (host) {
-      host.innerHTML = studyArtifactMarkup(artifact, localeOf(root));
+      fillModeWorkspace(host, studyArtifactMarkup(artifact, localeOf(root)), modeWorkspaceNote("study-path", localeOf(root)));
       bindStudyPractice(root, api, host);
       bindNoteSave(root, api, host);
     }
@@ -2709,7 +2708,7 @@ async function previewWorkHandoff(
     const host = button.closest<HTMLElement>("[data-run-surface]")
       ?.querySelector<HTMLElement>("[data-work-workspace]");
     if (host) {
-      host.innerHTML = workHandoffMarkup(preview, localeOf(root));
+      fillModeWorkspace(host, workHandoffMarkup(preview, localeOf(root)), modeWorkspaceNote("work-handoff", localeOf(root)));
       bindWorkHandoff(root, api, preview, host);
     }
   } catch (error) {
@@ -2746,7 +2745,7 @@ async function approveAndExportWork(
     const host = button.closest<HTMLElement>("[data-run-surface]")
       ?.querySelector<HTMLElement>("[data-work-workspace]");
     if (host) {
-      host.innerHTML = workExportMarkup(result, preview.plan, localeOf(root));
+      fillModeWorkspace(host, workExportMarkup(result, preview.plan, localeOf(root)), modeWorkspaceNote("work-export", localeOf(root)));
       bindWorkVerification(root, api, host);
     }
   } catch (error) {
@@ -2765,7 +2764,7 @@ async function rejectWork(
     await api.decideApproval(button.dataset.approvalId ?? "", "reject");
     const host = button.closest<HTMLElement>("[data-run-surface]")
       ?.querySelector<HTMLElement>("[data-work-workspace]");
-    if (host) host.replaceChildren();
+    if (host) fillModeWorkspace(host, "", modeWorkspaceNote("work-rejected", localeOf(root)));
     announceStatus(root, tr(
       localeOf(root),
       "Work handoff rejected. No package was exported.",
@@ -2809,7 +2808,7 @@ async function verifyWorkResult(
     form.reset();
     const host = form.closest<HTMLElement>("[data-run-surface]")
       ?.querySelector<HTMLElement>("[data-work-workspace]");
-    if (host) host.innerHTML = workVerificationMarkup(report, localeOf(root));
+    if (host) fillModeWorkspace(host, workVerificationMarkup(report, localeOf(root)), modeWorkspaceNote("work-verified", localeOf(root)));
   } catch (error) {
     if (submit) submit.disabled = false;
     announceError(root, errorText(error, localeOf(root)));
