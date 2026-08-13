@@ -1,6 +1,6 @@
 # Restork Dashboard 设计一致性与结构收敛 Spec
 
-- 状态：Gate D1 实施中（D2–D4 待评审）
+- 状态：Gate D1 已落地；Gate D2 实施中（D3–D4 待评审）
 - 日期：2026-08-13
 - 适用范围：Dashboard（styles.css、ui/render.ts、ui/start.ts、features/*、main.ts 绑定层）；不涉及 Core、API、Desktop 壳
 - 依据：`.impeccable/critique/2026-08-13T04-51-04Z__dashboard-src-ui-render-ts.md`（双代理评审，28/40；机械检测 dashboard 25 条 / site 0 条）
@@ -16,8 +16,8 @@
 ### 1. 用户与结果
 
 - 纯键盘和读屏用户能完成全部核心流程：选模式 → 发起 Run → 审批 → 查看结果。
-- 第一次打开的非技术用户，在侧栏看到的选择不超过 8 个，且分组后一眼能判断「我现在要去哪」。
-- 所有既有功能保留；被降级的视图（审批、记忆、雷达、对话、扩展）在 2 次交互内可达，且 ⌘K 直达。
+- 第一次打开的非技术用户，在侧栏看到的选择不超过 9 个，且分组后一眼能判断「我现在要去哪」。
+- 所有既有功能保留；被降级的视图（审批、记忆、雷达、扩展）在 2 次交互内可达，且 ⌘K 直达。对话保留一级导航。
 - 浅色与深色主题全部正文与提示文字达到 WCAG AA。
 - 视觉上只剩一个「纸张页边线」签名；界面安静下来，但文具世界观不减。
 
@@ -84,9 +84,9 @@
 
 ### B. 结构收敛（Gate D2）
 
-#### B1. 一级导航 13 → 8，三段分组
+#### B1. 一级导航 13 → 9，三段分组
 
-新导航契约（取代 start-page spec A1 的顺序表）：
+新导航契约（取代 start-page spec A1 的顺序表）。对话保留一级：Step 14 将其定位为主入口之一，不能降成仅 ⌘K。
 
 ```text
 核心          知识              系统
@@ -95,9 +95,10 @@
 仪表盘        交付物            设置 (含扩展)
 运行 (含审批)
 任务
+对话
 ```
 
-- 一级项固定 8 个：开始、仪表盘、运行、任务、知识库、交付物、自动化、设置。
+- 一级项固定 9 个：开始、仪表盘、运行、任务、对话、知识库、交付物、自动化、设置。
 - 侧栏按三段分组渲染，每段带 sr-only 组标题；roving focus 跨段连续。
 - 降级映射（功能零删除）：
 
@@ -105,12 +106,12 @@
 |---|---|---|
 | 审批 | 「运行」内子页签 | 运行徽标 = 进行中 Run 数 + 待审批数；⌘K「审批」直达 |
 | 记忆 | 「知识库」内子页签 | ⌘K 直达 |
-| 雷达 | 「仪表盘」雷达卡「查看全部」深链 | ⌘K 直达；徽标并入仪表盘不显示（雷达不制造召唤） |
-| 对话 | ⌘K + 开始页辅助入口（start-page spec 已定位其为辅助） | ⌘K 直达 |
+| 雷达 | 「仪表盘」雷达卡「查看全部」深链 | ⌘K 直达；不在侧栏显示雷达徽标（雷达不制造召唤） |
+| 对话 | **仍为一级** | 侧栏 + ⌘K |
 | 扩展 | 「设置」内页签 | ⌘K 直达 |
 
-- 子页签模式：视图内分段控件，`role="tablist"`/`tab`/`tabpanel` 或与 A1 相同的 radiogroup 语义（全仓库二选一，写入代码注释）；方向键切换；`data-subview` 记录，不落浏览器存储。
-- `selectView()` 建立别名表：旧视图 id（approvals/memory/radar/conversation/extensions）继续可被 ⌘K 与既有代码调用，内部路由到「父视图 + 子页签」。所有 `data-view-panel` 保留，`route-coverage` 不变。
+- 子页签模式：与 A1 相同的 radiogroup 语义（全仓库不用 tablist；`a11y.test.ts` 禁止 `role="tablist"`）；方向键切换；`data-subview` 记录，不落浏览器存储。组内自管键盘，禁止再叠 `data-roving-group`。
+- `selectView()` 建立别名表：旧视图 id（approvals/memory/radar/extensions）继续可被 ⌘K 与既有代码调用，内部路由到「父视图 + 子页签」。`conversation` 仍是一级。所有 `data-view-panel` 保留。
 
 #### B2. 设置页：页签化 + 渐进披露
 
@@ -210,7 +211,7 @@
 | DSN-002 | 浅色/深色全部正文、fine、empty、placeholder 实测对比度达标（AA：正文 4.5:1，placeholder ≥3:1），token 值写入测试 |
 | DSN-003 | 无 <36px 可点控件（豁免清单为空或逐条注明）；coarse pointer 下 ≥44px |
 | DSN-004 | study/work 结果渲染不触发整树朗读；徽标有 sr-only「N 项新增」双语文案 |
-| DSN-005 | 一级导航 = 8 项 + 三段分组；被降级的 5 视图 ≤2 次交互可达且 ⌘K 直达；route-coverage 与既有面板测试全绿 |
+| DSN-005 | 一级导航 = 9 项（含对话）+ 三段分组；被降级的 4 视图 ≤2 次交互可达且 ⌘K 直达；既有面板测试全绿 |
 | DSN-006 | 设置页 6 页签；高级页签默认折叠；`profile_id` 无需手填即可保存 provider；zh 无英文 eyebrow |
 | DSN-007 | 全应用只有开始页一个 Run 创建表单；其余入口跳转 + 预选模式；`#action-panel` 不复存在 |
 | DSN-008 | 检测器基线：side-tab ≤1、gradient-text ≤2、border-accent-on-rounded 0、broken-image 0（含固化 `#music-cover` 契约的测试注释） |

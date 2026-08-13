@@ -217,17 +217,44 @@ describe("research run creation keeps the launch context", () => {
     } as unknown as DashboardApi;
     const root = document.createElement("main");
     document.body.append(root);
-    mountDashboard(root, { api: client, snapshot: snapshot(0) });
+    mountDashboard(root, {
+      api: client,
+      snapshot: {
+        ...snapshot(0),
+        provider: {
+          schema_version: 1,
+          provider: "deepseek",
+          model: "deepseek-v4-pro",
+          status: "ready",
+          message: "Ready",
+          setup_command: "",
+          config_present: true,
+          config_valid: true,
+          credential_present: true,
+          connection_checked: false,
+          connection_ok: null,
+          model_available: null,
+          smoke_checked: false,
+          smoke_ok: null,
+          restart_required: false,
+          latency_ms: null,
+          request_id: null,
+          prompt_tokens: null,
+          completion_tokens: null,
+          total_tokens: null,
+        },
+      },
+    });
 
-    const form = root.querySelector<HTMLFormElement>("#run-form");
-    const goal = root.querySelector<HTMLInputElement>("#run-goal");
+    const form = root.querySelector<HTMLFormElement>("#start-run-form");
+    const goal = root.querySelector<HTMLTextAreaElement>("#start-goal");
     expect(form).not.toBeNull();
     if (!form || !goal) return;
     goal.value = "test goal";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
     await vi.waitFor(() => {
-      expect(root.querySelector("#global-status")?.textContent).toContain("run-stay");
+      expect(root.querySelector("[data-run-status]")?.textContent).toContain("run-stay");
     });
     expect(root.querySelector('[data-view="runs"]')?.classList.contains("is-active")).toBe(false);
     expect(root.querySelector('[data-view="start"]')?.classList.contains("is-active")).toBe(true);

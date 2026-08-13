@@ -70,8 +70,10 @@ import {
   openVaultWorkspace,
   stopVaultStream,
 } from "./features/vault";
-import { configureStartWorkspace, modeWorkspaceNote, offerRunSummaryAfterCompletion } from "./features/start";
+import { configureStartWorkspace, jumpToStartMode, modeWorkspaceNote, offerRunSummaryAfterCompletion } from "./features/start";
 import { configureCommandPalette } from "./features/commandPalette";
+import { applyView, bindNavigation, currentPanel } from "./features/navigation";
+import { bindProviderProfileId } from "./features/settings";
 import { configureUpdates } from "./features/updates";
 import {
   alternateLocale,
@@ -116,9 +118,6 @@ const updateCleanups = new WeakMap<HTMLElement, () => void>();
 
 /**
  * Escape closes the topmost dismissible surface regardless of where focus sits.
- * Binding it to `#action-panel` alone meant Escape did nothing unless the user
- * had already tabbed into the panel.
- *
  * A native `<dialog>` handles its own Escape, so an open modal is left alone.
  */
 function bindDismissStack(root: HTMLElement): void {
@@ -133,12 +132,6 @@ function bindDismissStack(root: HTMLElement): void {
     }
     if (root.querySelector("dialog[open]")) return;
 
-    const panel = root.querySelector<HTMLElement>("#action-panel");
-    if (panel && !panel.hidden) {
-      event.preventDefault();
-      closeRunForm(root, true);
-      return;
-    }
     const region = root.querySelector<HTMLElement>("#global-status-region");
     if (region?.dataset.visible === "true") {
       event.preventDefault();
@@ -344,11 +337,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   bindDismissStack(root);
   commandPaletteCleanups.get(root)?.();
   commandPaletteCleanups.set(root, configureCommandPalette(root, {
-    selectView: (view) => {
-      selectView(root, view);
-      if (view === "vault") void openVaultWorkspace(root, api);
-      if (view === "radar") void refreshRadarPanel(root, api, snapshot, dailyEffects(root, api, snapshot));
-    },
+    selectView: (view) => revealView(root, api, snapshot, view),
     selectMode: (mode) => {
       root.querySelector<HTMLButtonElement>(`[data-start-mode="${mode}"]`)?.click();
     },
@@ -358,19 +347,13 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
     openSettings: () => selectView(root, "settings"),
   }));
   bindLocaleSwitch(root, () => {
-    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "start";
+    const view = currentPanel(root);
     renderWorkspace(root, api, snapshot);
-    selectView(root, view);
-    if (view === "vault") void openVaultWorkspace(root, api);
+    revealView(root, api, snapshot, view);
   });
   root.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => {
     button.addEventListener("click", () => {
-      closeRunForm(root, false);
-      const view = button.dataset.view ?? "overview";
-      selectView(root, view);
-      if (view === "vault") void openVaultWorkspace(root, api);
-      if (view === "radar") void refreshRadarPanel(root, api, snapshot, dailyEffects(root, api, snapshot));
-      if (view === "start") resumeStartRunFromSnapshot(root, api, snapshot);
+      revealView(root, api, snapshot, button.dataset.view ?? "overview");
     });
   });
   const nav = root.querySelector<HTMLElement>(".sidebar nav");
@@ -378,8 +361,16 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   root.querySelectorAll<HTMLElement>("[data-roving-group]").forEach((group) => {
     bindRovingFocus(group, "button");
   });
+  bindNavigation(root, {
+    selectView: (view) => revealView(root, api, snapshot, view),
+  });
   root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
-    button.addEventListener("click", () => openRunForm(root, button.dataset.mode as Mode, button, snapshot));
+    button.addEventListener("click", () => {
+      const mode = button.dataset.mode;
+      if (mode === "research" || mode === "study" || mode === "work") {
+        jumpToStartMode(root, mode, (view) => revealView(root, api, snapshot, view));
+      }
+    });
   });
   const desktopBridge = detectDesktopBridge();
   bindDesktopExternalLinks(root, desktopBridge, (error) => {
@@ -387,11 +378,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   });
   configureStartWorkspace(root, snapshot, {
     submit: (form) => { void createRun(root, api, form, snapshot); },
-    selectView: (view) => {
-      selectView(root, view);
-      if (view === "vault") void openVaultWorkspace(root, api);
-      if (view === "start") resumeStartRunFromSnapshot(root, api, snapshot);
-    },
+    selectView: (view) => revealView(root, api, snapshot, view),
     resume: (runId, state) => resumeStartRun(root, api, runId, state),
     cancel: (runId) => { void cancelStartRun(root, api, runId); },
     loadRunSummary: api.loadRunSummary?.bind(api),
@@ -407,22 +394,10 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
       return { grantId: selection.grantId, label: selection.label };
     } } : {}),
   });
-  root.querySelector<HTMLButtonElement>("[data-run-panel-close]")?.addEventListener("click", () => {
-    closeRunForm(root, true);
-  });
-  root.querySelector<HTMLElement>("#action-panel")?.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    closeRunForm(root, true);
-  });
-  root.querySelector<HTMLFormElement>("#run-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void createRun(root, api, event.currentTarget as HTMLFormElement, snapshot);
-  });
   root.querySelector<HTMLButtonElement>("#refresh")?.addEventListener("click", (event) => {
     const button = event.currentTarget as HTMLButtonElement;
     if (button.getAttribute("aria-busy") === "true") return;
-    const view = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view ?? "start";
+    const view = currentPanel(root);
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
     void refresh(root, api, view).finally(() => {
@@ -667,7 +642,10 @@ function configureRustWorkspace(
 
   root.querySelector<HTMLButtonElement>("[data-open-provider-settings]")?.addEventListener(
     "click",
-    () => selectView(root, "settings"),
+    () => {
+      root.dataset.settingsTab = "models";
+      selectView(root, "settings");
+    },
   );
   root.querySelector<HTMLFormElement>("#session-fork-form")?.addEventListener(
     "submit",
@@ -1046,6 +1024,7 @@ function configureRustWorkspace(
   );
 
   const providerForm = root.querySelector<HTMLFormElement>("#provider-profile-form");
+  if (providerForm) bindProviderProfileId(providerForm);
   root.querySelector<HTMLSelectElement>('#provider-profile-form [name="kind"]')
     ?.addEventListener("change", (event) => {
       const select = event.currentTarget as HTMLSelectElement;
@@ -1389,7 +1368,7 @@ function configureExtensionCenter(
     button.addEventListener("click", () => {
       const mode = button.dataset.coreSkillMode;
       if (mode === "research" || mode === "study" || mode === "work") {
-        openRunForm(root, mode, button, snapshot);
+        jumpToStartMode(root, mode, (view) => revealView(root, api, snapshot, view));
       }
     });
   });
@@ -1397,7 +1376,7 @@ function configureExtensionCenter(
     button.addEventListener("click", () => {
       const view = button.dataset.coreSkillView;
       if (view) {
-        selectView(root, view);
+        revealView(root, api, snapshot, view);
         const heading = root.querySelector<HTMLElement>(`[data-view-panel="${view}"] h2`);
         if (heading) {
           heading.tabIndex = -1;
@@ -1829,6 +1808,7 @@ function configureProvider(
   root.querySelector<HTMLButtonElement>("[data-open-provider-settings]")?.addEventListener(
     "click", () => {
       const selected = overviewProviderSelection(root);
+      root.dataset.settingsTab = "models";
       root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
       const kind = root.querySelector<HTMLSelectElement>('#provider-profile-form [name="kind"]');
       if (selected && kind && Array.from(kind.options).some((option) => option.value === selected.kind)) {
@@ -2230,23 +2210,26 @@ async function disableCalendar(
   }
 }
 
+function revealView(
+  root: HTMLElement,
+  api: DashboardApi,
+  snapshot: DashboardSnapshot,
+  view: string,
+): void {
+  selectView(root, view);
+  if (view === "vault") void openVaultWorkspace(root, api);
+  if (view === "radar") {
+    void refreshRadarPanel(root, api, snapshot, dailyEffects(root, api, snapshot));
+  }
+  if (view === "start") resumeStartRunFromSnapshot(root, api, snapshot);
+}
+
 function selectView(root: HTMLElement, view: string): void {
-  const panels = [...root.querySelectorAll<HTMLElement>("[data-view-panel]")];
-  const resolvedView = panels.some((panel) => panel.dataset.viewPanel === view) ? view : "start";
-  const previousView = root.querySelector<HTMLElement>("[data-view].is-active")?.dataset.view;
-  if (resolvedView !== "runs" && resolvedView !== "start") stopEventStream(root);
-  if (resolvedView !== "vault") stopVaultStream(root);
-  panels.forEach((panel) => {
-    panel.hidden = panel.dataset.viewPanel !== resolvedView;
-    panel.classList.toggle("is-visible", !panel.hidden);
-  });
-  root.querySelectorAll<HTMLElement>(".nav-item[data-view]").forEach((button) => {
-    const active = button.dataset.view === resolvedView;
-    button.classList.toggle("is-active", active);
-    if (active) button.setAttribute("aria-current", "page");
-    else button.removeAttribute("aria-current");
-  });
-  if (previousView && previousView !== resolvedView) {
+  const previousView = currentPanel(root);
+  const resolved = applyView(root, view);
+  if (resolved.panel !== "runs" && resolved.panel !== "start") stopEventStream(root);
+  if (resolved.panel !== "vault") stopVaultStream(root);
+  if (previousView && previousView !== resolved.panel) {
     const workspace = root.querySelector<HTMLElement>(".workspace");
     if (workspace) workspace.scrollTop = 0;
   }
@@ -2275,84 +2258,6 @@ function syncNavBadges(root: HTMLElement): void {
     const unseen = Math.max(raw - (seen.get(view) ?? 0), 0);
     paintNavBadge(badge, unseen, tr(localeOf(root), `${unseen} new`, `${unseen} 项新增`));
   });
-}
-
-function openRunForm(root: HTMLElement, mode: Mode, trigger?: HTMLButtonElement, snapshot?: DashboardSnapshot): void {
-  const panel = root.querySelector<HTMLElement>("#action-panel");
-  const field = root.querySelector<HTMLInputElement>("#run-mode");
-  if (!panel || !field) return;
-  if (!panel.hidden && field.value === mode) {
-    closeRunForm(root, true);
-    return;
-  }
-  const previousMode = field.value;
-  panel.hidden = false;
-  const workspace = root.querySelector<HTMLElement>(".workspace");
-  if (workspace) workspace.scrollTop = 0;
-  panel.dataset.activeMode = mode;
-  field.value = mode;
-  root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
-    const active = button.dataset.mode === mode;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-expanded", String(active));
-    button.setAttribute("aria-pressed", String(active));
-  });
-  if (trigger) panel.dataset.returnFocusMode = trigger.dataset.mode ?? mode;
-  const locale = localeOf(root);
-  const title = root.querySelector<HTMLElement>("#action-panel-title");
-  if (title) {
-    title.textContent = tr(locale, `Start a ${capitalizedMode(mode)} run`, `新建 ${capitalizedMode(mode)} 运行`);
-  }
-  if (previousMode !== mode) {
-    const status = root.querySelector<HTMLElement>("#action-status");
-    if (status) status.textContent = "";
-  }
-  const target = root.querySelector<HTMLInputElement>("#study-target-note");
-  const targetLabel = root.querySelector<HTMLElement>("#study-target-label");
-  if (target) target.hidden = mode !== "study";
-  if (targetLabel) targetLabel.hidden = mode !== "study";
-  const workFields = root.querySelector<HTMLFieldSetElement>("#work-fields");
-  if (workFields) workFields.hidden = mode !== "work";
-  const workRoot = root.querySelector<HTMLInputElement>("#work-root");
-  const workTargets = root.querySelector<HTMLTextAreaElement>("#work-targets");
-  if (workRoot) workRoot.required = mode === "work";
-  if (workTargets) workTargets.required = mode === "work";
-  const studyHost = root.querySelector<HTMLElement>("#study-workspace");
-  if (studyHost) studyHost.hidden = mode !== "study";
-  const workHost = root.querySelector<HTMLElement>("#work-workspace");
-  if (workHost) workHost.hidden = mode !== "work";
-  // Pre-submit guard: Study cannot start without a Core-side Vault. Disable
-  // the submit button up front instead of failing the run after creation.
-  const vaultReady = snapshot?.taskBoard.configured ?? true;
-  const studyBlocked = mode === "study" && !vaultReady;
-  const hint = root.querySelector<HTMLElement>("#study-vault-hint");
-  if (hint) hint.hidden = !studyBlocked;
-  const submit = root.querySelector<HTMLButtonElement>("#run-submit");
-  if (submit) {
-    submit.disabled = studyBlocked;
-    submit.setAttribute("aria-disabled", String(studyBlocked));
-  }
-  root.querySelector<HTMLInputElement>("#run-goal")?.focus();
-}
-
-function closeRunForm(root: HTMLElement, restoreFocus: boolean): void {
-  const panel = root.querySelector<HTMLElement>("#action-panel");
-  if (!panel || panel.hidden) return;
-  const returnFocusMode = panel.dataset.returnFocusMode ?? panel.dataset.activeMode;
-  panel.hidden = true;
-  delete panel.dataset.activeMode;
-  root.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
-    button.classList.remove("is-active");
-    button.setAttribute("aria-expanded", "false");
-    button.setAttribute("aria-pressed", "false");
-  });
-  if (restoreFocus && returnFocusMode) {
-    root.querySelector<HTMLButtonElement>(`[data-mode="${returnFocusMode}"]`)?.focus();
-  }
-}
-
-function capitalizedMode(mode: Mode): string {
-  return `${mode.charAt(0).toUpperCase()}${mode.slice(1)}`;
 }
 
 async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormElement, snapshot?: DashboardSnapshot): Promise<void> {

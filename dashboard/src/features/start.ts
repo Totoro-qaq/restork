@@ -274,3 +274,13 @@ export function modeWorkspaceNote(
       return tr(locale, "Work handoff rejected.", "工作交接已拒绝。");
   }
 }
+
+/** All Run launchers share the start page. Carry mode only, never draft text. */
+export function jumpToStartMode(
+  root: HTMLElement,
+  mode: Mode,
+  selectView: (view: string) => void,
+): void {
+  selectView("start");
+  root.querySelector<HTMLButtonElement>(`[data-start-mode="${mode}"]`)?.click();
+}

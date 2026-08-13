@@ -16,16 +16,16 @@
 
 ## Gate D2 — 结构收敛
 
-- [ ] 失败测试：导航 8 项 + 三段分组；旧视图 id 别名路由到父视图+子页签；route-coverage 面板全保留
-- [ ] `navButton` 分组渲染（核心/知识/系统 + sr-only 组标题）
-- [ ] 子页签基建（tablist 或 radiogroup，与 D1 决策统一）：运行(含审批)、知识库(含记忆)
-- [ ] 雷达降级为仪表盘深链 + ⌘K；对话降级为 ⌘K + 开始页辅助入口；扩展迁入设置页签
-- [ ] `selectView()` 别名表：approvals/memory/radar/conversation/extensions → 父视图+subview；⌘K 条目保持直达
-- [ ] 徽标上浮规则：运行徽标 = 活跃 Run + 待审批
-- [ ] 设置页 6 页签：个人 / 模型 / 知识库与数据 / 扩展 / 高级(默认折叠) / 关于与更新
-- [ ] `profile_id` 自动生成（slug + 短哈希），字段收入高级 details；skills/tools 加 datalist
-- [ ] 全部 eyebrow 过 `tr()`
-- [ ] Run 入口收敛：`[data-mode]` 卡片改跳转开始页+预选模式+聚焦；删除 `#action-panel` 与 `openRunForm/closeRunForm`；改写 interaction-fixes 相关断言
+- [x] 失败测试：导航 9 项（含对话）+ 三段分组；旧视图 id 别名路由到父视图+子页签；面板全保留
+- [x] `navButton` 分组渲染（核心/知识/系统 + sr-only 组标题）；对话保留一级
+- [x] 子页签 radiogroup（与 D1 一致，不用 tablist）：运行(含审批)、知识库(含记忆)
+- [x] 雷达降级为仪表盘深链 + ⌘K；扩展迁入设置页签；对话保持一级
+- [x] `selectView()` 别名表：approvals/memory/radar/extensions → 父视图+subview；⌘K 条目保持直达
+- [x] 徽标上浮规则：运行徽标 = 活跃 Run + 待审批
+- [x] 设置页 6 页签：个人 / 模型 / 知识库与数据 / 扩展 / 高级(默认折叠) / 关于与更新
+- [x] `profile_id` 自动生成（slug + 短哈希），字段收入高级 details；skills/tools 加 datalist
+- [x] 设置节 eyebrow 过 `tr()`
+- [x] Run 入口收敛：`[data-mode]` / Core skill 卡改跳转开始页+预选模式+聚焦；删除 `#action-panel` 与 `openRunForm/closeRunForm`
 - [ ] 验收：DSN-005/006/007
 
 ## Gate D3 — 视觉签名与排版（可与 D2 并行，截图基线在 D2 后重录）

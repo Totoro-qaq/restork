@@ -61,7 +61,7 @@ describe("Dashboard locales", () => {
     root.querySelector<HTMLButtonElement>("[data-locale-switch]")?.click();
 
     expect(root.textContent).toContain("仪表盘");
-    expect(root.textContent).toContain("新建运行");
+    expect(root.textContent).toContain("想研究什么？");
     expect(root.textContent).toContain("安全保存 API Key");
     expect(root.textContent).toContain("原生弹窗会把 Key 存入系统凭据库");
     expect(document.documentElement.lang).toBe("zh-CN");

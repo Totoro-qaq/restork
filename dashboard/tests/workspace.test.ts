@@ -21,6 +21,7 @@ import type {
   WorkPlanArtifact,
   WorkVerificationReport,
 } from "../src/api/types";
+import { openDashboardView } from "./open-view";
 
 const snapshot: DashboardSnapshot = {
   runs: [],
@@ -336,13 +337,14 @@ describe("authenticated workspace", () => {
     const api = fakeApi();
     mountDashboard(root, { api, snapshot });
 
-    root.querySelector<HTMLButtonElement>('[data-view="memory"]')?.click();
+    openDashboardView(root, "memory");
     root.querySelector<HTMLButtonElement>("#refresh")?.click();
 
     await vi.waitFor(() => {
       expect(api.loadDashboard).toHaveBeenCalledOnce();
       expect(root.querySelector<HTMLElement>('[data-view-panel="memory"]')?.hidden).toBe(false);
-      expect(root.querySelector('[data-view="memory"]')?.getAttribute("aria-current")).toBe("page");
+      expect(root.querySelector('[data-view="vault"]')?.getAttribute("aria-current")).toBe("page");
+      expect(root.querySelector('[data-subview="memory"]')?.getAttribute("aria-checked")).toBe("true");
     });
   });
 
@@ -1095,7 +1097,7 @@ describe("authenticated workspace", () => {
         },
       },
     });
-    root.querySelector<HTMLButtonElement>('[data-view="radar"]')?.click();
+    openDashboardView(root, "radar");
 
     expect(root.textContent).toContain("public AI, Agent and MCP projects");
     expect(root.querySelector('[name="github_user"]')).toBeNull();
@@ -1181,7 +1183,7 @@ describe("authenticated workspace", () => {
       api,
       snapshot: { ...snapshot, radar: { configured: true, items: [item] } },
     });
-    root.querySelector<HTMLButtonElement>('[data-view="radar"]')?.click();
+    openDashboardView(root, "radar");
     expect(root.querySelector("img")).toBeNull();
     root.querySelector<HTMLButtonElement>('[data-radar-action="research"]')?.click();
 
@@ -1214,7 +1216,7 @@ describe("authenticated workspace", () => {
       api,
       snapshot: { ...snapshot, radar: { configured: true, items: [item] } },
     });
-    root.querySelector<HTMLButtonElement>('[data-view="radar"]')?.click();
+    openDashboardView(root, "radar");
     root.querySelector<HTMLButtonElement>('[data-radar-action="research"]')?.click();
 
     const waiting = root.querySelector<HTMLElement>(".agent-wait");
@@ -1834,7 +1836,7 @@ describe("Rust conversation workspace", () => {
     const state = workspaceSnapshot();
     mountDashboard(root, { api: fakeApi(), snapshot: state, locale: "zh-CN" });
 
-    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+    openDashboardView(root, "extensions");
 
     expect(root.textContent).toContain("Core 内置 Skills");
     expect(root.textContent).toContain("资料研究与核对");
@@ -2138,7 +2140,7 @@ describe("Rust conversation workspace", () => {
     });
     mountDashboard(root, { api: fakeApi(), snapshot: state, locale: "zh-CN" });
 
-    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+    openDashboardView(root, "extensions");
     expect(root.querySelector<HTMLElement>('[data-view-panel="extensions"]')?.hidden).toBe(false);
     expect(root.querySelector("#extension-install-form")).not.toBeNull();
     expect(root.textContent).toContain("添加扩展");
@@ -2146,7 +2148,7 @@ describe("Rust conversation workspace", () => {
     expect(reportSkill?.getAttribute("aria-label")).toContain("日报与周报");
     reportSkill?.click();
     expect(root.querySelector<HTMLElement>('[data-view-panel="deliverables"]')?.hidden).toBe(false);
-    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+    openDashboardView(root, "extensions");
     root.querySelector<HTMLButtonElement>('[data-extension-filter="plugin"]')?.click();
     expect(root.querySelector<HTMLElement>('[data-extension-card-kind="skill"]')?.hidden).toBe(true);
 
@@ -2207,7 +2209,7 @@ describe("Rust conversation workspace", () => {
     document.body.append(root);
     mountDashboard(root, { api, snapshot: state });
 
-    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+    openDashboardView(root, "extensions");
     expect(root.textContent).toContain("Tools Restork can run");
     expect(root.textContent).toContain("paper.search");
     expect(root.textContent).toContain("network:https://example.com");
@@ -2396,7 +2398,7 @@ describe("Rust conversation workspace", () => {
     document.body.append(root);
     mountDashboard(root, { api, snapshot: state });
 
-    root.querySelector<HTMLButtonElement>('[data-view="extensions"]')?.click();
+    openDashboardView(root, "extensions");
     root.querySelector<HTMLButtonElement>("[data-extension-history]")?.click();
     await vi.waitFor(() => expect(api.extensionRevisions).toHaveBeenCalledWith("skill.synthetic"));
     const rollback = root.querySelector<HTMLButtonElement>(".extension-history button");

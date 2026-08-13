@@ -1564,7 +1564,12 @@ if (root) {
   const requestedView = demoParams.get("view");
   if (requestedView) {
     requestAnimationFrame(() => {
-      root.querySelector<HTMLButtonElement>(`[data-view="${CSS.escape(requestedView)}"]`)?.click();
+      const escaped = CSS.escape(requestedView);
+      const button = root.querySelector<HTMLButtonElement>(`.sidebar nav [data-view="${escaped}"]`)
+        ?? root.querySelector<HTMLButtonElement>(`[data-subview="${escaped}"]`)
+        ?? root.querySelector<HTMLButtonElement>(`[data-open-view="${escaped}"]`)
+        ?? root.querySelector<HTMLButtonElement>(`[data-settings-tab="${escaped}"]`);
+      button?.click();
     });
   }
 }
