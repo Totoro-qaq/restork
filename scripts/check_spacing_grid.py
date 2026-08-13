@@ -40,15 +40,7 @@ def is_exempt(prop: str, value: str, px: int) -> str | None:
     return None
 
 
-def main(argv: list[str] | None = None) -> int:
-    target = STYLES
-    if argv is None:
-        argv = sys.argv[1:]
-    if argv:
-        target = Path(argv[0])
-        if not target.is_absolute():
-            target = ROOT / target
-    source = target.read_text(encoding="utf-8")
+def spacing_issues(source: str, label: str = "dashboard/src/styles.css") -> list[str]:
     text = strip_comments(source)
     issues: list[str] = []
     for match in LAYOUT_DECL.finditer(text):
@@ -62,11 +54,18 @@ def main(argv: list[str] | None = None) -> int:
             if reason:
                 continue
             snippet = re.sub(r"\s+", " ", f"{prop}: {value.strip()}")[:120]
-            try:
-                rel = target.relative_to(ROOT)
-            except ValueError:
-                rel = target
-            issues.append(f"{rel}: {snippet} → {px}px is off the 4px grid")
+            issues.append(f"{label}: {snippet} → {px}px is off the 4px grid")
+    return issues
+
+
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv:
+        print("check_spacing_grid.py does not accept file paths", file=sys.stderr)
+        return 2
+    source = STYLES.read_text(encoding="utf-8")
+    issues = spacing_issues(source)
 
     if issues:
         print("\n".join(issues), file=sys.stderr)

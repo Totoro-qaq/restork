@@ -5,7 +5,7 @@
 //! compatibility report.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use light_file_dialog::dialog::{Dialog, SelectFolder};
@@ -380,23 +380,30 @@ fn valid_digest(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-fn collect_skill_files(root: &Path) -> Result<CollectedSkill, String> {
+fn collect_skill_files(selected_root: &Path) -> Result<CollectedSkill, String> {
+    let root = canonical_selected_root(selected_root)?;
     let mut files = Vec::new();
-    let mut pending = vec![root.to_path_buf()];
+    let mut pending = vec![root.clone()];
     let mut total_bytes = 0_usize;
     while let Some(directory) = pending.pop() {
         let entries = fs::read_dir(&directory).map_err(|_| "skill_folder_unreadable")?;
         for entry in entries {
             let entry = entry.map_err(|_| "skill_folder_unreadable")?;
-            let path = entry.path();
-            if path.is_symlink() {
+            let file_type = entry
+                .file_type()
+                .map_err(|_| "skill_folder_unreadable")?;
+            if file_type.is_symlink() {
                 continue;
             }
-            if path.is_dir() {
+            let path = canonical_child(&root, &entry.path())?;
+            if file_type.is_dir() {
                 pending.push(path);
                 continue;
             }
-            let relative = relative_skill_path(root, &path)?;
+            if !file_type.is_file() {
+                continue;
+            }
+            let relative = relative_skill_path(&root, &path)?;
             if files.len() >= MAX_FILES {
                 return Err("skill_folder_too_many_files".into());
             }
@@ -429,6 +436,23 @@ fn collect_skill_files(root: &Path) -> Result<CollectedSkill, String> {
         return Err("skill_md_missing".into());
     }
     Ok(CollectedSkill { files, total_bytes })
+}
+
+fn canonical_selected_root(selected_root: &Path) -> Result<PathBuf, String> {
+    let root = fs::canonicalize(selected_root).map_err(|_| "skill_folder_unreadable")?;
+    let metadata = fs::metadata(&root).map_err(|_| "skill_folder_unreadable")?;
+    if !root.is_absolute() || !metadata.is_dir() {
+        return Err("skill_folder_unreadable".into());
+    }
+    Ok(root)
+}
+
+fn canonical_child(root: &Path, candidate: &Path) -> Result<PathBuf, String> {
+    let path = fs::canonicalize(candidate).map_err(|_| "skill_folder_unreadable")?;
+    if path == root || !path.starts_with(root) {
+        return Err("skill_folder_unreadable".into());
+    }
+    Ok(path)
 }
 
 fn relative_skill_path(root: &Path, path: &Path) -> Result<String, String> {
@@ -468,15 +492,12 @@ fn readable_skill_content(relative: &str, bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use tempfile::tempdir;
 
     #[test]
     fn relative_script_paths_are_stripped_and_absolute_paths_never_leave() {
-        let suffix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("restork-skill-folder-{suffix}"));
+        let fixture = tempdir().expect("fixture");
+        let root = fixture.path();
         fs::create_dir_all(root.join("scripts")).expect("dir");
         fs::write(
             root.join("SKILL.md"),
@@ -484,8 +505,7 @@ mod tests {
         )
         .expect("skill");
         fs::write(root.join("scripts/render.mjs"), "console.log(1)").expect("script");
-        let collected = collect_skill_files(&root).expect("import");
-        let _ = fs::remove_dir_all(&root);
+        let collected = collect_skill_files(root).expect("import");
         assert!(
             collected
                 .files
@@ -498,6 +518,26 @@ mod tests {
                 .iter()
                 .any(|file| file.path == "scripts/render.mjs" && file.content.is_empty())
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn selected_root_and_children_cannot_escape_through_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = tempdir().expect("fixture");
+        let outside = tempdir().expect("outside");
+        fs::write(
+            fixture.path().join("SKILL.md"),
+            "---\nname: safe\n---\nRead only this folder.\n",
+        )
+        .expect("skill");
+        fs::write(outside.path().join("secret.txt"), "must not be imported").expect("outside");
+        symlink(outside.path(), fixture.path().join("outside-link")).expect("child link");
+
+        let collected = collect_skill_files(fixture.path()).expect("import");
+        assert_eq!(collected.files.len(), 1);
+        assert_eq!(collected.files[0].path, "SKILL.md");
     }
 
     #[test]
