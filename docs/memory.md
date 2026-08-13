@@ -13,6 +13,11 @@ Markdown remains the knowledge source of truth. SQLite remains the operational s
 profile is explicit user configuration: Restork does not silently turn model guesses into durable
 preferences.
 
+A completed Research, Study, or Work run may offer one optional run-summary preview. The default is
+no. The preview expires in 24 hours and is discarded unless the user explicitly saves it. Saving
+writes one episodic `run_summary` row. This path never writes Profile or Semantic memory. See
+[run-summary-suggestion.zh-CN.md](specs/run-summary-suggestion.zh-CN.md).
+
 ## Configure a profile
 
 Open **Settings → Profiles** after pairing. A Profile freezes a provider/model, Prompt revision,

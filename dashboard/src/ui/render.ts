@@ -402,17 +402,17 @@ function personalGreeting(snapshot: DashboardSnapshot, locale: Locale): string {
   const name = snapshot.workspaceV2?.personal?.settings.display_name?.trim();
   const salutation = {
     morning: tr(locale, "Good morning", "早上好"),
-    noon: tr(locale, "Good noon", "中午好"),
+    noon: tr(locale, "Good afternoon", "中午好"),
     afternoon: tr(locale, "Good afternoon", "下午好"),
     evening: tr(locale, "Good evening", "晚上好"),
     late_night: tr(locale, "Still awake", "夜深了"),
   }[band ?? "morning"];
   if (locale === "zh-CN") {
     const who = name ? `，${name}` : "";
-    return `${salutation}${who}。今天想研究、学习，还是完成一项工作？`;
+    return `${salutation}${who}。`;
   }
   const who = name ? `, ${name}` : "";
-  return `${salutation}${who}. What will you research, study, or finish today?`;
+  return `${salutation}${who}.`;
 }
 
 function dataClassLabel(value: string, locale: Locale): string {
@@ -2345,6 +2345,7 @@ function memoryKindLabel(kind: string, locale: Locale): string {
     decision: ["Decision", "决定"],
     preference: ["Preference", "偏好"],
     summary: ["Summary", "摘要"],
+    run_summary: ["Run summary", "运行摘要"],
     fact: ["Note", "记录"],
   };
   const label = labels[kind];

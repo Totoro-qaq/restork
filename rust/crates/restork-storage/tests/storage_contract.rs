@@ -33,7 +33,7 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
         assert_eq!(mode, 0o600);
     }
 
-    assert_eq!(database.schema_version().expect("schema version"), 14);
+    assert_eq!(database.schema_version().expect("schema version"), 15);
     let history = database.migration_history().expect("migration history");
     assert_eq!(
         history
@@ -55,6 +55,7 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
             (12, "radar_star_history"),
             (13, "local_todos"),
             (14, "recoverable_schedules"),
+            (15, "memory_suggestions"),
         ]
     );
     assert_ne!(history[0].checksum, history[1].checksum);
@@ -69,6 +70,7 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
         "run_budgets",
         "run_checkpoints",
         "memory_records",
+        "memory_suggestions",
         "conversation_turns",
         "personal_settings",
         "sessions",
@@ -231,7 +233,7 @@ fn migration_creates_a_consistent_backup_and_is_idempotent_on_reopen() {
 
     let reopened = Database::open(&path).expect("reopen migrated database");
     assert!(reopened.migration_backup().is_none());
-    assert_eq!(reopened.migration_history().expect("history").len(), 14);
+    assert_eq!(reopened.migration_history().expect("history").len(), 15);
 }
 
 #[test]

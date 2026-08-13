@@ -56,6 +56,18 @@ fn run_routes() -> Router<ApiState> {
             "/v1/runs/{run_id}/conversation",
             get(agent_conversation_page).post(create_agent_conversation),
         )
+        .route(
+            "/v1/runs/{run_id}/summary-suggestion",
+            get(crate::memory_suggestion_api::get_run_summary_suggestion),
+        )
+        .route(
+            "/v1/runs/{run_id}/summary-suggestion/accept",
+            axum::routing::post(crate::memory_suggestion_api::accept_run_summary_suggestion),
+        )
+        .route(
+            "/v1/runs/{run_id}/summary-suggestion/dismiss",
+            axum::routing::post(crate::memory_suggestion_api::dismiss_run_summary_suggestion),
+        )
         .route("/v1/approvals", get(list_feature_approvals))
         .route(
             "/v1/approvals/{approval_id}",

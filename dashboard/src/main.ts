@@ -70,7 +70,7 @@ import {
   openVaultWorkspace,
   stopVaultStream,
 } from "./features/vault";
-import { configureStartWorkspace } from "./features/start";
+import { configureStartWorkspace, offerRunSummaryAfterCompletion } from "./features/start";
 import { configureCommandPalette } from "./features/commandPalette";
 import { configureUpdates } from "./features/updates";
 import {
@@ -394,6 +394,13 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
     },
     resume: (runId, state) => resumeStartRun(root, api, runId, state),
     cancel: (runId) => { void cancelStartRun(root, api, runId); },
+    loadRunSummary: api.loadRunSummary?.bind(api),
+    acceptRunSummary: api.acceptRunSummary
+      ? async (runId) => { await api.acceptRunSummary?.(runId); }
+      : undefined,
+    dismissRunSummary: api.dismissRunSummary
+      ? async (runId) => { await api.dismissRunSummary?.(runId); }
+      : undefined,
     ...(desktopBridge ? { chooseWorkspace: async () => {
       const selection = await desktopBridge.chooseWorkspace();
       if (!selection || selection.status === "cancelled") return null;
@@ -2399,7 +2406,7 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
     stream = startEventStream(root, api, run.run_id, 0, (event) => {
       waitStage = waitStageForEvent(waitStage, event);
       if (waitHost?.isConnected) waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root));
-      if (form.id === "start-run-form") paintStartRunEvent(surface, event, localeOf(root));
+      if (form.id === "start-run-form") paintStartRunEvent(surface, event, localeOf(root), api, run.run_id);
     }, form.id === "start-run-form" ? "start" : "launcher");
     if (status) {
       status.textContent = tr(
@@ -2519,7 +2526,7 @@ function resumeStartRun(
   startEventStream(root, api, runId, 0, (event) => {
     waitStage = waitStageForEvent(waitStage, event);
     if (waitHost?.isConnected) waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root));
-    paintStartRunEvent(surface, event, localeOf(root));
+    paintStartRunEvent(surface, event, localeOf(root), api, runId);
   }, "start");
 }
 
@@ -2550,7 +2557,13 @@ function setStartRunBusy(surface: ParentNode, busy: boolean): void {
   submit.setAttribute("aria-disabled", String(disabled));
 }
 
-function paintStartRunEvent(surface: ParentNode, event: RunEvent, locale: Locale): void {
+function paintStartRunEvent(
+  surface: ParentNode,
+  event: RunEvent,
+  locale: Locale,
+  api?: DashboardApi,
+  runId?: string,
+): void {
   const status = surface.querySelector<HTMLElement>("[data-run-status]");
   const cancel = surface.querySelector<HTMLButtonElement>("[data-start-cancel]");
   const output = surface.querySelector<HTMLElement>("[data-start-output]");
@@ -2567,6 +2580,10 @@ function paintStartRunEvent(surface: ParentNode, event: RunEvent, locale: Locale
       if (!upgraded.startsWith("<pre")) text.outerHTML = upgraded;
     }
     setStartRunBusy(surface, false);
+    const completedId = runId ?? cancel?.dataset.runId;
+    if (completedId && api?.loadRunSummary) {
+      void offerRunSummaryAfterCompletion(surface, locale, () => api.loadRunSummary!(completedId));
+    }
   } else if (event.type === "run.failed") {
     if (status) status.textContent = tr(
       locale,

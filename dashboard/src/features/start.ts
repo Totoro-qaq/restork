@@ -1,4 +1,6 @@
-import type { DashboardSnapshot, Mode } from "../api/types";
+import type { DashboardSnapshot, Mode, PendingRunSummary } from "../api/types";
+import { localeOf, tr, type Locale } from "../i18n";
+import { fillRunSummaryHost } from "../ui/start";
 
 export interface StartWorkspaceEffects {
   submit(form: HTMLFormElement): void;
@@ -6,6 +8,9 @@ export interface StartWorkspaceEffects {
   resume?(runId: string, state: string): void;
   cancel?(runId: string): void;
   chooseWorkspace?(): Promise<{ grantId: string; label: string } | null>;
+  loadRunSummary?(runId: string): Promise<PendingRunSummary | null>;
+  acceptRunSummary?(runId: string): Promise<void>;
+  dismissRunSummary?(runId: string): Promise<void>;
 }
 
 /** Bind the run-first start page without owning run transport or storage. */
@@ -59,12 +64,12 @@ export function configureStartWorkspace(
         submit.disabled = false;
         submit.setAttribute("aria-disabled", "false");
         submit.dataset.action = "open-settings";
-        submit.textContent = "先连接模型";
+        submit.textContent = submit.dataset.connectLabel ?? "Connect a model first";
       } else {
         submit.disabled = disabled;
         submit.setAttribute("aria-disabled", String(disabled));
         delete submit.dataset.action;
-        submit.textContent = submit.dataset.defaultLabel ?? "开始任务";
+        submit.textContent = submit.dataset.defaultLabel ?? "START TASK";
       }
     }
   };
@@ -147,6 +152,47 @@ export function configureStartWorkspace(
     const runId = cancel.dataset.runId;
     if (runId) effects.cancel?.(runId);
   });
+  const summaryHost = root.querySelector<HTMLElement>("[data-start-run-summary]");
+  const locale = localeOf(root);
+  const setSummaryBusy = (busy: boolean): void => {
+    if (!summaryHost) return;
+    summaryHost.setAttribute("aria-busy", String(busy));
+    summaryHost.querySelectorAll("button").forEach((button) => {
+      button.disabled = busy;
+    });
+  };
+  const setSummaryStatus = (message: string): void => {
+    const status = summaryHost?.querySelector<HTMLElement>("[data-start-summary-status]");
+    if (status) status.textContent = message;
+  };
+  summaryHost?.addEventListener("click", (event) => {
+    const runId = summaryHost.dataset.runId;
+    if (!runId || summaryHost.getAttribute("aria-busy") === "true") return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest("[data-start-summary-dismiss]")) {
+      event.preventDefault();
+      setSummaryBusy(true);
+      void Promise.resolve(effects.dismissRunSummary?.(runId)).then(() => {
+        fillRunSummaryHost(summaryHost, null, locale);
+      }).catch(() => {
+        setSummaryBusy(false);
+        setSummaryStatus(tr(locale, "Could not discard this preview. Try again.", "没能丢掉这条预览，请再试一次。"));
+      });
+      return;
+    }
+    if (target.closest("[data-start-summary-accept]")) {
+      event.preventDefault();
+      setSummaryBusy(true);
+      void Promise.resolve(effects.acceptRunSummary?.(runId)).then(() => {
+        summaryHost.removeAttribute("data-run-id");
+        summaryHost.innerHTML = `<p role="status">${tr(locale, "Saved as a run summary.", "已记成运行摘要。")}</p>`;
+      }).catch(() => {
+        setSummaryBusy(false);
+        setSummaryStatus(tr(locale, "Could not save this summary. Try again.", "没能记下这条摘要，请再试一次。"));
+      });
+    }
+  });
   selectMode("research");
 
   if (goal?.hasAttribute("data-return-focus")) {
@@ -169,5 +215,22 @@ export function configureStartWorkspace(
       cancel.dataset.runId = active.summary.run_id;
     }
     effects.resume?.(active.summary.run_id, active.summary.state);
+  }
+}
+
+export async function offerRunSummaryAfterCompletion(
+  surface: ParentNode,
+  locale: Locale,
+  load: () => Promise<PendingRunSummary | null>,
+): Promise<void> {
+  const host = surface.querySelector<HTMLElement>("[data-start-run-summary]");
+  if (!host) return;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 200));
+    const suggestion = await load();
+    if (suggestion) {
+      fillRunSummaryHost(host, suggestion, locale);
+      return;
+    }
   }
 }

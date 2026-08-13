@@ -518,6 +518,15 @@ export interface RadarConfiguration {
   hacker_news: boolean;
 }
 
+export interface PendingRunSummary {
+  suggestion_id: string;
+  run_id: string;
+  mode: Mode;
+  summary: string;
+  data_class: string;
+  expires_at: string;
+}
+
 export interface MemoryRecord {
   memory_id: string;
   layer: "working" | "episodic" | "semantic" | "profile";
@@ -1285,6 +1294,7 @@ export interface DashboardSnapshot {
   daily: DailySnapshot | null;
   provider: ProviderDiagnostic | null;
   firstRun?: { has_completed_run: boolean };
+  pendingRunSummaries?: PendingRunSummary[];
   musicSources?: MusicSourceDefinition[];
   pagination?: Partial<Record<DashboardListKind, PageInfo>>;
   workspaceV2?: RustWorkspaceSnapshot;
@@ -1436,6 +1446,9 @@ export interface DashboardApi {
   radarAction(itemId: string, action: RadarAction): Promise<RadarActionResult>;
   configureRadar(input: RadarConfigurationInput): Promise<RadarConfiguration>;
   cancelRun(runId: string): Promise<void>;
+  loadRunSummary?(runId: string): Promise<PendingRunSummary | null>;
+  acceptRunSummary?(runId: string): Promise<MemoryRecord>;
+  dismissRunSummary?(runId: string): Promise<void>;
   previewTask(taskId: string, completed: boolean): Promise<TaskMutationPreview>;
   captureTask(text: string, priority: string): Promise<TaskMutationPreview>;
   createLocalTodo?(input: LocalTodoInput): Promise<LocalTodoRecord>;

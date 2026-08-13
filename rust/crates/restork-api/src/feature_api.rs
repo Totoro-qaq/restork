@@ -3214,6 +3214,7 @@ pub(super) fn persist_agent_outcome(storage: &Database, run: &RunRecord, outcome
     if outcome.stop_reason != restork_core::durable_loop::AgentStopReason::Completed {
         return;
     }
+    crate::memory_suggestion_api::offer_from_outcome(storage, run, outcome);
     if run.mode == "study" {
         let Some(output) = outcome.output.as_deref() else {
             return;
