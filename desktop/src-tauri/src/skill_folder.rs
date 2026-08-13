@@ -389,9 +389,7 @@ fn collect_skill_files(selected_root: &Path) -> Result<CollectedSkill, String> {
         let entries = fs::read_dir(&directory).map_err(|_| "skill_folder_unreadable")?;
         for entry in entries {
             let entry = entry.map_err(|_| "skill_folder_unreadable")?;
-            let file_type = entry
-                .file_type()
-                .map_err(|_| "skill_folder_unreadable")?;
+            let file_type = entry.file_type().map_err(|_| "skill_folder_unreadable")?;
             if file_type.is_symlink() {
                 continue;
             }
