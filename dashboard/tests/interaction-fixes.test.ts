@@ -157,10 +157,11 @@ describe("navigation badges count only unseen items", () => {
   it("shows only the delta after new items arrive", () => {
     const root = mount(2);
     root.querySelector<HTMLButtonElement>('[data-view="runs"]')?.click();
+    root.querySelector<HTMLButtonElement>('[data-view="overview"]')?.click();
 
     // A background refresh re-renders the workspace with one more active run.
+    // Restore keeps overview; the extra run is unseen until Runs is opened again.
     mount(3, root);
-    root.querySelector<HTMLButtonElement>('[data-view="overview"]')?.click();
 
     const badge = root.querySelector<HTMLElement>('[data-view="runs"] [data-nav-count]');
     expect(badge?.hidden).toBe(false);

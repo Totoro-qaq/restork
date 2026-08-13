@@ -186,7 +186,7 @@ describe("live run events", () => {
     // `showRun` guards on `isConnected`, so the tree must be in the document.
     document.body.append(root);
     mountDashboard(root, { api: client, snapshot: state });
-    root.querySelector<HTMLButtonElement>('[data-run-id="run-live"]')?.click();
+    root.querySelector<HTMLButtonElement>('.list-item[data-run-id="run-live"]')?.click();
     await vi.waitFor(() => expect(root.querySelector(".event-list")).not.toBeNull());
 
     const list = root.querySelector<HTMLOListElement>(".event-list");

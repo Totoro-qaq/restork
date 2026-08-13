@@ -21,6 +21,7 @@ import type {
 } from "./api/types";
 import {
   agentWaitMarkup,
+  waitNextForError,
   approvalsView,
   assistantStreamMarkup,
   conversationOperationWaitMarkup,
@@ -73,6 +74,7 @@ import {
 import { configureStartWorkspace, jumpToStartMode, modeWorkspaceNote, offerRunSummaryAfterCompletion } from "./features/start";
 import { configureCommandPalette } from "./features/commandPalette";
 import { applyView, bindNavigation, currentPanel } from "./features/navigation";
+import { captureWorkspaceChrome, restoreWorkspaceChrome } from "./features/workspaceChrome";
 import { bindProviderProfileId } from "./features/settings";
 import { configureUpdates } from "./features/updates";
 import {
@@ -322,6 +324,7 @@ async function pairAndLoad(root: HTMLElement, api: DashboardApi, data: FormData)
 }
 
 function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: DashboardSnapshot): void {
+  const chrome = captureWorkspaceChrome(root);
   const locale = localeOf(root);
   stopEventStream(root);
   stopMailStream(root);
@@ -422,6 +425,9 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   configureVaultBrowser(root, api);
   // Last, so it overrides any enabled state the feature wiring just set.
   applyCapabilityGuards(root, api, locale);
+  if (chrome) {
+    restoreWorkspaceChrome(root, chrome, (view) => revealView(root, api, snapshot, view));
+  }
   if (snapshot.daily?.music?.recommendation?.cover_available) {
     void loadMusicCover(root, api);
   }
@@ -2384,10 +2390,16 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       }
     }
     const neverStarted = createdRun != null && mode !== "research";
+    const locale = localeOf(root);
+    const reason = errorText(error, locale);
     if (waitHost?.isConnected) {
-      waitHost.innerHTML = agentWaitMarkup(neverStarted ? "blocked" : "error", localeOf(root));
+      waitHost.innerHTML = agentWaitMarkup(
+        neverStarted ? "blocked" : "error",
+        locale,
+        { reason, next: waitNextForError(error, locale) },
+      );
     }
-    if (status) status.textContent = errorText(error, localeOf(root));
+    if (status) status.textContent = reason;
     if (form.id === "start-run-form") setStartRunBusy(form, false);
   } finally {
     if (stream && eventStreams.get(root)?.controller === stream && form.id !== "start-run-form") {
@@ -2766,7 +2778,12 @@ async function actOnRadar(root: HTMLElement, api: DashboardApi, button: HTMLButt
       }
     }
   } catch (error) {
-    if (target) target.innerHTML = agentWaitMarkup("error", localeOf(root));
+    if (target) {
+      target.innerHTML = agentWaitMarkup("error", localeOf(root), {
+        reason: errorText(error, localeOf(root)),
+        next: waitNextForError(error, localeOf(root)),
+      });
+    }
     button.disabled = false;
     announceError(root, errorText(error, localeOf(root)));
   }
@@ -3488,6 +3505,7 @@ function bindListInteractions(
     button.addEventListener("click", () => void actOnRadar(root, api, button));
   });
   host.querySelectorAll<HTMLButtonElement>("[data-run-id]").forEach((button) => {
+    if (button.hasAttribute("data-start-cancel")) return;
     button.addEventListener("click", () => void showRun(root, api, snapshot, button));
   });
   host.querySelectorAll<HTMLButtonElement>("[data-page-kind]").forEach((button) => {
