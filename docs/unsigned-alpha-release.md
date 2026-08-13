@@ -20,6 +20,21 @@
 The target machine needs no Python, Node.js, Rust, MinGW, GTK development package, `uv`, or other
 compiler toolchain. / 目标电脑不需要 Python、Node.js、Rust、MinGW、GTK 开发包、`uv` 或编译环境。
 
+## What changed in v0.1.5-alpha.1 / 本版更新
+
+- Import instruction-based `SKILL.md` folders through a compatibility preview. A skill must be
+  enabled and explicitly selected for a run; the selected revision is recorded with that run.
+- Reports, slide decks, Vault source, and handoff files now open in bounded dialogs. Slide count can
+  be automatic or 1–60; automations support every 2–365 days; time zones are searchable.
+- Native skill-folder reads stay inside the selected directory, do not follow symbolic links, and
+  enforce file, byte, directory, and depth limits.
+
+- 可从本地 `SKILL.md` 文件夹导入指令型技能；安装前会展示兼容性与剥离项。技能只有在启用并
+  明确选择后才会用于 Run，所用修订也会进入运行记录。
+- 报告、逐页演示、Vault 源文与交接包改用有边界的弹窗预览；演示页数支持自动或 1–60，
+  自动化支持每 2–365 天，时区可以搜索。
+- 原生技能目录读取限制在所选文件夹内，不跟随符号链接，并限制文件数、总大小、目录数与深度。
+
 ## Verify the file / 校验文件
 
 Download `SHA256SUMS` from the same Release. On macOS/Linux, filter the exact filename and run
@@ -45,13 +60,12 @@ or use **System Settings → Privacy & Security → Open Anyway**. Never disable
 
 ### Windows
 
-Open the EXE or MSI. SmartScreen may show an unknown-publisher warning because this preview is not
-Authenticode-signed. Continue only after verifying the checksum and repository source. The EXE and
-MSI contain the same app; EXE is the simpler per-user path, while MSI is useful for Windows-managed
-installation testing.
+Open the EXE. SmartScreen may show an unknown-publisher warning because this preview is not
+Authenticode-signed. Continue only after verifying the checksum and repository source. This Alpha
+publishes one per-user NSIS installer; it does not publish an MSI.
 
-打开 EXE 或 MSI。由于技术预览尚无 Authenticode，SmartScreen 可能提示未知发布者；请先校验
-哈希与仓库来源。EXE 与 MSI 包含同一应用；普通用户优先 EXE，MSI 便于 Windows 管理式安装测试。
+打开 EXE。由于技术预览尚无 Authenticode，SmartScreen 可能提示未知发布者；请先校验哈希与
+仓库来源。本 Alpha 只发布一个面向当前用户的 NSIS 安装包，不提供 MSI。
 
 ### Linux
 
@@ -75,7 +89,7 @@ AppImage 无需安装；Debian/Ubuntu 可用系统安装器打开 DEB，或执�
 - the annotated Alpha tag belongs to protected `main`;
 - the public tree passes privacy scanning;
 - every installer contains the Rust Core and bilingual Dashboard;
-- the downloaded DMG, both Windows installers, AppImage, and DEB launch on fresh runners, own their
+- the downloaded DMG, Windows EXE, AppImage, and DEB launch on fresh runners, own their
   Core process, and stop it on exit; installer removal preserves user data where applicable;
 - one SHA-256 ledger, CycloneDX SBOM, release manifest, and GitHub provenance cover the assets.
 
