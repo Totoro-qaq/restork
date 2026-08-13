@@ -4,10 +4,13 @@
 //! Dashboard receives only an opaque candidate id and Core's redacted
 //! compatibility report.
 
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
+use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
+use cap_std::ambient_authority;
+use cap_std::fs::{Dir, OpenOptions};
 use light_file_dialog::dialog::{Dialog, SelectFolder};
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
@@ -19,6 +22,8 @@ use super::{BrowserSession, DesktopState, NATIVE_PROMPT_TTL};
 use crate::commands::require_dashboard_window;
 
 const MAX_FILES: usize = 40;
+const MAX_DIRECTORIES: usize = 100;
+const MAX_DEPTH: usize = 12;
 const MAX_PACKAGE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 const HTTP_TIMEOUT: Duration = Duration::from_secs(20);
@@ -381,51 +386,80 @@ fn valid_digest(value: &str) -> bool {
 }
 
 fn collect_skill_files(selected_root: &Path) -> Result<CollectedSkill, String> {
-    let root = canonical_selected_root(selected_root)?;
+    if !selected_root.is_absolute() {
+        return Err("skill_folder_unreadable".into());
+    }
+    let root = Dir::open_ambient_dir(selected_root, ambient_authority())
+        .map_err(|_| "skill_folder_unreadable")?;
     let mut files = Vec::new();
-    let mut pending = vec![root.clone()];
+    let mut pending = vec![(root, String::new(), 0_usize)];
+    let mut directory_count = 1_usize;
     let mut total_bytes = 0_usize;
-    while let Some(directory) = pending.pop() {
-        let entries = fs::read_dir(&directory).map_err(|_| "skill_folder_unreadable")?;
+    while let Some((directory, prefix, depth)) = pending.pop() {
+        let entries = directory.entries().map_err(|_| "skill_folder_unreadable")?;
         for entry in entries {
             let entry = entry.map_err(|_| "skill_folder_unreadable")?;
+            let name = single_skill_component(&entry.file_name())?;
             let file_type = entry.file_type().map_err(|_| "skill_folder_unreadable")?;
             if file_type.is_symlink() {
                 continue;
             }
-            let path = canonical_child(&root, &entry.path())?;
+            let relative = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{prefix}/{name}")
+            };
             if file_type.is_dir() {
-                pending.push(path);
+                if depth >= MAX_DEPTH {
+                    return Err("skill_folder_too_deep".into());
+                }
+                directory_count = directory_count.saturating_add(1);
+                if directory_count > MAX_DIRECTORIES {
+                    return Err("skill_folder_too_many_directories".into());
+                }
+                let child = directory
+                    .open_dir_nofollow(&name)
+                    .map_err(|_| "skill_folder_unreadable")?;
+                pending.push((child, relative, depth + 1));
                 continue;
             }
             if !file_type.is_file() {
                 continue;
             }
-            let relative = relative_skill_path(&root, &path)?;
             if files.len() >= MAX_FILES {
                 return Err("skill_folder_too_many_files".into());
             }
-            let file_bytes = usize::try_from(
-                entry
-                    .metadata()
-                    .map_err(|_| "skill_folder_unreadable")?
-                    .len(),
-            )
-            .map_err(|_| "skill_folder_too_large")?;
-            if total_bytes.saturating_add(file_bytes) > MAX_PACKAGE_BYTES {
+            let mut options = OpenOptions::new();
+            options.read(true).follow(FollowSymlinks::No);
+            let mut file = directory
+                .open_with(&name, &options)
+                .map_err(|_| "skill_folder_unreadable")?;
+            let metadata = file.metadata().map_err(|_| "skill_folder_unreadable")?;
+            if !metadata.is_file() {
+                return Err("skill_folder_unreadable".into());
+            }
+            let remaining = MAX_PACKAGE_BYTES.saturating_sub(total_bytes);
+            if metadata.len() > remaining as u64 {
                 return Err("skill_folder_too_large".into());
             }
-            let bytes = fs::read(&path).map_err(|_| "skill_folder_unreadable")?;
+            let mut bytes = Vec::with_capacity(
+                usize::try_from(metadata.len()).map_err(|_| "skill_folder_too_large")?,
+            );
+            file.by_ref()
+                .take((remaining as u64).saturating_add(1))
+                .read_to_end(&mut bytes)
+                .map_err(|_| "skill_folder_unreadable")?;
+            if bytes.len() > remaining {
+                return Err("skill_folder_too_large".into());
+            }
             total_bytes = total_bytes.saturating_add(bytes.len());
-            if total_bytes > MAX_PACKAGE_BYTES {
-                return Err("skill_folder_too_large".into());
-            }
             files.push(SkillFolderFile {
                 content: readable_skill_content(&relative, &bytes),
                 path: relative,
             });
         }
     }
+    files.sort_by(|left, right| left.path.cmp(&right.path));
     let has_skill_md = files.iter().any(|file| {
         let lower = file.path.to_ascii_lowercase();
         lower == "skill.md" || lower.ends_with("/skill.md")
@@ -436,40 +470,12 @@ fn collect_skill_files(selected_root: &Path) -> Result<CollectedSkill, String> {
     Ok(CollectedSkill { files, total_bytes })
 }
 
-fn canonical_selected_root(selected_root: &Path) -> Result<PathBuf, String> {
-    let root = fs::canonicalize(selected_root).map_err(|_| "skill_folder_unreadable")?;
-    let metadata = fs::metadata(&root).map_err(|_| "skill_folder_unreadable")?;
-    if !root.is_absolute() || !metadata.is_dir() {
+fn single_skill_component(name: &std::ffi::OsStr) -> Result<String, String> {
+    let text = name.to_str().ok_or("skill_folder_unreadable")?;
+    if text.is_empty() || text == "." || text == ".." || text.contains('/') || text.contains('\\') {
         return Err("skill_folder_unreadable".into());
     }
-    Ok(root)
-}
-
-fn canonical_child(root: &Path, candidate: &Path) -> Result<PathBuf, String> {
-    let path = fs::canonicalize(candidate).map_err(|_| "skill_folder_unreadable")?;
-    if path == root || !path.starts_with(root) {
-        return Err("skill_folder_unreadable".into());
-    }
-    Ok(path)
-}
-
-fn relative_skill_path(root: &Path, path: &Path) -> Result<String, String> {
-    let relative = path
-        .strip_prefix(root)
-        .map_err(|_| "skill_folder_unreadable")?;
-    let text = relative
-        .to_str()
-        .ok_or("skill_folder_unreadable")?
-        .replace('\\', "/");
-    if text.is_empty()
-        || text.starts_with('/')
-        || text
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
-    {
-        return Err("skill_folder_unreadable".into());
-    }
-    Ok(text)
+    Ok(text.to_owned())
 }
 
 fn readable_skill_content(relative: &str, bytes: &[u8]) -> String {
@@ -490,6 +496,7 @@ fn readable_skill_content(relative: &str, bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::tempdir;
 
     #[test]
@@ -536,6 +543,34 @@ mod tests {
         let collected = collect_skill_files(fixture.path()).expect("import");
         assert_eq!(collected.files.len(), 1);
         assert_eq!(collected.files[0].path, "SKILL.md");
+    }
+
+    #[test]
+    fn imported_files_are_sorted_by_relative_path() {
+        let fixture = tempdir().expect("fixture");
+        fs::write(fixture.path().join("z.txt"), "last").expect("z");
+        fs::write(fixture.path().join("SKILL.md"), "---\nname: sorted\n---\n").expect("skill");
+        fs::write(fixture.path().join("a.txt"), "first").expect("a");
+
+        let collected = collect_skill_files(fixture.path()).expect("import");
+        let paths = collected
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(paths, vec!["SKILL.md", "a.txt", "z.txt"]);
+    }
+
+    #[test]
+    fn reads_are_bounded_by_the_package_limit() {
+        let fixture = tempdir().expect("fixture");
+        fs::write(
+            fixture.path().join("SKILL.md"),
+            vec![b'a'; MAX_PACKAGE_BYTES + 1],
+        )
+        .expect("oversized skill");
+        let result = collect_skill_files(fixture.path());
+        assert!(matches!(result, Err(ref error) if error == "skill_folder_too_large"));
     }
 
     #[test]
