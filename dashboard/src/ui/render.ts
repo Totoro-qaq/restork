@@ -729,14 +729,17 @@ function automationWorkspace(snapshot: DashboardSnapshot, locale: Locale): strin
   const providers = snapshot.workspaceV2?.providers ?? [];
   const providerOptions = scheduleProviderOptions(providers, locale);
   return `<article class="paper-card full-card catalog-workspace"><header><div><p class="eyebrow">${tr(locale, "Automation & recovery", "自动化与恢复")}</p><h2>${tr(locale, "Automations and recovery", "自动化与恢复")}</h2></div><span class="ribbon work">${tr(locale, "LOCAL AND REVERSIBLE", "本地可恢复")}</span></header>
-    <section aria-labelledby="saved-schedules-title"><header class="schedule-list-header"><div class="schedule-list-title"><small>LOCAL SCHEDULES</small><h3 id="saved-schedules-title">${tr(locale, "Saved automations", "已保存的自动化")}</h3></div><button type="button" data-schedule-active-load>${tr(locale, "REFRESH LIST", "刷新列表")}</button></header><div class="catalog-grid automation-grid" data-schedule-active-list>${scheduleCardsMarkup(records, locale, false, providers)}</div><div data-schedule-active-page></div></section>
-    <div class="catalog-compose-grid"><form id="schedule-create-form">
+    <section aria-labelledby="saved-schedules-title"><header class="schedule-list-header"><div class="schedule-list-title"><small>${tr(locale, "Local schedules", "本地日程")}</small><h3 id="saved-schedules-title">${tr(locale, "Saved automations", "已保存的自动化")}</h3></div>
+        <div class="schedule-list-actions"><button type="button" data-schedule-active-load>${tr(locale, "REFRESH LIST", "刷新列表")}</button><button type="button" class="quiet-button" data-schedule-trash-load>${tr(locale, "OPEN TRASH", "打开回收站")}</button></div></header>
+      <div class="catalog-grid automation-grid" data-schedule-active-list>${scheduleCardsMarkup(records, locale, false, providers)}</div><div data-schedule-active-page></div>
+      <div class="catalog-grid automation-grid" data-schedule-trash-list></div><div data-schedule-trash-page></div></section>
+    <div class="catalog-compose-grid catalog-compose-single"><form id="schedule-create-form">
       <h3>${tr(locale, "New automation", "新建自动化")}</h3>
       <label>${tr(locale, "Name", "名称")}<input name="name" required maxlength="120" value="${tr(locale, "Morning local check", "每日本地检查")}"></label>
       <label>${tr(locale, "Time", "时间")}<input name="time" type="time" required value="09:00"></label>
       <label>${tr(locale, "Recurrence", "重复")}<select name="recurrence"><option value="daily">${tr(locale, "Daily", "每天")}</option><option value="weekly">${tr(locale, "Weekly", "每周")}</option></select></label>
       <label>${tr(locale, "Weekday", "星期")}<select name="weekday">${weekdayOptions(locale)}</select></label>
-      <label>${tr(locale, "Job", "任务")}<select name="job">${scheduleJobOptions(locale)}</select></label>
+      <label class="wide-label">${tr(locale, "Job", "任务")}<select name="job">${scheduleJobOptions(locale)}</select></label>
       <fieldset class="schedule-model-fields wide-label" data-schedule-model-fields hidden>
         <legend>${tr(locale, "Model for this draft", "起草所用模型")}</legend>
         <label>${tr(locale, "Model", "模型")}<select name="provider_profile_id">${providerOptions}</select></label>
@@ -754,8 +757,7 @@ function automationWorkspace(snapshot: DashboardSnapshot, locale: Locale): strin
         "Model automations use public run facts to create a draft on this device. The draft is not written to the Vault or exported until you confirm it.",
         "模型自动化只使用公开的运行记录，并在这台设备上生成草稿。确认之前，草稿不会写入知识库或导出。",
       )}</p>
-    </form>
-    <section class="automation-contracts"><h3>${tr(locale, "Recovery & history", "回收站与运行记录")}</h3><p>${tr(locale, "Deleting an automation moves it to the local trash and preserves its run history.", "删除自动化只会将它移入本地回收站，并保留运行记录。")}</p><button type="button" data-schedule-trash-load>${tr(locale, "OPEN TRASH", "打开回收站")}</button><div data-schedule-trash-list></div><div data-schedule-trash-page></div></section></div></article>`;
+    </form></div></article>`;
 }
 
 function scheduleRecordFromCatalog(record: CatalogRecordV2): ScheduleRecordV2 | null {

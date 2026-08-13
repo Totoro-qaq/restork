@@ -173,6 +173,14 @@ describe("responsive readability", () => {
     expect(stylesheet).toMatch(/\.command-palette-results button\[aria-selected="true"\]\s*\{[^}]*border-color:/);
   });
 
+  it("lets deliverable cards shrink-wrap instead of leaving empty grid tracks", () => {
+    expect(stylesheet).toMatch(/\.deliverable-grid\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/);
+    expect(stylesheet).toMatch(/\.deliverable-grid > \.deck-record\s*\{[^}]*flex:\s*2 1 420px/);
+    expect(stylesheet).toMatch(
+      /\.slide-preview-grid\s*\{[^}]*minmax\(min\(100%, 210px\), 240px\)[^}]*justify-content:\s*start/,
+    );
+  });
+
   it("uses the UI typeface for functional extension and automation controls", () => {
     expect(stylesheet).toMatch(/\.catalog-workspace\s*\{[^}]*font-family:\s*var\(--font-ui\)/);
     expect(stylesheet).toMatch(/\.schedule-list-header\s*\{[^}]*display:\s*flex[^}]*align-items:\s*center/);

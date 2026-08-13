@@ -175,12 +175,8 @@ function deckPreviewMarkup(artifact: Record<string, unknown> | undefined, locale
     <div class="slide-preview-grid">${slides.map((raw) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
     const slide = raw as Record<string, unknown>;
-    const title = typeof slide.action_title === "string" ? slide.action_title : tr(locale, "Untitled slide", "未命名页面");
-    const references = Array.isArray(slide.claim_refs) ? slide.claim_refs : [];
-    const lines = references.flatMap((reference) => {
-      const claim = typeof reference === "string" ? claims[reference] : null;
-      return claim && typeof claim.text === "string" ? [claim.text] : [];
-    });
+    const title = slidePreviewTitle(slide, locale);
+    const lines = slidePreviewLines(slide, claims);
     const colors = `--slide-bg:${theme.background};--slide-fg:${theme.foreground};`
       + `--slide-accent:${theme.accent};--slide-accent-2:${theme.accentSecondary}`;
     const bullets = lines.slice(0, 5).map((line) => `<li>${escapeHtml(line)}</li>`).join("");
@@ -188,6 +184,29 @@ function deckPreviewMarkup(artifact: Record<string, unknown> | undefined, locale
       <i aria-hidden="true"></i><strong>${escapeHtml(title)}</strong><ul>${bullets}</ul>
     </article>`;
   }).join("")}</div></details>`;
+}
+
+function slidePreviewTitle(slide: Record<string, unknown>, locale: Locale): string {
+  for (const key of ["action_title", "title"] as const) {
+    const value = slide[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return tr(locale, "Untitled slide", "未命名页面");
+}
+
+function slidePreviewLines(
+  slide: Record<string, unknown>,
+  claims: Record<string, Record<string, unknown>>,
+): string[] {
+  const references = Array.isArray(slide.claim_refs) ? slide.claim_refs : [];
+  const fromClaims = references.flatMap((reference) => {
+    const claim = typeof reference === "string" ? claims[reference] : null;
+    return claim && typeof claim.text === "string" ? [claim.text] : [];
+  });
+  if (fromClaims.length) return fromClaims;
+  return Array.isArray(slide.body)
+    ? slide.body.filter((line): line is string => typeof line === "string" && Boolean(line.trim()))
+    : [];
 }
 
 function presentationThemeFromArtifact(snapshot: Record<string, unknown>) {

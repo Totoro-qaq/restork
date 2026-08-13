@@ -1637,7 +1637,8 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
 .schedule-list-title { display: flex; min-width: 0; gap: 12px; align-items: baseline; }
 .schedule-list-title small { color: var(--fg-muted); font-size: var(--text-2xs); font-weight: 700; letter-spacing: .08em; white-space: nowrap; }
 .schedule-list-title h3 { margin: 0; font-size: var(--text-title); line-height: 1.3; }
-.schedule-list-header > button { flex: 0 0 auto; min-height: var(--control-min); }
+.schedule-list-actions { display: flex; flex-wrap: wrap; gap: 8px; flex: 0 0 auto; }
+.schedule-list-actions > button { min-height: var(--control-min); }
 .tool-results { display: grid; gap: 8px; padding: 0 12px 12px; }
 .tool-results > small { overflow-wrap: anywhere; color: var(--fg-muted); }
 .tool-results button { display: grid; gap: 4px; text-align: left; }
@@ -1746,7 +1747,13 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
   font-size: var(--text-2xs); white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .extension-install-preview > button { justify-self: start; color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--action-start), var(--action-end)); }
-.deliverable-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
+.deliverable-grid {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: start; justify-content: start;
+}
+.deliverable-grid > article { flex: 1 1 280px; min-width: 0; }
+.deliverable-grid > .deck-record { flex: 2 1 420px; }
+.deliverable-grid > .empty,
+.deliverable-grid > article:only-child { flex: 1 1 100%; }
 .deliverable-preview { min-height: 100px; }
 .deliverables-studio > section { margin-top: 20px; }
 .deliverables-studio .deliverable-grid { max-height: min(48vh, 560px); overflow-y: auto; padding-right: 4px; scrollbar-gutter: stable; }
@@ -1849,11 +1856,11 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
 .template-trash-card strong,
 .template-trash-card small { display: block; }
 .template-trash-card small { margin-top: 4px; color: var(--fg-muted); font-size: var(--text-micro); }
-.deck-record { grid-column: span 2; }
 .deck-preview { margin-top: 4px; }
 .slide-preview-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 8px;
-  max-height: 410px; overflow-y: auto; margin-top: 8px; padding: 4px 4px 4px 4px; scrollbar-gutter: stable;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 240px));
+  gap: 8px; justify-content: start; max-height: 410px; overflow-y: auto; margin-top: 8px;
+  padding: 4px; scrollbar-gutter: stable;
 }
 .slide-preview-card {
   display: grid !important; position: relative; gap: 8px !important; aspect-ratio: 16 / 9; align-content: start;
@@ -1872,8 +1879,14 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
 .slide-preview-card > strong { overflow: visible; color: var(--slide-fg); font-size: var(--text-xs); line-height: 1.25; text-overflow: clip; white-space: normal; }
 .slide-preview-card > ul { display: grid; gap: 4px; margin: 0; padding-left: 16px; color: var(--slide-fg); font-size: var(--text-micro); line-height: 1.3; opacity: .82; }
 .slide-preview-card > ul li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.automation-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); }
-.catalog-compose-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; margin-top: 16px; }
+.automation-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 360px)); justify-content: start; }
+.automation-grid[data-schedule-trash-list]:empty { display: none; }
+.catalog-compose-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: stretch; margin-top: 16px; }
+.catalog-compose-single { grid-template-columns: minmax(0, 1fr); }
+#schedule-create-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#schedule-create-form > h3,
+#schedule-create-form > button,
+#schedule-create-form > p { grid-column: 1 / -1; }
 .catalog-compose-grid > form,
 .automation-contracts { display: grid; align-content: start; gap: 8px; min-width: 0; border: 1px solid rgb(var(--line-rgb) / 17%); border-radius: 11px; padding: 12px; background: linear-gradient(145deg, rgb(var(--surface-rgb) / 64%), rgb(var(--surface-alt-rgb) / 44%)); }
 .catalog-compose-grid h3,
@@ -2106,6 +2119,7 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
   .session-list { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); max-height: 190px; }
   .conversation-messages { max-height: 48vh; }
   .catalog-compose-grid { grid-template-columns: 1fr; }
+  #schedule-create-form { grid-template-columns: 1fr; }
   .core-skill-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .presentation-studio { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
   .template-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2131,7 +2145,7 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
   .catalog-workspace > header { align-items: flex-start; flex-direction: column; }
   .schedule-list-header { align-items: stretch; flex-direction: column; gap: 8px; }
   .schedule-list-title { flex-wrap: wrap; gap: 4px 12px; }
-  .schedule-list-header > button { align-self: flex-start; }
+  .schedule-list-actions { align-self: flex-start; }
   .catalog-grid { grid-template-columns: minmax(0, 1fr); }
   .core-skill-grid { grid-template-columns: minmax(0, 1fr); }
   .presentation-studio { grid-template-columns: 1fr !important; }
@@ -2139,7 +2153,8 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
   .template-color-fields { grid-template-columns: 1fr; }
   .template-picker-header { align-items: stretch; flex-direction: column; }
   .template-picker-header > div:last-child { flex-wrap: wrap; }
-  .deck-record { grid-column: auto; }
+  .deliverable-grid > article,
+  .deliverable-grid > .deck-record { flex-basis: 100%; }
   .extension-overview { grid-template-columns: 1fr; }
   .catalog-compose-grid > form, .automation-contracts, .tool-inventory { padding: 12px; }
   .record-actions button { flex: 1 1 auto; }

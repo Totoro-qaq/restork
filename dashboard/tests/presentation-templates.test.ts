@@ -154,3 +154,37 @@ describe("presentation template library", () => {
     );
   });
 });
+
+describe("deliverable slide preview", () => {
+  it("renders action_title plus claims, and falls back to title/body", () => {
+    const current = snapshot();
+    current.workspaceV2!.deliverables = [{
+      deliverable_id: "deck-current",
+      kind: "deck",
+      state: "draft",
+      revision: 1,
+      updated_at: "2026-08-02T03:00:00Z",
+      artifact: {
+        title: "Current deck",
+        claims: { "claim:1": { text: "Exact approval" } },
+        slides: [{ action_title: "Why it matters", claim_refs: ["claim:1"] }],
+      },
+    }, {
+      deliverable_id: "deck-legacy",
+      kind: "deck",
+      state: "draft",
+      revision: 1,
+      updated_at: "2026-08-02T03:00:00Z",
+      artifact: {
+        title: "Legacy deck",
+        slides: [{ title: "Untitled no more", body: ["Local knowledge"] }],
+      },
+    }];
+    const html = workspaceMarkup(current, "zh-CN");
+    expect(html).toContain("Why it matters");
+    expect(html).toContain("Exact approval");
+    expect(html).toContain("Untitled no more");
+    expect(html).toContain("Local knowledge");
+    expect(html).not.toContain("未命名页面");
+  });
+});

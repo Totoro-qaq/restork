@@ -2159,7 +2159,7 @@ describe("Rust conversation workspace", () => {
 
     root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
     expect(root.querySelector("#schedule-create-form")).not.toBeNull();
-    expect(root.textContent).toContain("回收站与运行记录");
+    expect(root.textContent).toContain("打开回收站");
     expect(root.querySelector('input[type="password"]')).toBeNull();
   });
 
