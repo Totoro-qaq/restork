@@ -24,7 +24,7 @@ export function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Local
       + `${escapeHtml(record.provider.display_name)} · ${escapeHtml(record.provider.model)}</option>`
   )).join("");
   return `<article class="paper-card full-card catalog-workspace deliverables-studio">
-    <header><div><p class="eyebrow">DELIVERABLES</p><h2>${tr(locale, "Reports and presentations", "报告与演示文稿")}</h2>
+    <header><div><p class="eyebrow">${tr(locale, "Deliverables", "交付物")}</p><h2>${tr(locale, "Reports and presentations", "报告与演示文稿")}</h2>
     <p>${tr(locale, "Write the brief in your own words, review the draft, then download the file you need.", "把要求说清楚，先看草稿，再下载需要的文件。")}</p></div>
     <span class="ribbon work">${tr(locale, "BUILT IN", "随软件提供")}</span></header>
     <section aria-labelledby="deliverable-library-title"><header><div><small>${tr(locale, "YOUR FILES", "已有内容")}</small>
@@ -398,7 +398,7 @@ function presentationTemplateDialog(locale: Locale): string {
   ].join("");
   return `<dialog id="presentation-template-dialog" class="restork-dialog template-dialog">
     <form method="dialog" id="presentation-template-form"><header><div>
-      <p class="eyebrow">PRESENTATION TEMPLATE</p>
+      <p class="eyebrow">${tr(locale, "Presentation template", "演示文稿模板")}</p>
       <h3>${tr(locale, "Template details", "模板设置")}</h3></div>
       <button type="button" data-template-dialog-close aria-label="${tr(locale, "Close", "关闭")}">×</button>
     </header>
@@ -420,7 +420,7 @@ function templateColorField(name: string, en: string, zh: string, value: string,
 
 function presentationTemplateTrashDialog(locale: Locale): string {
   return `<dialog id="presentation-template-trash" class="restork-dialog template-dialog"><section><header><div>
-    <p class="eyebrow">TEMPLATE TRASH</p><h3>${tr(locale, "Deleted templates", "模板回收站")}</h3>
+    <p class="eyebrow">${tr(locale, "Template trash", "模板回收站")}</p><h3>${tr(locale, "Deleted templates", "模板回收站")}</h3>
     </div><button type="button" data-template-trash-close aria-label="${tr(locale, "Close", "关闭")}">×</button>
     </header><div data-template-trash-list>
       <p class="empty">${tr(locale, "Loading…", "正在加载…")}</p>

@@ -2,6 +2,7 @@ import type { DashboardSnapshot, Mode, PendingRunSummary } from "../api/types";
 import type { Locale } from "../i18n";
 import { tr } from "../i18n";
 import { escapeMarkup } from "./dom";
+import { runBudgetCapCopy } from "./budget";
 
 const MODE_COPY: Record<Mode, { en: string; zh: string }> = {
   research: { en: "What do you want to research?", zh: "想研究什么？" },
@@ -48,7 +49,7 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
         <label class="sr-only" for="start-goal">${tr(locale, "Task", "任务")}</label>
         <textarea id="start-goal" name="goal" required maxlength="8000" rows="1"
           autocomplete="off" placeholder="${escapeMarkup(startPlaceholder(locale))}"></textarea>
-        <button type="submit" data-start-submit
+        <button type="submit" class="btn-primary" data-start-submit
           data-connect-label="${escapeMarkup(tr(locale, "Connect a model first", "先连接模型"))}">${tr(locale, "START TASK", "开始任务")}</button>
       </div>
       <div class="start-mode-row" role="radiogroup" aria-label="${tr(locale, "Task type", "任务类型")}">
@@ -87,14 +88,28 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
           <button type="button" data-start-choose-workspace>${tr(locale, "Choose project folder", "选择项目文件夹")}</button>
           <span data-start-workspace-label data-empty-label="${tr(locale, "No folder selected", "尚未选择文件夹")}">${tr(locale, "No folder selected", "尚未选择文件夹")}</span>
         </div>
+        <div class="start-workspace-grant" data-start-workspace-web>
+          <p>${tr(
+            locale,
+            "A plain browser cannot hold a system folder grant. The desktop app can keep that permission on this device.",
+            "普通浏览器不能持有系统目录授权。只有桌面版才能在这台设备上保存文件夹权限。",
+          )}</p>
+          <p class="start-inline-fix">
+            <a class="btn-secondary" data-start-download-desktop href="https://github.com/Totoro-qaq/restork/releases">${tr(locale, "Download desktop app", "下载桌面版")}</a>
+            <button type="button" class="quiet-button" data-start-workspace-readonly>${tr(locale, "Continue read-only", "继续只读")}</button>
+          </p>
+          <details class="source-build-fallback">
+            <summary>${tr(locale, "Source-build fallback: absolute path", "源码运行备用：填写绝对路径")}</summary>
+            <label for="start-work-root">${tr(locale, "Project folder", "项目目录")}
+              <input id="start-work-root" name="workspace_root" maxlength="4096" autocomplete="off" spellcheck="false">
+            </label>
+          </details>
+        </div>
         <p class="form-hint" data-start-workspace-status data-error-message="${tr(
           locale,
           "The folder picker did not finish. Try again.",
           "文件夹选择没有完成，请重试。",
         )}" role="status"></p>
-        <label for="start-work-root" data-start-workspace-web>${tr(locale, "Project folder", "项目目录")}
-          <input id="start-work-root" name="workspace_root" maxlength="4096" autocomplete="off" spellcheck="false">
-        </label>
         <label for="start-work-targets">${tr(locale, "Files to focus on (optional), one per line", "重点文件（可选），每行一个")}</label>
         <textarea id="start-work-targets" name="target_files" maxlength="16000" rows="3" spellcheck="false"></textarea>
         <details>
@@ -108,6 +123,7 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
         </details>
       </fieldset>
 
+      <p class="start-run-budget" data-run-budget>${escapeMarkup(runBudgetCapCopy(locale))}</p>
       <div class="start-run-feedback">
         <p class="start-run-status" data-run-status role="status"></p>
         <button type="button" data-start-cancel hidden>${tr(locale, "Stop task", "停止任务")}</button>

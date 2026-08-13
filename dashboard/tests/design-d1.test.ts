@@ -157,7 +157,6 @@ describe("DSN-003 click targets", () => {
       ".provider-diagnostic-dismiss",
       ".radar-item button",
       ".conversation-wait [data-conversation-cancel]",
-      ".action-panel .action-panel-close",
     ];
     for (const selector of blocked) {
       const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

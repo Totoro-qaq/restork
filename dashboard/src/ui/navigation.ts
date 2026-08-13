@@ -19,8 +19,9 @@ function navButton(
       + `<span class="sr-only">${escapeMarkup(tr(locale, `${count} new`, `${count} 项新增`))}</span>`
     : "";
   const current = active ? ' aria-current="page"' : "";
+  const glyph = `<svg class="icon" aria-hidden="true" width="16" height="16"><use href="#${icon}"/></svg>`;
   return `<button class="nav-item${active ? " is-active" : ""}" type="button" data-view="${view}"${current}>`
-    + `<b class="icon" aria-hidden="true">${icon}</b>${label}${badge}</button>`;
+    + `${glyph}${label}${badge}</button>`;
 }
 
 function navGroup(id: string, locale: Locale, en: string, zh: string, items: string[]): string {
@@ -40,14 +41,14 @@ export function primaryNav(snapshot: DashboardSnapshot, locale: Locale): string 
   const v2 = snapshot.workspaceV2;
   const startup = v2?.personal?.settings.startup_page === "dashboard" ? "overview" : "start";
   const core = [
-    navButton("start", "›", tr(locale, "Start", "开始"), startup === "start"),
-    navButton("overview", "R", tr(locale, "Dashboard", "仪表盘"), startup === "overview"),
-    navButton("runs", "›", tr(locale, "Runs", "运行"), false, active + pending, locale),
-    navButton("tasks", "□", tr(locale, "Tasks", "任务"), false, incomplete, locale),
+    navButton("start", "nav-start", tr(locale, "Start", "开始"), startup === "start"),
+    navButton("overview", "nav-overview", tr(locale, "Dashboard", "仪表盘"), startup === "overview"),
+    navButton("runs", "nav-runs", tr(locale, "Runs", "运行"), false, active + pending, locale),
+    navButton("tasks", "nav-tasks", tr(locale, "Tasks", "任务"), false, incomplete, locale),
     v2
       ? navButton(
         "conversation",
-        "C",
+        "nav-conversation",
         tr(locale, "Conversation", "对话"),
         false,
         v2.sessions.length,
@@ -56,11 +57,11 @@ export function primaryNav(snapshot: DashboardSnapshot, locale: Locale): string 
       : "",
   ].filter(Boolean);
   const knowledge = [
-    navButton("vault", "K", tr(locale, "Knowledge", "知识库"), false),
+    navButton("vault", "nav-vault", tr(locale, "Knowledge", "知识库"), false),
     v2
       ? navButton(
         "deliverables",
-        "D",
+        "nav-deliverables",
         tr(locale, "Deliverables", "交付物"),
         false,
         v2.deliverables.length,
@@ -72,14 +73,14 @@ export function primaryNav(snapshot: DashboardSnapshot, locale: Locale): string 
     v2
       ? navButton(
         "automation",
-        "A",
+        "nav-automation",
         tr(locale, "Automation", "自动化"),
         false,
         v2.schedules.length,
         locale,
       )
       : "",
-    v2 ? navButton("settings", "⚙", tr(locale, "Settings", "设置"), false) : "",
+    v2 ? navButton("settings", "nav-settings", tr(locale, "Settings", "设置"), false) : "",
   ].filter(Boolean);
   return [
     navGroup("core", locale, "Core", "核心", core),

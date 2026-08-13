@@ -56,7 +56,7 @@ export function configureStartWorkspace(
     });
     if (studyFields) studyFields.hidden = mode !== "study";
     if (workFields) workFields.hidden = mode !== "work";
-    if (workRoot) workRoot.required = mode === "work" && !hasNativeWorkspacePicker;
+    if (workRoot) workRoot.required = false;
     const studyBlocked = mode === "study"
       && !(snapshot.taskBoard.vault_configured ?? snapshot.taskBoard.configured);
     if (providerHint) providerHint.hidden = providerReady;
@@ -123,6 +123,21 @@ export function configureStartWorkspace(
   root.querySelector<HTMLButtonElement>("[data-start-open-vault]")?.addEventListener("click", () => {
     goal?.setAttribute("data-return-focus", "true");
     effects.selectView("vault");
+  });
+  root.querySelector<HTMLButtonElement>("[data-start-workspace-readonly]")?.addEventListener("click", () => {
+    selectMode("research");
+    if (webWorkspace) webWorkspace.hidden = true;
+    goal?.focus();
+  });
+  root.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const next = target.closest<HTMLButtonElement>("[data-wait-next]");
+    if (!next || !root.contains(next)) return;
+    const action = next.dataset.waitNext;
+    if (action === "settings") effects.selectView("settings");
+    else if (action === "vault") effects.selectView("vault");
+    else if (action === "retry") form.requestSubmit();
   });
   chooseWorkspace?.addEventListener("click", () => {
     if (!effects.chooseWorkspace) return;

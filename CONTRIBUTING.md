@@ -34,7 +34,10 @@ Run these while iterating; they match the default pull-request feedback lane:
 ```bash
 node --test scripts/tests/windows-toolchain.test.mjs
 python3 -m unittest scripts.tests.test_desktop_release
+python3 -m unittest scripts.tests.test_spacing_grid
 python3 scripts/check_architecture.py
+python3 scripts/check_spacing_grid.py
+python3 scripts/check_spacing_grid.py
 cargo fmt --manifest-path rust/Cargo.toml --all -- --check
 cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets -- -D warnings
 cargo test --manifest-path rust/Cargo.toml --locked

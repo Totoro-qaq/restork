@@ -286,7 +286,7 @@ export function traceMarkup(trace: RunTrace, locale: Locale = "en"): string {
     .join("");
 
   return `<section class="trace-panel" aria-labelledby="trace-title">
-    <header><p class="eyebrow">DURABLE LOOP · TRACE</p><h3 id="trace-title">${tr(locale, "Run trace", "运行追踪")}</h3></header>
+    <header><p class="eyebrow">${tr(locale, "Durable loop · trace", "持久循环 · 追踪")}</p><h3 id="trace-title">${tr(locale, "Run trace", "运行追踪")}</h3></header>
     <div class="trace-chips">${chips.join("")}</div>
     <div class="trace-timeline" role="img" aria-label="${escape(
       tr(locale, "Iteration timeline", "迭代时间线"),

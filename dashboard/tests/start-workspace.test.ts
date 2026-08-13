@@ -319,13 +319,16 @@ describe("run-first start workspace", () => {
     expect(root.innerHTML).not.toContain("/Users/example/Documents/restork");
   });
 
-  it("keeps a direct project-folder field for the standalone browser build", () => {
+  it("explains that a plain browser cannot hold a directory grant", () => {
     const root = render();
     root.querySelector<HTMLButtonElement>('[data-start-mode="work"]')?.click();
 
     expect(root.querySelector<HTMLElement>("[data-start-workspace-native]")?.hidden).toBe(true);
     expect(root.querySelector<HTMLElement>("[data-start-workspace-web]")?.hidden).toBe(false);
-    expect(root.querySelector<HTMLInputElement>("#start-work-root")?.required).toBe(true);
+    expect(root.textContent).toContain("普通浏览器不能持有系统目录授权");
+    expect(root.querySelector("[data-start-download-desktop]")).not.toBeNull();
+    expect(root.querySelector("[data-start-workspace-readonly]")).not.toBeNull();
+    expect(root.querySelector<HTMLInputElement>("#start-work-root")?.required).toBe(false);
   });
 
   it("offers a default-off run summary after a completed task", () => {
