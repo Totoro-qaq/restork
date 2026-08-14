@@ -11,9 +11,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SITE = ROOT / "site"
 
 DOWNLOADS = {
-    "macOS": "Restork-0.1.5-alpha.1-macOS-arm64-UNSIGNED-ALPHA.dmg",
-    "Windows": "Restork-0.1.5-alpha.1-Windows-x64-UNSIGNED-ALPHA-setup.exe",
-    "Linux": "Restork-0.1.5-alpha.1-Linux-x64-UNSIGNED-ALPHA.AppImage",
+    "macOS": "Restork-0.1.5-alpha.3-macOS-arm64-UNSIGNED-ALPHA.dmg",
+    "Windows": "Restork-0.1.5-alpha.3-Windows-x64-UNSIGNED-ALPHA-setup.exe",
+    "Linux": "Restork-0.1.5-alpha.3-Linux-x64-UNSIGNED-ALPHA.AppImage",
 }
 
 
@@ -32,7 +32,7 @@ class SiteH2ContractTests(unittest.TestCase):
             for platform, asset in DOWNLOADS.items():
                 with self.subTest(locale=locale, platform=platform):
                     self.assertIn(asset, hero_html)
-            self.assertIn("v0.1.5-alpha.1", hero_html)
+            self.assertIn("v0.1.5-alpha.3", hero_html)
 
     def test_narrative_is_four_ordered_steps_not_feature_card_grids(self) -> None:
         for locale, html in self.pages.items():
