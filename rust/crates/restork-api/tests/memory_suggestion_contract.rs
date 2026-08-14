@@ -119,7 +119,8 @@ fn seed_suggestion(database: &Database, run_id: &str, mode: &str, summary: &str)
             data_class: "personal",
             content_hash: hash,
             created_at: "2026-08-13T00:00:00Z",
-            expires_at: "2026-08-14T00:00:00Z",
+            // Keep the fixture valid independently of the wall clock running CI.
+            expires_at: "2099-12-31T23:59:59Z",
         })
         .expect("offer");
 }
