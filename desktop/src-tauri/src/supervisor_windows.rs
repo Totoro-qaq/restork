@@ -142,6 +142,7 @@ pub(crate) fn invalidate_vault_authority(app: &AppHandle) -> Result<(), &'static
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
         .status()
         .map_err(|_| "vault_authority_invalidation_failed")?
         .success()

@@ -39,8 +39,8 @@ function intervalDaysFromForm(form: HTMLFormElement, locale: Locale): number | "
   const input = form.querySelector<HTMLInputElement>('input[name="interval_days"]');
   if (!parsed.ok || parsed.value === undefined) {
     const message = locale === "zh-CN"
-      ? "间隔必须是 2 到 365 天之间的整数。"
-      : "Use a whole number of days between 2 and 365.";
+      ? `间隔必须是 ${MIN_SCHEDULE_INTERVAL_DAYS} 到 ${MAX_SCHEDULE_INTERVAL_DAYS} 天之间的整数。`
+      : `Use a whole number of days between ${MIN_SCHEDULE_INTERVAL_DAYS} and ${MAX_SCHEDULE_INTERVAL_DAYS}.`;
     input?.setCustomValidity(message);
     input?.reportValidity();
     return "invalid";
@@ -54,6 +54,27 @@ export interface AutomationUiEffects {
   announceStatus(message: string): void;
   confirm(message: string): Promise<boolean>;
   reload(): Promise<void>;
+}
+
+async function reloadAfterScheduleSave(
+  root: HTMLElement,
+  effects: AutomationUiEffects,
+  savedEn: string,
+  savedZh: string,
+): Promise<void> {
+  const locale = localeOf(root);
+  effects.announceStatus(tr(locale, savedEn, savedZh));
+  try {
+    await effects.reload();
+    effects.announceStatus(tr(locale, savedEn, savedZh));
+  } catch (error) {
+    const detail = errorText(error, locale);
+    effects.announceError(tr(
+      locale,
+      `Saved, but the list could not refresh. ${detail}`,
+      `已保存，但列表刷新失败。${detail}`,
+    ));
+  }
 }
 
 /** Bind the Automation workspace without exposing schedule storage details. */
@@ -111,13 +132,12 @@ export function configureAutomation(
       }
       if (status) status.textContent = tr(localeOf(root), "Saving automation…", "正在保存自动化…");
       void api.createSchedule(input)
-        .then(async () => {
-          // A dashboard refresh may be slower on CI or a cold desktop Core. Confirm
-          // persistence immediately, then repaint the same notice after the view reload.
-          effects.announceStatus(tr(localeOf(root), "Schedule saved.", "自动化已保存。"));
-          await effects.reload();
-          effects.announceStatus(tr(localeOf(root), "Schedule saved.", "自动化已保存。"));
-        })
+        .then(() => reloadAfterScheduleSave(
+          root,
+          effects,
+          "Schedule saved.",
+          "自动化已保存。",
+        ))
         .catch((error) => {
           const message = errorText(error, localeOf(root));
           if (status) status.textContent = message;
@@ -147,10 +167,12 @@ export function configureAutomation(
       }
       const schedule: ScheduleUpdateSpecV2 = { ...input, schedule_id: scheduleId };
       void api.updateSchedule(scheduleId, revision, schedule)
-        .then(async () => {
-          await effects.reload();
-          effects.announceStatus(tr(localeOf(root), "Schedule updated.", "自动化已更新。"));
-        })
+        .then(() => reloadAfterScheduleSave(
+          root,
+          effects,
+          "Schedule updated.",
+          "自动化已更新。",
+        ))
         .catch((error) => effects.announceError(errorText(error, localeOf(root))))
         .finally(() => {
           if (submit && root.contains(submit)) submit.disabled = false;
@@ -233,11 +255,18 @@ function runListAction(
   action: () => Promise<void>,
   effects: AutomationUiEffects,
 ): void {
+  const idleLabel = button.textContent ?? "";
   button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.textContent = tr(localeOf(root), "Loading…", "正在读取……");
   void action()
     .catch((error) => effects.announceError(errorText(error, localeOf(root))))
     .finally(() => {
-      if (root.contains(button)) button.disabled = false;
+      if (root.contains(button)) {
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+        button.textContent = idleLabel;
+      }
     });
 }
 
@@ -347,7 +376,7 @@ function updateScheduleList(
   }
   const attribute = kind === "active" ? "data-schedule-active-more" : "data-schedule-trash-more";
   page.innerHTML = nextCursor
-    ? `<button type="button" ${attribute}="${escapeMarkup(nextCursor)}">${tr(locale, "LOAD MORE", "加载更多")}</button>`
+    ? `<button type="button" ${attribute}="${escapeMarkup(nextCursor)}">${tr(locale, "Load more", "加载更多")}</button>`
     : "";
 }
 
@@ -375,7 +404,7 @@ function updateScheduleRuns(
   if (nextCursor) {
     const cursor = escapeMarkup(nextCursor);
     const id = escapeMarkup(scheduleId);
-    const label = tr(locale, "LOAD EARLIER RUNS", "加载更早记录");
+    const label = tr(locale, "Load earlier runs", "加载更早记录");
     host.insertAdjacentHTML(
       "beforeend",
       `<button type="button" data-schedule-runs-more="${cursor}" data-schedule-id="${id}">${label}</button>`,
@@ -401,7 +430,12 @@ async function handleScheduleAction(
     ));
     if (!confirmed) return;
   }
+  const idleLabel = button.textContent ?? "";
   button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.textContent = action === "run"
+    ? tr(localeOf(root), "Starting…", "正在开始……")
+    : tr(localeOf(root), "Saving…", "正在保存……");
   try {
     if (action === "run" && api.runScheduleNow) {
       await api.runScheduleNow(scheduleId);
@@ -425,7 +459,12 @@ async function handleScheduleAction(
       button.disabled = false;
     }
   } catch (error) {
-    button.disabled = false;
     effects.announceError(errorText(error, localeOf(root)));
+  } finally {
+    if (root.contains(button)) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+      button.textContent = idleLabel;
+    }
   }
 }

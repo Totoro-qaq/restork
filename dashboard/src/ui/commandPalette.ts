@@ -109,24 +109,25 @@ export function commandPaletteMarkup(snapshot: DashboardSnapshot, locale: Locale
     const search = escapeMarkup(item.keywords.toLocaleLowerCase());
     return `<button type="button" role="option" id="command-palette-option-${index}" data-command-item data-view-target="${item.view}"
       ${modeAttribute} ${entityAttribute} ${skillAttribute} data-search="${search}" aria-selected="${String(index === 0)}">
-        <span title="${escapeMarkup(item.label)}">${escapeMarkup(item.label)}</span><small>${escapeMarkup(item.detail)}</small>
+        <span title="${escapeMarkup(item.label)}">${escapeMarkup(item.label)}</span><small title="${escapeMarkup(item.detail)}">${escapeMarkup(item.detail)}</small>
       </button>`;
   }).join("");
-  return `<dialog class="command-palette" data-command-palette aria-labelledby="command-palette-title">
+  return `<dialog id="command-palette-dialog" class="command-palette" data-command-palette aria-labelledby="command-palette-title">
     <form method="dialog" class="command-palette-shell">
       <header>
         <label id="command-palette-title" for="command-palette-query">${tr(locale, "Go to or start something", "搜索或发起任务")}</label>
+        <span class="sr-only" role="status" aria-live="polite" data-command-palette-count>${tr(locale, `${items.length} results`, `${items.length} 个结果`)}</span>
         <button type="submit" value="cancel" aria-label="${tr(locale, "Close", "关闭")}">×</button>
       </header>
-      <input id="command-palette-query" type="search" role="combobox" aria-expanded="true"
+      <input id="command-palette-query" type="search" role="combobox" aria-expanded="false"
         aria-controls="command-palette-results" aria-activedescendant="" autocomplete="off"
         spellcheck="false" placeholder="${tr(locale, "Type a page, task, run, or memory", "输入页面、任务、运行或记忆")}"
         data-command-palette-query>
       <div class="command-palette-results" role="listbox" aria-label="${tr(locale, "Results", "结果")}" data-command-palette-results>
         ${itemMarkup}
       </div>
-      <p class="command-palette-empty" data-command-palette-empty hidden>${tr(locale, "No matches", "没有匹配项")}</p>
-      <p class="command-palette-help">${tr(locale, "↑↓ to move · Enter to open · Esc to close", "↑↓ 选择 · Enter 打开 · Esc 关闭")}</p>
+      <p class="command-palette-empty" data-command-palette-empty hidden>${tr(locale, "No matches. Try a page, task, run, or memory.", "没有匹配项。可以试试页面、任务、运行或记忆。")}</p>
+      <p class="command-palette-help">${tr(locale, "↑↓ to move · Home/End to jump · Enter to open · Esc to close", "↑↓ 选择 · Home/End 跳转 · Enter 打开 · Esc 关闭")}</p>
     </form>
   </dialog>`;
 }

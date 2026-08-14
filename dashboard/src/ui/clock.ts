@@ -29,6 +29,26 @@ export function startClock(root: HTMLElement): void {
     text.textContent = formatter.format(now);
   };
   update();
-  const timer = window.setInterval(update, reduced ? 60_000 : 1_000);
-  cleanups.set(root, () => window.clearInterval(timer));
+  // A workspace render replaces the clock, and tests frequently remove the
+  // whole root. A repeating interval would keep updating detached elements and
+  // keep the test worker alive. Schedule one tick at a time so a detached root
+  // tears itself down instead of leaving an open handle behind.
+  let timer: number | null = null;
+  let disposed = false;
+  const stop = (): void => {
+    disposed = true;
+    if (timer != null) window.clearTimeout(timer);
+    timer = null;
+    if (cleanups.get(root) === stop) cleanups.delete(root);
+  };
+  const tick = (): void => {
+    if (disposed || !root.isConnected) {
+      stop();
+      return;
+    }
+    update();
+    timer = window.setTimeout(tick, reduced ? 60_000 : 1_000);
+  };
+  cleanups.set(root, stop);
+  if (root.isConnected) timer = window.setTimeout(tick, reduced ? 60_000 : 1_000);
 }

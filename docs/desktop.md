@@ -69,6 +69,8 @@ npm --prefix desktop run build:linux
 For an interactive source start, use `./scripts/quickstart.sh` on macOS/Linux or
 `./scripts/quickstart.ps1` in Windows PowerShell. Restork does not require `as.exe`, `dlltool`, or
 MinGW. Linux packaging dependencies are contributor-only; the AppImage/DEB user never installs them.
+The Windows source command keeps Core attached to PowerShell, so closing that terminal ends the
+source session. The installed Windows desktop app starts without a terminal.
 
 Outputs are under `desktop/src-tauri/target/release/bundle/`. The build compiles `restorkd`, embeds
 the Dashboard, and bundles both into the native application; opening the result performs no package

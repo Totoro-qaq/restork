@@ -235,7 +235,7 @@ export function traceMarkup(trace: RunTrace, locale: Locale = "en"): string {
     chips.push(chip(tr(locale, `${trace.failedTools} failed`, `${trace.failedTools} 失败`)));
   }
   if (trace.approvals > 0) {
-    chips.push(chip(tr(locale, `${trace.approvals} approval(s)`, `${trace.approvals} 次审批`)));
+    chips.push(chip(tr(locale, `${trace.approvals} confirmation(s)`, `${trace.approvals} 次确认`)));
   }
   if (trace.retries > 0) {
     chips.push(chip(tr(locale, `${trace.retries} retry(ies)`, `${trace.retries} 次重试`)));
@@ -271,13 +271,13 @@ export function traceMarkup(trace: RunTrace, locale: Locale = "en"): string {
         : `<p class="trace-empty">${tr(locale, "No tool calls in this iteration.", "本轮没有工具调用。")}</p>`;
       const flags: string[] = [];
       if (bucket.approvals > 0) {
-        flags.push(tr(locale, `${bucket.approvals} approval gate(s)`, `${bucket.approvals} 个审批门`));
+        flags.push(tr(locale, `${bucket.approvals} confirmation(s)`, `${bucket.approvals} 次等待确认`));
       }
       if (bucket.retries > 0) {
         flags.push(tr(locale, `${bucket.retries} retry(ies)`, `${bucket.retries} 次重试`));
       }
       if (bucket.compacted) {
-        flags.push(tr(locale, "context compacted", "上下文已压缩"));
+        flags.push(tr(locale, "earlier context summarized", "较早内容已整理"));
       }
       return `<li><details><summary>${escape(iterationTitle(bucket, locale))}${
         flags.length ? ` <small>${escape(flags.join(" · "))}</small>` : ""
@@ -286,7 +286,7 @@ export function traceMarkup(trace: RunTrace, locale: Locale = "en"): string {
     .join("");
 
   return `<section class="trace-panel" aria-labelledby="trace-title">
-    <header><p class="eyebrow">${tr(locale, "Durable loop · trace", "持久循环 · 追踪")}</p><h3 id="trace-title">${tr(locale, "Run trace", "运行追踪")}</h3></header>
+    <header><p class="eyebrow">${tr(locale, "Sources, tools and retries", "来源、工具与重试")}</p><h3 id="trace-title">${tr(locale, "Run record", "运行记录")}</h3></header>
     <div class="trace-chips">${chips.join("")}</div>
     <div class="trace-timeline" role="img" aria-label="${escape(
       tr(locale, "Iteration timeline", "迭代时间线"),

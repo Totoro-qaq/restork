@@ -5,6 +5,7 @@ import type {
   DashboardApi,
   DashboardSnapshot,
   ProviderProfileRecordV2,
+  SchedulePageV2,
   ScheduleRecordV2,
 } from "../src/api/types";
 
@@ -114,18 +115,48 @@ describe("Automation workspace", () => {
     root.remove();
   });
 
+  it("keeps a saved every-N-days automation visible and editable", () => {
+    const root = document.createElement("main");
+    const everyThreeDays = scheduleRecord({
+      schedule: {
+        ...scheduleRecord().schedule,
+        name: "Every third day review",
+        recurrence: {
+          kind: "every_n_days",
+          interval_days: 3,
+          anchor: "2026-08-14",
+          hour: 9,
+          minute: 5,
+        },
+      },
+    });
+    const state = automationSnapshot([everyThreeDays]);
+    mountDashboard(root, { api: apiFor(state), snapshot: state, locale: "en" });
+    root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
+
+    expect(root.textContent).toContain("Every third day review");
+    expect(root.textContent).toContain("Every 3 days at 09:05");
+    root.querySelector<HTMLButtonElement>('[data-schedule-action="edit"]')?.click();
+    const form = root.querySelector<HTMLFormElement>("[data-schedule-edit-form]");
+    expect((form?.elements.namedItem("recurrence") as HTMLSelectElement | null)?.value).toBe("every_n_days");
+    expect((form?.elements.namedItem("interval_days") as HTMLInputElement | null)?.value).toBe("3");
+    root.remove();
+  });
+
   it("creates and edits a named schedule with explicit success feedback", async () => {
     const root = document.createElement("main");
     const created = scheduleRecord();
-    const state = automationSnapshot([]);
-    const updated = automationSnapshot([created]);
-    const api = apiFor(updated);
-    api.createSchedule = vi.fn(async () => created);
-    api.updateSchedule = vi.fn(async () => ({
+    const revised = {
       ...created,
       revision: 2,
       schedule: { ...created.schedule, name: "Updated local check" },
-    }));
+    };
+    const state = automationSnapshot([]);
+    const updated = automationSnapshot([created]);
+    const updatedAgain = automationSnapshot([revised]);
+    const api = apiFor(updated);
+    api.createSchedule = vi.fn(async () => created);
+    api.updateSchedule = vi.fn(async () => revised);
     mountDashboard(root, { api, snapshot: state, locale: "en" });
     root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
 
@@ -142,6 +173,14 @@ describe("Automation workspace", () => {
       job: { kind: "deterministic", job: "health.check" },
     })));
     await vi.waitFor(() => expect(root.textContent).toContain("Schedule saved"));
+    await vi.waitFor(() => expect(
+      root.querySelector<HTMLButtonElement>('[data-schedule-action="edit"]'),
+    ).not.toBeNull());
+
+    let finishReload: ((value: DashboardSnapshot) => void) | undefined;
+    vi.mocked(api.loadDashboard).mockImplementationOnce(() => new Promise((resolve) => {
+      finishReload = resolve;
+    }));
 
     root.querySelector<HTMLButtonElement>('[data-schedule-action="edit"]')?.click();
     const edit = root.querySelector<HTMLFormElement>("[data-schedule-edit-form]");
@@ -153,7 +192,34 @@ describe("Automation workspace", () => {
       1,
       expect.objectContaining({ name: "Updated local check", schedule_id: "schedule-morning" }),
     ));
+    await vi.waitFor(() => expect(api.loadDashboard).toHaveBeenCalledTimes(2));
+    // Feedback must not wait for a cold Core or a slow full-workspace repaint.
     await vi.waitFor(() => expect(root.textContent).toContain("Schedule updated"));
+    finishReload?.(updatedAgain);
+    await vi.waitFor(() => expect(root.textContent).toContain("Updated local check"));
+    await vi.waitFor(() => expect(root.textContent).toContain("Schedule updated"));
+    root.remove();
+  });
+
+  it("keeps save success explicit when only the list refresh fails", async () => {
+    const root = document.createElement("main");
+    const state = automationSnapshot([]);
+    const api = apiFor(state);
+    api.createSchedule = vi.fn(async () => scheduleRecord());
+    vi.mocked(api.loadDashboard).mockRejectedValueOnce(new Error("refresh unavailable"));
+    mountDashboard(root, { api, snapshot: state, locale: "en" });
+    root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
+
+    const form = root.querySelector<HTMLFormElement>("#schedule-create-form");
+    if (!form) throw new Error("create form unavailable");
+    (form.elements.namedItem("name") as HTMLInputElement).value = "Morning local check";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(api.createSchedule).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(root.textContent).toContain(
+      "Saved, but the list could not refresh.",
+    ));
+    expect(root.textContent).toContain("refresh unavailable");
     root.remove();
   });
 
@@ -275,6 +341,32 @@ describe("Automation workspace", () => {
     history?.click();
     await vi.waitFor(() => expect(api.listScheduleRuns).toHaveBeenCalled());
     await vi.waitFor(() => expect(history?.disabled).toBe(false));
+    root.remove();
+  });
+
+  it("keeps a slow list refresh understandable and restores the original action", async () => {
+    const root = document.createElement("main");
+    const state = automationSnapshot([scheduleRecord()]);
+    const api = apiFor(state);
+    let finish: ((value: SchedulePageV2) => void) | undefined;
+    api.listSchedules = vi.fn((): Promise<SchedulePageV2> => new Promise((resolve) => { finish = resolve; }));
+    mountDashboard(root, { api, snapshot: state, locale: "zh-CN" });
+    root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
+
+    const refresh = root.querySelector<HTMLButtonElement>("[data-schedule-active-load]");
+    const idleLabel = refresh?.textContent;
+    refresh?.click();
+    expect(refresh?.disabled).toBe(true);
+    expect(refresh?.getAttribute("aria-busy")).toBe("true");
+    expect(refresh?.textContent).toContain("正在读取");
+
+    finish?.({
+      items: [scheduleRecord()],
+      page: { limit: 20, has_more: false, next_cursor: null },
+    });
+    await vi.waitFor(() => expect(refresh?.disabled).toBe(false));
+    expect(refresh?.hasAttribute("aria-busy")).toBe(false);
+    expect(refresh?.textContent).toBe(idleLabel);
     root.remove();
   });
 

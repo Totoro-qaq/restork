@@ -86,6 +86,113 @@ function Assert-Authenticode {
     }
 }
 
+function Assert-WindowsGuiSubsystem {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $ImageDosSignature = 0x5A4D
+    $ImageNtSignature = 0x00004550
+    $ImageNtOptionalHeader32Magic = 0x010B
+    $ImageNtOptionalHeader64Magic = 0x020B
+    $ImageSubsystemWindowsGui = 2
+
+    $stream = [IO.File]::Open(
+        $Path,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        [IO.FileShare]::Read
+    )
+    $reader = [IO.BinaryReader]::new($stream)
+    try {
+        if ($reader.ReadUInt16() -ne $ImageDosSignature) {
+            throw "Restork.exe does not have a valid DOS header: $Path"
+        }
+        $stream.Position = 0x3C
+        $peOffset = $reader.ReadInt32()
+        if ($peOffset -lt 64 -or $peOffset -gt ($stream.Length - 96)) {
+            throw "Restork.exe has an invalid PE header offset: $Path"
+        }
+        $stream.Position = $peOffset
+        if ($reader.ReadUInt32() -ne $ImageNtSignature) {
+            throw "Restork.exe does not have a valid PE signature: $Path"
+        }
+
+        $optionalHeaderStart = $peOffset + 4 + 20
+        $stream.Position = $optionalHeaderStart
+        $optionalHeaderMagic = $reader.ReadUInt16()
+        if ($optionalHeaderMagic -notin @(
+            $ImageNtOptionalHeader32Magic,
+            $ImageNtOptionalHeader64Magic
+        )) {
+            throw "Restork.exe has an unsupported optional header: $Path"
+        }
+
+        # IMAGE_OPTIONAL_HEADER.Subsystem is 68 bytes from the start of both
+        # PE32 and PE32+ optional headers.
+        $stream.Position = $optionalHeaderStart + 68
+        $subsystem = $reader.ReadUInt16()
+        if ($subsystem -ne $ImageSubsystemWindowsGui) {
+            throw "Restork.exe must use the Windows GUI subsystem; observed $subsystem."
+        }
+    } finally {
+        $reader.Dispose()
+    }
+}
+
+function Start-RestorkViaEphemeralLauncher {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$CaseDirectory
+    )
+
+    $launcherScript = Join-Path $CaseDirectory 'launch-restork.ps1'
+    $pidFile = Join-Path $CaseDirectory 'launched-restork.pid'
+    @'
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$Executable,
+
+    [Parameter(Mandatory = $true)]
+    [string]$PidFile
+)
+
+$ErrorActionPreference = 'Stop'
+$desktop = Start-Process -FilePath $Executable -PassThru
+Set-Content -LiteralPath $PidFile -Value $desktop.Id -Encoding ascii
+'@ | Set-Content -LiteralPath $launcherScript -Encoding utf8
+
+    $powerShell = (Get-Process -Id $PID).Path
+    $launcher = Start-Process -FilePath $powerShell -ArgumentList @(
+        '-NoProfile',
+        '-NonInteractive',
+        '-File', ('"' + $launcherScript + '"'),
+        ('"' + $Path + '"'),
+        ('"' + $pidFile + '"')
+    ) -WindowStyle Hidden -Wait -PassThru
+    if ($launcher.ExitCode -ne 0) {
+        throw "The short-lived launcher failed with exit code $($launcher.ExitCode)."
+    }
+    if (-not (Test-Path -LiteralPath $pidFile -PathType Leaf)) {
+        throw 'The short-lived launcher did not record the Restork process id.'
+    }
+
+    $desktopProcessId = 0
+    $rawProcessId = (Get-Content -LiteralPath $pidFile -Raw).Trim()
+    if (-not [int]::TryParse($rawProcessId, [ref]$desktopProcessId) -or $desktopProcessId -le 0) {
+        throw "The short-lived launcher recorded an invalid Restork process id: $rawProcessId"
+    }
+    $desktopProcess = Get-Process -Id $desktopProcessId -ErrorAction SilentlyContinue
+    if ($null -eq $desktopProcess) {
+        throw 'Restork exited with its short-lived PowerShell launcher.'
+    }
+    return $desktopProcess
+}
+
 function Get-RestorkRegistryEntries {
     $roots = @(
         'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
@@ -282,7 +389,10 @@ function Test-InstallerLifecycle {
         $installed = $true
 
         $executable = Resolve-RestorkExecutable
-        $desktopProcess = Start-Process -FilePath $executable -PassThru
+        Assert-WindowsGuiSubsystem -Path $executable
+        $desktopProcess = Start-RestorkViaEphemeralLauncher `
+            -Path $executable `
+            -CaseDirectory $caseDirectory
 
         $ready = Wait-Until -TimeoutSeconds 45 -Condition {
             $desktopProcess.Refresh()

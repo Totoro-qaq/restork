@@ -306,3 +306,34 @@ export function skillImportErrorCopy(
     ? tr(locale, message[0], message[1])
     : errorText(error, locale) || tr(locale, "This folder cannot be imported.", "这个文件夹无法导入。");
 }
+
+export function createExtensionInstallPreviewCard(
+  root: HTMLElement,
+  preview: { preview_digest: string; preview: unknown },
+  onApprove: (approveBtn: HTMLButtonElement) => void,
+): HTMLElement {
+  const card = document.createElement("article");
+  card.className = "extension-install-preview";
+  const title = document.createElement("strong");
+  title.textContent = tr(localeOf(root), "Review the install details", "查看安装内容");
+  const explanation = document.createElement("p");
+  explanation.textContent = tr(
+    localeOf(root),
+    "Nothing has been installed. Confirm this immutable digest to create a quarantined package.",
+    "尚未安装任何内容。确认这份不可变摘要后，才会创建隔离中的扩展。",
+  );
+  const digest = document.createElement("code");
+  digest.textContent = `SHA-256 · ${preview.preview_digest}`;
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.textContent = tr(localeOf(root), "Technical details", "技术详情");
+  const pre = document.createElement("pre");
+  pre.textContent = JSON.stringify(preview.preview, null, 2);
+  details.append(summary, pre);
+  const approve = document.createElement("button");
+  approve.type = "button";
+  approve.textContent = tr(localeOf(root), "INSTALL REVIEWED VERSION", "安装已核验版本");
+  approve.addEventListener("click", () => onApprove(approve));
+  card.append(title, explanation, digest, details, approve);
+  return card;
+}

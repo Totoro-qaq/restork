@@ -99,7 +99,12 @@ describe("preview dialog", () => {
     trigger?.click();
     expect(dialog?.open || dialog?.hasAttribute("open")).toBe(true);
     expect(root.scrollHeight).toBe(heightBefore);
+    expect(dialog?.dataset.previewKind).toBe("deck");
+    expect(dialog?.querySelector("[data-preview-summary]")?.textContent).toContain("2 页");
+    expect(dialog?.querySelector("[data-preview-version]")?.textContent).toBe("v1");
+    expect(dialog?.querySelector("[data-preview-template]")?.textContent).toBeTruthy();
     expect(dialog?.querySelector("[data-preview-body]")?.textContent).toContain("One");
+    expect(document.activeElement).toBe(dialog?.querySelector("[data-preview-body]"));
     expect(dialog?.querySelector('[data-preview-actions] [data-render-format="pptx"]')).not.toBeNull();
     expect(dialog?.querySelector('[data-preview-actions] [data-render-format="pdf"]')).not.toBeNull();
 

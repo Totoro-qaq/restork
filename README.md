@@ -143,6 +143,9 @@ Set-Location restork
 ./scripts/quickstart.ps1
 ```
 
+This contributor command keeps Core attached to PowerShell; closing the terminal stops the source
+session. The installed Windows desktop app runs without a terminal.
+
 Restork asks the operating system for a free loopback port and prints the exact local URL plus
 separate one-time Web and CLI pairing codes. Open the URL, enter the Web code, and you are in. You
 stay paired across refresh, sleep, and a transient disconnect through a protected local recovery

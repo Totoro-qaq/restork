@@ -85,7 +85,8 @@ describe("traceMarkup", () => {
 
   it("localizes the header and chips", () => {
     const html = traceMarkup(buildRunTrace(researchEvents()), "zh-CN");
-    expect(html).toContain("运行追踪");
+    expect(html).toContain("运行记录");
+    expect(html).toContain("来源、工具与重试");
     expect(html).toContain("3 轮迭代");
     expect(html).toContain("工具 1/2 成功");
     expect(html).toContain("第 1 轮");

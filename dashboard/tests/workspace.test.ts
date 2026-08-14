@@ -2116,7 +2116,17 @@ describe("Rust conversation workspace", () => {
       package_kind: "skill",
       state: "quarantined",
       manifest_hash: "b".repeat(64),
-      manifest: { schema_version: 1, version: "1.0.0", tools: [] },
+      manifest: {
+        schema_version: 1,
+        version: "1.0.0",
+        enabled_profiles: ["research-cloud"],
+        requested_permissions: ["network:https://example.com"],
+        provenance: {
+          source: { kind: "catalog", catalog_id: "community" },
+          license: "MIT",
+        },
+        tools: [{ id: "paper.search", name: "Search papers", description: "Find public papers" }],
+      },
       updated_at: "2026-08-02T12:00:00Z",
     });
     state.workspaceV2?.deliverables.push({
@@ -2145,6 +2155,26 @@ describe("Rust conversation workspace", () => {
     expect(root.querySelector<HTMLElement>('[data-view-panel="extensions"]')?.hidden).toBe(false);
     expect(root.querySelector("#extension-install-form")).not.toBeNull();
     expect(root.textContent).toContain("添加扩展");
+    const installed = root.querySelector<HTMLDetailsElement>('[data-extension-list] [data-extension-card-kind="skill"]');
+    expect(installed?.open).toBe(false);
+    expect(installed?.textContent).toContain("skill.synthetic");
+    expect(installed?.textContent).toContain("来源");
+    expect(installed?.textContent).toContain("权限");
+    expect(installed?.textContent).toContain("Search papers");
+    expect(installed?.querySelector("pre")).toBeNull();
+    installed?.querySelector("summary")?.click();
+    expect(installed?.open).toBe(true);
+    const extensionSearch = root.querySelector<HTMLInputElement>("[data-extension-search]");
+    extensionSearch!.value = "paper.search";
+    extensionSearch!.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(installed?.hidden).toBe(false);
+    expect(root.querySelector<HTMLElement>("[data-extension-result-count]")?.textContent).toContain("1");
+    extensionSearch!.value = "nothing-matches-this";
+    extensionSearch!.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(installed?.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>("[data-extension-filter-empty]")?.hidden).toBe(false);
+    extensionSearch!.value = "";
+    extensionSearch!.dispatchEvent(new Event("input", { bubbles: true }));
     const reportSkill = root.querySelector<HTMLButtonElement>('[data-core-skill-view="deliverables"]');
     expect(reportSkill?.getAttribute("aria-label")).toContain("日报与周报");
     reportSkill?.click();

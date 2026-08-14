@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { errorText } from "../src/ui/render";
 
 const stylesheet = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
+const renderer = readFileSync(resolve(import.meta.dirname, "../src/ui/render.ts"), "utf8");
 const desktopConfig = JSON.parse(readFileSync(
   resolve(import.meta.dirname, "../../desktop/src-tauri/tauri.conf.json"),
   "utf8",
@@ -96,9 +97,18 @@ describe("responsive readability", () => {
     expect(stylesheet).toMatch(/--font-ui:[^;]*Segoe UI[^;]*PingFang SC[^;]*Microsoft YaHei/);
     expect(stylesheet).toMatch(/--font-mono:[^;]*Cascadia Code[^;]*Consolas[^;]*Liberation Mono/);
     expect(stylesheet).toMatch(/:root\s*\{[\s\S]*?font-family:\s*var\(--font-ui\)/);
-    expect(stylesheet).toMatch(/\.brand h1,[\s\S]*?\.paper-card h2,[\s\S]*?font-family:\s*var\(--font-display\)/);
+    expect(stylesheet).toMatch(/\.brand h1,[\s\S]*?font-family:\s*var\(--font-display\)/);
+    expect(stylesheet).toMatch(/\.paper-card h1,[\s\S]*?\.paper-card h2\s*\{[^}]*font-family:\s*var\(--font-ui\)/);
     expect(stylesheet).toMatch(/\.board > \.dashboard-card\s*\{[^}]*block-size:\s*clamp\(280px,\s*30vh,\s*340px\)/);
     expect(stylesheet).toMatch(/\.dashboard-card-body\s*\{[^}]*min-height:\s*0[^}]*overflow-y:\s*auto/);
+  });
+
+  it("keeps expressive effects contained and the application shell overflow-safe", () => {
+    expect(renderer).not.toContain('class="aurora"');
+    expect(stylesheet).not.toMatch(/\.aurora(?:\s|,|\{)/);
+    expect(stylesheet).not.toContain("@keyframes drift");
+    expect(stylesheet).toMatch(/html,\s*body,\s*#app\s*\{[^}]*max-width:\s*100%[^}]*overflow-x:\s*(?:hidden|clip)/);
+    expect(stylesheet).toMatch(/\.dashboard,\s*\.workspace,\s*\.view\s*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%/);
   });
 
   it("keeps the Start greeting and long-form reading at a readable measure", () => {
@@ -167,7 +177,8 @@ describe("responsive readability", () => {
     expect(stylesheet).toMatch(/\.command-palette-shell\s*\{[^}]*grid-template-rows:\s*auto auto minmax\(0,\s*1fr\) auto auto/);
     expect(stylesheet).toMatch(/\.command-palette-results\s*\{[^}]*grid-auto-rows:\s*minmax\(46px,\s*auto\)[^}]*min-height:\s*0/);
     expect(stylesheet).toMatch(/\.command-palette-results button > span\s*\{[^}]*min-width:\s*0[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/);
-    expect(stylesheet).toMatch(/\.command-palette-results button > small\s*\{[^}]*flex:\s*0 0 auto/);
+    expect(stylesheet).toMatch(/\.command-palette-results button\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+max-content/);
+    expect(stylesheet).toMatch(/\.command-palette-results button > small\s*\{[^}]*max-width:\s*min\(14rem,\s*32%\)[^}]*white-space:\s*nowrap/);
     expect(stylesheet).toMatch(/\.command-palette-results button\[hidden\]\s*\{[^}]*display:\s*none/);
     expect(stylesheet).toMatch(/\.command-palette-results button:hover\s*\{[^}]*background:/);
     expect(stylesheet).toMatch(/\.command-palette-results button\[aria-selected="true"\]\s*\{[^}]*border-color:/);

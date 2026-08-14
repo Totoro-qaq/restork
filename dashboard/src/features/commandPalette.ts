@@ -34,8 +34,18 @@ export function configureCommandPalette(
     ? [...dialog.querySelectorAll<HTMLButtonElement>("[data-command-item]")]
     : [];
   if (!dialog || !query) return () => undefined;
+  const trigger = root.querySelector<HTMLButtonElement>("[data-command-palette-open]");
+  const resultCount = dialog.querySelector<HTMLElement>("[data-command-palette-count]");
   let visibleItems = allItems;
   let activeIndex = 0;
+  let returnFocus: HTMLElement | null = null;
+
+  const announceResultCount = (): void => {
+    if (!resultCount) return;
+    const en = visibleItems.length === 1 ? "1 result" : `${visibleItems.length} results`;
+    const zh = `${visibleItems.length} 个结果`;
+    resultCount.textContent = root.dataset.locale === "zh-CN" ? zh : en;
+  };
 
   const selectAt = (index: number): void => {
     if (!visibleItems.length) {
@@ -66,16 +76,36 @@ export function configureCommandPalette(
     if (item.dataset.skillId) effects.pinSkill?.(item.dataset.skillId);
   };
   const open = (): void => {
+    returnFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : trigger;
     if (!dialog.open) openDialog(dialog);
+    query.setAttribute("aria-expanded", "true");
     query.value = "";
     allItems.forEach((item) => { item.hidden = false; });
     visibleItems = allItems;
     const empty = dialog.querySelector<HTMLElement>("[data-command-palette-empty]");
     if (empty) empty.hidden = true;
+    announceResultCount();
     selectAt(0);
     query.focus();
   };
-  root.querySelector<HTMLButtonElement>("[data-command-palette-open]")?.addEventListener("click", open);
+  const restoreFocus = (): void => {
+    query.setAttribute("aria-expanded", "false");
+    query.setAttribute("aria-activedescendant", "");
+    const target = returnFocus;
+    returnFocus = null;
+    queueMicrotask(() => {
+      if (target?.isConnected) target.focus();
+    });
+  };
+  const cancel = (event: Event): void => {
+    event.preventDefault();
+    closeDialog(dialog);
+  };
+  dialog.addEventListener("cancel", cancel);
+  dialog.addEventListener("close", restoreFocus);
+  trigger?.addEventListener("click", open);
   allItems.forEach((item) => item.addEventListener("click", () => activate(item)));
   allItems.forEach((item) => item.addEventListener("pointermove", () => {
     const index = visibleItems.indexOf(item);
@@ -89,6 +119,7 @@ export function configureCommandPalette(
     visibleItems = allItems.filter((item) => !item.hidden);
     const empty = dialog.querySelector<HTMLElement>("[data-command-palette-empty]");
     if (empty) empty.hidden = visibleItems.length > 0;
+    announceResultCount();
     selectAt(0);
   });
   query.addEventListener("keydown", (event) => {
@@ -98,6 +129,12 @@ export function configureCommandPalette(
     } else if (event.key === "Enter") {
       event.preventDefault();
       if (visibleItems[activeIndex]) activate(visibleItems[activeIndex]);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      selectAt(event.key === "Home" ? 0 : visibleItems.length - 1);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeDialog(dialog);
     }
   });
   const globalShortcut = (event: KeyboardEvent): void => {
@@ -109,6 +146,9 @@ export function configureCommandPalette(
   document.addEventListener("keydown", globalShortcut);
   const cleanup = (): void => {
     document.removeEventListener("keydown", globalShortcut);
+    dialog.removeEventListener("cancel", cancel);
+    dialog.removeEventListener("close", restoreFocus);
+    trigger?.removeEventListener("click", open);
     if (activePaletteCleanup === cleanup) activePaletteCleanup = undefined;
   };
   activePaletteCleanup = cleanup;
