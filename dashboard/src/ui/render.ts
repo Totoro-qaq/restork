@@ -1,5 +1,4 @@
 import type {
-  ApprovalRequest,
   CalendarEvent,
   CatalogRecordV2,
   ConversationTurn,
@@ -59,20 +58,17 @@ import { scheduleIntervalField } from "./schedules";
 import { timeZoneOptions } from "./timezone";
 import { previewDialogMarkup } from "./previewDialog";
 import { safeMarkdownPreview } from "./markdown";
-
-export type AgentWaitStage =
-  | "prepare"
-  | "sources"
-  | "model"
-  | "verify"
-  | "retry"
-  | "complete"
-  | "blocked"
-  | "error";
+import {
+  MAX_SCHEDULE_INTERVAL_DAYS,
+  MIN_SCHEDULE_INTERVAL_DAYS,
+} from "../limits";
+import type { AgentWaitNextStep } from "./runtimeScene";
+import { approvalCardMarkup } from "./approvals";
+export { agentWaitMarkup } from "./runtimeScene";
+export type { AgentWaitStage } from "./runtimeScene";
 
 export function pairingMarkup(locale: Locale = "en"): string {
   return `
-    <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <section class="pairing" aria-labelledby="pairing-title">
       ${localeSwitch(locale)}
       <p class="eyebrow">${tr(locale, "Restork · local-first agent · loopback only", "Restork · 本地优先 · 仅本机回环")}</p>
@@ -96,7 +92,6 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
     ? "overview"
     : "start";
   return `
-    <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     ${navSpriteMarkup()}
     <a class="skip-link" href="#workspace-main">${tr(locale, "Skip to main content", "跳到主要内容")}</a>
     <section class="dashboard" aria-label="${tr(locale, "Restork local workspace", "Restork 本地工作台")}">
@@ -110,7 +105,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
       <main class="workspace" id="workspace-main" tabindex="-1">
         <header class="topline">
           <div class="topline-actions">
-            <button class="quiet-button command-palette-trigger" type="button" data-command-palette-open aria-keyshortcuts="Meta+K Control+K">⌘K</button>
+            <button class="quiet-button command-palette-trigger" type="button" data-command-palette-open aria-keyshortcuts="Meta+K Control+K" aria-haspopup="dialog" aria-controls="command-palette-dialog">⌘K</button>
             ${mailIndicator(snapshot, locale)}
             ${localeSwitch(locale)}
             <button class="quiet-button" id="refresh" type="button">${tr(locale, "REFRESH", "刷新")}</button>
@@ -532,13 +527,13 @@ function extensionsWorkspace(snapshot: DashboardSnapshot, locale: Locale): strin
         <span>${tr(locale, "available only to the run setups you choose", "只供你选择的运行配置使用")}</span>
       </article>
     </div>
-    <section class="core-library" aria-labelledby="core-library-title"><header><div><small>RESTORK CORE</small><h3 id="core-library-title">${tr(locale, "Built-in Skills", "Core 内置 Skills")}</h3></div><span>${skills.length}</span></header><p>${tr(locale, "These workflows ship with Restork rather than a third-party package. They keep the same local files, write confirmations, memory rules and run history.", "这些工作流随 Restork 一起提供，不是第三方扩展；它们共用本地文件、写入确认、记忆规则和运行记录。")}</p><div class="core-skill-grid">${skills.map((skill) => `<button type="button" class="core-skill-card" data-extension-card-kind="skill" ${skill.mode ? `data-core-skill-mode="${skill.mode}"` : `data-core-skill-view="${skill.view}"`} aria-label="${escapeHtml(tr(locale, `Open ${skill.name}`, `打开${skill.name}`))}"><span class="core-skill-card-title"><strong>${escapeHtml(skill.name)}</strong><em>CORE</em></span><code>${escapeHtml(skill.id)}</code><span class="core-skill-card-description">${escapeHtml(skill.description)}</span><small>${escapeHtml(skill.surface)} →</small></button>`).join("")}</div></section>
-    <div class="catalog-toolbar" role="group" data-roving-group data-roving-orientation="horizontal" aria-label="${tr(locale, "Filter extensions", "筛选扩展")}"><button type="button" class="is-active" aria-pressed="true" data-extension-filter="all">${tr(locale, "All", "全部")}</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="skill">Skills</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="mcp">MCP</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="plugin">Plugins</button></div>
-    <div class="catalog-grid extension-grid">${records.map((record) => extensionCard(record, locale)).join("") || `<p class="empty">${tr(
+    <section class="core-library" aria-labelledby="core-library-title"><header><div><small>RESTORK CORE</small><h3 id="core-library-title">${tr(locale, "Built-in Skills", "Core 内置 Skills")}</h3></div><span>${skills.length}</span></header><p>${tr(locale, "These workflows ship with Restork rather than a third-party package. They keep the same local files, write confirmations, memory rules and run history.", "这些工作流随 Restork 一起提供，不是第三方扩展；它们共用本地文件、写入确认、记忆规则和运行记录。")}</p><div class="core-skill-grid">${skills.map((skill) => `<button type="button" class="core-skill-card" data-extension-card-kind="skill" data-extension-search-text="${escapeHtml([skill.name, skill.id, skill.description, skill.surface].join(" ").toLocaleLowerCase())}" ${skill.mode ? `data-core-skill-mode="${skill.mode}"` : `data-core-skill-view="${skill.view}"`} aria-label="${escapeHtml(tr(locale, `Open ${skill.name}`, `打开${skill.name}`))}"><span class="core-skill-card-title"><strong>${escapeHtml(skill.name)}</strong><em>CORE</em></span><code>${escapeHtml(skill.id)}</code><span class="core-skill-card-description">${escapeHtml(skill.description)}</span><small>${escapeHtml(skill.surface)} →</small></button>`).join("")}</div></section>
+    <div class="catalog-toolbar" role="group" data-roving-group data-roving-orientation="horizontal" aria-label="${tr(locale, "Filter extensions", "筛选扩展")}"><button type="button" class="is-active" aria-pressed="true" data-extension-filter="all">${tr(locale, "All", "全部")}</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="skill">Skills</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="mcp">MCP</button><button type="button" aria-pressed="false" tabindex="-1" data-extension-filter="plugin">Plugins</button><label class="extension-search">${tr(locale, "Search", "搜索")}<input type="search" data-extension-search maxlength="160" placeholder="${tr(locale, "Name, tool or permission", "名称、工具或权限")}"></label><span role="status" aria-live="polite" data-extension-result-count>${tr(locale, `${skills.length + records.length} shown`, `显示 ${skills.length + records.length} 项`)}</span></div>
+    <div class="catalog-grid extension-grid" role="list" data-extension-list>${records.map((record) => extensionCard(record, locale)).join("") || `<p class="empty">${tr(
       locale,
       "No third-party extensions are installed. Built-in Skills and tools above remain available. Restork will show an MCP server's source and permissions before you install or enable it.",
       "尚未安装第三方扩展；上方内置 Skills 与工具仍可使用。安装或启用 MCP Server 之前，Restork 会先显示它的来源和所需权限。",
-    )}</p>`}</div>
+    )}</p>`}</div><p class="empty" data-extension-filter-empty hidden>${tr(locale, "No extensions match this search.", "没有符合当前条件的扩展。")}</p>
     <section class="tool-inventory" aria-labelledby="tool-inventory-title">
       <header><div><small>CORE + MCP TOOL CATALOG</small><h3 id="tool-inventory-title">${tr(locale, "Tools Restork can run", "Restork 能运行的工具")}</h3></div><span>${tools.length}</span></header>
       <p>${tr(
@@ -634,15 +629,19 @@ function extensionCard(record: CatalogRecordV2, locale: Locale): string {
     : kind === "mcp"
       ? `${transport || tr(locale, "No transport", "未声明传输")} · ${tools.length} ${tr(locale, "tools", "个工具")}`
       : `${objectArray(manifest.skills).length} Skills · ${objectArray(manifest.mcp_servers).length} MCP`;
-  return `<article class="extension-card" data-extension-card-kind="${escapeHtml(kind)}">
-    <header><div><small>${escapeHtml(kind.toUpperCase())} · ${escapeHtml(version)}</small><strong>${escapeHtml(record.package_id ?? "extension")}</strong></div><span class="extension-state ${record.state === "enabled" ? "is-enabled" : ""}">${escapeHtml(extensionStateLabel(record.state, locale))}</span></header>
-    <p>${escapeHtml(summary)}</p>
-    <dl><div><dt>${tr(locale, "Source", "来源")}</dt><dd>${escapeHtml(source || tr(locale, "Not declared", "未声明"))}</dd></div><div><dt>${tr(locale, "Run setups", "运行配置")}</dt><dd>${escapeHtml(profiles.join(", ") || tr(locale, "None", "无"))}</dd></div><div><dt>${tr(locale, "Permissions", "权限")}</dt><dd>${escapeHtml(permissions.join(", ") || tr(locale, "None requested", "未申请"))}</dd></div></dl>
-    ${tools.length ? `<div class="extension-chips">${tools.map((tool) => `<span>${escapeHtml(tool.id)}</span>`).join("")}</div>` : ""}
-    <small>${escapeHtml(record.manifest_hash?.slice(0, 16) ?? "no hash")}… · ${formatDate(record.updated_at, locale)}</small>
-    <details><summary>${tr(locale, "Inspect manifest", "检查清单")}</summary><pre>${prettyJson(record.manifest)}</pre></details>
-    ${record.manifest_hash ? `<div class="record-actions"><button type="button" data-extension-state="${record.state === "enabled" ? "disable" : "enable"}" data-extension-id="${escapeHtml(record.package_id ?? "")}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${record.state === "enabled" ? tr(locale, "DISABLE", "停用") : tr(locale, "CHECK & ENABLE", "查看并启用")}</button><button type="button" class="quiet-button" data-extension-history data-extension-id="${escapeHtml(record.package_id ?? "")}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${tr(locale, "VERSIONS & ROLLBACK", "版本与回滚")}</button></div><div class="extension-history" data-extension-history-results role="status"></div>` : ""}
-  </article>`;
+  const packageId = record.package_id ?? "extension";
+  const searchText = [packageId, kind, version, summary, source, transport, ...profiles, ...permissions, ...tools.flatMap((tool) => [tool.id, tool.name, tool.description])]
+    .join(" ")
+    .toLocaleLowerCase();
+  return `<details class="extension-card extension-row" role="listitem" data-extension-card-kind="${escapeHtml(kind)}" data-extension-search-text="${escapeHtml(searchText)}">
+    <summary><span><small>${escapeHtml(kind.toUpperCase())} · ${escapeHtml(version)}</small><strong>${escapeHtml(packageId)}</strong><em>${escapeHtml(summary)}</em></span><span class="extension-state ${record.state === "enabled" ? "is-enabled" : ""}">${escapeHtml(extensionStateLabel(record.state, locale))}</span></summary>
+    <div class="extension-card-details">
+      <dl><div><dt>${tr(locale, "Source", "来源")}</dt><dd>${escapeHtml(source || tr(locale, "Not declared", "未声明"))}</dd></div><div><dt>${tr(locale, "Version", "版本")}</dt><dd>${escapeHtml(version)}</dd></div><div><dt>${tr(locale, "Connection", "连接方式")}</dt><dd>${escapeHtml(transport || tr(locale, "Not applicable", "不适用"))}</dd></div><div><dt>${tr(locale, "Run setups", "运行配置")}</dt><dd>${escapeHtml(profiles.join(", ") || tr(locale, "None", "无"))}</dd></div><div><dt>${tr(locale, "Permissions", "权限")}</dt><dd>${escapeHtml(permissions.join(", ") || tr(locale, "None requested", "未申请"))}</dd></div></dl>
+      <section class="extension-tool-list" aria-label="${tr(locale, "Declared tools", "声明的工具")}"><strong>${tr(locale, "Tools", "工具")} · ${tools.length}</strong>${tools.length ? `<ul>${tools.map((tool) => `<li><b>${escapeHtml(tool.name)}</b><code>${escapeHtml(tool.id)}</code>${tool.description ? `<span>${escapeHtml(tool.description)}</span>` : ""}</li>`).join("")}</ul>` : `<p>${tr(locale, "This extension declares no tools.", "这个扩展没有声明工具。")}</p>`}</section>
+      <details class="extension-technical-details"><summary>${tr(locale, "Technical details", "技术信息")}</summary><dl><div><dt>${tr(locale, "Fingerprint", "内容指纹")}</dt><dd><code>${escapeHtml(record.manifest_hash ?? tr(locale, "Not available", "暂无"))}</code></dd></div><div><dt>${tr(locale, "Updated", "更新时间")}</dt><dd>${formatDate(record.updated_at, locale)}</dd></div></dl></details>
+      ${record.manifest_hash ? `<div class="record-actions"><button type="button" data-extension-state="${record.state === "enabled" ? "disable" : "enable"}" data-extension-id="${escapeHtml(packageId)}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${record.state === "enabled" ? tr(locale, "DISABLE", "停用") : tr(locale, "CHECK & ENABLE", "查看并启用")}</button><button type="button" class="quiet-button" data-extension-history data-extension-id="${escapeHtml(packageId)}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${tr(locale, "VERSIONS & ROLLBACK", "版本与回滚")}</button></div><div class="extension-history" data-extension-history-results role="status"></div>` : ""}
+    </div>
+  </details>`;
 }
 
 function extensionStateLabel(state: string, locale: Locale): string {
@@ -746,11 +745,9 @@ function scheduleRecordFromCatalog(record: CatalogRecordV2): ScheduleRecordV2 | 
     || typeof job !== "object"
     || job === null
   ) return null;
-  const recurrenceKind = Reflect.get(recurrence, "kind");
   const jobKind = Reflect.get(job, "kind");
-  if (
-    !["one_shot", "daily", "weekly"].includes(String(recurrenceKind))
-  ) return null;
+  const parsedRecurrence = parseScheduleRecurrence(recurrence as Record<string, unknown>);
+  if (!parsedRecurrence) return null;
   let parsedJob: ScheduleJobV2;
   if (jobKind === "deterministic") {
     const jobName = Reflect.get(job, "job");
@@ -792,7 +789,7 @@ function scheduleRecordFromCatalog(record: CatalogRecordV2): ScheduleRecordV2 | 
       schedule_id: record.schedule_id,
       name: typeof schedule.name === "string" ? schedule.name : undefined,
       timezone: schedule.timezone,
-      recurrence: recurrence as ScheduleRecordV2["schedule"]["recurrence"],
+      recurrence: parsedRecurrence,
       missed_run_policy: schedule.missed_run_policy === "skip" ? "skip" : "create_draft",
       job: parsedJob,
     },
@@ -802,6 +799,46 @@ function scheduleRecordFromCatalog(record: CatalogRecordV2): ScheduleRecordV2 | 
     updated_at: record.updated_at,
     deleted_at: record.deleted_at ?? null,
   };
+}
+
+function parseScheduleRecurrence(
+  recurrence: Record<string, unknown>,
+): ScheduleRecordV2["schedule"]["recurrence"] | null {
+  const kind = recurrence.kind;
+  if (kind === "one_shot") {
+    return typeof recurrence.at === "string" && !Number.isNaN(Date.parse(recurrence.at))
+      ? { kind, at: recurrence.at }
+      : null;
+  }
+  const hour = recurrence.hour;
+  const minute = recurrence.minute;
+  if (
+    !Number.isInteger(hour)
+    || !Number.isInteger(minute)
+    || Number(hour) < 0
+    || Number(hour) > 23
+    || Number(minute) < 0
+    || Number(minute) > 59
+  ) return null;
+  if (kind === "daily") return { kind, hour: Number(hour), minute: Number(minute) };
+  if (kind === "weekly") {
+    const weekday = recurrence.weekday_monday_zero;
+    return Number.isInteger(weekday) && Number(weekday) >= 0 && Number(weekday) <= 6
+      ? { kind, weekday_monday_zero: Number(weekday), hour: Number(hour), minute: Number(minute) }
+      : null;
+  }
+  if (kind === "every_n_days") {
+    const intervalDays = recurrence.interval_days;
+    const anchor = recurrence.anchor;
+    return Number.isInteger(intervalDays)
+      && Number(intervalDays) >= MIN_SCHEDULE_INTERVAL_DAYS
+      && Number(intervalDays) <= MAX_SCHEDULE_INTERVAL_DAYS
+      && typeof anchor === "string"
+      && /^\d{4}-\d{2}-\d{2}$/.test(anchor)
+      ? { kind, interval_days: Number(intervalDays), anchor, hour: Number(hour), minute: Number(minute) }
+      : null;
+  }
+  return null;
 }
 
 export function scheduleCardsMarkup(
@@ -960,7 +997,7 @@ function humanScheduleRecurrence(recurrence: ScheduleRecordV2["schedule"]["recur
 export {
   MAX_SCHEDULE_INTERVAL_DAYS,
   MIN_SCHEDULE_INTERVAL_DAYS,
-} from "../limits";
+};
 
 function weekdayNames(locale: Locale): string[] {
   return locale === "zh-CN"
@@ -1226,54 +1263,6 @@ export function conversationOperationWaitMarkup(
 
 export function runProposalMarkup(proposal: RunProposalV2, locale: Locale): string {
   return `<article class="proposal-card"><header><strong>${tr(locale, "Run preview", "运行预览")}</strong><span>${escapeHtml(proposal.mode)}</span></header><p>${escapeHtml(proposal.goal)}</p><dl><div><dt>${tr(locale, "Tools", "工具")}</dt><dd>${proposal.requested_tools.length}</dd></div><div><dt>${tr(locale, "Sources", "来源")}</dt><dd>${proposal.sources.length}</dd></div><div><dt>${tr(locale, "Created", "生成位置")}</dt><dd>${tr(locale, "On this device", "这台设备")}</dd></div></dl><small>${tr(locale, "Restork did not open files, connect to a model, or run tools while preparing this preview.", "准备这份预览时，Restork 没有打开文件、连接模型或运行工具。")}</small></article>`;
-}
-
-export interface AgentWaitNextStep {
-  action: "retry" | "settings" | "vault";
-  label: string;
-}
-
-export function agentWaitMarkup(
-  stage: AgentWaitStage,
-  locale: Locale = "en",
-  detail?: { reason?: string; next?: AgentWaitNextStep },
-): string {
-  const current = stage === "retry" ? 2 : Math.min(
-    ["prepare", "sources", "model", "verify", "complete"].indexOf(stage),
-    4,
-  );
-  const labels = [
-    tr(locale, "Selected context", "已选上下文"),
-    tr(locale, "Sources & tools", "来源与工具"),
-    tr(locale, "Synthesis", "综合推理"),
-    tr(locale, "Validation", "结果校验"),
-  ];
-  const status = {
-    prepare: tr(locale, "Preparing the notes, files and messages selected for this run…", "正在准备这次运行选中的笔记、文件和消息…"),
-    sources: tr(locale, "Reading the sources and tool results you allowed…", "正在读取你允许使用的资料与工具结果…"),
-    model: tr(locale, "The selected model is working…", "所选模型正在整理内容…"),
-    verify: tr(locale, "Checking sources, format and permissions…", "正在核对来源、格式与权限…"),
-    retry: tr(locale, "Trying once more…", "正在再试一次…"),
-    complete: tr(locale, "Done. The result is waiting here.", "完成了。结果在这里："),
-    blocked: tr(locale, "The run never started.", "运行未能启动。"),
-    error: tr(locale, "The run stopped.", "运行已经停止。"),
-  }[stage];
-  const busy = !["complete", "blocked", "error"].includes(stage);
-  const reason = detail?.reason && ["blocked", "error"].includes(stage)
-    ? `<p class="agent-wait-reason">${escapeHtml(detail.reason)}</p>`
-    : "";
-  const next = detail?.next && ["blocked", "error"].includes(stage)
-    ? `<p class="start-inline-fix"><button type="button" class="btn-secondary" data-wait-next="${detail.next.action}">${escapeHtml(detail.next.label)}</button></p>`
-    : "";
-  return `<section class="agent-wait is-${stage}" role="status" aria-live="polite" aria-busy="${String(busy)}">
-    <div class="typewriter-motion" aria-hidden="true"><i></i><i></i><i></i><span></span></div>
-    <div class="agent-wait-copy"><small>${tr(locale, `Core event stream · ${stage}`, `Core 事件流 · ${stage}`)}</small><strong>${escapeHtml(status)}</strong>
-      ${reason}
-      <ol>${labels.map((label, index) => `<li class="${index < current || stage === "complete" ? "is-done" : index === current && stage !== "error" ? "is-current" : ""}">${escapeHtml(label)}</li>`).join("")}</ol>
-      <p>${tr(locale, "Restork shows progress updates here. The model's private reasoning is not displayed.", "这里会显示运行进度，但不会展示模型的私有推理内容。")}</p>
-      ${next}
-    </div>
-  </section>`;
 }
 
 function runSkillsMarkup(run: RunListEntry, locale: Locale): string {
@@ -1626,7 +1615,7 @@ function overview(snapshot: DashboardSnapshot, locale: Locale): string {
       true,
     );
   const approvalSummary = approval
-    ? approvalCard(approval, locale, true)
+    ? approvalCardMarkup(approval, locale, true)
     : emptyCard(
       tr(locale, "Approvals", "审批"),
       tr(locale, "No actions are waiting for approval.", "没有待审批动作。"),
@@ -1688,7 +1677,7 @@ export function approvalsView(snapshot: DashboardSnapshot, locale: Locale): stri
     tr(locale, "No approval records.", "没有审批记录。"),
   );
   return `${chrome}<div class="stack"><div class="approval-list">
-    ${approvals.map((approval) => approvalCard(approval, locale)).join("") || empty}
+    ${approvals.map((approval) => approvalCardMarkup(approval, locale)).join("") || empty}
   </div>${paginationControl("approvals", page, locale)}</div>`;
 }
 
@@ -1867,65 +1856,6 @@ function runCard(run: RunListEntry, locale: Locale): string {
     <progress class="progress-native" aria-label="Token budget ${tokenRatio.toFixed(0)}%" max="100" value="${tokenRatio.toFixed(1)}">${tokenRatio.toFixed(0)}%</progress>
     <p class="fine">${escapeHtml(runStateLabel(run.summary.state, locale))} · ${usage?.tokens ?? 0} tokens · ${formatDate(run.summary.updated_at, locale)}</p></div>
   </article>`;
-}
-
-function approvalCard(approval: ApprovalRequest, locale: Locale, dashboardCard = false): string {
-  const pending = approval.decision === "pending";
-  const taskReady =
-    approval.decision === "approved" &&
-    (approval.action_kind === "task_write" || approval.action_kind === "vault_write");
-  const body = `<p class="run-title">${escapeHtml(approvalSummary(approval, locale))}</p>
-    <dl class="metadata compact">
-      <div><dt>${tr(locale, "TARGET", "目标")}</dt><dd>${escapeHtml(approval.canonical_scope)}</dd></div>
-      <div><dt>${tr(locale, "RULE VERSION", "规则版本")}</dt><dd>${escapeHtml(approval.policy_version)}</dd></div>
-      <div><dt>${tr(locale, "CONTENT FINGERPRINT", "内容指纹")}</dt><dd>${escapeHtml(approval.action_digest.slice(0, 16))}…</dd></div>
-      <div><dt>${tr(locale, "EXPIRES", "失效时间")}</dt><dd>${formatDate(approval.expires_at, locale)}</dd></div>
-    </dl>
-    ${pending ? approvalButtons(approval, locale) : ""}
-    ${taskReady ? approvalApplyButton(approval, locale) : ""}`;
-  return `<article class="paper-card approval-card${dashboardCard ? " dashboard-card" : ""}"><header>
-    <h2>${tr(locale, "Approval request", "审批请求")}</h2>
-    <span class="ribbon approval">${escapeHtml(approval.decision)}</span></header>
-    ${dashboardCard ? `<div class="dashboard-card-body">${body}</div>` : body}
-  </article>`;
-}
-
-function approvalSummary(approval: ApprovalRequest, locale: Locale): string {
-  const summary = approval.human_summary.trim();
-  if (locale !== "zh-CN" || /[\u3400-\u9fff]/u.test(summary)) return summary;
-
-  const taskChange = summary.match(/^Apply the reviewed Markdown task change to (.+)\?$/u);
-  if (taskChange) return `将刚才预览的 Markdown 任务改动写入「${taskChange[1]}」？`;
-
-  const handoff = summary.match(/^Export reviewed Work handoff (.+) to private artifacts\?$/u);
-  if (handoff) return `将工作交接稿「${handoff[1]}」导出到本地文件？`;
-
-  const toolCall = summary.match(/^Allow `([^`]+)` with the reviewed normalized arguments\?$/u);
-  if (toolCall) return `允许工具「${toolCall[1]}」使用刚才确认的参数运行？`;
-
-  const sourceBackedNote = summary.match(/^Append a source-backed (?:evidence card|note) to (.+)$/u);
-  if (sourceBackedNote) return `将带来源的内容写入「${sourceBackedNote[1]}」？`;
-
-  if (/^Export reviewed (?:synthetic )?(?:Work )?handoff(?: to private artifacts)?$/u.test(summary)) {
-    return "导出刚才确认的工作交接稿？";
-  }
-
-  return summary;
-}
-
-function approvalButtons(approval: ApprovalRequest, locale: Locale): string {
-  const id = escapeHtml(approval.approval_id);
-  const actionKind = escapeHtml(approval.action_kind);
-  return `<div class="stamps">
-    <button class="stamp approve" type="button" data-approval-id="${id}" data-action-kind="${actionKind}" data-decision="approve">${tr(locale, "APPROVE", "批准")}</button>
-    <button class="stamp reject" type="button" data-approval-id="${id}" data-action-kind="${actionKind}" data-decision="reject">${tr(locale, "REJECT", "拒绝")}</button>
-  </div>`;
-}
-
-function approvalApplyButton(approval: ApprovalRequest, locale: Locale): string {
-  return `<div class="stamps"><button class="stamp approve" type="button"
-    data-task-apply="${escapeHtml(approval.approval_id)}" data-action-kind="${escapeHtml(approval.action_kind)}">
-    ${tr(locale, "APPLY WRITE", "应用写入")}</button></div>`;
 }
 
 function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {

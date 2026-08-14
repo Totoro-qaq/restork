@@ -5,6 +5,7 @@ import type {
   DashboardApi,
   DashboardSnapshot,
   ProviderProfileRecordV2,
+  SchedulePageV2,
   ScheduleRecordV2,
 } from "../src/api/types";
 
@@ -111,6 +112,34 @@ describe("Automation workspace", () => {
     expect(root.querySelector('input[name="schedule_id"]')).toBeNull();
     expect(root.querySelector('input[name="name"]')).not.toBeNull();
     expect(root.querySelector(".automation-grid pre")).toBeNull();
+    root.remove();
+  });
+
+  it("keeps a saved every-N-days automation visible and editable", () => {
+    const root = document.createElement("main");
+    const everyThreeDays = scheduleRecord({
+      schedule: {
+        ...scheduleRecord().schedule,
+        name: "Every third day review",
+        recurrence: {
+          kind: "every_n_days",
+          interval_days: 3,
+          anchor: "2026-08-14",
+          hour: 9,
+          minute: 5,
+        },
+      },
+    });
+    const state = automationSnapshot([everyThreeDays]);
+    mountDashboard(root, { api: apiFor(state), snapshot: state, locale: "en" });
+    root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
+
+    expect(root.textContent).toContain("Every third day review");
+    expect(root.textContent).toContain("Every 3 days at 09:05");
+    root.querySelector<HTMLButtonElement>('[data-schedule-action="edit"]')?.click();
+    const form = root.querySelector<HTMLFormElement>("[data-schedule-edit-form]");
+    expect((form?.elements.namedItem("recurrence") as HTMLSelectElement | null)?.value).toBe("every_n_days");
+    expect((form?.elements.namedItem("interval_days") as HTMLInputElement | null)?.value).toBe("3");
     root.remove();
   });
 
@@ -275,6 +304,32 @@ describe("Automation workspace", () => {
     history?.click();
     await vi.waitFor(() => expect(api.listScheduleRuns).toHaveBeenCalled());
     await vi.waitFor(() => expect(history?.disabled).toBe(false));
+    root.remove();
+  });
+
+  it("keeps a slow list refresh understandable and restores the original action", async () => {
+    const root = document.createElement("main");
+    const state = automationSnapshot([scheduleRecord()]);
+    const api = apiFor(state);
+    let finish: ((value: SchedulePageV2) => void) | undefined;
+    api.listSchedules = vi.fn((): Promise<SchedulePageV2> => new Promise((resolve) => { finish = resolve; }));
+    mountDashboard(root, { api, snapshot: state, locale: "zh-CN" });
+    root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
+
+    const refresh = root.querySelector<HTMLButtonElement>("[data-schedule-active-load]");
+    const idleLabel = refresh?.textContent;
+    refresh?.click();
+    expect(refresh?.disabled).toBe(true);
+    expect(refresh?.getAttribute("aria-busy")).toBe("true");
+    expect(refresh?.textContent).toContain("正在读取");
+
+    finish?.({
+      items: [scheduleRecord()],
+      page: { limit: 20, has_more: false, next_cursor: null },
+    });
+    await vi.waitFor(() => expect(refresh?.disabled).toBe(false));
+    expect(refresh?.hasAttribute("aria-busy")).toBe(false);
+    expect(refresh?.textContent).toBe(idleLabel);
     root.remove();
   });
 

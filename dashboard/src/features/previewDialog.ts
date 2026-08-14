@@ -37,13 +37,25 @@ export function configurePreviewDialog(root: HTMLElement): void {
   const dialog = root.querySelector<HTMLDialogElement>("[data-preview-dialog]");
   if (!dialog) return;
   const title = dialog.querySelector<HTMLElement>("[data-preview-title]");
+  const context = dialog.querySelector<HTMLElement>("[data-preview-context]");
+  const kicker = dialog.querySelector<HTMLElement>("[data-preview-kicker]");
+  const summary = dialog.querySelector<HTMLElement>("[data-preview-summary]");
+  const meta = dialog.querySelector<HTMLElement>("[data-preview-meta]");
+  const versionRow = dialog.querySelector<HTMLElement>("[data-preview-version-row]");
+  const version = dialog.querySelector<HTMLElement>("[data-preview-version]");
+  const templateRow = dialog.querySelector<HTMLElement>("[data-preview-template-row]");
+  const template = dialog.querySelector<HTMLElement>("[data-preview-template]");
   const body = dialog.querySelector<HTMLElement>("[data-preview-body]");
   const actions = dialog.querySelector<HTMLElement>("[data-preview-actions]");
   const pager = dialog.querySelector<HTMLElement>("[data-preview-pager]");
   const pageLabel = dialog.querySelector<HTMLElement>("[data-preview-page]");
   const previous = dialog.querySelector<HTMLButtonElement>("[data-preview-prev]");
   const next = dialog.querySelector<HTMLButtonElement>("[data-preview-next]");
-  if (!title || !body || !actions || !pager || !pageLabel || !previous || !next) return;
+  if (
+    !title || !context || !kicker || !summary || !meta || !versionRow || !version
+    || !templateRow || !template || !body || !actions || !pager || !pageLabel
+    || !previous || !next
+  ) return;
 
   let pages: HTMLElement[] = [];
   let index = 0;
@@ -64,6 +76,23 @@ export function configurePreviewDialog(root: HTMLElement): void {
     pageLabel.textContent = countable ? `${index + 1} / ${pages.length}` : "";
     previous.disabled = index <= 0;
     next.disabled = index >= pages.length - 1;
+  };
+  const paintContext = (button: HTMLButtonElement, kind: PreviewKind): void => {
+    const kickerCopy = button.dataset.previewKicker?.trim() ?? "";
+    const summaryCopy = button.dataset.previewSummary?.trim() ?? "";
+    const versionCopy = button.dataset.previewVersion?.trim() ?? "";
+    const templateCopy = button.dataset.previewTemplate?.trim() ?? "";
+    dialog.dataset.previewKind = kind;
+    kicker.textContent = kickerCopy;
+    kicker.hidden = !kickerCopy;
+    summary.textContent = summaryCopy;
+    summary.hidden = !summaryCopy;
+    version.textContent = versionCopy;
+    versionRow.hidden = !versionCopy;
+    template.textContent = templateCopy;
+    templateRow.hidden = !templateCopy;
+    meta.hidden = !versionCopy && !templateCopy;
+    context.hidden = !kickerCopy && !summaryCopy && !versionCopy && !templateCopy;
   };
   const show = (offset: number): void => {
     if (!pages.length) return;
@@ -90,9 +119,10 @@ export function configurePreviewDialog(root: HTMLElement): void {
     pages = pagesOf(source, kind);
     actionSource = source.querySelector<HTMLElement>("[data-preview-actions-source]");
     index = 0;
+    paintContext(button, kind);
     paint();
     openDialog(dialog);
-    (dialog.querySelector<HTMLButtonElement>("[data-preview-close]") ?? body).focus();
+    body.focus();
   });
   previous.addEventListener("click", () => show(-1));
   next.addEventListener("click", () => show(1));

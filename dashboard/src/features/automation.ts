@@ -39,8 +39,8 @@ function intervalDaysFromForm(form: HTMLFormElement, locale: Locale): number | "
   const input = form.querySelector<HTMLInputElement>('input[name="interval_days"]');
   if (!parsed.ok || parsed.value === undefined) {
     const message = locale === "zh-CN"
-      ? "间隔必须是 2 到 365 天之间的整数。"
-      : "Use a whole number of days between 2 and 365.";
+      ? `间隔必须是 ${MIN_SCHEDULE_INTERVAL_DAYS} 到 ${MAX_SCHEDULE_INTERVAL_DAYS} 天之间的整数。`
+      : `Use a whole number of days between ${MIN_SCHEDULE_INTERVAL_DAYS} and ${MAX_SCHEDULE_INTERVAL_DAYS}.`;
     input?.setCustomValidity(message);
     input?.reportValidity();
     return "invalid";
@@ -233,11 +233,18 @@ function runListAction(
   action: () => Promise<void>,
   effects: AutomationUiEffects,
 ): void {
+  const idleLabel = button.textContent ?? "";
   button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.textContent = tr(localeOf(root), "Loading…", "正在读取……");
   void action()
     .catch((error) => effects.announceError(errorText(error, localeOf(root))))
     .finally(() => {
-      if (root.contains(button)) button.disabled = false;
+      if (root.contains(button)) {
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+        button.textContent = idleLabel;
+      }
     });
 }
 
@@ -347,7 +354,7 @@ function updateScheduleList(
   }
   const attribute = kind === "active" ? "data-schedule-active-more" : "data-schedule-trash-more";
   page.innerHTML = nextCursor
-    ? `<button type="button" ${attribute}="${escapeMarkup(nextCursor)}">${tr(locale, "LOAD MORE", "加载更多")}</button>`
+    ? `<button type="button" ${attribute}="${escapeMarkup(nextCursor)}">${tr(locale, "Load more", "加载更多")}</button>`
     : "";
 }
 
@@ -375,7 +382,7 @@ function updateScheduleRuns(
   if (nextCursor) {
     const cursor = escapeMarkup(nextCursor);
     const id = escapeMarkup(scheduleId);
-    const label = tr(locale, "LOAD EARLIER RUNS", "加载更早记录");
+    const label = tr(locale, "Load earlier runs", "加载更早记录");
     host.insertAdjacentHTML(
       "beforeend",
       `<button type="button" data-schedule-runs-more="${cursor}" data-schedule-id="${id}">${label}</button>`,
@@ -401,7 +408,12 @@ async function handleScheduleAction(
     ));
     if (!confirmed) return;
   }
+  const idleLabel = button.textContent ?? "";
   button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.textContent = action === "run"
+    ? tr(localeOf(root), "Starting…", "正在开始……")
+    : tr(localeOf(root), "Saving…", "正在保存……");
   try {
     if (action === "run" && api.runScheduleNow) {
       await api.runScheduleNow(scheduleId);
@@ -425,7 +437,12 @@ async function handleScheduleAction(
       button.disabled = false;
     }
   } catch (error) {
-    button.disabled = false;
     effects.announceError(errorText(error, localeOf(root)));
+  } finally {
+    if (root.contains(button)) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+      button.textContent = idleLabel;
+    }
   }
 }

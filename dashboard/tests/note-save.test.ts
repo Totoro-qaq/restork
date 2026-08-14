@@ -190,8 +190,8 @@ describe("approval cards for vault writes", () => {
 
   it("keeps pending approvals on approve/reject and hides apply", () => {
     const markup = approvalsView(snapshot([approval()]), "en");
-    expect(markup).toContain("APPROVE");
-    expect(markup).toContain("REJECT");
+    expect(markup).toContain("CONFIRM");
+    expect(markup).toContain("DO NOT APPLY");
     expect(markup).not.toContain("data-task-apply");
   });
 

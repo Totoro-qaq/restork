@@ -20,7 +20,6 @@ import type {
   WorkResultManifest,
 } from "./api/types";
 import {
-  agentWaitMarkup,
   waitNextForError,
   approvalsView,
   assistantStreamMarkup,
@@ -51,7 +50,11 @@ import {
   toolSearchMarkup,
   workspaceMarkup,
 } from "./ui/render";
-import type { AgentWaitStage } from "./ui/render";
+import {
+  agentWaitMarkup,
+  runtimeActivityForEvent,
+} from "./ui/runtimeScene";
+import type { AgentWaitStage, RuntimeActivity } from "./ui/runtimeScene";
 import { startClock } from "./ui/clock";
 import { activeView, bindRovingFocus, escapeMarkup, fillModeWorkspace, paintNavBadge } from "./ui/dom";
 import { configureAutomation } from "./features/automation";
@@ -74,7 +77,8 @@ import {
 import { configureStartWorkspace, jumpToStartMode, modeWorkspaceNote, offerRunSummaryAfterCompletion } from "./features/start";
 import { configureCommandPalette } from "./features/commandPalette";
 import { configurePreviewDialog } from "./features/previewDialog";
-import { configureSkillFolderImport } from "./features/skillImport";
+import { configureRuntimeScene } from "./features/runtimeScene";
+import { configureSkillFolderImport, createExtensionInstallPreviewCard } from "./features/skillImport";
 import {
   configureSkillTriggers,
   enabledSkills,
@@ -404,7 +408,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   configureStartWorkspace(root, snapshot, {
     submit: (form) => { void createRun(root, api, form, snapshot); },
     selectView: (view) => revealView(root, api, snapshot, view),
-    resume: (runId, state) => resumeStartRun(root, api, runId, state),
+    resume: (runId, state, createdAt) => resumeStartRun(root, api, runId, state, createdAt),
     cancel: (runId) => { void cancelStartRun(root, api, runId); },
     loadRunSummary: api.loadRunSummary?.bind(api),
     acceptRunSummary: api.acceptRunSummary
@@ -419,6 +423,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
       return { grantId: selection.grantId, label: selection.label };
     } } : {}),
   });
+  configureRuntimeScene(root);
   root.querySelector<HTMLButtonElement>("#refresh")?.addEventListener("click", (event) => {
     const button = event.currentTarget as HTMLButtonElement;
     if (button.getAttribute("aria-busy") === "true") return;
@@ -1414,9 +1419,25 @@ function configureExtensionCenter(
       }
     });
   });
+  let extensionKind = "all";
+  const extensionQuery = root.querySelector<HTMLInputElement>("[data-extension-search]");
+  const extensionCount = root.querySelector<HTMLElement>("[data-extension-result-count]");
+  const extensionEmpty = root.querySelector<HTMLElement>("[data-extension-filter-empty]");
+  const applyExtensionFilters = (): void => {
+    const query = extensionQuery?.value.trim().toLocaleLowerCase() ?? "";
+    let visible = 0;
+    root.querySelectorAll<HTMLElement>("[data-extension-card-kind]").forEach((card) => {
+      const match = (extensionKind === "all" || card.dataset.extensionCardKind === extensionKind)
+        && (!query || (card.dataset.extensionSearchText ?? "").includes(query));
+      card.hidden = !match;
+      if (match) visible += 1;
+    });
+    if (extensionCount) extensionCount.textContent = tr(localeOf(root), `${visible} shown`, `显示 ${visible} 项`);
+    if (extensionEmpty) extensionEmpty.hidden = visible > 0;
+  };
   root.querySelectorAll<HTMLButtonElement>("[data-extension-filter]").forEach((button) => {
     button.addEventListener("click", () => {
-      const kind = button.dataset.extensionFilter ?? "all";
+      extensionKind = button.dataset.extensionFilter ?? "all";
       root.querySelectorAll<HTMLButtonElement>("[data-extension-filter]")
         .forEach((item) => {
           const selected = item === button;
@@ -1424,11 +1445,10 @@ function configureExtensionCenter(
           item.setAttribute("aria-pressed", String(selected));
           item.tabIndex = selected ? 0 : -1;
         });
-      root.querySelectorAll<HTMLElement>("[data-extension-card-kind]").forEach((card) => {
-        card.hidden = kind !== "all" && card.dataset.extensionCardKind !== kind;
-      });
+      applyExtensionFilters();
     });
   });
+  extensionQuery?.addEventListener("input", applyExtensionFilters);
   root.querySelector<HTMLFormElement>("#extension-install-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
@@ -1460,36 +1480,7 @@ function configureExtensionCenter(
     );
     void api.previewExtensionInstall(packageKind, manifest).then((preview) => {
       status.replaceChildren();
-      const card = document.createElement("article");
-      card.className = "extension-install-preview";
-      const title = document.createElement("strong");
-      title.textContent = tr(
-        localeOf(root),
-        "Review the install details",
-        "查看安装内容",
-      );
-      const explanation = document.createElement("p");
-      explanation.textContent = tr(
-        localeOf(root),
-        "Nothing has been installed. Confirm this immutable digest to create a quarantined package.",
-        "尚未安装任何内容。确认这份不可变摘要后，才会创建隔离中的扩展。",
-      );
-      const digest = document.createElement("code");
-      digest.textContent = `SHA-256 · ${preview.preview_digest}`;
-      const details = document.createElement("details");
-      const summary = document.createElement("summary");
-      summary.textContent = tr(localeOf(root), "Technical details", "技术详情");
-      const pre = document.createElement("pre");
-      pre.textContent = JSON.stringify(preview.preview, null, 2);
-      details.append(summary, pre);
-      const approve = document.createElement("button");
-      approve.type = "button";
-      approve.textContent = tr(
-        localeOf(root),
-        "INSTALL REVIEWED VERSION",
-        "安装已核验版本",
-      );
-      approve.addEventListener("click", async () => {
+      const card = createExtensionInstallPreviewCard(root, preview, async (approve) => {
         const confirmed = await confirmAction(
           root,
           tr(
@@ -1514,7 +1505,6 @@ function configureExtensionCenter(
             announceError(root, errorText(error, localeOf(root)));
           });
       });
-      card.append(title, explanation, digest, details, approve);
       status.append(card);
     }).catch((error) => {
       status.textContent = errorText(error, localeOf(root));
@@ -2340,11 +2330,25 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       form.id === "start-run-form" ? selectedSkillIds(form) : [],
     );
     createdRun = run;
+    if (waitHost) {
+      const createdAt = Date.parse(run.created_at);
+      waitHost.dataset.runtimeStartedAt = String(Number.isNaN(createdAt) ? Date.now() : createdAt);
+    }
     if (form.id === "start-run-form") prepareStartRunFeedback(surface, run.run_id);
+    if (waitHost?.isConnected && form.id === "start-run-form") {
+      waitHost.innerHTML = agentWaitMarkup("prepare", localeOf(root), { cancellable: true });
+    }
     let waitStage: AgentWaitStage = "prepare";
+    let runtimeActivity: RuntimeActivity = {};
     stream = startEventStream(root, api, run.run_id, 0, (event) => {
       waitStage = waitStageForEvent(waitStage, event);
-      if (waitHost?.isConnected) waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root));
+      runtimeActivity = runtimeActivityForEvent(runtimeActivity, event);
+      if (waitHost?.isConnected) {
+        waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root), {
+          activity: runtimeActivity,
+          cancellable: form.id === "start-run-form",
+        });
+      }
       if (form.id === "start-run-form") paintStartRunEvent(surface, event, localeOf(root), api, run.run_id);
     }, form.id === "start-run-form" ? "start" : "launcher");
     if (status) {
@@ -2354,8 +2358,15 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
         `已创建 ${run.run_id}`,
       );
     }
+    if (mode === "study" || mode === "work") {
+      if (waitHost) {
+        waitHost.innerHTML = agentWaitMarkup("sources", localeOf(root), {
+          activity: runtimeActivity,
+          cancellable: form.id === "start-run-form",
+        });
+      }
+    }
     if (mode === "study") {
-      if (waitHost) waitHost.innerHTML = agentWaitMarkup("sources", localeOf(root));
       const diagnostic = await api.prepareStudy(run.run_id, goal, targetNote);
       const host = surface.querySelector<HTMLElement>("[data-study-workspace]");
       if (host) {
@@ -2363,7 +2374,6 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
         bindStudyDiagnostic(root, api, host);
       }
     } else if (mode === "work") {
-      if (waitHost) waitHost.innerHTML = agentWaitMarkup("sources", localeOf(root));
       const plan = await api.planWork(run.run_id, {
         goal,
         workspace_root: workspaceRoot || undefined,
@@ -2445,7 +2455,15 @@ function resumeStartRunFromSnapshot(
   const active = snapshot.runs.find(
     (entry) => !["completed", "failed", "cancelled"].includes(entry.summary.state),
   );
-  if (active) resumeStartRun(root, api, active.summary.run_id, active.summary.state);
+  if (active) {
+    resumeStartRun(
+      root,
+      api,
+      active.summary.run_id,
+      active.summary.state,
+      active.summary.created_at,
+    );
+  }
 }
 
 function resumeStartRun(
@@ -2453,6 +2471,7 @@ function resumeStartRun(
   api: DashboardApi,
   runId: string,
   state: string,
+  createdAt?: string,
 ): void {
   const surface = root.querySelector<HTMLElement>(".start-workspace");
   const panel = surface?.closest<HTMLElement>("[data-view-panel]");
@@ -2461,16 +2480,29 @@ function resumeStartRun(
   setStartRunBusy(surface, true);
   const status = surface.querySelector<HTMLElement>("[data-run-status]");
   const waitHost = surface.querySelector<HTMLElement>("[data-run-wait]");
+  if (waitHost) {
+    const startedAt = createdAt ? Date.parse(createdAt) : Number.NaN;
+    waitHost.dataset.runtimeStartedAt = String(Number.isNaN(startedAt) ? Date.now() : startedAt);
+  }
   if (status) status.textContent = tr(
     localeOf(root),
     `Continuing ${runId} · ${state}`,
     `继续显示任务 · ${runId}`,
   );
   let waitStage: AgentWaitStage = state === "running" ? "model" : "prepare";
-  if (waitHost) waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root));
+  let runtimeActivity: RuntimeActivity = {};
+  if (waitHost) {
+    waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root), { cancellable: true });
+  }
   startEventStream(root, api, runId, 0, (event) => {
     waitStage = waitStageForEvent(waitStage, event);
-    if (waitHost?.isConnected) waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root));
+    runtimeActivity = runtimeActivityForEvent(runtimeActivity, event);
+    if (waitHost?.isConnected) {
+      waitHost.innerHTML = agentWaitMarkup(waitStage, localeOf(root), {
+        activity: runtimeActivity,
+        cancellable: true,
+      });
+    }
     paintStartRunEvent(surface, event, localeOf(root), api, runId);
   }, "start");
 }

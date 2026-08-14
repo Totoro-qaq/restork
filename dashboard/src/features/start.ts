@@ -5,7 +5,7 @@ import { fillRunSummaryHost } from "../ui/start";
 export interface StartWorkspaceEffects {
   submit(form: HTMLFormElement): void;
   selectView(view: string): void;
-  resume?(runId: string, state: string): void;
+  resume?(runId: string, state: string, createdAt?: string): void;
   cancel?(runId: string): void;
   chooseWorkspace?(): Promise<{ grantId: string; label: string } | null>;
   loadRunSummary?(runId: string): Promise<PendingRunSummary | null>;
@@ -240,7 +240,7 @@ export function configureStartWorkspace(
       cancel.hidden = false;
       cancel.dataset.runId = active.summary.run_id;
     }
-    effects.resume?.(active.summary.run_id, active.summary.state);
+    effects.resume?.(active.summary.run_id, active.summary.state, active.summary.created_at);
   }
 }
 

@@ -147,7 +147,10 @@ function deliverableCard(record: CatalogRecordV2, locale: Locale): string {
     return `<article><strong>${escapeHtml(title)}</strong><span>${kind} · ${tr(locale, "Draft", "草稿")}</span>
       <small>${formatDate(record.updated_at, locale)}</small>
       <button type="button" class="quiet-button" data-preview-open data-preview-kind="markdown"
-        data-preview-title="${escapeHtml(title)}">${tr(locale, "Preview", "预览")}</button>
+        data-preview-title="${escapeHtml(title)}"
+        data-preview-kicker="${escapeHtml(kind)}"
+        data-preview-summary="${escapeHtml(tr(locale, "Markdown draft ready to review", "Markdown 草稿，可在下载前检查内容"))}"
+        data-preview-version="v${record.revision ?? 1}">${tr(locale, "Preview", "预览")}</button>
       <div class="preview-source" data-preview-source hidden>
         <section class="vault-reading-view deliverable-preview">${safeMarkdownPreview(markdown ?? "")}</section>
         <div data-preview-actions-source hidden>
@@ -170,6 +173,7 @@ function deliverableCard(record: CatalogRecordV2, locale: Locale): string {
       locale,
       record.deliverable_id ?? "",
       revision,
+      title,
     )}
     <div class="record-actions">
       <button type="button" data-render-format="pptx" data-render-id="${deliverableId}"
@@ -184,6 +188,7 @@ function deckPreviewMarkup(
   locale: Locale,
   deliverableId: string,
   revision: number,
+  title: string,
 ): string {
   const themeRecord = artifact?.theme;
   const themeId = themeRecord && typeof themeRecord === "object" && !Array.isArray(themeRecord)
@@ -197,7 +202,7 @@ function deckPreviewMarkup(
     ? artifact.claims as Record<string, Record<string, unknown>>
     : {};
   const slides = Array.isArray(artifact?.slides) ? artifact.slides : [];
-  const themeName = escapeHtml(locale === "zh-CN" ? theme.nameZh : theme.nameEn);
+  const themeName = locale === "zh-CN" ? theme.nameZh : theme.nameEn;
   const cards = slides.map((raw) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
     const slide = raw as Record<string, unknown>;
@@ -211,8 +216,12 @@ function deckPreviewMarkup(
     </article>`;
   }).join("");
   return `<button type="button" class="quiet-button" data-preview-open data-preview-kind="deck"
-      data-preview-title="${tr(locale, "Slide preview", "逐页预览")} · ${themeName}">
-      ${tr(locale, "Slide preview", "逐页预览")} · ${themeName}</button>
+      data-preview-title="${escapeHtml(title)}"
+      data-preview-kicker="${escapeHtml(tr(locale, "Presentation draft", "演示文稿草稿"))}"
+      data-preview-summary="${escapeHtml(tr(locale, `${slides.length} slides ready to review`, `${slides.length} 页，可逐页检查后下载`))}"
+      data-preview-version="v${revision}"
+      data-preview-template="${escapeHtml(themeName)}">
+      ${tr(locale, "Slide preview", "逐页预览")} · ${escapeHtml(themeName)}</button>
     <div class="preview-source" data-preview-source hidden>${cards}
       <div data-preview-actions-source hidden>
         <button type="button" data-render-format="pptx" data-render-id="${escapeHtml(deliverableId)}"

@@ -218,7 +218,11 @@ describe("run-first start workspace", () => {
       cancel,
     });
 
-    expect(resume).toHaveBeenCalledWith("run-active", "running");
+    expect(resume).toHaveBeenCalledWith(
+      "run-active",
+      "running",
+      "2026-08-11T00:00:00Z",
+    );
     const button = root.querySelector<HTMLButtonElement>("[data-start-cancel]");
     expect(button?.hidden).toBe(false);
     button?.click();
