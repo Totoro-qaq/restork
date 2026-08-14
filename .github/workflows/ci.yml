@@ -14,7 +14,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  classify:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.paths.outputs.rust }}
+      dashboard: ${{ steps.paths.outputs.dashboard }}
+      desktop: ${{ steps.paths.outputs.desktop }}
+      dependency: ${{ steps.paths.outputs.dependency }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: paths
+        name: Route the affected test lanes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request)
+              git diff --name-only -z "$PR_BASE_SHA" "$PR_HEAD_SHA" \
+                | python3 scripts/ci/classify_changes.py
+              ;;
+            push)
+              if [[ -z "$BEFORE_SHA" || "$BEFORE_SHA" =~ ^0+$ ]]; then
+                python3 scripts/ci/classify_changes.py --all
+              else
+                git diff --name-only -z "$BEFORE_SHA" "$CURRENT_SHA" \
+                  | python3 scripts/ci/classify_changes.py
+              fi
+              ;;
+            *)
+              python3 scripts/ci/classify_changes.py --all
+              ;;
+          esac
+
   script-contracts:
+    needs: classify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -23,6 +65,7 @@ jobs:
           node-version: 22
       - run: node --test scripts/tests/windows-toolchain.test.mjs
       - run: python3 -m unittest scripts.tests.test_desktop_release
+      - run: python3 -m unittest scripts.tests.test_ci_routing
       - run: python3 -m unittest scripts.tests.test_spacing_grid
       - run: python3 scripts/check_architecture.py
       - run: python3 scripts/check_spacing_grid.py
@@ -30,6 +73,8 @@ jobs:
       - run: python3 scripts/check_voice.py
 
   rust-core:
+    needs: classify
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci')) || needs.classify.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -46,16 +91,16 @@ jobs:
       - run: cargo clippy --manifest-path rust/Cargo.toml --locked --all-targets -- -D warnings
       - run: cargo test --manifest-path rust/Cargo.toml --locked
       - name: Build crate documentation without warnings
-        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci'))
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --manifest-path rust/Cargo.toml --locked --workspace --no-deps
       - name: Build the release Core
-        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci'))
         run: cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
 
   rust-platforms:
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci'))
     strategy:
       fail-fast: false
       matrix:
@@ -76,7 +121,8 @@ jobs:
       - run: cargo build --manifest-path rust/Cargo.toml --release --locked -p restorkd
 
   dependency-policy:
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+    needs: classify
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci')) || needs.classify.outputs.dependency == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -100,6 +146,8 @@ jobs:
       - run: cargo deny --config deny.toml --manifest-path rust/Cargo.toml check advisories bans sources
 
   dashboard:
+    needs: classify
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci')) || needs.classify.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -115,11 +163,13 @@ jobs:
 
   desktop-check:
     name: desktop-check (${{ matrix.platform }})
+    needs: classify
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci')) || needs.classify.outputs.desktop == 'true'
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && '[{"os":"ubuntu-latest","platform":"linux"}]' || '[{"os":"macos-15","platform":"macos"},{"os":"windows-2025","platform":"windows-msvc"},{"os":"ubuntu-latest","platform":"linux"}]') }}
+        include: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci'))) && '[{"os":"macos-15","platform":"macos"},{"os":"windows-2025","platform":"windows-msvc"},{"os":"ubuntu-latest","platform":"linux"}]' || '[{"os":"ubuntu-latest","platform":"linux"}]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -152,7 +202,7 @@ jobs:
       - run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --locked
 
   desktop-macos:
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -191,7 +241,7 @@ jobs:
           | grep -q com.apple.security.automation.apple-events
 
   desktop-windows-linux:
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci'))
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -270,6 +320,7 @@ jobs:
           retention-days: 7
 
   public-artifact-scan:
+    needs: classify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -278,21 +329,85 @@ jobs:
       - run: ./scripts/scan-public-artifacts.sh
       - run: python3 scripts/audit_readme.py README.md README.zh-CN.md
 
-  fast-gates:
-    name: Fast PR gates
+  pr-gate:
+    name: PR gate
+    if: always()
     needs:
+      - classify
       - script-contracts
       - rust-core
+      - dependency-policy
       - dashboard
       - desktop-check
       - public-artifact-scan
+      - release-blocking-gates
     runs-on: ubuntu-latest
     steps:
-      - name: Confirm the review feedback lane completed
-        run: echo "Rust, Dashboard, architecture, Linux desktop compile, and public-boundary checks passed."
+      - name: Confirm every affected lane passed
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          SCRIPT_RESULT: ${{ needs.script-contracts.result }}
+          PUBLIC_RESULT: ${{ needs.public-artifact-scan.result }}
+          RUST_REQUIRED: ${{ needs.classify.outputs.rust }}
+          RUST_RESULT: ${{ needs.rust-core.result }}
+          DASHBOARD_REQUIRED: ${{ needs.classify.outputs.dashboard }}
+          DASHBOARD_RESULT: ${{ needs.dashboard.result }}
+          DESKTOP_REQUIRED: ${{ needs.classify.outputs.desktop }}
+          DESKTOP_RESULT: ${{ needs.desktop-check.result }}
+          DEPENDENCY_REQUIRED: ${{ needs.classify.outputs.dependency }}
+          DEPENDENCY_RESULT: ${{ needs.dependency-policy.result }}
+          FULL_GRAPH_RESULT: ${{ needs.release-blocking-gates.result }}
+        run: |
+          set -euo pipefail
+
+          require_success() {
+            local lane="$1"
+            local result="$2"
+            if [[ "$result" != "success" ]]; then
+              echo "::error::$lane finished with '$result', expected 'success'."
+              return 1
+            fi
+          }
+
+          require_affected_lane() {
+            local lane="$1"
+            local required="$2"
+            local result="$3"
+            if [[ "$EVENT_NAME" == "workflow_dispatch" || ("$EVENT_NAME" == "pull_request" && "$FULL_CI" == "true") || "$required" == "true" ]]; then
+              require_success "$lane" "$result"
+            elif [[ "$result" != "skipped" ]]; then
+              echo "::error::$lane was not affected but finished with '$result', expected 'skipped'."
+              return 1
+            fi
+          }
+
+          require_success "change classifier" "$CLASSIFY_RESULT"
+          require_success "script contracts" "$SCRIPT_RESULT"
+          require_success "public artifact scan" "$PUBLIC_RESULT"
+          require_affected_lane "Rust" "$RUST_REQUIRED" "$RUST_RESULT"
+          require_affected_lane "Dashboard" "$DASHBOARD_REQUIRED" "$DASHBOARD_RESULT"
+          require_affected_lane "Desktop" "$DESKTOP_REQUIRED" "$DESKTOP_RESULT"
+          require_affected_lane "dependency policy" "$DEPENDENCY_REQUIRED" "$DEPENDENCY_RESULT"
+          require_affected_lane "full release graph" "false" "$FULL_GRAPH_RESULT"
+
+          echo "Every affected PR lane passed. Unaffected heavyweight lanes were skipped."
+
+  fast-gates:
+    name: Fast PR gates
+    if: always()
+    needs: pr-gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preserve the current branch-protection context during migration
+        env:
+          PR_GATE_RESULT: ${{ needs.pr-gate.result }}
+        run: test "$PR_GATE_RESULT" = "success"
 
   release-blocking-gates:
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci'))
     needs:
       - script-contracts
       - rust-core
