@@ -20,7 +20,7 @@
 The target machine needs no Python, Node.js, Rust, MinGW, GTK development package, `uv`, or other
 compiler toolchain. / 目标电脑不需要 Python、Node.js、Rust、MinGW、GTK 开发包、`uv` 或编译环境。
 
-## What changed in v0.1.5-alpha.2 / 本版更新
+## What changed in v0.1.5-alpha.3 / 本版更新
 
 - The website and Dashboard now lead with the task you want to start. Runtime progress, approvals,
   long previews, extensions, automations, and command search have clearer focused views without
@@ -31,6 +31,8 @@ compiler toolchain. / 目标电脑不需要 Python、Node.js、Rust、MinGW、GT
 - Runtime clocks and observers now stop when their view is removed, preventing runaway background
   work during navigation and tests. Automation saves also distinguish a successful write from a
   later list-refresh failure.
+- Windows clean-machine verification now waits only for the short-lived launcher, bounds installer
+  and uninstaller waits, and retains stage diagnostics when a release check fails.
 
 - 官网与 Dashboard 现在先让你开始一项任务。运行进度、确认、长内容预览、扩展、自动化与
   命令搜索都有了更清楚的独立视图，不再把所有信息挤在一张控制面板上。
@@ -38,6 +40,8 @@ compiler toolchain. / 目标电脑不需要 Python、Node.js、Rust、MinGW、GT
   Restork 仍会继续运行，内置 Core 则依然跟随桌面应用启停。
 - 运行计时与页面监听会在视图移除后及时停止，避免导航或测试时留下无限循环；自动化也会区分
   “保存成功”与“保存后列表刷新失败”。
+- Windows 干净机验收现在只等待短时启动器，并为安装、卸载设置明确超时；发布检查失败时也会
+  保留阶段日志，便于直接定位卡在哪一步。
 
 ## Verify the file / 校验文件
 

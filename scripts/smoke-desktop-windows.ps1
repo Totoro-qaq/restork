@@ -54,6 +54,37 @@ function Wait-Until {
     return $false
 }
 
+function Stop-ProcessTree {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ProcessId
+    )
+
+    # Stop the complete descendant tree on timeout. Killing only the launcher
+    # can leave Restork, Core, or installer helper processes behind.
+    $taskkillPath = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+    if (Test-Path -LiteralPath $taskkillPath -PathType Leaf) {
+        try {
+            $killer = Start-Process `
+                -FilePath $taskkillPath `
+                -ArgumentList @('/PID', [string]$ProcessId, '/T', '/F') `
+                -WindowStyle Hidden `
+                -PassThru `
+                -ErrorAction Stop
+            if (-not $killer.WaitForExit(5000)) {
+                Stop-Process -Id $killer.Id -Force -ErrorAction SilentlyContinue
+                $null = $killer.WaitForExit(1000)
+            }
+        } catch {
+            Write-Warning "Could not stop process tree $ProcessId with taskkill: $($_.Exception.Message)"
+        }
+    }
+
+    # The target may already have exited or taskkill may be unavailable. Keep
+    # this best-effort fallback without masking the original timeout error.
+    Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+}
+
 function Invoke-CheckedProcess {
     param(
         [Parameter(Mandatory = $true)]
@@ -62,13 +93,37 @@ function Invoke-CheckedProcess {
         [string[]]$ArgumentList = @(),
 
         [Parameter(Mandatory = $true)]
-        [string]$Label
+        [string]$Label,
+
+        [int]$TimeoutSeconds = 120
     )
 
-    $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -Wait -PassThru
+    $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -PassThru
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+        Stop-ProcessTree -ProcessId $process.Id
+        $null = $process.WaitForExit(5000)
+        throw "$Label timed out after $TimeoutSeconds seconds."
+    }
     if ($SuccessExitCodes -notcontains $process.ExitCode) {
         throw "$Label failed with exit code $($process.ExitCode)"
     }
+}
+
+function Write-SmokeStage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CaseDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Stage
+    )
+
+    $line = "$(Get-Date -Format o) $Stage"
+    Write-Host $line
+    Add-Content `
+        -LiteralPath (Join-Path $CaseDirectory 'smoke-stages.log') `
+        -Value $line `
+        -Encoding utf8
 }
 
 function Assert-Authenticode {
@@ -147,7 +202,9 @@ function Start-RestorkViaEphemeralLauncher {
         [string]$Path,
 
         [Parameter(Mandatory = $true)]
-        [string]$CaseDirectory
+        [string]$CaseDirectory,
+
+        [int]$LauncherTimeoutSeconds = 15
     )
 
     $launcherScript = Join-Path $CaseDirectory 'launch-restork.ps1'
@@ -173,7 +230,12 @@ Set-Content -LiteralPath $PidFile -Value $desktop.Id -Encoding ascii
         '-File', ('"' + $launcherScript + '"'),
         ('"' + $Path + '"'),
         ('"' + $pidFile + '"')
-    ) -WindowStyle Hidden -Wait -PassThru
+    ) -WindowStyle Hidden -PassThru
+    if (-not $launcher.WaitForExit($LauncherTimeoutSeconds * 1000)) {
+        Stop-ProcessTree -ProcessId $launcher.Id
+        $null = $launcher.WaitForExit(5000)
+        throw "The short-lived launcher timed out after $LauncherTimeoutSeconds seconds."
+    }
     if ($launcher.ExitCode -ne 0) {
         throw "The short-lived launcher failed with exit code $($launcher.ExitCode)."
     }
@@ -383,16 +445,21 @@ function Test-InstallerLifecycle {
     $sentinel = Join-Path $UserDataPath "clean-machine-$Kind-sentinel.txt"
 
     try {
+        Write-SmokeStage -CaseDirectory $caseDirectory -Stage 'installer verification started'
         Assert-Authenticode -Path $InstallerPath
         $diagnosticStartLine = Get-DiagnosticLineCount
+        Write-SmokeStage -CaseDirectory $caseDirectory -Stage 'package install started'
         Invoke-Install -Kind $Kind -InstallerPath $InstallerPath -CaseDirectory $caseDirectory
         $installed = $true
+        Write-SmokeStage -CaseDirectory $caseDirectory -Stage 'package install completed'
 
         $executable = Resolve-RestorkExecutable
         Assert-WindowsGuiSubsystem -Path $executable
+        Write-SmokeStage -CaseDirectory $caseDirectory -Stage 'desktop launch started'
         $desktopProcess = Start-RestorkViaEphemeralLauncher `
             -Path $executable `
             -CaseDirectory $caseDirectory
+        Write-SmokeStage -CaseDirectory $caseDirectory -Stage 'short-lived launcher exited'
 
         $ready = Wait-Until -TimeoutSeconds 45 -Condition {
             $desktopProcess.Refresh()
@@ -404,12 +471,14 @@ function Test-InstallerLifecycle {
         if (-not $ready) {
             throw "Restork did not complete Core readiness and browser pairing for the $Kind package."
         }
+        Write-SmokeStage -CaseDirectory $caseDirectory -Stage 'desktop and Core became ready'
 
         $ownedCore = @(Get-OwnedCoreProcess -DesktopProcessId $desktopProcess.Id)
         if ($ownedCore.Count -ne 1) {
             throw "Expected exactly one restorkd.exe owned by Restork.exe; observed $($ownedCore.Count)."
         }
         $coreProcessId = [int]$ownedCore[0].ProcessId
+        Write-SmokeStage -CaseDirectory $caseDirectory -Stage 'Core ownership verified'
 
         Stop-Process -Id $desktopProcess.Id -Force
         if (-not (Wait-Until -TimeoutSeconds 15 -Condition {
@@ -417,11 +486,14 @@ function Test-InstallerLifecycle {
         })) {
             throw "The owned Core process $coreProcessId survived its desktop owner."
         }
+        Write-SmokeStage -CaseDirectory $caseDirectory -Stage 'desktop owner-loss cleanup verified'
 
         New-Item -ItemType Directory -Force -Path $UserDataPath | Out-Null
         Set-Content -LiteralPath $sentinel -Value 'preserve' -Encoding ascii
+        Write-SmokeStage -CaseDirectory $caseDirectory -Stage 'package uninstall started'
         Invoke-Uninstall -Kind $Kind -InstallerPath $InstallerPath -CaseDirectory $caseDirectory
         $uninstalled = $true
+        Write-SmokeStage -CaseDirectory $caseDirectory -Stage 'package uninstall completed'
 
         if (-not (Wait-Until -TimeoutSeconds 15 -Condition {
             return -not (Test-Path -LiteralPath $executable -PathType Leaf)
@@ -431,6 +503,7 @@ function Test-InstallerLifecycle {
         if (-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) {
             throw "$Kind uninstall removed user data without an explicit preservation choice."
         }
+        Write-SmokeStage -CaseDirectory $caseDirectory -Stage 'user data preservation verified'
 
         return [PSCustomObject]@{
             package = $Kind
