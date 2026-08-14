@@ -20,20 +20,24 @@
 The target machine needs no Python, Node.js, Rust, MinGW, GTK development package, `uv`, or other
 compiler toolchain. / 目标电脑不需要 Python、Node.js、Rust、MinGW、GTK 开发包、`uv` 或编译环境。
 
-## What changed in v0.1.5-alpha.1 / 本版更新
+## What changed in v0.1.5-alpha.2 / 本版更新
 
-- Import instruction-based `SKILL.md` folders through a compatibility preview. A skill must be
-  enabled and explicitly selected for a run; the selected revision is recorded with that run.
-- Reports, slide decks, Vault source, and handoff files now open in bounded dialogs. Slide count can
-  be automatic or 1–60; automations support every 2–365 days; time zones are searchable.
-- Native skill-folder reads stay inside the selected directory, do not follow symbolic links, and
-  enforce file, byte, directory, and depth limits.
+- The website and Dashboard now lead with the task you want to start. Runtime progress, approvals,
+  long previews, extensions, automations, and command search have clearer focused views without
+  turning the whole product into a dense control panel.
+- The installed Windows desktop app now uses the GUI subsystem and starts independently of a
+  short-lived PowerShell launcher. Closing the launcher no longer closes Restork; the bundled Core
+  still follows the desktop app lifecycle.
+- Runtime clocks and observers now stop when their view is removed, preventing runaway background
+  work during navigation and tests. Automation saves also distinguish a successful write from a
+  later list-refresh failure.
 
-- 可从本地 `SKILL.md` 文件夹导入指令型技能；安装前会展示兼容性与剥离项。技能只有在启用并
-  明确选择后才会用于 Run，所用修订也会进入运行记录。
-- 报告、逐页演示、Vault 源文与交接包改用有边界的弹窗预览；演示页数支持自动或 1–60，
-  自动化支持每 2–365 天，时区可以搜索。
-- 原生技能目录读取限制在所选文件夹内，不跟随符号链接，并限制文件数、总大小、目录数与深度。
+- 官网与 Dashboard 现在先让你开始一项任务。运行进度、确认、长内容预览、扩展、自动化与
+  命令搜索都有了更清楚的独立视图，不再把所有信息挤在一张控制面板上。
+- Windows 安装版改用图形应用子系统，也不再依赖启动它的 PowerShell 窗口。启动窗口退出后
+  Restork 仍会继续运行，内置 Core 则依然跟随桌面应用启停。
+- 运行计时与页面监听会在视图移除后及时停止，避免导航或测试时留下无限循环；自动化也会区分
+  “保存成功”与“保存后列表刷新失败”。
 
 ## Verify the file / 校验文件
 
