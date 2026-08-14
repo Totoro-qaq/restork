@@ -40,18 +40,22 @@ jobs:
           case "$EVENT_NAME" in
             pull_request)
               git diff --name-only -z "$PR_BASE_SHA" "$PR_HEAD_SHA" \
-                | python3 scripts/ci/classify_changes.py
+                | python3 scripts/ci/classify_changes.py \
+                | tee -a "$GITHUB_OUTPUT"
               ;;
             push)
               if [[ -z "$BEFORE_SHA" || "$BEFORE_SHA" =~ ^0+$ ]]; then
-                python3 scripts/ci/classify_changes.py --all
+                python3 scripts/ci/classify_changes.py --all \
+                  | tee -a "$GITHUB_OUTPUT"
               else
                 git diff --name-only -z "$BEFORE_SHA" "$CURRENT_SHA" \
-                  | python3 scripts/ci/classify_changes.py
+                  | python3 scripts/ci/classify_changes.py \
+                  | tee -a "$GITHUB_OUTPUT"
               fi
               ;;
             *)
-              python3 scripts/ci/classify_changes.py --all
+              python3 scripts/ci/classify_changes.py --all \
+                | tee -a "$GITHUB_OUTPUT"
               ;;
           esac
 

@@ -30,6 +30,7 @@ class CiRoutingContractTests(unittest.TestCase):
         self.assertIn('push)', classifier)
         self.assertIn("scripts/ci/classify_changes.py --all", classifier)
         self.assertIn("git diff --name-only -z", classifier)
+        self.assertIn('tee -a "$GITHUB_OUTPUT"', classifier)
 
     def test_path_classifier_routes_only_the_affected_product_lane(self) -> None:
         self.assertEqual(

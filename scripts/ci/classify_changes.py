@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import PurePosixPath
 import sys
 from typing import Iterable
@@ -81,15 +80,10 @@ def main() -> int:
     args = parser.parse_args()
 
     result = classify_paths(_read_nul_paths(), force_all=args.all)
-    output_path = os.environ.get("GITHUB_OUTPUT")
-    if not output_path:
-        parser.error("GITHUB_OUTPUT is required")
-
-    with open(output_path, "a", encoding="utf-8") as output:
-        for lane in LANES:
-            value = str(result[lane]).lower()
-            output.write(f"{lane}={value}\n")
-            print(f"{lane.capitalize()} lane: {value}")
+    for lane in LANES:
+        value = str(result[lane]).lower()
+        print(f"{lane}={value}")
+        print(f"{lane.capitalize()} lane: {value}", file=sys.stderr)
     return 0
 
 
