@@ -56,6 +56,27 @@ export interface AutomationUiEffects {
   reload(): Promise<void>;
 }
 
+async function reloadAfterScheduleSave(
+  root: HTMLElement,
+  effects: AutomationUiEffects,
+  savedEn: string,
+  savedZh: string,
+): Promise<void> {
+  const locale = localeOf(root);
+  effects.announceStatus(tr(locale, savedEn, savedZh));
+  try {
+    await effects.reload();
+    effects.announceStatus(tr(locale, savedEn, savedZh));
+  } catch (error) {
+    const detail = errorText(error, locale);
+    effects.announceError(tr(
+      locale,
+      `Saved, but the list could not refresh. ${detail}`,
+      `已保存，但列表刷新失败。${detail}`,
+    ));
+  }
+}
+
 /** Bind the Automation workspace without exposing schedule storage details. */
 export function configureAutomation(
   root: HTMLElement,
@@ -111,13 +132,12 @@ export function configureAutomation(
       }
       if (status) status.textContent = tr(localeOf(root), "Saving automation…", "正在保存自动化…");
       void api.createSchedule(input)
-        .then(async () => {
-          // A dashboard refresh may be slower on CI or a cold desktop Core. Confirm
-          // persistence immediately, then repaint the same notice after the view reload.
-          effects.announceStatus(tr(localeOf(root), "Schedule saved.", "自动化已保存。"));
-          await effects.reload();
-          effects.announceStatus(tr(localeOf(root), "Schedule saved.", "自动化已保存。"));
-        })
+        .then(() => reloadAfterScheduleSave(
+          root,
+          effects,
+          "Schedule saved.",
+          "自动化已保存。",
+        ))
         .catch((error) => {
           const message = errorText(error, localeOf(root));
           if (status) status.textContent = message;
@@ -147,10 +167,12 @@ export function configureAutomation(
       }
       const schedule: ScheduleUpdateSpecV2 = { ...input, schedule_id: scheduleId };
       void api.updateSchedule(scheduleId, revision, schedule)
-        .then(async () => {
-          await effects.reload();
-          effects.announceStatus(tr(localeOf(root), "Schedule updated.", "自动化已更新。"));
-        })
+        .then(() => reloadAfterScheduleSave(
+          root,
+          effects,
+          "Schedule updated.",
+          "自动化已更新。",
+        ))
         .catch((error) => effects.announceError(errorText(error, localeOf(root))))
         .finally(() => {
           if (submit && root.contains(submit)) submit.disabled = false;

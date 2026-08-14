@@ -135,6 +135,7 @@ jobs:
       - name: Reject GNU and MinGW before dependency installation
         run: node scripts/windows-toolchain.mjs
       - run: node --test scripts/tests/windows-toolchain.test.mjs
+      - run: python -m unittest scripts.tests.test_windows_desktop_lifecycle
       - run: npm --prefix dashboard ci
       - run: npm --prefix desktop ci
       - name: Build unsigned Windows EXE with no updater claim

@@ -24,6 +24,10 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
 
 Push-Location $restorkRoot
 try {
+    Write-Host 'Source development mode: this PowerShell window owns the Core; closing this PowerShell window stops the source session.'
+    Write-Host '源码开发模式：这个 PowerShell 窗口会托管 Core；关闭窗口会结束本次源码运行。普通使用请安装 Windows EXE。'
+    Write-Host ''
+
     if (Get-Command node -ErrorAction SilentlyContinue) {
         & node scripts/windows-toolchain.mjs
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

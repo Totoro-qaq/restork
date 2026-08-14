@@ -65,6 +65,8 @@ npm --prefix desktop run build:linux
 交互式源码启动：macOS/Linux 用 `./scripts/quickstart.sh`，Windows PowerShell 用
 `./scripts/quickstart.ps1`。Restork 不需要 `as.exe`、`dlltool` 或 MinGW。Linux 打包依赖只属于
 贡献者；AppImage/DEB 用户不安装它们。
+Windows 源码命令会让 PowerShell 托管 Core，因此关闭终端会结束本次源码运行；安装后的 Windows
+桌面应用启动时不需要终端。
 
 产物位于 `desktop/src-tauri/target/release/bundle/`。构建会编译 `restorkd`、嵌入 Dashboard，并
 生成原生应用；用户启动产物时不会安装或解析任何依赖。

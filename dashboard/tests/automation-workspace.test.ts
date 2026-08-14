@@ -146,15 +146,17 @@ describe("Automation workspace", () => {
   it("creates and edits a named schedule with explicit success feedback", async () => {
     const root = document.createElement("main");
     const created = scheduleRecord();
-    const state = automationSnapshot([]);
-    const updated = automationSnapshot([created]);
-    const api = apiFor(updated);
-    api.createSchedule = vi.fn(async () => created);
-    api.updateSchedule = vi.fn(async () => ({
+    const revised = {
       ...created,
       revision: 2,
       schedule: { ...created.schedule, name: "Updated local check" },
-    }));
+    };
+    const state = automationSnapshot([]);
+    const updated = automationSnapshot([created]);
+    const updatedAgain = automationSnapshot([revised]);
+    const api = apiFor(updated);
+    api.createSchedule = vi.fn(async () => created);
+    api.updateSchedule = vi.fn(async () => revised);
     mountDashboard(root, { api, snapshot: state, locale: "en" });
     root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
 
@@ -171,6 +173,14 @@ describe("Automation workspace", () => {
       job: { kind: "deterministic", job: "health.check" },
     })));
     await vi.waitFor(() => expect(root.textContent).toContain("Schedule saved"));
+    await vi.waitFor(() => expect(
+      root.querySelector<HTMLButtonElement>('[data-schedule-action="edit"]'),
+    ).not.toBeNull());
+
+    let finishReload: ((value: DashboardSnapshot) => void) | undefined;
+    vi.mocked(api.loadDashboard).mockImplementationOnce(() => new Promise((resolve) => {
+      finishReload = resolve;
+    }));
 
     root.querySelector<HTMLButtonElement>('[data-schedule-action="edit"]')?.click();
     const edit = root.querySelector<HTMLFormElement>("[data-schedule-edit-form]");
@@ -182,7 +192,34 @@ describe("Automation workspace", () => {
       1,
       expect.objectContaining({ name: "Updated local check", schedule_id: "schedule-morning" }),
     ));
+    await vi.waitFor(() => expect(api.loadDashboard).toHaveBeenCalledTimes(2));
+    // Feedback must not wait for a cold Core or a slow full-workspace repaint.
     await vi.waitFor(() => expect(root.textContent).toContain("Schedule updated"));
+    finishReload?.(updatedAgain);
+    await vi.waitFor(() => expect(root.textContent).toContain("Updated local check"));
+    await vi.waitFor(() => expect(root.textContent).toContain("Schedule updated"));
+    root.remove();
+  });
+
+  it("keeps save success explicit when only the list refresh fails", async () => {
+    const root = document.createElement("main");
+    const state = automationSnapshot([]);
+    const api = apiFor(state);
+    api.createSchedule = vi.fn(async () => scheduleRecord());
+    vi.mocked(api.loadDashboard).mockRejectedValueOnce(new Error("refresh unavailable"));
+    mountDashboard(root, { api, snapshot: state, locale: "en" });
+    root.querySelector<HTMLButtonElement>('[data-view="automation"]')?.click();
+
+    const form = root.querySelector<HTMLFormElement>("#schedule-create-form");
+    if (!form) throw new Error("create form unavailable");
+    (form.elements.namedItem("name") as HTMLInputElement).value = "Morning local check";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => expect(api.createSchedule).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(root.textContent).toContain(
+      "Saved, but the list could not refresh.",
+    ));
+    expect(root.textContent).toContain("refresh unavailable");
     root.remove();
   });
 

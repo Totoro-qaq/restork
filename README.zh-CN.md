@@ -137,6 +137,9 @@ Set-Location restork
 ./scripts/quickstart.ps1
 ```
 
+这个贡献者命令会让 PowerShell 托管 Core；关闭终端就会结束本次源码运行。安装后的 Windows
+桌面应用不需要保持终端开启。
+
 Restork 会让系统自动选择一个空闲 loopback 端口，并打印准确的本地 URL，以及彼此独立的一次性
 Web/CLI 配对码。打开 URL，输入 Web 配对码就能进入本地工作台；查看界面不需要 API Key，真正的
 刷新页面、设备休眠或短暂断线后，本地恢复会话会自动续期，访问 Token 不会写进 Web Storage。

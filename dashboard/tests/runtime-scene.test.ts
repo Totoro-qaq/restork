@@ -72,4 +72,22 @@ describe("runtime scene", () => {
     cleanup();
     expect(original.hidden).toBe(false);
   });
+
+  it("stops its elapsed-time timer after the workspace is removed", () => {
+    vi.useFakeTimers();
+    const root = document.createElement("main");
+    root.innerHTML = `<button type="button" data-start-cancel>Cancel</button>
+      <div data-run-wait>
+        ${agentWaitMarkup("model", "en", { cancellable: true })}
+      </div>`;
+    document.body.append(root);
+
+    configureRuntimeScene(root);
+    expect(vi.getTimerCount()).toBe(1);
+
+    root.remove();
+    vi.advanceTimersByTime(1_000);
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

@@ -36,7 +36,11 @@ export function configureRuntimeScene(root: HTMLElement): () => void {
       waitHost.dataset.runtimeStartedAt = String(startedAt);
     }
     waitHost.querySelectorAll<HTMLElement>("[data-runtime-elapsed]").forEach((node) => {
-      node.textContent = elapsedCopy(startedAt);
+      const next = elapsedCopy(startedAt);
+      // The observer watches the scene's child list so that it can follow a
+      // newly rendered run. Replacing an unchanged text node would otherwise
+      // feed that observation straight back into `sync`.
+      if (node.textContent !== next) node.textContent = next;
     });
   };
   const sync = (): void => {
@@ -46,21 +50,43 @@ export function configureRuntimeScene(root: HTMLElement): () => void {
     const inlineStop = scene?.querySelector<HTMLButtonElement>("[data-runtime-stop]") ?? null;
     active = Boolean(scene);
     if (active) {
-      cancel.hidden = true;
+      // Only write when the visible state changes. Some WebViews still queue
+      // an attribute mutation when a boolean DOM property is assigned its
+      // current value.
+      if (!cancel.hidden) cancel.hidden = true;
       if (inlineStop) {
         inlineStop.disabled = cancel.disabled;
         inlineStop.setAttribute("aria-disabled", String(cancel.disabled));
       }
       paintElapsed();
-      if (interval == null) interval = window.setInterval(paintElapsed, 1_000);
+      if (interval == null && root.isConnected && waitHost.isConnected) {
+        interval = window.setInterval(() => {
+          if (!root.isConnected || !waitHost.isConnected) {
+            sceneCleanups.get(root)?.();
+            return;
+          }
+          paintElapsed();
+        }, 1_000);
+      }
     } else {
       stopTimer();
       delete waitHost.dataset.runtimeStartedAt;
     }
   };
-  const observer = new MutationObserver(sync);
-  observer.observe(waitHost, { childList: true, subtree: true });
-  observer.observe(cancel, { attributes: true, attributeFilter: ["disabled", "hidden"] });
+  const observer = new MutationObserver(() => {
+    if (!root.isConnected || !waitHost.isConnected || !cancel.isConnected) {
+      cleanup();
+      return;
+    }
+    sync();
+  });
+  // Run rendering replaces the direct contents of the wait host. Watching its
+  // descendants would also observe elapsed-time text updates owned here.
+  observer.observe(waitHost, { childList: true });
+  // The scene owns the original button's `hidden` state, so observing that
+  // attribute would feed our own write back into `sync`. We only need to
+  // mirror disabled/enabled changes made by the existing cancel flow.
+  observer.observe(cancel, { attributes: true, attributeFilter: ["disabled"] });
   const onClick = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -77,9 +103,8 @@ export function configureRuntimeScene(root: HTMLElement): () => void {
     stopTimer();
     waitHost.removeEventListener("click", onClick);
     if (active && cancel.isConnected) cancel.hidden = false;
-    sceneCleanups.delete(root);
+    if (sceneCleanups.get(root) === cleanup) sceneCleanups.delete(root);
   };
   sceneCleanups.set(root, cleanup);
   return cleanup;
 }
-
