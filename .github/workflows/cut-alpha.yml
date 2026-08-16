@@ -1,0 +1,54 @@
+name: Cut desktop Alpha
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Base version for the Alpha series (leave empty to keep the current one, e.g. 0.1.5)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  tag-alpha:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Compute and push the next annotated Alpha tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_INPUT: ${{ inputs.base }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          target="$(git rev-parse origin/main)"
+          if [[ -n "$BASE_INPUT" ]]; then
+            [[ "$BASE_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            base="$BASE_INPUT"
+            next=1
+          else
+            latest="$(git tag --list 'v*-alpha.*' --sort=-v:refname | head -n 1)"
+            if [[ -z "$latest" ]]; then
+              echo "No existing Alpha tag; pass an explicit base version." >&2
+              exit 1
+            fi
+            [[ "$latest" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-alpha\.([0-9]+)$ ]]
+            base="${BASH_REMATCH[1]}"
+            next=$(( ${BASH_REMATCH[2]} + 1 ))
+          fi
+          tag="v${base}-alpha.${next}"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "Tag $tag already exists." >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" "$target" -m "Restork $tag — desktop technical preview"
+          git push origin "$tag"
+          echo "Pushed $tag on $target; the public technical preview workflow now builds, publishes, and syncs the site automatically."
