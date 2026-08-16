@@ -301,7 +301,12 @@ function sidebarIdentity(snapshot: DashboardSnapshot, locale: Locale): string {
   const hint = name
     ? tr(locale, "This device", "本机工作台")
     : tr(locale, "Optional · stays on this device", "可选，只留在这台设备");
-  return `<button class="sidebar-identity" type="button" data-view="settings" aria-label="${escapeHtml(tr(locale, "Name and appearance", "称呼与外观"))}"><strong>${escapeHtml(label)}</strong><small>${escapeHtml(hint)}</small></button>`;
+  const initial = (name?.charAt(0) || "R").toUpperCase();
+  return `<button class="sidebar-identity" type="button" data-view="settings" aria-label="${escapeHtml(tr(locale, "Name and appearance", "称呼与外观"))}">`
+    + `<span class="identity-avatar" aria-hidden="true">${escapeHtml(initial)}</span>`
+    + `<span class="identity-who"><strong>${escapeHtml(label)}</strong><small>${escapeHtml(hint)}</small></span>`
+    + `<svg class="identity-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 14 5-5 5 5"/></svg>`
+    + `</button>`;
 }
 
 function dataClassLabel(value: string, locale: Locale): string {

@@ -279,11 +279,19 @@ body {
 .nav-item .icon { border: 1px solid rgb(var(--line-rgb) / 22%); color: var(--fg-secondary); background: rgb(var(--surface-alt-rgb) / 82%); box-shadow: none; }
 .nav-item.is-active .icon { border-color: transparent; color: #fff; background: var(--brand-strong); }
 .sidebar-identity {
-  display: grid; gap: 4px; margin-top: auto; border: 0; border-top: 1px solid rgb(var(--line-rgb) / 22%);
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center;
+  margin-top: auto; border: 0; border-top: 1px solid rgb(var(--line-rgb) / 45%);
   padding: 12px 8px 4px; color: var(--fg); background: transparent; text-align: left; cursor: pointer;
 }
-.sidebar-identity strong { display: block; font-size: var(--text-sm); font-weight: 600; }
-.sidebar-identity small { color: var(--fg-muted); font-size: var(--text-2xs); line-height: 1.4; }
+.identity-avatar {
+  display: grid; width: 32px; height: 32px; place-items: center; flex: none;
+  border-radius: 8px; background: var(--ink-black); color: var(--bg);
+  font-family: var(--font-display); font-size: var(--text-sm); font-weight: 700;
+}
+.identity-who { display: grid; min-width: 0; gap: 4px; }
+.identity-who strong { display: block; overflow: hidden; font-size: var(--text-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.identity-who small { color: var(--fg-muted); font-size: var(--text-2xs); line-height: 1.4; }
+.identity-chev { width: 16px; height: 16px; color: var(--fg-muted); }
 .research { background: rgb(var(--purple-surface-rgb)); color: var(--brand-ink); }
 .study { background: rgb(var(--green-surface-rgb)); color: var(--success-ink); }
 .work { background: rgb(var(--amber-surface-rgb)); color: var(--warning-ink); }
@@ -322,6 +330,12 @@ body {
 .dashboard-card-body::-webkit-scrollbar-thumb:hover { background: var(--brand-strong); background-clip: padding-box; }
 .paper-card { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: 17px; padding: 20px 20px 20px 48px; background: linear-gradient(155deg, rgb(var(--surface-rgb) / 81%), rgb(var(--surface-alt-rgb) / 70%)); box-shadow: 0 22px 50px -22px rgb(var(--shadow-rgb) / 40%), inset 0 1px var(--inset-highlight); }
 .paper-card::before { position: absolute; top: 0; bottom: 0; left: 33px; width: 1px; background: rgb(192 57 47 / 22%); content: ""; }
+/* Full-card pages read as a plain sheet in the v4 paper direction: no frame,
+   no ruling line, no colored corner ribbon. Component cards keep the card look. */
+.paper-card.full-card { overflow: visible; border: 0; border-radius: 0; padding: 4px 0 24px; background: transparent; box-shadow: none; }
+.paper-card.full-card::before { content: none; }
+.paper-card.full-card > header { gap: 8px; padding-bottom: 4px; border-bottom: 0; }
+.paper-card.full-card > header .ribbon { margin-left: auto; border: 0; padding: 0; background: transparent; color: var(--fg-muted); font-weight: 400; letter-spacing: .04em; }
 .paper-card header { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px dashed rgb(var(--line-rgb) / 35%); }
 .paper-card h1 { margin: 0; font-size: var(--text-title); letter-spacing: .13em; text-transform: uppercase; }
 .ribbon { margin-left: auto; border-radius: 6px; padding: 4px 8px; color: #fff; font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 700; letter-spacing: .08em; }
@@ -418,7 +432,7 @@ body {
 .board { grid-template-columns: 1fr; }
 .lanes { grid-template-columns: 1fr; }
 .lanes section + section { border-top: 1px dashed rgb(var(--line-rgb) / 25%); border-left: 0; }
-  .sidebar-identity { grid-column: 1 / -1; grid-template-columns: auto 1fr; align-items: baseline; gap: 8px; margin-top: 0; border-top: 0; padding: 4px 0 0; } }
+  .sidebar-identity { grid-column: 1 / -1; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin-top: 0; border-top: 0; padding: 4px 0 0; } }
 @media (max-width: 680px) { .dashboard { width: 100%; height: 100dvh; margin: 0; border-radius: 0; }
 .workspace { padding: 20px 16px 32px; }
 .sidebar { grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; padding: 12px 12px 12px; }
@@ -429,6 +443,7 @@ body {
 .nav-item .icon { display: none; }
 .metrics { grid-template-columns: repeat(2, 1fr); }
 .paper-card { padding-left: 36px; }
+.paper-card.full-card { padding-left: 0; }
 .paper-card::before { left: 23px; }
 .topline > span { display: none; } }
 @media (pointer: coarse) { button, [role="button"], input, select, textarea { --control-min: 44px; min-height: 44px; } :root { --control-min: 44px; } }
