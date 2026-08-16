@@ -27,7 +27,7 @@ function navButton(
 function navGroup(id: string, locale: Locale, en: string, zh: string, items: string[]): string {
   if (items.length === 0) return "";
   return `<div class="nav-group" data-nav-group="${id}">`
-    + `<p class="sr-only">${tr(locale, en, zh)}</p>${items.join("")}</div>`;
+    + `<h2 class="nav-group-title">${tr(locale, en, zh)}</h2>${items.join("")}</div>`;
 }
 
 /**

@@ -10,6 +10,26 @@ const MODE_COPY: Record<Mode, { en: string; zh: string }> = {
   work: { en: "What work do you want to move forward?", zh: "想推进什么工作？" },
 };
 
+const MODE_HINTS: Record<Mode, { en: string; zh: string }> = {
+  research: {
+    en: "Research: sources are listed, and conclusions keep their citations.",
+    zh: "查资料：会给出来源清单，并在结论里保留引用。",
+  },
+  study: {
+    en: "Study: draws on your notes; every write is confirmed before it lands.",
+    zh: "学知识：会引用你的笔记，写入前逐条确认。",
+  },
+  work: {
+    en: "Work: plan first, then act; every step leaves a local trail.",
+    zh: "推进工作：先给计划再动手，每一步在本机留痕。",
+  },
+};
+
+export function modeHint(mode: Mode, locale: Locale): string {
+  const copy = MODE_HINTS[mode];
+  return tr(locale, copy.en, copy.zh);
+}
+
 export function startTitle(mode: Mode, locale: Locale): string {
   const copy = MODE_COPY[mode];
   return tr(locale, copy.en, copy.zh);
@@ -33,14 +53,20 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
   const vaultReady = snapshot.taskBoard.vault_configured ?? snapshot.taskBoard.configured;
   const providerOptions = startProviderOptions(snapshot);
   const modelReady = providerOptions.length > 0;
-  const showExamples = snapshot.firstRun?.has_completed_run !== true;
   const suggestion = active.length === 0 ? snapshot.pendingRunSummaries?.[0] : undefined;
 
   const owner = startOwnerName(snapshot);
+  const reviewTitle = tr(locale, "Last task hasn't been reviewed.", "上次的任务还没复盘。");
+  const reviewTail = tr(locale, "Pick it back up?", "要接着写吗？");
+  const reviewLink = tr(locale, "Open that run", "打开那次运行");
+  const resumeCopy = suggestion
+    ? `<h2 id="start-title" class="start-context" data-start-title-static>${escapeMarkup(reviewTitle)}<span class="quiet">${escapeMarkup(reviewTail)}</span></h2>
+      <p class="start-context-sub"><button type="button" class="textlink" data-start-resume-run>${escapeMarkup(reviewLink)}</button></p>`
+    : `<h2 id="start-title">${escapeMarkup(startTitle("research", locale))}</h2>`;
   return `<section class="start-workspace" data-run-surface aria-labelledby="start-title">
     <div class="start-intro">
       ${owner ? `<p class="start-owner" data-start-owner>${escapeMarkup(owner)}</p>` : ""}
-      <h2 id="start-title">${escapeMarkup(startTitle("research", locale))}</h2>
+      ${resumeCopy}
     </div>
 
     <form id="start-run-form" class="start-run-form" data-provider-ready="${String(modelReady)}">
@@ -130,6 +156,7 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
         <button type="button" data-start-cancel hidden>${tr(locale, "Stop task", "停止任务")}</button>
       </div>
     </form>
+    <p class="mode-hint" data-mode-hint>${escapeMarkup(modeHint("research", locale))}</p>
 
     <div data-run-wait></div>
     <section class="start-run-output" data-start-output hidden aria-label="${tr(locale, "Task output", "任务输出")}">
@@ -139,7 +166,7 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
     ${modeWorkspaceMarkup("work")}
     ${runSummaryHostMarkup(suggestion, locale)}
 
-    ${showExamples ? startExamples(locale) : startExamplesCompact(locale)}
+    ${startExamples(locale)}
 
     ${startStatusRow(vaultReady, active.length, pending.length, nextExpiry, locale)}
   </section>`;
@@ -231,21 +258,8 @@ export function modeWorkspaceMarkup(kind: "study" | "work", id?: string): string
 function startModeButton(mode: Mode, label: string, active: boolean, locale: Locale): string {
   return `<button type="button" role="radio" data-start-mode="${mode}" data-title="${escapeMarkup(startTitle(mode, locale))}"
     data-placeholder="${escapeMarkup(startPlaceholder(locale))}"
+    data-hint="${escapeMarkup(modeHint(mode, locale))}"
     aria-checked="${String(active)}" class="${active ? "is-active" : ""}" tabindex="${active ? "0" : "-1"}">${escapeMarkup(label)}</button>`;
-}
-
-function startExamplesCompact(locale: Locale): string {
-  const examples: Array<[Mode, string, string]> = [
-    ["research", "Compare how two papers explain the same claim and keep the citations.", "对比两篇论文对同一结论的说法，并保留引用"],
-    ["study", "Build a practice set for distributed consistency from my notes.", "用我的笔记出一套分布式一致性练习"],
-    ["work", "Draft this week's runs into a weekly report.", "把这周的运行记录起草成一份周报"],
-  ];
-  return `<details class="start-examples start-examples-compact" data-start-examples><summary>${tr(locale, "Examples", "示例")}</summary>
-    ${examples.map(([mode, en, zh]) => {
-      const goal = escapeMarkup(tr(locale, en, zh));
-      return `<button type="button" data-start-example="${mode}" data-example-goal="${goal}">${goal}</button>`;
-    }).join("")}
-  </details>`;
 }
 
 function startExamples(locale: Locale): string {

@@ -51,7 +51,11 @@ export function configureStartWorkspace(
       if (active && goal) goal.placeholder = button.dataset.placeholder ?? "";
       if (active) {
         const title = root.querySelector<HTMLElement>("#start-title");
-        if (title) title.textContent = button.dataset.title ?? "";
+        if (title && !title.hasAttribute("data-start-title-static")) {
+          title.textContent = button.dataset.title ?? "";
+        }
+        const hint = root.querySelector<HTMLElement>("[data-mode-hint]");
+        if (hint) hint.textContent = button.dataset.hint ?? "";
       }
     });
     if (studyFields) studyFields.hidden = mode !== "study";
@@ -115,6 +119,9 @@ export function configureStartWorkspace(
       goal?.setAttribute("data-return-focus", "true");
       effects.selectView(button.dataset.startStatusView ?? "start");
     });
+  });
+  root.querySelector<HTMLButtonElement>("[data-start-resume-run]")?.addEventListener("click", () => {
+    effects.selectView("runs");
   });
   root.querySelector<HTMLButtonElement>("[data-start-open-settings]")?.addEventListener("click", () => {
     goal?.setAttribute("data-return-focus", "true");

@@ -186,9 +186,12 @@ describe("run-first start workspace", () => {
     expect(root.querySelector("#start-run-form")?.textContent).not.toContain("DeepSeek");
   });
 
-  it("retires examples after the first completed run", () => {
+  it("keeps examples laid out flat after the first completed run", () => {
     expect(render(snapshot(false)).querySelector("[data-start-examples]")).not.toBeNull();
-    expect(render(snapshot(true)).querySelector("[data-start-examples]")?.classList.contains("start-examples-compact")).toBe(true);
+    const afterFirstRun = render(snapshot(true)).querySelector("[data-start-examples]");
+    expect(afterFirstRun).not.toBeNull();
+    expect(afterFirstRun?.classList.contains("start-examples-compact")).toBe(false);
+    expect(afterFirstRun?.tagName).not.toBe("DETAILS");
   });
 
   it("resumes the newest unfinished run and keeps cancellation available", () => {
