@@ -26,7 +26,7 @@ export function configureRuntimeScene(root: HTMLElement): () => void {
   let active = false;
 
   const stopTimer = (): void => {
-    if (interval != null) window.clearInterval(interval);
+    if (interval != null && typeof window !== "undefined") window.clearInterval(interval);
     interval = null;
   };
   const paintElapsed = (): void => {
@@ -61,6 +61,11 @@ export function configureRuntimeScene(root: HTMLElement): () => void {
       paintElapsed();
       if (interval == null && root.isConnected && waitHost.isConnected) {
         interval = window.setInterval(() => {
+          // A queued tick may run after the test environment tore down jsdom.
+          if (typeof window === "undefined") {
+            interval = null;
+            return;
+          }
           if (!root.isConnected || !waitHost.isConnected) {
             sceneCleanups.get(root)?.();
             return;
