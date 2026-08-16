@@ -79,7 +79,7 @@ describe("DSN-008 detector baseline", () => {
     expect(stylesheet).toMatch(/\.brand h1, \.brand strong\s*\{[^}]*color:\s*var\(--ink-black\)/);
     expect(stylesheet).toMatch(/\.pairing h1 span[\s\S]*?color:\s*var\(--ink-black\)/);
     expect(stylesheet).toMatch(
-      /\.weather-temperature\s*\{[^}]*color:\s*var\(--brand-ink\)[^}]*font-size:\s*var\(--text-temperature\)/,
+      /\.weather-temperature\s*\{[^}]*color:\s*var\(--ink-black\)[^}]*font-size:\s*var\(--text-temperature\)/,
     );
     expect(stylesheet).not.toMatch(/\.weather-temperature\s*\{[^}]*background-clip:\s*text/);
   });

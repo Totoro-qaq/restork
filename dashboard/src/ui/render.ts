@@ -45,6 +45,7 @@ import {
   primaryNav,
   runSubviewSwitch,
   settingsTabSwitch,
+  whereCopy,
 } from "./navigation";
 import { startWorkspaceMarkup } from "./start";
 import { commandPaletteMarkup } from "./commandPalette";
@@ -96,7 +97,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
     <a class="skip-link" href="#workspace-main">${tr(locale, "Skip to main content", "跳到主要内容")}</a>
     <section class="dashboard" aria-label="${tr(locale, "Restork local workspace", "Restork 本地工作台")}">
       <aside class="sidebar">
-        <div class="brand"><h1>Restork</h1></div>
+        <div class="brand"><strong>Restork</strong></div>
         <nav aria-label="${tr(locale, "Main navigation", "主导航")}">
           ${primaryNav(snapshot, locale)}
         </nav>
@@ -104,6 +105,10 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
       </aside>
       <main class="workspace" id="workspace-main" tabindex="-1">
         <header class="topline">
+          <div class="where">
+            <h1 data-where-title>${escapeHtml(whereCopy(startupPage, locale).title)}</h1>
+            <p data-where-sub>${escapeHtml(whereCopy(startupPage, locale).sub)}</p>
+          </div>
           <div class="topline-actions">
             <button class="quiet-button command-palette-trigger" type="button" data-command-palette-open aria-keyshortcuts="Meta+K Control+K" aria-haspopup="dialog" aria-controls="command-palette-dialog">⌘K</button>
             ${mailIndicator(snapshot, locale)}
@@ -134,6 +139,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
         ${previewDialogMarkup(locale)}
         <section class="view ${startupPage === "start" ? "is-visible" : ""}" data-view-panel="start" ${startupPage === "start" ? "" : "hidden"}>${startWorkspaceMarkup(snapshot, locale)}</section>
         <section class="view ${startupPage === "overview" ? "is-visible" : ""}" data-view-panel="overview" ${startupPage === "overview" ? "" : "hidden"}>
+          ${dailyContext(snapshot, locale)}
           <section class="metrics" aria-label="${tr(locale, "Run overview", "运行概览")}">
             ${metric("research", tr(locale, "Active runs", "进行中运行"), String(active.length), modeCounts(active, locale))}
             ${metric("approval", tr(locale, "Pending approvals", "待审批"), String(pending.length), tr(locale, "Single-use · expires", "单次能力 · 到期失效"))}
@@ -148,7 +154,6 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
             ${metric("study", tr(locale, "Saved memories", "已保存内容"), String(memories.length), tr(locale, "Stored on this device", "保存在这台设备上"))}
           </section>
           ${providerSetup(snapshot, locale)}
-          ${dailyContext(snapshot, locale)}
           ${overview(snapshot, locale)}
         </section>
         <section class="view" data-view-panel="runs" hidden>${runsView(snapshot, locale)}</section>
@@ -1664,8 +1669,16 @@ export function runsView(snapshot: DashboardSnapshot, locale: Locale): string {
   if (notice) {
     return `${chrome}<article class="paper-card full-card"><header><h2>${tr(locale, "Runs", "运行")}</h2></header>${notice}</article>`;
   }
+  const liveCount = runs.filter((run) => !["completed", "failed", "cancelled"].includes(run.summary.state)).length;
+  const attnCount = snapshot.approvals.filter((approval) => approval.decision === "pending").length;
+  const filterRow = `<div class="run-filter" role="group" aria-label="${tr(locale, "Filter runs by state", "按状态筛选运行")}">`
+    + `<button type="button" data-run-filter="all" aria-pressed="true">${tr(locale, "All", "全部")} <span class="n">${runs.length}</span></button>`
+    + `<button type="button" data-run-filter="live" aria-pressed="false">${tr(locale, "Active", "进行中")} <span class="n">${liveCount}</span></button>`
+    + `<button type="button" data-run-filter="attn" aria-pressed="false">${tr(locale, "Awaiting confirmation", "待确认")} <span class="n">${attnCount}</span></button>`
+    + `</div>`;
   return `${chrome}<article class="paper-card full-card"><header><h2>${tr(locale, "Runs", "运行")}</h2><span class="ribbon research">CORE STATE</span></header>
-    <div class="split-view"><div><div class="item-list">${runs.map((run) => `<button type="button" class="list-item" data-run-id="${escapeHtml(run.summary.run_id)}"><b>${escapeHtml(modeLabel(run.summary.mode, locale).toUpperCase())}</b><span>${escapeHtml(run.task?.goal ?? run.summary.task_id)}</span><small>${escapeHtml(runStateLabel(run.summary.state, locale))} · ${formatDate(run.summary.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "No runs yet. Start one from the home page.", "还没有运行。回开始页用一句话发起。")}</p>`}</div>${paginationControl("runs", page, locale)}</div><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its activity.", "选择一个运行查看执行过程。")}</div></div>
+    ${filterRow}
+    <div class="split-view"><div><div class="item-list" data-run-list>${runs.map((run) => `<button type="button" class="list-item" data-run-id="${escapeHtml(run.summary.run_id)}" data-run-state="${escapeHtml(run.summary.state)}"><b>${escapeHtml(modeLabel(run.summary.mode, locale).toUpperCase())}</b><span>${escapeHtml(run.task?.goal ?? run.summary.task_id)}</span><small>${escapeHtml(runStateLabel(run.summary.state, locale))} · ${formatDate(run.summary.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "No runs yet. Start one from the home page.", "还没有运行。回开始页用一句话发起。")}</p>`}</div>${paginationControl("runs", page, locale)}</div><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its activity.", "选择一个运行查看执行过程。")}</div></div>
   </article>`;
 }
 
@@ -1698,6 +1711,7 @@ export function tasksView(snapshot: DashboardSnapshot, locale: Locale): string {
   const deletedTasks = snapshot.taskBoard.deleted_tasks ?? [];
   return `<article class="paper-card full-card">
     <header><h2>${tr(locale, "Tasks", "任务")}</h2><span class="ribbon work">LOCAL · EDITABLE</span></header>
+    <p class="kicker">${tr(locale, "Editable on this device. Markdown tasks in your Vault show a diff preview first; nothing is written until you confirm.", "本机可编辑。知识库里的 Markdown 任务要先预览差异，确认后才写入。")}</p>
     ${notice ?? ""}
     <form id="local-todo-form" class="todo-create-form">
       <label>${tr(locale, "What needs doing?", "要做什么？")}<input name="title" required maxlength="2000" placeholder="${tr(locale, "For example: review the experiment results", "例如：复核实验结果")}"></label>
@@ -1885,6 +1899,7 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
   const calendarDate = systemDaily?.local_date;
   const weekStart = snapshot.workspaceV2?.personal?.settings.week_start;
   return `<section class="daily-context" aria-label="${tr(locale, "Daily context", "每日上下文")}">
+    <div class="now-band">
     <article class="daily-card clock-card">
       <header><h2>${tr(locale, "Local time", "本地时间")}</h2><span>LOCAL</span></header>
       <svg class="roman-clock" viewBox="0 0 100 100" role="img" aria-labelledby="clock-title clock-description">
@@ -1894,6 +1909,7 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
         <line data-clock-hour class="clock-hand hour-hand" x1="50" y1="53" x2="50" y2="29"></line><line data-clock-minute class="clock-hand minute-hand" x1="50" y1="54" x2="50" y2="19"></line><line data-clock-second class="clock-hand second-hand" x1="50" y1="57" x2="50" y2="16"></line><circle class="clock-pin" cx="50" cy="50" r="2.5"></circle>
       </svg><time id="clock-text">${tr(locale, "Reading local time…", "读取本地时间…")}</time>
     </article>
+    <div class="now-divider" aria-hidden="true"></div>
     <article class="daily-card weather-card"><header><h2>${tr(locale, "Weather", "天气")}</h2><span>${escapeHtml(dailyStatusLabel(weather?.status ?? "offline", locale))}</span></header>
       ${weather?.configured && weather.temperature_c !== null ? `<strong class="weather-temperature">${weather.temperature_c.toFixed(1)}°</strong><p>${escapeHtml(weather.condition)} · ${tr(locale, "feels like", "体感")} ${weather.apparent_temperature_c?.toFixed(1) ?? "–"}°</p><small>${escapeHtml(weather.location_label)} · ${tr(locale, "humidity", "湿度")} ${weather.relative_humidity_percent ?? "–"}%</small><em>${escapeHtml(weather.attribution)}</em>` : `<p class="daily-empty">${escapeHtml(localeCompatibleMessage(weather?.message, locale) || tr(locale, "Weather is off. Enter a city, or allow one-time location access when you choose.", "天气尚未启用；可以手动填写城市，也可以在你需要时授权一次定位。"))}</p>`}
       <button type="button" class="settings-trigger" data-weather-open>${weather?.configured ? tr(locale, "CHANGE LOCATION", "修改位置") : tr(locale, "SET UP WEATHER", "设置天气")}</button>
@@ -1907,6 +1923,8 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
         </form>
       </dialog>
     </article>
+    </div>
+    <div class="today-split">
     <article class="daily-card calendar-card"><header><h2>${tr(locale, "Calendar", "日历")}</h2><span>${escapeHtml(dailyStatusLabel(calendar?.configured ? calendar.status : systemDaily ? "system" : "local", locale))}</span></header>
       ${calendarMonth(calendarDate, calendar?.events ?? [], weekStart, locale)}
       <button type="button" class="settings-trigger" data-calendar-open>${calendar?.configured ? tr(locale, "CALENDAR SETTINGS", "日历设置") : tr(locale, "CONNECT CALENDAR", "连接日历")}</button>
@@ -1941,6 +1959,7 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
         </form>
       </dialog>
     </article>
+    </div>
   </section>`;
 }
 
