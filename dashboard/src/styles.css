@@ -215,10 +215,7 @@ body {
 }
 .sidebar { display: flex; min-width: 0; min-height: 0; overflow-y: auto; flex-direction: column; gap: clamp(8px, .55vw, 12px); padding: clamp(24px, 1.7vw, 32px) clamp(16px, 1.35vw, 24px) clamp(20px, 1.4vw, 28px); border-right: 1px solid rgb(var(--line-rgb) / 29%); background: linear-gradient(180deg, rgb(var(--surface-rgb) / 57%), rgb(var(--surface-alt-rgb) / 69%)); }
 .brand { padding: 4px 8px 24px; }
-.brand h1, .brand strong { display: block; margin: 0; font-family: var(--font-display); font-weight: 700; font-size: var(--text-brand); letter-spacing: .2em; }
-.brand h1 span, .brand strong span { color: var(--ink-black); }
-.brand small { color: var(--fg-muted); font-size: var(--text-sm); letter-spacing: .19em; }
-.brand small { display: block; margin-top: 4px; }
+.brand h1, .brand strong { display: block; margin: 0; color: var(--ink-black); font-family: var(--font-display); font-weight: 700; font-size: 1.25rem; letter-spacing: -0.025em; }
 .nav-item {
   display: flex;
   width: 100%;
@@ -234,9 +231,14 @@ body {
 .nav-item.is-active { border-color: var(--border); background: var(--surface); box-shadow: inset 4px 0 0 var(--brand-strong); color: var(--fg); font-weight: 700; }
 .nav-group { display: grid; gap: 4px; }
 .nav-group + .nav-group {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed rgb(var(--line-rgb) / 22%);
+  margin-top: 20px;
+}
+.nav-group-title {
+  margin: 0 0 6px;
+  padding-inline: 12px;
+  color: var(--fg-muted);
+  font-size: var(--text-2xs);
+  font-weight: 400;
 }
 .subview-row,
 .settings-tab-row {
@@ -421,8 +423,7 @@ body {
 .workspace { padding: 20px 16px 32px; }
 .sidebar { grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; padding: 12px 12px 12px; }
 .brand { padding: 0px 0 0; }
-.brand h1, .brand strong { font-size: 1.05rem; letter-spacing: .14em; }
-.brand small { display: none; }
+.brand h1, .brand strong { font-size: 1.05rem; letter-spacing: -0.025em; }
 .sidebar nav { grid-column: 2; align-self: center; padding-bottom: 4px; }
 .nav-item { min-height: 44px; gap: 4px; padding: 8px 12px; }
 .nav-item .icon { display: none; }
@@ -552,12 +553,27 @@ body {
 }
 .start-intro { display: grid; gap: 4px; max-width: 40rem; }
 .start-owner {
-  margin: 0; color: var(--fg-strong); font-size: 1.25rem; font-weight: 600; line-height: 1.3;
+  margin: 0; color: var(--fg-muted); font-size: var(--text-sm); font-weight: 500; line-height: 1.3;
+  letter-spacing: .02em;
 }
 .start-intro h2 {
-  margin: 0; color: var(--fg-strong); font-family: var(--font-ui);
-  font-size: 1.5rem; font-weight: 600; line-height: 1.3; letter-spacing: 0;
+  margin: 0; color: var(--fg-strong); font-family: var(--font-display);
+  font-size: clamp(1.75rem, 1.35rem + 1.2vw, 2.5rem); font-weight: 700; line-height: 1.18;
+  letter-spacing: -0.035em; max-width: 25ch;
   white-space: normal; text-wrap: pretty;
+}
+.start-intro h2 .quiet {
+  display: block; color: var(--fg-muted); font-weight: 400;
+}
+.start-context-sub { margin: 8px 0 0; }
+.start-context-sub .textlink {
+  color: var(--fg-secondary); font: inherit; cursor: pointer; background: none; border: 0; padding: 0;
+  text-decoration: underline; text-decoration-color: var(--fg-muted); text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+.start-context-sub .textlink:hover { color: var(--fg-strong); }
+.mode-hint {
+  margin: 0; max-width: 68ch; color: var(--fg-muted); font-size: var(--text-sm);
 }
 .start-run-form {
   display: grid; gap: 12px; border: 1px solid var(--border); border-radius: 18px;
@@ -660,21 +676,19 @@ body {
   min-height: var(--control-min); border: 1px solid rgb(var(--line-rgb) / 26%); border-radius: 8px; padding: 4px 12px;
   color: var(--brand-ink); background: rgb(var(--purple-surface-rgb) / 56%); font: 700 var(--text-xs) var(--font-ui);
 }
-.start-examples { display: grid; gap: 8px; padding-inline: 4px; }
-.start-examples > small { color: var(--fg-muted); font-size: var(--text-xs); letter-spacing: .12em; }
-.start-examples button { width: fit-content; border-color: transparent; padding: 4px 0; color: var(--fg-secondary); text-align: left; }
-.start-examples button::before { color: var(--brand); content: "· "; }
-.start-examples button:hover { color: var(--brand-ink); text-decoration: underline; text-underline-offset: 4px; }
-.start-examples-compact summary { color: var(--fg-muted); font-size: var(--text-xs); letter-spacing: .12em; cursor: pointer; }
-.start-examples-compact[open] summary { margin-bottom: 8px; }
+.start-examples { display: grid; gap: 0; margin-top: 4px; border-top: 1px solid var(--border); }
+.start-examples > small { padding: 12px 0 2px; color: var(--fg-muted); font-size: var(--text-xs); letter-spacing: .12em; }
+.start-examples button { width: 100%; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 10px 0; color: var(--fg-secondary); text-align: left; background: transparent; }
+.start-examples button:hover { color: var(--brand-ink); }
 .start-status-row {
-  display: flex; min-width: 0; flex-wrap: wrap; gap: 4px 16px; align-items: center;
-  border-top: 1px dashed rgb(var(--line-rgb) / 24%); padding-top: 12px;
+  display: flex; min-width: 0; flex-wrap: wrap; gap: 6px 20px; align-items: center;
+  border-top: 1px solid rgb(var(--line-rgb) / 45%); padding-top: 14px;
 }
-.start-status-row button { min-width: 0; border: 0; padding: 4px 0; color: var(--fg-muted); font-size: var(--text-xs); }
-.start-status-row button + button::before { margin-right: 16px; color: rgb(var(--line-rgb) / 45%); content: "·"; }
+.start-status-row button { display: inline-flex; min-width: 0; align-items: center; gap: 7px; border: 0; padding: 4px 0; color: var(--fg-muted); font-size: var(--text-xs); }
+.start-status-row button::before { width: 7px; height: 7px; flex: none; border-radius: 999px; background: var(--success-ink); content: ""; }
 .start-status-row button:hover { color: var(--brand-ink); }
 .start-status-row button.is-urgent { color: var(--warning-ink); font-weight: 800; }
+.start-status-row button.is-urgent::before { background: var(--warning); }
 .start-run-summary {
   display: grid; gap: 12px; border: 1px solid rgb(var(--line-rgb) / 28%); border-radius: 12px;
   padding: 16px 16px; background: rgb(var(--surface-rgb) / 72%);
@@ -2325,8 +2339,6 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
   letter-spacing: .01em;
   text-transform: none;
 }
-:root:lang(zh-CN) .brand h1,
-:root:lang(zh-CN) .brand small,
 :root:lang(zh-CN) .pairing h1,
 :root:lang(zh-CN) .ribbon {
   letter-spacing: .14em;

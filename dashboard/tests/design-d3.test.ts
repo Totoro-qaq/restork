@@ -76,7 +76,7 @@ describe("DSN-008 detector baseline", () => {
   it("keeps brand marks as plain ink with no gradient text", () => {
     const hits = [...stylesheet.matchAll(/background-clip\s*:\s*text/gi)];
     expect(hits).toHaveLength(0);
-    expect(stylesheet).toMatch(/\.brand h1 span[\s\S]*?color:\s*var\(--ink-black\)/);
+    expect(stylesheet).toMatch(/\.brand h1, \.brand strong\s*\{[^}]*color:\s*var\(--ink-black\)/);
     expect(stylesheet).toMatch(/\.pairing h1 span[\s\S]*?color:\s*var\(--ink-black\)/);
     expect(stylesheet).toMatch(
       /\.weather-temperature\s*\{[^}]*color:\s*var\(--brand-ink\)[^}]*font-size:\s*var\(--text-temperature\)/,

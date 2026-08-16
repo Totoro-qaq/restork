@@ -112,8 +112,8 @@ describe("responsive readability", () => {
   });
 
   it("keeps the Start greeting and long-form reading at a readable measure", () => {
-    expect(stylesheet).toMatch(/\.start-intro h2\s*\{[^}]*font-family:\s*var\(--font-ui\)[^}]*font-size:\s*1\.5rem[^}]*font-weight:\s*600[^}]*letter-spacing:\s*0[^}]*white-space:\s*normal/);
-    expect(stylesheet).toMatch(/\.start-owner\s*\{[^}]*font-size:\s*1\.25rem[^}]*font-weight:\s*600/);
+    expect(stylesheet).toMatch(/\.start-intro h2\s*\{[^}]*font-family:\s*var\(--font-display\)[^}]*font-weight:\s*700[^}]*white-space:\s*normal/);
+    expect(stylesheet).toMatch(/\.start-owner\s*\{[^}]*font-size:\s*var\(--text-sm\)[^}]*font-weight:\s*500/);
     expect(stylesheet).toMatch(/\.sidebar-identity\s*\{[^}]*margin-top:\s*auto/);
     expect(stylesheet).toMatch(/\.vault-reading-view\s*\{[^}]*max-width:\s*72ch[^}]*font-family:\s*var\(--font-reading\)[^}]*line-height:\s*1\.78/);
   });

@@ -1566,7 +1566,8 @@ const demoParams = new URLSearchParams(window.location.search);
 const demoLocale = demoParams.get("locale") === "zh-CN" ? "zh-CN" : "en";
 if (snapshot.workspaceV2?.personal?.settings) {
   snapshot.workspaceV2.personal.settings.locale = demoLocale;
-  snapshot.workspaceV2.personal.settings.startup_page = "dashboard";
+  snapshot.workspaceV2.personal.settings.startup_page =
+    demoParams.get("startup") === "start" ? "start" : "dashboard";
 }
 if (demoLocale === "zh-CN") {
   const deck = snapshot.workspaceV2?.deliverables.find((item) => item.kind === "deck");

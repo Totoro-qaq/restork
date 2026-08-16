@@ -96,7 +96,7 @@ export function workspaceMarkup(snapshot: DashboardSnapshot, locale: Locale = "e
     <a class="skip-link" href="#workspace-main">${tr(locale, "Skip to main content", "跳到主要内容")}</a>
     <section class="dashboard" aria-label="${tr(locale, "Restork local workspace", "Restork 本地工作台")}">
       <aside class="sidebar">
-        <div class="brand"><h1>RES<span>TORK</span></h1><small>LOCAL-FIRST AGENT</small></div>
+        <div class="brand"><h1>Restork</h1></div>
         <nav aria-label="${tr(locale, "Main navigation", "主导航")}">
           ${primaryNav(snapshot, locale)}
         </nav>

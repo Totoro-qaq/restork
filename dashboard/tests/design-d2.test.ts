@@ -124,9 +124,9 @@ describe("Gate D2 navigation", () => {
     const items = [...root.querySelectorAll<HTMLElement>(".sidebar nav [data-view]")];
     expect(items.map((item) => item.dataset.view)).toEqual(PRIMARY);
     expect(root.querySelectorAll("[data-nav-group]")).toHaveLength(3);
-    expect(root.querySelector('[data-nav-group="core"] .sr-only')?.textContent).toBe("核心");
-    expect(root.querySelector('[data-nav-group="knowledge"] .sr-only')?.textContent).toBe("知识");
-    expect(root.querySelector('[data-nav-group="system"] .sr-only')?.textContent).toBe("本机");
+    expect(root.querySelector('[data-nav-group="core"] .nav-group-title')?.textContent).toBe("核心");
+    expect(root.querySelector('[data-nav-group="knowledge"] .nav-group-title')?.textContent).toBe("知识");
+    expect(root.querySelector('[data-nav-group="system"] .nav-group-title')?.textContent).toBe("本机");
     for (const view of ALIASES) {
       expect(root.querySelector(`.sidebar nav [data-view="${view}"]`)).toBeNull();
     }
