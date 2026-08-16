@@ -10,11 +10,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SITE = ROOT / "site"
 
-DOWNLOADS = {
-    "macOS": "Restork-0.1.5-alpha.3-macOS-arm64-UNSIGNED-ALPHA.dmg",
-    "Windows": "Restork-0.1.5-alpha.3-Windows-x64-UNSIGNED-ALPHA-setup.exe",
-    "Linux": "Restork-0.1.5-alpha.3-Linux-x64-UNSIGNED-ALPHA.AppImage",
+TAG_PATTERN = r"v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+"
+
+PLATFORMS = {
+    "macOS": "macOS-arm64-UNSIGNED-ALPHA.dmg",
+    "Windows": "Windows-x64-UNSIGNED-ALPHA-setup.exe",
+    "Linux": "Linux-x64-UNSIGNED-ALPHA.AppImage",
 }
+
+
+def hero_tag(html: str) -> str:
+    """Read the preview tag the hero currently advertises."""
+    match = re.search(rf"<strong>({TAG_PATTERN})</strong>", html)
+    if match is None:
+        raise AssertionError("hero release note does not name a preview tag")
+    return match.group(1)
 
 
 class SiteH2ContractTests(unittest.TestCase):
@@ -29,10 +39,19 @@ class SiteH2ContractTests(unittest.TestCase):
             hero = re.search(r'<section[^>]+class="hero"[\s\S]+?</section>', html)
             self.assertIsNotNone(hero, locale)
             hero_html = hero.group(0)
-            for platform, asset in DOWNLOADS.items():
+            tag = hero_tag(hero_html)
+            version = tag.lstrip("v")
+            for platform, suffix in PLATFORMS.items():
                 with self.subTest(locale=locale, platform=platform):
-                    self.assertIn(asset, hero_html)
-            self.assertIn("v0.1.5-alpha.3", hero_html)
+                    self.assertIn(
+                        f"releases/download/{tag}/Restork-{version}-{suffix}",
+                        hero_html,
+                    )
+            self.assertIn(f"releases/tag/{tag}", hero_html)
+
+    def test_locales_point_at_the_same_preview_tag(self) -> None:
+        tags = {locale: hero_tag(html) for locale, html in self.pages.items()}
+        self.assertEqual(tags["en"], tags["zh-CN"])
 
     def test_narrative_is_four_ordered_steps_not_feature_card_grids(self) -> None:
         for locale, html in self.pages.items():
