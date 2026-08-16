@@ -892,7 +892,7 @@ body {
 .radar-item button:hover { color: #fff; background: var(--brand); }
 .radar-item-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .radar-item-actions button { margin: 0; }
-.radar-periods { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 8px; align-items: center; }
+.radar-periods { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .radar-periods > input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .radar-periods > label {
   border: 1px solid rgb(var(--line-rgb) / 22%); border-radius: 99px; padding: 4px 8px;
@@ -901,7 +901,7 @@ body {
 }
 .radar-periods > input:focus-visible + label { outline: 2px solid var(--brand); outline-offset: 2px; }
 .radar-periods > input:checked + label { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--brand), var(--action-end)); }
-.radar-period-panel { display: none; grid-column: 1 / -1; min-width: 0; }
+.radar-period-panel { display: none; flex: 1 1 100%; min-width: 0; }
 #radar-period-daily:checked ~ .is-daily,
 #radar-period-weekly:checked ~ .is-weekly { display: block; }
 .radar-baseline-note { margin: 4px 0 8px; padding: 4px 8px; color: var(--fg-muted); background: rgb(var(--purple-surface-rgb) / 28%); font-size: var(--text-2xs); line-height: 1.45; }
@@ -1692,6 +1692,9 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
 .core-skill-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 .core-skill-card:active { transform: scale(.98); }
 .core-skill-card-title { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.core-skill-card > * { min-width: 0; }
+.core-skill-card-title > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.core-skill-card-title > em { flex: 0 0 auto; }
 .core-skill-grid strong { color: var(--fg); font-size: var(--text-sm); }
 .core-skill-grid em {
   border-radius: 99px; padding: 4px 8px; color: var(--success-ink);
@@ -1725,6 +1728,27 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
   padding: 4px 8px; color: var(--brand-ink); background: rgb(var(--brand-rgb) / 8%);
   font-size: var(--text-2xs); text-overflow: ellipsis; white-space: nowrap;
 }
+/* Extension rows carry a rich summary: the generic `.catalog-grid strong/span`
+   single-line ellipsis would make the whole summary one unbreakable line that
+   pokes out of the card. Rebuild the row as a grid and truncate deliberately. */
+.extension-row > summary {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start;
+  cursor: pointer;
+}
+.extension-row > summary > span:first-child {
+  display: grid; gap: 4px; min-width: 0; overflow: visible; text-overflow: clip; white-space: normal;
+}
+.extension-row > summary strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.extension-row > summary em {
+  display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  white-space: normal;
+}
+.extension-card,
+.extension-card-details,
+.extension-tool-list { min-width: 0; }
+.extension-tool-list li { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 4px 8px; align-items: baseline; }
+.extension-tool-list li code { overflow-wrap: anywhere; }
+.extension-tool-list li span { grid-column: 1 / -1; overflow: visible; text-overflow: clip; white-space: normal; }
 .tool-inventory {
   display: grid; gap: 8px; margin-top: 16px;
   border: 1px solid rgb(34 211 238 / 19%); border-radius: 12px; padding: 12px;
@@ -1771,7 +1795,9 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
 .deliverables-studio > section { margin-top: 20px; }
 .deliverables-studio .deliverable-grid { max-height: min(48vh, 560px); overflow-y: auto; padding-right: 4px; scrollbar-gutter: stable; }
 .presentation-studio { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
-.render-theme-picker { margin: 4px 0; border: 1px dashed rgb(var(--line-rgb) / 24%); border-radius: 11px; padding: 12px; }
+.render-theme-picker { min-width: 0; margin: 4px 0; border: 1px dashed rgb(var(--line-rgb) / 24%); border-radius: 11px; padding: 12px; }
+.template-card-grid > *,
+.template-group > * { min-width: 0; }
 .render-theme-picker > legend { padding-inline: 4px; color: var(--fg-secondary); font-size: var(--text-xs); font-weight: 800; }
 .template-picker-header,
 .template-group > header { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
@@ -1906,6 +1932,8 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
 .automation-contracts h3 { margin: 0 0 4px; font-size: var(--text-md); }
 .catalog-compose-grid label { display: grid; gap: 4px; min-width: 0; color: var(--fg-secondary); font-size: var(--text-xs); font-weight: 700; }
 .catalog-compose-grid textarea { width: 100%; resize: vertical; line-height: 1.5; }
+.catalog-compose-grid input,
+.catalog-compose-grid select { min-width: 0; max-width: 100%; }
 .catalog-compose-grid .wide-label { grid-column: 1 / -1; }
 .schedule-model-fields {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
@@ -2165,6 +2193,12 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
   .template-card-grid,
   .template-color-fields { grid-template-columns: 1fr; }
   .template-picker-header { align-items: stretch; flex-direction: column; }
+  .template-picker-header > .template-picker-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+  .template-picker-actions .template-action-button,
+  .template-picker-actions .button-like.template-action-button {
+    inline-size: auto; min-inline-size: 0; max-inline-size: none;
+    overflow: hidden; text-overflow: ellipsis;
+  }
   .template-picker-header > div:last-child { flex-wrap: wrap; }
   .deliverable-grid > article,
   .deliverable-grid > .deck-record { flex-basis: 100%; }
