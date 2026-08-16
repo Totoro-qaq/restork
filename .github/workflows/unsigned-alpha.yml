@@ -3,6 +3,17 @@ name: Public desktop technical preview
 on:
   push:
     tags: ["v*-alpha.*"]
+  # cut-alpha pushes tags with GITHUB_TOKEN, and token pushes cannot fire
+  # tag-push workflows, so an automatic cut arrives here as workflow_run.
+  workflow_run:
+    workflows: ["Cut desktop Alpha"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Alpha tag to build (e.g. v0.1.5-alpha.5); must be an annotated tag reachable from main"
+        required: true
+        type: string
 
 concurrency:
   group: public-desktop-alpha-${{ github.ref }}
@@ -14,25 +25,57 @@ permissions:
 jobs:
   validate-alpha-ref:
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Resolve the Alpha tag this run builds
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags origin
+          case "$GITHUB_EVENT_NAME" in
+            push)
+              tag="$GITHUB_REF_NAME"
+              ;;
+            workflow_dispatch)
+              tag="${{ github.event.inputs.tag }}"
+              ;;
+            workflow_run)
+              tag="$(git tag --list 'v*-alpha.*' --points-at "$GITHUB_SHA" --sort=-v:refname | head -n 1)"
+              test -n "$tag" || { echo "No alpha tag points at $GITHUB_SHA" >&2; exit 1; }
+              ;;
+            *)
+              echo "Unsupported event: $GITHUB_EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Require an annotated Alpha tag on a commit reachable from main
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]
-          test "$(git cat-file -t "$GITHUB_REF_NAME")" = tag
-          test "$(git rev-list -n 1 "$GITHUB_REF_NAME")" = "$GITHUB_SHA"
+          tag="${{ steps.resolve.outputs.tag }}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]
+          test "$(git cat-file -t "$tag")" = tag
+          target="$(git rev-list -n 1 "$tag")"
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            test "$target" = "$GITHUB_SHA"
+          fi
           git fetch --no-tags origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          git merge-base --is-ancestor "$target" origin/main
 
   build-macos-alpha:
     needs: validate-alpha-ref
     runs-on: macos-15
     timeout-minutes: 60
     environment: release-macos
+    env:
+      ALPHA_TAG: ${{ needs.validate-alpha-ref.outputs.tag }}
     permissions:
       contents: read
       id-token: write
@@ -75,7 +118,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${ALPHA_TAG#v}"
           python3 scripts/desktop_release.py config --platform macos --version "$version" --signing-mode ad-hoc --output build/desktop-alpha-config.json
           npm --prefix desktop exec tauri build -- --config build/desktop-alpha-config.json
       - name: Verify the signature is ad hoc and never claim Developer ID trust
@@ -92,7 +135,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${ALPHA_TAG#v}"
           mkdir -p dist/macos-alpha
           dmg="$(find desktop/src-tauri/target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
           archive="$(find desktop/src-tauri/target/release/bundle/macos -maxdepth 1 -name '*.app.tar.gz' -print -quit)"
@@ -115,6 +158,8 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 60
     environment: release-windows
+    env:
+      ALPHA_TAG: ${{ needs.validate-alpha-ref.outputs.tag }}
     permissions:
       contents: read
       id-token: write
@@ -142,14 +187,14 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $version = $env:ALPHA_TAG.Substring(1)
           python scripts/desktop_release.py config --platform windows --version $version --signing-mode unsigned --output build/desktop-alpha-config.json
           npm --prefix desktop exec tauri build -- --config build/desktop-alpha-config.json
       - name: Stage visibly labeled Windows technical-preview installers
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $version = $env:ALPHA_TAG.Substring(1)
           New-Item -ItemType Directory -Force dist/windows-alpha | Out-Null
           $nsis = Get-ChildItem desktop/src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
           if ($null -eq $nsis) { throw 'Expected an NSIS installer' }
@@ -169,6 +214,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: release-linux
+    env:
+      ALPHA_TAG: ${{ needs.validate-alpha-ref.outputs.tag }}
     permissions:
       contents: read
       id-token: write
@@ -196,14 +243,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${ALPHA_TAG#v}"
           python3 scripts/desktop_release.py config --platform linux --version "$version" --signing-mode unsigned --output build/desktop-alpha-config.json
           npm --prefix desktop exec tauri build -- --config build/desktop-alpha-config.json
       - name: Stage visibly labeled Linux technical-preview packages
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${ALPHA_TAG#v}"
           mkdir -p dist/linux-alpha
           appimage="$(find desktop/src-tauri/target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)"
           deb="$(find desktop/src-tauri/target/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)"
@@ -301,6 +348,7 @@ jobs:
 
   assemble-alpha:
     needs:
+      - validate-alpha-ref
       - build-macos-alpha
       - build-windows-alpha
       - build-linux-alpha
@@ -308,6 +356,8 @@ jobs:
       - clean-machine-windows
       - clean-machine-linux
     runs-on: ubuntu-latest
+    env:
+      ALPHA_TAG: ${{ needs.validate-alpha-ref.outputs.tag }}
     permissions:
       contents: read
       id-token: write
@@ -325,9 +375,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${ALPHA_TAG#v}"
           python3 scripts/generate_sbom.py --root . --output dist/public-alpha/restork.cdx.json
-          python3 scripts/desktop_release.py manifest --directory dist/public-alpha --repository "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --version "$version" --commit "$GITHUB_SHA" --channel alpha --trust technical-preview
+          python3 scripts/desktop_release.py manifest --directory dist/public-alpha --repository "$GITHUB_REPOSITORY" --tag "$ALPHA_TAG" --version "$version" --commit "$GITHUB_SHA" --channel alpha --trust technical-preview
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: |
@@ -343,9 +393,13 @@ jobs:
           retention-days: 30
 
   publish-alpha:
-    needs: assemble-alpha
+    needs:
+      - validate-alpha-ref
+      - assemble-alpha
     runs-on: ubuntu-latest
     environment: release-publish
+    env:
+      ALPHA_TAG: ${{ needs.validate-alpha-ref.outputs.tag }}
     permissions:
       contents: write
     steps:
@@ -359,14 +413,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: >-
-          gh release create "$GITHUB_REF_NAME" dist/publish/*
+          gh release create "$ALPHA_TAG" dist/publish/*
           --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease
-          --title "Restork $GITHUB_REF_NAME — Desktop Technical Preview"
+          --title "Restork $ALPHA_TAG — Desktop Technical Preview"
           --notes-file docs/unsigned-alpha-release.md
 
   sync-site:
-    needs: publish-alpha
+    needs:
+      - validate-alpha-ref
+      - publish-alpha
     runs-on: ubuntu-latest
+    env:
+      ALPHA_TAG: ${{ needs.validate-alpha-ref.outputs.tag }}
     permissions:
       contents: write
       pull-requests: write
@@ -375,7 +433,7 @@ jobs:
         with:
           ref: main
       - name: Point site downloads at the published Alpha
-        run: python3 scripts/sync_site_downloads.py --tag "$GITHUB_REF_NAME"
+        run: python3 scripts/sync_site_downloads.py --tag "$ALPHA_TAG"
       - name: Open an auto-merging site-sync PR against main
         env:
           # GITHUB_TOKEN-opened PRs do not trigger pull_request checks, which
@@ -388,19 +446,19 @@ jobs:
         run: |
           set -euo pipefail
           if git diff --quiet -- site/index.html site/zh-CN.html; then
-            echo "Site already points at $GITHUB_REF_NAME; nothing to do."
+            echo "Site already points at $ALPHA_TAG; nothing to do."
             exit 0
           fi
-          branch="site-sync/$GITHUB_REF_NAME"
+          branch="site-sync/$ALPHA_TAG"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
           git add site/index.html site/zh-CN.html
-          git commit -m "docs(site): point downloads to $GITHUB_REF_NAME"
+          git commit -m "docs(site): point downloads to $ALPHA_TAG"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$branch"
           gh pr create \
             --repo "$GITHUB_REPOSITORY" \
             --base main --head "$branch" \
-            --title "docs(site): point downloads to $GITHUB_REF_NAME" \
-            --body "Automated follow-up to the $GITHUB_REF_NAME desktop Alpha: the site download hero, per-platform links, and checksum links now reference this tag. Generated by scripts/sync_site_downloads.py. Merges automatically once required checks pass."
+            --title "docs(site): point downloads to $ALPHA_TAG" \
+            --body "Automated follow-up to the $ALPHA_TAG desktop Alpha: the site download hero, per-platform links, and checksum links now reference this tag. Generated by scripts/sync_site_downloads.py. Merges automatically once required checks pass."
           gh pr merge --repo "$GITHUB_REPOSITORY" --auto --squash "$branch"
