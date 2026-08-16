@@ -37,11 +37,18 @@ export function startClock(root: HTMLElement): void {
   let disposed = false;
   const stop = (): void => {
     disposed = true;
-    if (timer != null) window.clearTimeout(timer);
+    if (timer != null && typeof window !== "undefined") window.clearTimeout(timer);
     timer = null;
     if (cleanups.get(root) === stop) cleanups.delete(root);
   };
   const tick = (): void => {
+    // Vitest can tear down the jsdom global while a tick is still queued on
+    // the worker's event loop; touching `window` then throws ReferenceError.
+    if (typeof window === "undefined") {
+      disposed = true;
+      timer = null;
+      return;
+    }
     if (disposed || !root.isConnected) {
       stop();
       return;

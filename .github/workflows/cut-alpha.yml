@@ -7,9 +7,25 @@ on:
         description: "Base version for the Alpha series (leave empty to keep the current one, e.g. 0.1.5)"
         required: false
         type: string
+  # Full-auto preview channel: every code merge to main cuts the next Alpha,
+  # which triggers the three-platform build, GitHub release, and site sync.
+  # Docs/site/design-only pushes (including the bot's site-sync commits) skip.
+  push:
+    branches: [main]
+    paths-ignore:
+      - "site/**"
+      - "design/**"
+      - "docs/**"
+      - "**/*.md"
 
 permissions:
   contents: write
+
+# Serialise so back-to-back merges queue and compute fresh tag numbers
+# instead of racing for the same one.
+concurrency:
+  group: cut-alpha
+  cancel-in-progress: false
 
 jobs:
   tag-alpha:
