@@ -395,7 +395,7 @@ function conversationWorkspace(snapshot: DashboardSnapshot, locale: Locale): str
     <header><div><p class="eyebrow">${tr(locale, "Conversation", "对话")}</p><h2>${tr(locale, "Conversation", "对话工作区")}</h2></div><span class="ribbon study">${tr(locale, "LOCAL", "本地")}</span></header>
     <div class="conversation-layout">
       <aside class="session-rail">
-        <form id="session-create-form"><label for="session-title">${tr(locale, "New conversation", "新建对话")}</label><div><input id="session-title" name="title" maxlength="240" required placeholder="${tr(locale, "What are we working on?", "这次想做什么？")}"><button type="submit" aria-label="${tr(locale, "Create conversation", "创建对话")}">+</button></div><label for="session-profile" class="sr-only">${tr(locale, "Conversation setup", "对话配置")}</label><select id="session-profile" name="profile_id" aria-describedby="session-profile-help"><option value="safe-mode">${tr(locale, "Safe Mode / local only", "安全模式 / 仅本地")}</option><option value="deepseek-flash">${escapeHtml(builtInFlashLabel)} / ${tr(locale, "low latency / public only", "低延迟 / 仅公开内容")}</option><option value="deepseek">${escapeHtml(builtInDeepSeekLabel)} / ${tr(locale, "deeper reasoning / public only", "深度推理 / 仅公开内容")}</option>${customProfiles.map(({ profile }) => `<option value="${escapeHtml(profile.profile_id)}">${escapeHtml(profileLabel(profile))}</option>`).join("")}</select><small id="session-profile-help">${tr(locale, "This conversation keeps the provider and model selected here. Restork will not switch it to a cloud model in the background.", "本次对话会一直使用这里选择的供应商和模型；Restork 不会在后台换成其他云端模型。")}</small></form>
+        <form id="session-create-form"><label for="session-title">${tr(locale, "New conversation", "新建对话")}</label><input id="session-title" name="title" maxlength="240" required placeholder="${tr(locale, "What are we working on?", "这次想做什么？")}"><label for="session-profile" class="sr-only">${tr(locale, "Conversation setup", "对话配置")}</label><select id="session-profile" name="profile_id" aria-describedby="session-profile-help"><option value="safe-mode">${tr(locale, "Safe Mode / local only", "安全模式 / 仅本地")}</option><option value="deepseek-flash">${escapeHtml(builtInFlashLabel)} / ${tr(locale, "low latency / public only", "低延迟 / 仅公开内容")}</option><option value="deepseek">${escapeHtml(builtInDeepSeekLabel)} / ${tr(locale, "deeper reasoning / public only", "深度推理 / 仅公开内容")}</option>${customProfiles.map(({ profile }) => `<option value="${escapeHtml(profile.profile_id)}">${escapeHtml(profileLabel(profile))}</option>`).join("")}</select><small id="session-profile-help">${tr(locale, "This conversation keeps the provider and model selected here. Restork will not switch it to a cloud model in the background.", "本次对话会一直使用这里选择的供应商和模型；Restork 不会在后台换成其他云端模型。")}</small><button type="submit" class="session-create-submit">${tr(locale, "Create conversation", "创建对话")}</button></form>
         <form id="session-search-form" class="compact-search"><label class="sr-only" for="session-search">${tr(locale, "Search local knowledge", "搜索本地知识")}</label><input id="session-search" name="query" maxlength="256" placeholder="${tr(locale, "Search conversations, Vault, tasks and Radar", "搜索对话、Vault、任务和 Radar")}"><button type="submit" aria-label="${tr(locale, "Search conversations and local knowledge", "搜索对话与本地知识")}">⌕</button></form><div id="session-search-results" aria-live="polite"></div>
         <div class="session-list" data-roving-group>${sessions.map((session) => `<button type="button" data-session-select="${escapeHtml(session.session_id)}" data-session-title="${escapeHtml(session.title)}" data-session-profile="${escapeHtml(session.profile_id)}" data-session-version="${session.version}" data-session-updated-at="${escapeHtml(session.updated_at)}" class="session-item ${session.session_id === active?.session_id ? "is-active" : ""}"><strong>${escapeHtml(session.title)}</strong><small>${escapeHtml(session.profile_id)} · ${formatDate(session.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "Create a conversation to begin locally.", "新建一个对话，从本地开始。")}</p>`}</div>
       </aside>
@@ -709,37 +709,44 @@ function automationWorkspace(snapshot: DashboardSnapshot, locale: Locale): strin
     .filter((record): record is ScheduleRecordV2 => record !== null);
   const providers = snapshot.workspaceV2?.providers ?? [];
   const providerOptions = scheduleProviderOptions(providers, locale);
-  return `<article class="paper-card full-card catalog-workspace"><header><div><p class="eyebrow">${tr(locale, "Automation & recovery", "自动化与恢复")}</p><h2>${tr(locale, "Automations and recovery", "自动化与恢复")}</h2></div><span class="ribbon work">${tr(locale, "LOCAL AND REVERSIBLE", "本地可恢复")}</span></header>
-    <section aria-labelledby="saved-schedules-title"><header class="schedule-list-header"><div class="schedule-list-title"><small>${tr(locale, "Local schedules", "本地日程")}</small><h3 id="saved-schedules-title">${tr(locale, "Saved automations", "已保存的自动化")}</h3></div>
-        <div class="schedule-list-actions"><button type="button" data-schedule-active-load>${tr(locale, "REFRESH LIST", "刷新列表")}</button><button type="button" class="quiet-button" data-schedule-trash-load>${tr(locale, "OPEN TRASH", "打开回收站")}</button></div></header>
-      <div class="catalog-grid automation-grid" data-schedule-active-list>${scheduleCardsMarkup(records, locale, false, providers)}</div><div data-schedule-active-page></div>
-      <div class="catalog-grid automation-grid" data-schedule-trash-list></div><div data-schedule-trash-page></div></section>
-    <div class="catalog-compose-grid catalog-compose-single"><form id="schedule-create-form">
-      <h3>${tr(locale, "New automation", "新建自动化")}</h3>
-      <label>${tr(locale, "Name", "名称")}<input name="name" required maxlength="120" value="${tr(locale, "Morning local check", "每日本地检查")}"></label>
-      <label>${tr(locale, "Time", "时间")}<input name="time" type="time" required value="09:00"></label>
-      <label>${tr(locale, "Recurrence", "重复")}<select name="recurrence" data-schedule-recurrence><option value="daily">${tr(locale, "Daily", "每天")}</option><option value="weekly">${tr(locale, "Weekly", "每周")}</option><option value="every_n_days">${tr(locale, "Every few days", "每几天")}</option></select></label>
-      <label data-schedule-weekday-field hidden>${tr(locale, "Weekday", "星期")}<select name="weekday">${weekdayOptions(locale)}</select></label>
-      ${scheduleIntervalField(locale, 3, true)}
-      <label class="wide-label">${tr(locale, "Job", "任务")}<select name="job">${scheduleJobOptions(locale)}</select></label>
-      <fieldset class="schedule-model-fields wide-label" data-schedule-model-fields hidden>
-        <legend>${tr(locale, "Model for this draft", "起草所用模型")}</legend>
-        <label>${tr(locale, "Model", "模型")}<select name="provider_profile_id">${providerOptions}</select></label>
-        <label>${tr(locale, "What should the draft focus on?", "希望草稿重点整理什么？")}<textarea name="focus" rows="3" maxlength="2000" placeholder="${tr(locale, "For example: completed work, blockers, decisions and next steps", "例如：已完成事项、阻塞、决策和下一步")}"></textarea></label>
-        <label class="consent-check"><input type="checkbox" name="network_access_confirmed" required>${tr(
-          locale,
-          "I understand that Restork will send public run titles, status and stop reasons to this model and that the provider may charge for each run.",
-          "我知道 Restork 会把标记为 public 的运行标题、状态与停止原因发送给该模型，并且供应商可能按次计费。",
-        )}</label>
-      </fieldset>
-      <button type="submit">${tr(locale, "CREATE SCHEDULE", "创建自动化")}</button>
+  return `<article class="paper-card full-card catalog-workspace sched-workspace"><header class="schedule-list-header"><div class="schedule-list-title"><p class="eyebrow">${tr(locale, "Automation", "自动化")}</p><h2 id="saved-schedules-title">${tr(locale, "Schedules and triggers", "计划与触发")}</h2></div>
+      <div class="schedule-list-actions"><button type="button" data-schedule-active-load>${tr(locale, "REFRESH LIST", "刷新列表")}</button><button type="button" class="quiet-button" data-schedule-trash-load>${tr(locale, "OPEN TRASH", "打开回收站")}</button></div></header>
+    <p class="kicker">${tr(
+      locale,
+      "Schedules fire in this device's timezone. Model-draft jobs send public run facts to the selected model and may incur provider charges.",
+      "计划按本机时区触发。模型起草类任务会把 public 运行事实发给所选模型，可能产生费用。",
+    )}</p>
+    <div class="catalog-grid automation-grid sched-list" data-schedule-active-list>${scheduleCardsMarkup(records, locale, false, providers)}</div><div data-schedule-active-page></div>
+    <div class="catalog-grid automation-grid sched-list" data-schedule-trash-list></div><div data-schedule-trash-page></div>
+    <form id="schedule-create-form" class="sched-create">
+      <div class="form-row">
+        <label class="fld"><span>${tr(locale, "Name", "名称")}</span><input name="name" required maxlength="120" placeholder="${tr(locale, "For example: weekly report on Sunday night", "例如：每周日晚上写周报")}"></label>
+        <label class="fld"><span>${tr(locale, "Time", "时间")}</span><input name="time" type="time" required value="21:00"></label>
+        <label class="fld"><span>${tr(locale, "Recurrence", "重复")}</span><select name="recurrence" data-schedule-recurrence><option value="daily">${tr(locale, "Daily", "每天")}</option><option value="weekly">${tr(locale, "Weekly", "每周")}</option><option value="every_n_days">${tr(locale, "Every few days", "每几天")}</option></select></label>
+        <button type="submit" class="sched-save">${tr(locale, "SAVE SCHEDULE", "保存计划")}</button>
+      </div>
+      <div class="sched-create-extra">
+        <label class="fld" data-schedule-weekday-field hidden><span>${tr(locale, "Weekday", "星期")}</span><select name="weekday">${weekdayOptions(locale)}</select></label>
+        ${scheduleIntervalField(locale, 3, true)}
+        <label class="fld wide-label"><span>${tr(locale, "Job", "任务")}</span><select name="job">${scheduleJobOptions(locale)}</select></label>
+        <fieldset class="schedule-model-fields wide-label" data-schedule-model-fields hidden>
+          <legend>${tr(locale, "Model for this draft", "起草所用模型")}</legend>
+          <label>${tr(locale, "Model", "模型")}<select name="provider_profile_id">${providerOptions}</select></label>
+          <label>${tr(locale, "What should the draft focus on?", "希望草稿重点整理什么？")}<textarea name="focus" rows="3" maxlength="2000" placeholder="${tr(locale, "For example: completed work, blockers, decisions and next steps", "例如：已完成事项、阻塞、决策和下一步")}"></textarea></label>
+          <label class="consent-check"><input type="checkbox" name="network_access_confirmed" required>${tr(
+            locale,
+            "I understand that Restork will send public run titles, status and stop reasons to this model and that the provider may charge for each run.",
+            "我知道 Restork 会把标记为 public 的运行标题、状态与停止原因发送给该模型，并且供应商可能按次计费。",
+          )}</label>
+        </fieldset>
+      </div>
       <p id="schedule-create-status" role="status"></p>
       <p class="fine">${tr(
         locale,
-        "Model automations use public run facts to create a draft on this device. The draft is not written to the Vault or exported until you confirm it.",
-        "模型自动化只使用公开的运行记录，并在这台设备上生成草稿。确认之前，草稿不会写入知识库或导出。",
+        "It appears in the list only after you save it. Run now does not skip write confirmation.",
+        "保存后才会出现在列表里。立即运行不会跳过写入确认。",
       )}</p>
-    </form></div></article>`;
+    </form></article>`;
 }
 
 function scheduleRecordFromCatalog(record: CatalogRecordV2): ScheduleRecordV2 | null {
@@ -893,7 +900,7 @@ function scheduleCard(
     : "";
   const focus = schedule.job.kind === "model_draft" ? schedule.job.focus : "";
   const modelSummary = schedule.job.kind === "model_draft"
-    ? `<small>${escapeHtml(schedule.job.provider_profile_id)}</small><p>${escapeHtml(schedule.job.focus)}</p>`
+    ? `<p class="meta model-summary">${escapeHtml(schedule.job.provider_profile_id)} · ${escapeHtml(schedule.job.focus)}</p>`
     : "";
   const action = (kind: string, label: string, className = ""): string => (
     `<button type="button" ${className} data-schedule-action="${kind}" `
@@ -945,17 +952,16 @@ function scheduleCard(
       <button type="submit">${tr(locale, "SAVE CHANGES", "保存修改")}</button>
       <button type="button" data-schedule-edit-cancel>${tr(locale, "CANCEL", "取消")}</button>
     </form><div data-schedule-run-host="${id}"></div>`;
-  return `<article data-schedule-card="${id}">
-    <strong>${escapeHtml(name)}</strong>
-    <span>${escapeHtml(humanScheduleRecurrence(schedule.recurrence, locale))}</span>
-    <small>${escapeHtml(schedule.timezone)} · ${escapeHtml(scheduleJobLabel(schedule.job, locale))}</small>
-    ${modelSummary}<small>${nextRun}</small><div class="record-actions">${actions}</div>${editForm}
+  return `<article class="sched-card${record.state === "paused" && !deleted ? " is-paused" : ""}" data-schedule-card="${id}">
+    <h3>${escapeHtml(name)}</h3>
+    <p class="meta">${escapeHtml(humanScheduleRecurrence(schedule.recurrence, locale))} · ${escapeHtml(schedule.timezone)} · ${escapeHtml(scheduleJobLabel(schedule.job, locale))}</p>
+    ${modelSummary}<p class="next">${nextRun}</p><div class="record-actions sched-acts">${actions}</div>${editForm}
   </article>`;
 }
 
 export function scheduleRunsMarkup(runs: ScheduleRunV2[], locale: Locale): string {
   if (!runs.length) return `<p class="empty">${tr(locale, "No runs recorded yet. Save the automation to see them here.", "还没有运行记录。保存自动化后会显示在这里。")}</p>`;
-  return `<ol class="event-list">${runs.map((run) => {
+  return `<ol class="event-list sched-hist">${runs.map((run) => {
     const manual = run.period_key.startsWith("manual:") || run.result.manual === true;
     const state = scheduleRunStateLabel(
       typeof run.result.state === "string" ? run.result.state : "recorded",
@@ -966,10 +972,10 @@ export function scheduleRunsMarkup(runs: ScheduleRunV2[], locale: Locale): strin
       : tr(locale, "Scheduled run", "计划运行");
     const replayed = run.replayed ? ` · ${tr(locale, "replayed", "重放")}` : "";
     const deliverable = typeof run.result.deliverable_id === "string"
-      ? `<small>${tr(locale, "Draft saved on this device", "草稿已保存在这台设备上")} · ${escapeHtml(run.result.deliverable_id)}</small>`
+      ? ` · ${tr(locale, "draft saved on this device", "草稿已保存在这台设备上")}`
       : "";
-    return `<li><strong>${label}</strong><span>${escapeHtml(String(state))}${replayed}</span>`
-      + `${deliverable}<small>${formatDate(run.created_at, locale)}</small></li>`;
+    return `<li><span>${label} · ${escapeHtml(String(state))}${replayed}${deliverable}</span>`
+      + `<span class="t">${formatDate(run.created_at, locale)}</span></li>`;
   }).join("")}</ol>`;
 }
 
@@ -1296,36 +1302,47 @@ export function runEventsMarkup(
     busy?: boolean;
     draft?: string;
     error?: string;
+    activeTab?: "process" | "chat";
   },
 ): string {
   const summary = run.summary;
   const turns = conversation?.turns ?? [];
+  const activeTab = conversation?.activeTab === "chat" ? "chat" : "process";
   const prompt = [...turns].reverse().find((turn) => turn.prompt_version);
   const assistantOutput = events
     .filter((event) => event.type === "assistant.delta")
     .map((event) => typeof event.data.content === "string" ? event.data.content : "")
     .join("");
   const phaseEvents = events.filter((event) => event.type !== "assistant.delta");
+  const maxSteps = run.task?.budgets?.max_steps ?? run.budget?.budget?.max_steps ?? DEFAULT_MODEL_TURNS;
+  const usedSteps = run.budget?.usage?.steps ?? 0;
+  const budgetPercent = maxSteps > 0 ? Math.min(100, Math.round((usedSteps / maxSteps) * 100)) : 0;
+  const skills = runSkillsMarkup(run, locale);
   return `
-    <article class="paper-card detail-card">
-      <header><h2>${escapeHtml(run.task?.goal ?? summary.task_id)}</h2><span class="ribbon ${escapeHtml(summary.mode)}">${escapeHtml(summary.mode)}</span></header>
-      <dl class="metadata">
-        <div><dt>${tr(locale, "TYPE", "类型")}</dt><dd>${escapeHtml(modeLabel(summary.mode, locale))}</dd></div>
-        <div><dt>${tr(locale, "STATUS", "状态")}</dt><dd>${escapeHtml(runStateLabel(summary.state, locale))}</dd></div>
-        <div><dt>${tr(locale, "UPDATED", "更新时间")}</dt><dd>${formatDate(summary.updated_at, locale)}</dd></div>
-        <div data-run-budget><dt>${tr(locale, "BUDGET", "预算")}</dt><dd>${escapeHtml(runBudgetUsedCopy(
-          locale,
-          run.task?.budgets?.max_steps ?? run.budget?.budget?.max_steps ?? DEFAULT_MODEL_TURNS,
-          run.budget?.usage?.steps ?? 0,
-          run.budget?.usage?.tokens ?? 0,
-        ))}</dd></div>
-        ${runSkillsMarkup(run, locale)}
-      </dl>
-      <details class="technical-details"><summary>${tr(locale, "Technical details", "技术详情")}</summary><code>${tr(locale, "Run reference", "运行标识")} · ${escapeHtml(summary.run_id)}</code></details>
-      ${traceMarkup(buildRunTrace(events), locale)}
-      ${paginationControl("events", page, locale, tr(locale, "LOAD EARLIER EVENTS", "加载更早事件"))}
-      <section class="assistant-stream" ${assistantOutput ? "" : "hidden"} aria-live="polite"><small>ASSISTANT · STREAM</small>${assistantStreamMarkup(assistantOutput, locale)}</section>
-      <ol class="event-list">${phaseEvents.length ? phaseEvents.map((event) => eventRow(event, locale)).join("") : `<li>${tr(locale, "No new events.", "暂无新事件。")}</li>`}</ol>
+    <article class="paper-card detail-card run-detail-card">
+      <header class="rd-head"><div class="rd-top"><div class="rd-title"><h2>${escapeHtml(run.task?.goal ?? summary.task_id)}</h2>
+        <p class="rd-meta">${escapeHtml(modeLabel(summary.mode, locale))} · ${escapeHtml(runStateLabel(summary.state, locale))} · ${tr(locale, "Updated", "更新于")} ${formatDate(summary.updated_at, locale)}</p></div>
+        <span class="ribbon ${escapeHtml(summary.mode)}">${escapeHtml(summary.mode)}</span></div>
+        <div class="rd-budget" data-run-budget><div class="rd-budget-bar"><i style="width:${budgetPercent}%"></i></div>
+          <div class="rd-budget-line"><span>${tr(locale, "Budget", "预算")}</span><span class="mono">${escapeHtml(runBudgetUsedCopy(
+            locale,
+            maxSteps,
+            usedSteps,
+            run.budget?.usage?.tokens ?? 0,
+          ))}</span></div></div>
+      </header>
+      <div class="rd-tabs" role="group" aria-label="${tr(locale, "Run detail sections", "运行详情分区")}">
+        <button type="button" data-rd-tab="process" aria-pressed="${activeTab === "process"}">${tr(locale, "Process", "过程")} <span class="n">${phaseEvents.length}</span></button>
+        <button type="button" data-rd-tab="chat" aria-pressed="${activeTab === "chat"}">${tr(locale, "Conversation", "对话")} <span class="n">${turns.length}</span></button>
+      </div>
+      <div class="rd-panel" data-rd-panel="process" ${activeTab === "process" ? "" : "hidden"}>
+        <details class="technical-details"><summary>${tr(locale, "Technical details", "技术详情")}</summary><code>${tr(locale, "Run reference", "运行标识")} · ${escapeHtml(summary.run_id)}</code>${skills ? `<dl class="metadata compact">${skills}</dl>` : ""}</details>
+        ${traceMarkup(buildRunTrace(events), locale)}
+        ${paginationControl("events", page, locale, tr(locale, "LOAD EARLIER EVENTS", "加载更早事件"))}
+        <section class="assistant-stream" ${assistantOutput ? "" : "hidden"} aria-live="polite"><small>ASSISTANT · STREAM</small>${assistantStreamMarkup(assistantOutput, locale)}</section>
+        <ol class="event-list">${phaseEvents.length ? phaseEvents.map((event) => eventRow(event, locale)).join("") : `<li>${tr(locale, "No new events.", "暂无新事件。")}</li>`}</ol>
+      </div>
+      <div class="rd-panel" data-rd-panel="chat" ${activeTab === "chat" ? "" : "hidden"}>
       <section class="conversation-panel" aria-labelledby="conversation-title">
         <header>
           <div><p class="eyebrow">${tr(locale, "This run · chat only", "本次运行 · 仅对话")}</p><h3 id="conversation-title">${tr(locale, "Conversation", "多轮对话")}</h3></div>
@@ -1344,6 +1361,7 @@ export function runEventsMarkup(
           <div><small>${tr(locale, "Uses recent messages only · tools are off · file and tool actions always ask first", "只参考最近消息 · 不会调用工具 · 写文件或调用工具前会再次询问")}</small><button type="submit" ${conversation?.enabled && !conversation.busy ? "" : "disabled"}>${tr(locale, "SEND", "发送")}</button></div>
         </form>
       </section>
+      </div>
     </article>`;
 }
 
@@ -1676,9 +1694,17 @@ export function runsView(snapshot: DashboardSnapshot, locale: Locale): string {
     + `<button type="button" data-run-filter="live" aria-pressed="false">${tr(locale, "Active", "进行中")} <span class="n">${liveCount}</span></button>`
     + `<button type="button" data-run-filter="attn" aria-pressed="false">${tr(locale, "Awaiting confirmation", "待确认")} <span class="n">${attnCount}</span></button>`
     + `</div>`;
-  return `${chrome}<article class="paper-card full-card"><header><h2>${tr(locale, "Runs", "运行")}</h2><span class="ribbon research">CORE STATE</span></header>
-    ${filterRow}
-    <div class="split-view"><div><div class="item-list" data-run-list>${runs.map((run) => `<button type="button" class="list-item" data-run-id="${escapeHtml(run.summary.run_id)}" data-run-state="${escapeHtml(run.summary.state)}"><b>${escapeHtml(modeLabel(run.summary.mode, locale).toUpperCase())}</b><span>${escapeHtml(run.task?.goal ?? run.summary.task_id)}</span><small>${escapeHtml(runStateLabel(run.summary.state, locale))} · ${formatDate(run.summary.updated_at, locale)}</small></button>`).join("") || `<p class="empty">${tr(locale, "No runs yet. Start one from the home page.", "还没有运行。回开始页用一句话发起。")}</p>`}</div>${paginationControl("runs", page, locale)}</div><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its activity.", "选择一个运行查看执行过程。")}</div></div>
+  const stateClass = (state: string): string =>
+    state === "completed" ? "is-ok" : ["failed", "cancelled"].includes(state) ? "is-attn" : "is-running";
+  const runItem = (run: (typeof runs)[number]): string => {
+    const state = run.summary.state;
+    return `<button type="button" class="list-item run-item" data-run-id="${escapeHtml(run.summary.run_id)}" data-run-state="${escapeHtml(state)}">`
+      + `<span class="row"><span class="mode">${escapeHtml(modeLabel(run.summary.mode, locale))}</span><span class="state ${stateClass(state)}"><i></i>${escapeHtml(runStateLabel(state, locale))}</span></span>`
+      + `<span class="goal">${escapeHtml(run.task?.goal ?? run.summary.task_id)}</span>`
+      + `<span class="foot">${formatDate(run.summary.updated_at, locale)}</span></button>`;
+  };
+  return `${chrome}<article class="paper-card full-card">
+    <div class="split-view runs-split"><div>${filterRow}<div class="item-list" data-run-list>${runs.map(runItem).join("") || `<p class="empty">${tr(locale, "No runs yet. Start one from the home page.", "还没有运行。回开始页用一句话发起。")}</p>`}</div>${paginationControl("runs", page, locale)}</div><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its activity.", "选择一个运行查看执行过程。")}</div></div>
   </article>`;
 }
 
@@ -1911,7 +1937,7 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
     </article>
     <div class="now-divider" aria-hidden="true"></div>
     <article class="daily-card weather-card"><header><h2>${tr(locale, "Weather", "天气")}</h2><span>${escapeHtml(dailyStatusLabel(weather?.status ?? "offline", locale))}</span></header>
-      ${weather?.configured && weather.temperature_c !== null ? `<strong class="weather-temperature">${weather.temperature_c.toFixed(1)}°</strong><p>${escapeHtml(weather.condition)} · ${tr(locale, "feels like", "体感")} ${weather.apparent_temperature_c?.toFixed(1) ?? "–"}°</p><small>${escapeHtml(weather.location_label)} · ${tr(locale, "humidity", "湿度")} ${weather.relative_humidity_percent ?? "–"}%</small><em>${escapeHtml(weather.attribution)}</em>` : `<p class="daily-empty">${escapeHtml(localeCompatibleMessage(weather?.message, locale) || tr(locale, "Weather is off. Enter a city, or allow one-time location access when you choose.", "天气尚未启用；可以手动填写城市，也可以在你需要时授权一次定位。"))}</p>`}
+      ${weather?.configured && weather.temperature_c !== null ? `<div class="weather-main"><div class="wx-sky" data-sky aria-hidden="true"><canvas width="192" height="192"></canvas></div><div class="weather-info"><p class="weather-now"><strong class="weather-temperature">${weather.temperature_c.toFixed(1)}°</strong> <span class="weather-condition">${escapeHtml(weather.condition)}</span></p><p>${tr(locale, "feels like", "体感")} ${weather.apparent_temperature_c?.toFixed(1) ?? "–"}° · ${tr(locale, "humidity", "湿度")} ${weather.relative_humidity_percent ?? "–"}%</p><small>${escapeHtml(weather.location_label)} · ${escapeHtml(weather.attribution)}</small></div></div>` : `<p class="daily-empty">${escapeHtml(localeCompatibleMessage(weather?.message, locale) || tr(locale, "Weather is off. Enter a city, or allow one-time location access when you choose.", "天气尚未启用；可以手动填写城市，也可以在你需要时授权一次定位。"))}</p>`}
       <button type="button" class="settings-trigger" data-weather-open>${weather?.configured ? tr(locale, "CHANGE LOCATION", "修改位置") : tr(locale, "SET UP WEATHER", "设置天气")}</button>
       <dialog id="weather-settings-dialog" class="settings-dialog weather-settings" aria-labelledby="weather-settings-title">
         <form id="weather-form">

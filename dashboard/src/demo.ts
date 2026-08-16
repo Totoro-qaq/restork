@@ -1604,6 +1604,14 @@ if (root) {
         ?? root.querySelector<HTMLButtonElement>(`[data-open-view="${escaped}"]`)
         ?? root.querySelector<HTMLButtonElement>(`[data-settings-tab="${escaped}"]`);
       button?.click();
+      const requestedRun = demoParams.get("run");
+      if (requestedRun) {
+        requestAnimationFrame(() => {
+          root.querySelector<HTMLButtonElement>(
+            `[data-run-list] [data-run-id="${CSS.escape(requestedRun)}"]`,
+          )?.click();
+        });
+      }
     });
   }
 }

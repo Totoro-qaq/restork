@@ -56,6 +56,7 @@ import {
 } from "./ui/runtimeScene";
 import type { AgentWaitStage, RuntimeActivity } from "./ui/runtimeScene";
 import { startClock } from "./ui/clock";
+import { startSky } from "./ui/sky";
 import { activeView, bindRovingFocus, escapeMarkup, fillModeWorkspace, paintNavBadge } from "./ui/dom";
 import { configureAutomation } from "./features/automation";
 import {
@@ -346,6 +347,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   root.innerHTML = workspaceMarkup(snapshot, locale);
   applyTheme(snapshot.workspaceV2?.personal?.settings.theme);
   startClock(root);
+  startSky(root, snapshot.daily?.weather);
   bindProviderDiagnosticDismiss(root);
   root.querySelector<HTMLButtonElement>("#global-status-dismiss")?.addEventListener("click", () => {
     clearAnnouncement(root);
@@ -3066,6 +3068,11 @@ async function showRun(
   const detail = root.querySelector<HTMLElement>("#run-detail");
   const run = snapshot.runs.find((entry) => entry.summary.run_id === button.dataset.runId);
   if (!detail || !run) return;
+  root.querySelectorAll<HTMLElement>("[data-run-list] [data-run-id]").forEach((item) => {
+    if (item === button) item.setAttribute("aria-current", "true");
+    else item.removeAttribute("aria-current");
+  });
+  detail.classList.remove("detail-placeholder");
   detail.textContent = tr(localeOf(root), "Reading local events and conversation…", "读取本地事件与对话…");
   try {
     const [firstPage, firstConversation] = await Promise.all([
@@ -3087,6 +3094,7 @@ async function showRun(
     let conversationDraft = "";
     let conversationError = "";
     let preservePrepend = false;
+    let activeTab: "process" | "chat" = "process";
     const render = (forceBottom = false): void => {
       if (!detail.isConnected) return;
       const previousInput = detail.querySelector<HTMLTextAreaElement>("#conversation-input");
@@ -3107,6 +3115,18 @@ async function showRun(
         busy: conversationBusy,
         draft: conversationDraft,
         error: conversationError,
+        activeTab,
+      });
+      detail.querySelectorAll<HTMLButtonElement>("[data-rd-tab]").forEach((tabButton) => {
+        tabButton.addEventListener("click", () => {
+          activeTab = tabButton.dataset.rdTab === "chat" ? "chat" : "process";
+          detail.querySelectorAll<HTMLElement>("[data-rd-panel]").forEach((panel) => {
+            panel.hidden = panel.dataset.rdPanel !== activeTab;
+          });
+          detail.querySelectorAll<HTMLButtonElement>("[data-rd-tab]").forEach((peer) => {
+            peer.setAttribute("aria-pressed", String(peer === tabButton));
+          });
+        });
       });
       detail.querySelector<HTMLButtonElement>('[data-page-kind="events"]')?.addEventListener(
         "click",
