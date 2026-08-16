@@ -234,7 +234,7 @@ body {
   margin-top: 20px;
 }
 .nav-group-title {
-  margin: 0 0 6px;
+  margin: 0 0 8px;
   padding-inline: 12px;
   color: var(--fg-muted);
   font-size: var(--text-2xs);
@@ -677,15 +677,15 @@ body {
   color: var(--brand-ink); background: rgb(var(--purple-surface-rgb) / 56%); font: 700 var(--text-xs) var(--font-ui);
 }
 .start-examples { display: grid; gap: 0; margin-top: 4px; border-top: 1px solid var(--border); }
-.start-examples > small { padding: 12px 0 2px; color: var(--fg-muted); font-size: var(--text-xs); letter-spacing: .12em; }
-.start-examples button { width: 100%; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 10px 0; color: var(--fg-secondary); text-align: left; background: transparent; }
+.start-examples > small { padding: 12px 0 4px; color: var(--fg-muted); font-size: var(--text-xs); letter-spacing: .12em; }
+.start-examples button { width: 100%; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 12px 0; color: var(--fg-secondary); text-align: left; background: transparent; }
 .start-examples button:hover { color: var(--brand-ink); }
 .start-status-row {
-  display: flex; min-width: 0; flex-wrap: wrap; gap: 6px 20px; align-items: center;
-  border-top: 1px solid rgb(var(--line-rgb) / 45%); padding-top: 14px;
+  display: flex; min-width: 0; flex-wrap: wrap; gap: 8px 20px; align-items: center;
+  border-top: 1px solid rgb(var(--line-rgb) / 45%); padding-top: 16px;
 }
-.start-status-row button { display: inline-flex; min-width: 0; align-items: center; gap: 7px; border: 0; padding: 4px 0; color: var(--fg-muted); font-size: var(--text-xs); }
-.start-status-row button::before { width: 7px; height: 7px; flex: none; border-radius: 999px; background: var(--success-ink); content: ""; }
+.start-status-row button { display: inline-flex; min-width: 0; align-items: center; gap: 8px; border: 0; padding: 4px 0; color: var(--fg-muted); font-size: var(--text-xs); }
+.start-status-row button::before { width: 8px; height: 8px; flex: none; border-radius: 999px; background: var(--success-ink); content: ""; }
 .start-status-row button:hover { color: var(--brand-ink); }
 .start-status-row button.is-urgent { color: var(--warning-ink); font-weight: 800; }
 .start-status-row button.is-urgent::before { background: var(--warning); }

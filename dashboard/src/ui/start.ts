@@ -56,9 +56,12 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
   const suggestion = active.length === 0 ? snapshot.pendingRunSummaries?.[0] : undefined;
 
   const owner = startOwnerName(snapshot);
+  const reviewTitle = tr(locale, "Last task hasn't been reviewed.", "上次的任务还没复盘。");
+  const reviewTail = tr(locale, "Pick it back up?", "要接着写吗？");
+  const reviewLink = tr(locale, "Open that run", "打开那次运行");
   const resumeCopy = suggestion
-    ? `<h2 id="start-title" class="start-context" data-start-title-static>${escapeMarkup(tr(locale, "Last task hasn't been reviewed.", "上次的任务还没复盘。"))}<span class="quiet">${escapeMarkup(tr(locale, "Pick it back up?", "要接着写吗？"))}</span></h2>
-      <p class="start-context-sub"><button type="button" class="textlink" data-start-resume-run>${escapeMarkup(tr(locale, "Open that run", "打开那次运行"))}</button></p>`
+    ? `<h2 id="start-title" class="start-context" data-start-title-static>${escapeMarkup(reviewTitle)}<span class="quiet">${escapeMarkup(reviewTail)}</span></h2>
+      <p class="start-context-sub"><button type="button" class="textlink" data-start-resume-run>${escapeMarkup(reviewLink)}</button></p>`
     : `<h2 id="start-title">${escapeMarkup(startTitle("research", locale))}</h2>`;
   return `<section class="start-workspace" data-run-surface aria-labelledby="start-title">
     <div class="start-intro">
