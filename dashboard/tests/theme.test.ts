@@ -111,8 +111,12 @@ describe("theme is a real control, not a placebo", () => {
     const block = dark.slice(0, dark.indexOf("}"));
     expect(block).toContain("--fg-secondary: #c3b6a1");
     expect(block).toContain("--fg-muted: #ad9d87");
-    expect(block).toContain("--action-start: #6849bd");
-    expect(block).toContain("--action-end: #6849bd");
+    // Dark actions follow the v4 dark accent: light violet fill, dark ink on top.
+    expect(block).toContain("--action-start: #9a82ec");
+    expect(block).toContain("--action-end: #9a82ec");
+    expect(block).toContain("--action-fg: #241d33");
+    // Ink-on-paper roles flip in dark so the wordmark and avatar stay legible.
+    expect(block).toContain("--ink-black: #f3ecdf");
   });
 
   it("keeps the token definitions free of self-reference", () => {
