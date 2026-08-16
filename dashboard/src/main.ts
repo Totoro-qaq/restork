@@ -56,8 +56,10 @@ import {
 } from "./ui/runtimeScene";
 import type { AgentWaitStage, RuntimeActivity } from "./ui/runtimeScene";
 import { startClock } from "./ui/clock";
+import { startSky } from "./ui/sky";
 import { activeView, bindRovingFocus, escapeMarkup, fillModeWorkspace, paintNavBadge } from "./ui/dom";
 import { configureAutomation } from "./features/automation";
+import { bindRunDetailTabs, loadRunDetailFirstPage, prepareRunDetail, type RunDetailTab } from "./features/runDetail";
 import {
   bindRadarConfig,
   configureWeather,
@@ -346,6 +348,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   root.innerHTML = workspaceMarkup(snapshot, locale);
   applyTheme(snapshot.workspaceV2?.personal?.settings.theme);
   startClock(root);
+  startSky(root, snapshot.daily?.weather);
   bindProviderDiagnosticDismiss(root);
   root.querySelector<HTMLButtonElement>("#global-status-dismiss")?.addEventListener("click", () => {
     clearAnnouncement(root);
@@ -3066,19 +3069,9 @@ async function showRun(
   const detail = root.querySelector<HTMLElement>("#run-detail");
   const run = snapshot.runs.find((entry) => entry.summary.run_id === button.dataset.runId);
   if (!detail || !run) return;
-  detail.textContent = tr(localeOf(root), "Reading local events and conversation…", "读取本地事件与对话…");
+  prepareRunDetail(root, detail, button, localeOf(root));
   try {
-    const [firstPage, firstConversation] = await Promise.all([
-      api.eventPage
-        ? api.eventPage(run.summary.run_id)
-        : api.events(run.summary.run_id, 0).then((events) => ({
-            events,
-            page: { limit: 50, has_more: false, next_cursor: null },
-          })),
-      api.conversationPage
-        ? api.conversationPage(run.summary.run_id).catch(() => null)
-        : Promise.resolve(null),
-    ]);
+    const { firstPage, firstConversation } = await loadRunDetailFirstPage(api, run.summary.run_id);
     const received = [...firstPage.events];
     const turns = [...(firstConversation?.turns ?? [])];
     let historyPage = firstPage.page;
@@ -3087,6 +3080,7 @@ async function showRun(
     let conversationDraft = "";
     let conversationError = "";
     let preservePrepend = false;
+    let activeTab: RunDetailTab = "process";
     const render = (forceBottom = false): void => {
       if (!detail.isConnected) return;
       const previousInput = detail.querySelector<HTMLTextAreaElement>("#conversation-input");
@@ -3107,6 +3101,10 @@ async function showRun(
         busy: conversationBusy,
         draft: conversationDraft,
         error: conversationError,
+        activeTab,
+      });
+      bindRunDetailTabs(detail, (tab) => {
+        activeTab = tab;
       });
       detail.querySelector<HTMLButtonElement>('[data-page-kind="events"]')?.addEventListener(
         "click",

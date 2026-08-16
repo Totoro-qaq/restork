@@ -511,12 +511,7 @@ function aiReportForm(snapshot: DashboardSnapshot, locale: Locale): string {
       )}"></textarea>
     </label>
     <button type="submit" ${noProvider ? "disabled" : ""}>${tr(locale, "DRAFT WITH MODEL", "用模型起草")}</button>
-    <p id="ai-report-status" role="status">${noProvider ? tr(locale, "Add a provider in Settings first.", "请先在设置中添加供应商。") : ""}</p>
-    <p class="fine">${tr(
-      locale,
-      "Restork sends the selected model only saved facts from recent runs. Each sentence links to its run record.",
-      "Restork 只会把近期运行中已经保存的事实交给所选模型；草稿中的每句话都会链接回对应记录。",
-    )}</p></form>`;
+    <p id="ai-report-status" role="status">${noProvider ? tr(locale, "Add a provider in Settings first.", "请先在设置中添加供应商。") : ""}</p></form>`;
 }
 
 function formatDate(value: string, locale: Locale): string {
