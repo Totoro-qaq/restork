@@ -73,11 +73,11 @@ describe("DSN-008 detector baseline", () => {
     expect(stylesheet).toMatch(/\.paper-card::before\s*\{[^}]*width:\s*1px/);
   });
 
-  it("keeps gradient text only on the two RESTORK brand marks", () => {
+  it("keeps brand marks as plain ink with no gradient text", () => {
     const hits = [...stylesheet.matchAll(/background-clip\s*:\s*text/gi)];
-    expect(hits).toHaveLength(2);
-    expect(stylesheet).toMatch(/\.brand h1 span[\s\S]*?background-clip:\s*text/);
-    expect(stylesheet).toMatch(/\.pairing h1 span[\s\S]*?background-clip:\s*text/);
+    expect(hits).toHaveLength(0);
+    expect(stylesheet).toMatch(/\.brand h1 span[\s\S]*?color:\s*var\(--ink-black\)/);
+    expect(stylesheet).toMatch(/\.pairing h1 span[\s\S]*?color:\s*var\(--ink-black\)/);
     expect(stylesheet).toMatch(
       /\.weather-temperature\s*\{[^}]*color:\s*var\(--brand-ink\)[^}]*font-size:\s*var\(--text-temperature\)/,
     );

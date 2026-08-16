@@ -1,0 +1,103 @@
+/* Restork v4 · locked design tokens
+ * Palette: warm paper + plum focus + ink
+ * Typography: local system UI + typewriter wordmark + system mono
+ */
+
+:root {
+  --color-paper: oklch(97.8% 0.012 84);
+  --color-paper-strong: oklch(99.2% 0.006 86);
+  --color-paper-soft: oklch(95.1% 0.018 82);
+  --color-paper-deep: oklch(91.8% 0.022 80);
+  --color-ink: oklch(24% 0.026 62);
+  --color-ink-soft: oklch(35% 0.028 66);
+  --color-muted: oklch(48% 0.032 70);
+  --color-rule: oklch(84% 0.03 78);
+  --color-rule-strong: oklch(64% 0.04 76);
+  --color-accent: oklch(51% 0.18 295);
+  --color-accent-soft: oklch(93% 0.035 296);
+  --color-accent-ink: oklch(98% 0.01 86);
+  --color-focus: oklch(45% 0.2 295);
+  --color-success: oklch(46% 0.12 158);
+  --color-success-soft: oklch(94% 0.035 158);
+  --color-warning: oklch(48% 0.13 55);
+  --color-warning-soft: oklch(94% 0.042 72);
+  --color-danger: oklch(48% 0.16 20);
+  --color-danger-soft: oklch(94% 0.035 20);
+  --color-info: oklch(48% 0.09 220);
+  --color-overlay: oklch(20% 0.02 62 / 36%);
+  --color-shadow: oklch(20% 0.02 62 / 8%);
+
+  --font-display: "American Typewriter", Rockwell, "Roboto Slab", "Noto Serif SC", "Songti SC", serif;
+  --font-body: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-outlier: ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-ui: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.25rem;
+  --text-lg: 1.5625rem;
+  --text-xl: 1.953rem;
+  --text-display: clamp(1.75rem, 2.4vw, 2.75rem);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 100ms;
+  --dur-short: 180ms;
+  --dur-long: 300ms;
+
+  --radius-control: 0.5rem;
+  --radius-panel: 0.75rem;
+  --radius-round: 999px;
+  --rule-thin: 1px;
+  --control-height: 2.75rem;
+  --rail-width: 15rem;
+  --rail-width-collapsed: 4.25rem;
+  --content-width: 74rem;
+  --reading-width: 68ch;
+
+  --z-base: 1;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+}
+
+html[data-theme="dark"],
+html:has(#theme-dark:checked) {
+  --color-paper: oklch(17% 0.014 65);
+  --color-paper-strong: oklch(20.5% 0.016 67);
+  --color-paper-soft: oklch(23.5% 0.018 69);
+  --color-paper-deep: oklch(29% 0.022 70);
+  --color-ink: oklch(94% 0.014 84);
+  --color-ink-soft: oklch(86% 0.018 82);
+  --color-muted: oklch(70% 0.025 77);
+  --color-rule: oklch(33% 0.024 70);
+  --color-rule-strong: oklch(52% 0.03 72);
+  --color-accent: oklch(70% 0.14 295);
+  --color-accent-soft: oklch(27% 0.055 295);
+  --color-accent-ink: oklch(16% 0.02 65);
+  --color-focus: oklch(78% 0.14 295);
+  --color-success: oklch(76% 0.11 158);
+  --color-success-soft: oklch(25% 0.045 158);
+  --color-warning: oklch(80% 0.11 68);
+  --color-warning-soft: oklch(26% 0.045 68);
+  --color-danger: oklch(74% 0.13 20);
+  --color-danger-soft: oklch(25% 0.05 20);
+  --color-info: oklch(75% 0.08 220);
+  --color-overlay: oklch(8% 0.01 65 / 64%);
+  --color-shadow: oklch(8% 0.01 65 / 22%);
+}
