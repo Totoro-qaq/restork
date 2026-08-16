@@ -1568,6 +1568,10 @@ if (snapshot.workspaceV2?.personal?.settings) {
   snapshot.workspaceV2.personal.settings.locale = demoLocale;
   snapshot.workspaceV2.personal.settings.startup_page =
     demoParams.get("startup") === "start" ? "start" : "dashboard";
+  const demoTheme = demoParams.get("theme");
+  if (demoTheme === "dark" || demoTheme === "light" || demoTheme === "system") {
+    snapshot.workspaceV2.personal.settings.theme = demoTheme;
+  }
 }
 if (demoLocale === "zh-CN") {
   const deck = snapshot.workspaceV2?.deliverables.find((item) => item.kind === "deck");
