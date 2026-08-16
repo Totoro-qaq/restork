@@ -1892,6 +1892,11 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
     });
   }
+  function htmlToText(html) {
+    var d = document.createElement("div");
+    d.innerHTML = String(html);
+    return d.textContent || "";
+  }
   function runById(id) {
     for (var i = 0; i < RUNS.length; i++) if (RUNS[i].id === id) return RUNS[i];
     return null;
@@ -2335,7 +2340,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
   function renderVault() {
     var q = vaultQuery.toLowerCase();
     var items = NOTES.filter(function (n) {
-      return !q || n.path.toLowerCase().indexOf(q) >= 0 || n.body.replace(/<[^>]+>/g, "").toLowerCase().indexOf(q) >= 0;
+      return !q || n.path.toLowerCase().indexOf(q) >= 0 || htmlToText(n.body).toLowerCase().indexOf(q) >= 0;
     });
     $("#vault-live").textContent = q
       ? ("“" + vaultQuery + "” 的 " + items.length + " 条结果")
