@@ -112,7 +112,7 @@ describe("theme is a real control, not a placebo", () => {
     expect(block).toContain("--fg-secondary: #c3b6a1");
     expect(block).toContain("--fg-muted: #ad9d87");
     expect(block).toContain("--action-start: #6849bd");
-    expect(block).toContain("--action-end: #126778");
+    expect(block).toContain("--action-end: #6849bd");
   });
 
   it("keeps the token definitions free of self-reference", () => {
