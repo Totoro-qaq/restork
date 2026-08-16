@@ -1,3 +1,5 @@
+import { whereCopy } from "../ui/navigation";
+
 /**
  * View aliases and in-panel radios. Do not add data-roving-group on these
  * rows — bindRovingFocus would steal arrows without activating the radio.
@@ -52,6 +54,11 @@ export function applyView(root: HTMLElement, view: string): { panel: string; par
   root.querySelectorAll<HTMLElement>("[data-settings-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.settingsPanel !== settingsTab;
   });
+  const where = whereCopy(parent, root.dataset.locale === "zh-CN" ? "zh-CN" : "en");
+  const whereTitle = root.querySelector<HTMLElement>("[data-where-title]");
+  const whereSub = root.querySelector<HTMLElement>("[data-where-sub]");
+  if (whereTitle) whereTitle.textContent = where.title;
+  if (whereSub) whereSub.textContent = where.sub;
   return { panel: requested, parent };
 }
 

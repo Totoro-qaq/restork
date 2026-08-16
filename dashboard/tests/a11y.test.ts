@@ -47,7 +47,9 @@ describe("document structure", () => {
   it("exposes exactly one h1 in the authenticated workspace", () => {
     const root = mount();
     expect(root.querySelectorAll("h1")).toHaveLength(1);
-    expect(root.querySelector("h1")?.textContent).toContain("Restork");
+    const heading = root.querySelector("h1");
+    expect(heading?.hasAttribute("data-where-title")).toBe(true);
+    expect(heading?.textContent?.trim().length).toBeGreaterThan(0);
   });
 
   it("offers a skip link that targets the main region", () => {

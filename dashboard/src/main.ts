@@ -3571,6 +3571,23 @@ function bindListInteractions(
     if (button.hasAttribute("data-start-cancel")) return;
     button.addEventListener("click", () => void showRun(root, api, snapshot, button));
   });
+  host.querySelectorAll<HTMLButtonElement>("[data-run-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const filter = button.dataset.runFilter ?? "all";
+      if (filter === "attn") {
+        selectView(root, "approvals");
+        return;
+      }
+      host.querySelectorAll<HTMLButtonElement>("[data-run-filter]").forEach((peer) => {
+        peer.setAttribute("aria-pressed", String(peer === button));
+      });
+      const terminal = ["completed", "failed", "cancelled"];
+      host.querySelectorAll<HTMLElement>("[data-run-list] [data-run-state]").forEach((item) => {
+        const live = !terminal.includes(item.dataset.runState ?? "");
+        item.hidden = filter === "live" ? !live : false;
+      });
+    });
+  });
   host.querySelectorAll<HTMLButtonElement>("[data-page-kind]").forEach((button) => {
     if (button.dataset.pageKind === "events") return;
     button.addEventListener("click", () => void loadMore(root, api, snapshot, button));

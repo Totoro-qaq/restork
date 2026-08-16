@@ -6,6 +6,35 @@ function isTerminal(state: string): boolean {
   return ["completed", "failed", "cancelled"].includes(state);
 }
 
+/** Page name + one-line subtitle shown in the top bar, keyed by parent view. */
+export function whereCopy(view: string, locale: Locale): { title: string; sub: string } {
+  const copy: Record<string, [string, string]> = {
+    start: ["Start", "开始"],
+    overview: ["Dashboard", "仪表盘"],
+    runs: ["Runs", "运行"],
+    tasks: ["Tasks", "任务"],
+    conversation: ["Conversation", "对话"],
+    vault: ["Knowledge", "知识库"],
+    deliverables: ["Deliverables", "交付物"],
+    automation: ["Automation", "自动化"],
+    settings: ["Settings", "设置"],
+  };
+  const subs: Record<string, [string, string]> = {
+    start: ["New task", "新建一项任务"],
+    overview: ["Local time and weather", "本机时间与天气"],
+    runs: ["Active tasks and pending approvals", "进行中的任务与待审批动作"],
+    tasks: ["Local to-dos", "本机待办"],
+    conversation: ["Saved sessions", "已保存的会话"],
+    vault: ["Local notes and search", "本机笔记与检索"],
+    deliverables: ["Files produced", "已产出的文件"],
+    automation: ["Schedules and triggers", "计划与触发"],
+    settings: ["Device preferences and models", "本机偏好与模型"],
+  };
+  const [en, zh] = copy[view] ?? copy.start;
+  const [subEn, subZh] = subs[view] ?? subs.start;
+  return { title: tr(locale, en, zh), sub: tr(locale, subEn, subZh) };
+}
+
 function navButton(
   view: string,
   icon: string,
