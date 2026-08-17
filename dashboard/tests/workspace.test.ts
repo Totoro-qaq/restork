@@ -1809,7 +1809,7 @@ describe("Rust conversation workspace", () => {
 
     expect(root.querySelector("[data-first-run]")).toBeNull();
     expect(root.querySelector<HTMLElement>('[data-view-panel="start"]')?.hidden).toBe(false);
-    expect(root.querySelector("#start-title")?.textContent).toBe("开始");
+    expect(root.querySelector("#start-title")?.textContent).toBe("现在想做什么？");
     expect(root.textContent).not.toContain("今天想研究、学习，还是完成一项工作？");
     expect(root.querySelector(".start-mode-row")?.textContent).toContain("查资料");
     expect(root.querySelector(".start-mode-row")?.textContent).toContain("学知识");
@@ -1844,7 +1844,7 @@ describe("Rust conversation workspace", () => {
     expect(root.textContent).toContain("source_read");
     expect(root.textContent).toContain("vault_write");
     expect(root.textContent).toContain("web_search");
-    expect(root.textContent).toContain("尚未安装第三方扩展");
+    expect(root.querySelectorAll("[data-extension-list] .extension-card")).toHaveLength(0);
   });
 
   it("makes local or cloud selection explicit when a conversation is created", async () => {
