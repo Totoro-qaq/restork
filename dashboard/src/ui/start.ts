@@ -1,14 +1,7 @@
 import type { DashboardSnapshot, Mode, PendingRunSummary, RunListEntry } from "../api/types";
 import type { Locale } from "../i18n";
 import { tr } from "../i18n";
-import { runBudgetCapCopy } from "./budget";
 import { escapeMarkup } from "./dom";
-
-const MODE_COPY: Record<Mode, { en: string; zh: string }> = {
-  research: { en: "What do you want to research?", zh: "想研究什么？" },
-  study: { en: "What do you want to learn?", zh: "想学习什么？" },
-  work: { en: "What work do you want to move forward?", zh: "想推进什么工作？" },
-};
 
 const MODE_HINTS: Record<Mode, { en: string; zh: string }> = {
   research: {
@@ -30,17 +23,8 @@ export function modeHint(mode: Mode, locale: Locale): string {
   return tr(locale, copy.en, copy.zh);
 }
 
-export function startTitle(mode: Mode, locale: Locale): string {
-  const copy = MODE_COPY[mode];
-  return tr(locale, copy.en, copy.zh);
-}
-
 export function startPlaceholder(locale: Locale): string {
   return tr(locale, "One sentence.", "用一句话说清。");
-}
-
-export function startOwnerName(snapshot: DashboardSnapshot): string {
-  return snapshot.workspaceV2?.personal?.settings.display_name?.trim() ?? "";
 }
 
 export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale): string {
@@ -59,10 +43,8 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
   // run-summary prompt only appears once nothing else is in flight.
   const reviewSuggestion = resumeRun ? undefined : suggestion;
 
-  const owner = startOwnerName(snapshot);
   return `<section class="start-workspace" data-run-surface aria-labelledby="start-title">
     <div class="start-intro">
-      ${owner ? `<p class="start-owner" data-start-owner>${escapeMarkup(owner)}</p>` : ""}
       ${startHeading(reviewSuggestion, resumeRun, locale)}
     </div>
 
@@ -153,7 +135,6 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
       </div>
     </form>
     <p class="mode-hint" data-mode-hint>${escapeMarkup(modeHint("research", locale))}</p>
-    <p class="fine" data-run-budget>${escapeMarkup(runBudgetCapCopy(locale))}</p>
 
     <div data-run-wait></div>
     <section class="start-run-output" data-start-output hidden aria-label="${tr(locale, "Task output", "任务输出")}">
@@ -195,7 +176,7 @@ function startHeading(
     return `<h2 id="start-title" class="start-context" data-start-title-static>${escapeMarkup(title)}<span class="quiet">${escapeMarkup(tail)}</span></h2>
       <p class="start-context-sub"><button type="button" class="textlink" data-start-resume-run>${escapeMarkup(reviewLink)}</button></p>`;
   }
-  return `<h2 id="start-title">${escapeMarkup(startTitle("research", locale))}</h2>`;
+  return `<h2 id="start-title" class="sr-only">${escapeMarkup(tr(locale, "Start", "开始"))}</h2>`;
 }
 
 export function fillRunSummaryHost(
@@ -282,7 +263,7 @@ export function modeWorkspaceMarkup(kind: "study" | "work", id?: string): string
 }
 
 function startModeButton(mode: Mode, label: string, active: boolean, locale: Locale): string {
-  return `<button type="button" role="radio" data-start-mode="${mode}" data-title="${escapeMarkup(startTitle(mode, locale))}"
+  return `<button type="button" role="radio" data-start-mode="${mode}"
     data-placeholder="${escapeMarkup(startPlaceholder(locale))}"
     data-hint="${escapeMarkup(modeHint(mode, locale))}"
     aria-checked="${String(active)}" class="${active ? "is-active" : ""}" tabindex="${active ? "0" : "-1"}">${escapeMarkup(label)}</button>`;

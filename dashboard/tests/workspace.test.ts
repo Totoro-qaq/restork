@@ -1809,7 +1809,7 @@ describe("Rust conversation workspace", () => {
 
     expect(root.querySelector("[data-first-run]")).toBeNull();
     expect(root.querySelector<HTMLElement>('[data-view-panel="start"]')?.hidden).toBe(false);
-    expect(root.querySelector("#start-title")?.textContent).toBe("想研究什么？");
+    expect(root.querySelector("#start-title")?.textContent).toBe("开始");
     expect(root.textContent).not.toContain("今天想研究、学习，还是完成一项工作？");
     expect(root.querySelector(".start-mode-row")?.textContent).toContain("查资料");
     expect(root.querySelector(".start-mode-row")?.textContent).toContain("学知识");
@@ -1881,7 +1881,11 @@ describe("Rust conversation workspace", () => {
       "Recent model papers",
       "deepseek",
     ));
-    expect(root.textContent).toContain("will not switch it to a cloud model in the background");
+    const profileLabel = root.querySelector('label[for="session-profile"]');
+    expect(profileLabel?.textContent).toBe("Model for this conversation");
+    expect(profileLabel?.classList.contains("sr-only")).toBe(false);
+    expect(root.querySelector<HTMLSelectElement>("#session-profile")?.textContent)
+      .toContain("local only");
     expect(root.querySelector('input[type="password"]')).toBeNull();
   });
 
