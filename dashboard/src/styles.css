@@ -1486,8 +1486,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .settings-workspace .eyebrow { margin: 0; color: var(--brand); font-size: var(--text-2xs); letter-spacing: .14em; }
 .conversation-layout { display: grid; grid-template-columns: minmax(210px, .32fr) minmax(0, 1fr); min-height: min(640px, calc(100dvh - 260px)); margin-top: 16px; border: 1px solid rgb(var(--line-rgb) / 18%); border-radius: 13px; overflow: hidden; background: rgb(var(--surface-rgb) / 38%); }
 .session-rail { min-width: 0; border-right: 1px dashed rgb(var(--line-rgb) / 24%); padding: 12px; background: rgb(var(--surface-alt-rgb) / 52%); }
-.session-rail form label { display: block; margin-bottom: 8px; color: var(--fg-secondary); font-size: var(--text-xs); font-weight: 600; letter-spacing: .03em; }
-.session-create-submit { width: 100%; margin-top: 12px; }
+.session-rail form label { display: block; margin: 16px 0 8px; color: var(--fg-secondary); font-size: var(--text-xs); font-weight: 600; letter-spacing: .03em; }
+.session-rail form label:first-child { margin-top: 0; }
+.session-create-submit { width: 100%; margin-top: 16px; }
 .session-rail input,
 .session-rail select,
 .conversation-composer textarea,
@@ -1497,7 +1498,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .settings-workspace input,
 .settings-workspace select,
 .settings-workspace textarea { min-width: 0; border: 1px solid rgb(var(--line-rgb) / 24%); border-radius: 8px; padding: 8px 8px; color: var(--fg); background: rgb(var(--surface-rgb) / 78%); font: inherit; }
-.session-rail form > select { width: 100%; margin-top: 8px; }
+.session-rail form > select { width: 100%; margin-top: 0; }
 .session-rail form > small { display: block; margin-top: 8px; color: var(--fg-muted); font-size: var(--text-2xs); line-height: 1.45; }
 .session-rail form button,
 .proposal-composer button { min-height: var(--control-min); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--fg-secondary); background: transparent; font-size: var(--text-xs); font-weight: 700; letter-spacing: .07em; }
