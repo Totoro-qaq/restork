@@ -50,10 +50,6 @@ export function configureStartWorkspace(
       button.tabIndex = active ? 0 : -1;
       if (active && goal) goal.placeholder = button.dataset.placeholder ?? "";
       if (active) {
-        const title = root.querySelector<HTMLElement>("#start-title");
-        if (title && !title.hasAttribute("data-start-title-static")) {
-          title.textContent = button.dataset.title ?? "";
-        }
         const hint = root.querySelector<HTMLElement>("[data-mode-hint]");
         if (hint) hint.textContent = button.dataset.hint ?? "";
       }

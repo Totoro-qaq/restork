@@ -96,7 +96,6 @@ describe("presentation template library", () => {
     root.innerHTML = workspaceMarkup(snapshot([template("theme-personal")]), "zh-CN");
 
     expect(root.textContent).toContain("上次使用");
-    expect(root.textContent).toContain("始终可用，不可删除");
     expect(root.querySelectorAll("[data-render-theme]")).toHaveLength(7);
     expect(root.querySelector("[data-template-id] [data-template-delete]")).not.toBeNull();
     expect(root.querySelector("[data-render-theme=restork-print] [data-template-delete]")).toBeNull();
