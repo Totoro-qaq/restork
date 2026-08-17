@@ -200,7 +200,7 @@ describe("Gate D2 settings", () => {
     root.querySelector<HTMLButtonElement>('[data-settings-tab="advanced"]')?.click();
     expect(root.querySelector<HTMLElement>('[data-settings-panel="advanced"]')?.hidden).toBe(false);
     expect(root.querySelector('[data-settings-panel="advanced"]')?.textContent)
-      .toContain("不需要时可以先不管");
+      .toContain("指令工作室");
   });
 
   it("generates profile_id from the display name", () => {

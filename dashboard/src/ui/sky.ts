@@ -59,14 +59,29 @@ export function startSky(root: HTMLElement, weather: WeatherSnapshot | null | un
   const t0 = Date.now();
   const tilt = { x: 0, y: 0, tx: 0, ty: 0 };
 
-  const colors = {
-    sun: rgbCss(parseCssColor(host, "--sun", [226, 164, 60])),
-    moon: rgbCss(parseCssColor(host, "--moon", [148, 165, 203])),
-    sky: rgbCss(parseCssColor(host, "--info-ink", [70, 110, 160])),
-    skyDeep: rgbCss(parseCssColor(host, "--bg", [250, 247, 240])),
-    cloud: rgbCss(parseCssColor(host, "--surface", [255, 255, 255])),
-    cloudStroke: rgbCss(parseCssColor(host, "--fg-muted", [140, 130, 115])),
+  const colors = { sun: "", moon: "", sky: "", skyDeep: "", cloud: "", cloudStroke: "" };
+  const syncColors = (): void => {
+    colors.sun = rgbCss(parseCssColor(host, "--sun", [226, 164, 60]));
+    colors.moon = rgbCss(parseCssColor(host, "--moon", [148, 165, 203]));
+    colors.sky = rgbCss(parseCssColor(host, "--info-ink", [70, 110, 160]));
+    colors.skyDeep = rgbCss(parseCssColor(host, "--bg", [250, 247, 240]));
+    colors.cloud = rgbCss(parseCssColor(host, "--surface", [255, 255, 255]));
+    colors.cloudStroke = rgbCss(parseCssColor(host, "--fg-muted", [140, 130, 115]));
   };
+  syncColors();
+  let observer: MutationObserver | null = null;
+  if (typeof MutationObserver !== "undefined" && typeof document !== "undefined") {
+    observer = new MutationObserver(() => {
+      if (!canvas.isConnected) {
+        observer?.disconnect();
+        observer = null;
+        return;
+      }
+      syncColors();
+      paint();
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  }
 
   const drawCloud = (x: number, y: number, scale: number): void => {
     ctx.save();
@@ -117,8 +132,11 @@ export function startSky(root: HTMLElement, weather: WeatherSnapshot | null | un
     const bx = Math.cos(angle) * reach;
     const by = -Math.sin(angle) * reach * 0.86;
 
+    const pulse = reduce ? 0 : Math.sin(tsec * 0.9) * 0.07;
     const glow = ctx.createRadialGradient(bx, by, 2, bx, by, R * 0.45);
-    glow.addColorStop(0, isDay ? "rgba(255,210,110,0.9)" : "rgba(230,236,255,0.55)");
+    glow.addColorStop(0, isDay
+      ? `rgba(255,210,110,${(0.83 + pulse).toFixed(3)})`
+      : "rgba(230,236,255,0.55)");
     glow.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = glow;
     ctx.beginPath();
@@ -142,10 +160,18 @@ export function startSky(root: HTMLElement, weather: WeatherSnapshot | null | un
         ctx.stroke();
       }
     } else {
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.beginPath(); ctx.arc(-R * 0.42, -R * 0.38, 1.4, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(R * 0.3, -R * 0.5, 1, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(R * 0.48, -R * 0.12, 0.8, 0, Math.PI * 2); ctx.fill();
+      const stars: Array<[number, number, number]> = [
+        [-R * 0.42, -R * 0.38, 1.4],
+        [R * 0.3, -R * 0.5, 1],
+        [R * 0.48, -R * 0.12, 0.8],
+      ];
+      stars.forEach(([sx, sy, sr], index) => {
+        const twinkle = reduce ? 0.75 : 0.5 + 0.35 * Math.sin(tsec * 1.3 + index * 2.1);
+        ctx.fillStyle = `rgba(255,255,255,${twinkle.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+        ctx.fill();
+      });
     }
 
     if (cover > 0.05) {
@@ -183,8 +209,22 @@ export function startSky(root: HTMLElement, weather: WeatherSnapshot | null | un
     host.classList.add("is-live");
   };
 
+  let mountRetries = 0;
   const loop = (): void => {
-    if (typeof window === "undefined" || !canvas.isConnected) return;
+    if (typeof window === "undefined") return;
+    if (!canvas.isConnected) {
+      // The canvas may still be on its way into the document (first render or
+      // a view swap). Retry briefly; if it never mounts, tear down for good.
+      mountRetries += 1;
+      if (mountRetries <= 180) {
+        window.requestAnimationFrame(loop);
+      } else {
+        observer?.disconnect();
+        observer = null;
+      }
+      return;
+    }
+    mountRetries = 0;
     tilt.x += (tilt.tx - tilt.x) * 0.14;
     tilt.y += (tilt.ty - tilt.y) * 0.14;
     paint();
@@ -203,7 +243,7 @@ export function startSky(root: HTMLElement, weather: WeatherSnapshot | null | un
   });
 
   paint();
-  if (!reduce && typeof window !== "undefined" && canvas.isConnected) {
+  if (!reduce && typeof window !== "undefined") {
     window.requestAnimationFrame(loop);
   }
 }

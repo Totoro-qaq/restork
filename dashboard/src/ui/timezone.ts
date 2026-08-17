@@ -54,7 +54,7 @@ export function timeZoneOptions(savedTimeZone: string | undefined, locale: Local
     <datalist id="timezone-options">${availableTimeZones.map((timeZone) => (
       `<option value="${escapeMarkup(timeZone)}"></option>`
     )).join("")}</datalist>
-    <small id="timezone-hint">${tr(
+    <small id="timezone-hint" class="sr-only">${tr(
       locale,
       "Start typing to filter. Leave it blank to follow this device.",
       "输入几个字母即可筛选；留空就跟随这台设备。",

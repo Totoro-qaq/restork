@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-CN" data-theme="light" data-daypart="day" data-redesign="v4">
+<html lang="zh-CN" data-theme="light" data-daypart="day">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Restork v4 · 本地任务工作台</title>
+<title>Restork 界面改版原型 · 外壳、开始页与每日上下文</title>
 <style>
 /* ── 令牌：全部来自 restork DESIGN.md / styles.css，转为 OKLch ───────────── */
 :root {
@@ -147,8 +147,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; text-wrap: balance; letter-spacing: 0;
 .nav-group + .nav-group { margin-top: var(--s5); }
 .nav-group > h2 {
   margin: 0 0 var(--s2); padding-left: 10px;
-  color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12);
-  font-weight: 400; letter-spacing: .01em;
+  color: var(--muted); font-size: var(--fs-12); font-weight: 400;
 }
 .nav-item {
   position: relative; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto;
@@ -238,7 +237,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; text-wrap: balance; letter-spacing: 0;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease), transform 160ms var(--ease-out);
 }
 .pop-link:hover { background: var(--surface-alt); color: var(--fg-strong); }
-.pop-link .tail { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); }
+.pop-link .tail { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-12); }
 .dot-new { width: 6px; height: 6px; border-radius: 50%; background: var(--attn-fg); }
 .pop-name { display: flex; gap: var(--s2); }
 .pop-name input { flex: 1; min-width: 0; height: 44px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg); font-size: var(--fs-14); }
@@ -455,7 +454,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; text-wrap: balance; letter-spacing: 0;
 .wx-temp { color: var(--fg-strong); font-family: var(--font-mono); font-size: var(--fs-22); font-variant-numeric: tabular-nums; font-weight: 600; }
 .wx-cond { color: var(--fg-strong); font-size: var(--fs-16); }
 .wx-line-2 { margin-top: 4px; color: var(--muted); font-size: var(--fs-13); }
-.wx-line-3 { margin-top: 6px; color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); }
+.wx-line-3 { margin-top: 6px; color: var(--muted); font-size: var(--fs-12); }
 
 /* 天气图标本体。--wx-bg 让云的填充跟随所在表面，云才能真正遮住太阳/月亮 */
 .wx { --wx-bg: var(--surface); }
@@ -515,6 +514,14 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 
 /* ── 运行：左列表 + 右详情 ─────────────────────────────────────────────── */
 .runs { display: grid; grid-template-columns: 316px minmax(0, 1fr); gap: var(--s6); max-width: 1180px; margin-inline: auto; align-items: start; }
+/* 桌面端两栏同高、各自内部滚动：左列不再留大块空白，右栏长过程收进卡片 */
+@media (min-width: 921px) {
+  .runs { align-items: stretch; height: calc(100dvh - 72px - var(--s8) - var(--s8)); }
+  .runs > [data-od-id="run-list"] { display: flex; flex-direction: column; min-height: 0; }
+  .run-items { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+  .run-detail { min-height: 0; max-height: 100%; overflow-y: auto; }
+  .run-detail .rd-head { position: sticky; top: 0; z-index: 2; background: var(--surface); border-radius: var(--r-md) var(--r-md) 0 0; }
+}
 
 .run-filter { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-alt); }
 .run-filter button { min-height: 44px; border-radius: 6px; color: var(--muted); font-size: var(--fs-13); white-space: nowrap; transition: background var(--dur) var(--ease), color var(--dur) var(--ease), transform 160ms var(--ease-out); }
@@ -530,9 +537,9 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .run-item:hover { border-color: var(--border-strong); background: var(--surface-alt); }
 .run-item[aria-current="true"] { background: var(--surface); border-color: var(--border-strong); }
 .run-item .row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
-.run-item .mode { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); }
+.run-item .mode { color: var(--muted); font-size: var(--fs-12); }
 .run-item .goal { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--fg-strong); font-size: var(--fs-14); line-height: 1.5; }
-.run-item .foot { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); }
+.run-item .foot { color: var(--muted); font-size: var(--fs-12); }
 .run-empty { margin-top: var(--s4); color: var(--muted); font-size: var(--fs-13); }
 
 .state { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-12); white-space: nowrap; }
@@ -549,11 +556,11 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .rd-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s5); }
 .rd-title { min-width: 0; }
 .rd-title h2 { font-size: var(--fs-18); line-height: 1.45; color: var(--fg-strong); }
-.rd-meta { display: flex; gap: var(--s4); flex-wrap: wrap; margin-top: 8px; color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); }
+.rd-meta { display: flex; gap: var(--s4); flex-wrap: wrap; margin-top: 8px; color: var(--muted); font-size: var(--fs-12); }
 .rd-act { display: flex; align-items: center; gap: var(--s3); flex-shrink: 0; }
 .budget { display: grid; gap: 6px; }
 .budget-bar { height: 6px; border-radius: 99px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); overflow: hidden; }
-.budget-bar i { display: block; height: 100%; border-radius: 99px; background: var(--fg-strong); transition: none; }
+.budget-bar i { display: block; height: 100%; border-radius: 99px; background: var(--fg-strong); transition: width 200ms var(--ease-out); }
 .budget-line { display: flex; justify-content: space-between; gap: var(--s4); flex-wrap: wrap; color: var(--muted); font-size: var(--fs-12); }
 .budget-line .mono { color: var(--fg); }
 
@@ -568,12 +575,12 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .appr-diff .del { color: var(--muted); }
 .appr-diff .add { color: var(--ok-fg); }
 .appr-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3) var(--s5); margin: var(--s4) 0 0; }
-.appr-facts dt { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); }
+.appr-facts dt { color: var(--muted); font-size: var(--fs-12); }
 .appr-facts dd { margin: 2px 0 0; color: var(--fg-strong); font-size: var(--fs-13); overflow-wrap: anywhere; }
 .appr-tech { margin-top: var(--s3); color: var(--muted); font-size: var(--fs-12); }
 .appr-tech summary { cursor: pointer; width: fit-content; }
 .appr-tech summary:hover { color: var(--fg-strong); }
-.appr-tech .facts { display: flex; gap: var(--s5); flex-wrap: wrap; margin-top: var(--s2); font-family: var(--font-mono); }
+.appr-tech .facts { display: flex; gap: var(--s5); flex-wrap: wrap; margin-top: var(--s2); }
 .appr-act { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; margin-top: var(--s4); }
 .appr-act .fine { color: var(--attn-fg); font-size: var(--fs-12); }
 /* 确认区底色更暖，次按钮改用描边位移作为悬停反馈，不靠亮度差 */
@@ -588,6 +595,8 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .tabs button:hover { color: var(--fg-strong); border-bottom-color: var(--border-strong); }
 .tabs button[aria-selected="true"] { color: var(--fg-strong); font-weight: 600; border-bottom-color: var(--fg-strong); }
 .tabs .n { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); margin-left: 6px; }
+/* 运行详情卡片内：页签、标题、面板内容共用同一左缘 */
+.run-detail .tabs { padding-inline: var(--s5); }
 .tab-panel { padding: var(--s5); }
 .tab-panel:not([hidden]) { animation: rise-in 200ms var(--ease-out) both; }
 .tab-panel[hidden] { display: none; }
@@ -599,7 +608,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .turn > summary::-webkit-details-marker { display: none; }
 .turn > summary:hover { background: var(--surface-alt); }
 .turn[open] > summary { border-bottom: 1px solid var(--border); }
-.turn .no { flex-shrink: 0; color: var(--muted); font-family: var(--font-display); font-size: var(--fs-12); }
+.turn .no { flex-shrink: 0; color: var(--muted); font-size: var(--fs-12); }
 .turn .what { flex: 1; min-width: 0; overflow: hidden; color: var(--fg); font-size: var(--fs-13); text-overflow: ellipsis; white-space: nowrap; }
 .turn .num { flex-shrink: 0; color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); }
 .turn-body { display: grid; gap: 8px; padding: var(--s3) var(--s4) var(--s4); }
@@ -618,7 +627,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .src .badges { grid-column: 2; grid-row: 1; display: flex; gap: 6px; flex-wrap: wrap; align-self: start; }
 .src .line { grid-column: 1 / -1; color: var(--muted); font-size: var(--fs-13); }
 .src .hash { grid-column: 1 / -1; display: flex; gap: var(--s4); flex-wrap: wrap; align-items: center; color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); overflow-wrap: anywhere; }
-.badge { padding: 2px 8px; border: 1px solid var(--border); border-radius: 99px; color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); white-space: nowrap; }
+.badge { padding: 2px 8px; border: 1px solid var(--border); border-radius: 99px; color: var(--muted); font-size: var(--fs-12); white-space: nowrap; }
 .badge.first { border-color: var(--border-strong); color: var(--fg-strong); }
 .badge.warn { border-color: var(--attn-fg); color: var(--attn-fg); }
 
@@ -629,7 +638,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .file .s { grid-column: 2; grid-row: 1 / span 2; }
 .out-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s3); }
 .out-head h3 { color: var(--fg-strong); font-size: var(--fs-14); }
-.out-head span { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); }
+.out-head span { color: var(--muted); font-size: var(--fs-12); }
 .out-block + .out-block { margin-top: var(--s6); padding-top: var(--s5); border-top: 1px solid var(--border); }
 
 /* ── 共用：表单、分割、列表行 ─────────────────────────────────────────── */
@@ -637,10 +646,12 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .work { max-width: 760px; margin-inline: auto; }
 .fld { display: grid; gap: 6px; }
 .fld > span, .fld > label { color: var(--muted); font-size: var(--fs-12); }
+/* 同排控件严格等高：单行输入与下拉固定 44px，多行输入另算 */
 .fld input, .fld select, .fld textarea {
   width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm);
   background: var(--bg); color: var(--fg); font-size: var(--fs-14);
 }
+.fld input, .fld select { height: 44px; }
 .fld textarea { min-height: 64px; resize: vertical; }
 .fld input:focus-visible, .fld select:focus-visible, .fld textarea:focus-visible { border-color: var(--accent); outline-offset: 0; }
 .form-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px 150px auto; gap: var(--s3); align-items: end; }
@@ -663,7 +674,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .todo-check input { width: 16px; height: 16px; accent-color: var(--fg-strong); }
 .todo-title { color: var(--fg-strong); font-size: var(--fs-16); line-height: 1.45; }
 .todo-meta { margin-top: 4px; color: var(--muted); font-size: var(--fs-13); }
-.prio { font-family: var(--font-mono); font-size: var(--fs-12); }
+.prio { font-size: var(--fs-12); }
 .prio.p0 { color: var(--attn-fg); font-weight: 600; }
 .todo-tools { display: flex; gap: var(--s1); }
 .icon-btn {
@@ -689,7 +700,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .session-item:hover { background: var(--surface-alt); }
 .session-item[aria-current="true"] { background: var(--surface); border-color: var(--border); }
 .session-item strong { color: var(--fg-strong); font-size: var(--fs-14); font-weight: 600; }
-.session-item small { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); }
+.session-item small { color: var(--muted); font-size: var(--fs-12); }
 .thread { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); min-height: 420px; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .thread-head, .model-bar { padding: var(--s4) var(--s5); border-bottom: 1px solid var(--border); }
 .thread-head h2 { font-size: var(--fs-16); color: var(--fg-strong); }
@@ -698,7 +709,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .model-bar strong { display: block; margin-top: 2px; color: var(--fg-strong); font-size: var(--fs-14); }
 .model-bar p { margin-top: 4px; color: var(--muted); font-size: var(--fs-13); }
 .msgs { min-height: 0; overflow-y: auto; padding: var(--s5); display: grid; gap: var(--s5); align-content: start; }
-.msg small { display: block; color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); margin-bottom: 6px; }
+.msg small { display: block; color: var(--muted); font-size: var(--fs-12); margin-bottom: 6px; }
 .msg p { color: var(--fg); font-size: var(--fs-16); }
 .msg.you p { color: var(--fg-strong); }
 .thread-compose { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s3); align-items: end; padding: var(--s3); border-top: 1px solid var(--border); }
@@ -732,7 +743,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .reading ul { margin: 8px 0 0; padding-left: 1.2em; color: var(--fg); }
 
 /* 交付物 */
-.deliv { display: grid; gap: var(--s3); max-width: 840px; margin-inline: auto; }
+.deliv { max-width: 860px; margin-inline: auto; }
 .deliv-card {
   padding: var(--s5); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); text-align: left;
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
@@ -747,6 +758,44 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .md-preview { padding: var(--s4); border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg); font-size: var(--fs-14); line-height: 1.65; }
 .md-preview h4 { margin: 0 0 8px; font-size: var(--fs-14); }
 .deliv-acts { display: flex; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s4); }
+
+/* 交付物：草稿列表 + 三个创建入口 */
+.deliv-list { display: grid; gap: var(--s3); }
+.dl-create { margin-top: var(--s7); padding-top: var(--s6); border-top: 1px solid var(--border); }
+.dl-form { display: grid; gap: var(--s4); margin-top: var(--s4); padding: var(--s5); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+.dl-form[hidden] { display: none; }
+.dl-form:not([hidden]) { animation: rise-in 200ms var(--ease-out) both; }
+.dl-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); align-items: start; }
+.dl-row.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* 版式选择：单选卡片，缩略图就是预览 */
+.theme-tools { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; }
+.theme-tools > .acts { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.theme-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3); margin: 0; padding: 0; list-style: none; }
+.theme-card {
+  position: relative; display: grid; gap: 6px; align-content: start; padding: var(--s3);
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg); cursor: pointer;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.theme-card:hover { border-color: var(--border-strong); background: var(--surface-alt); }
+.theme-card:has(:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.theme-card:has(:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.theme-card input { position: absolute; opacity: 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.theme-card svg { width: 100%; height: auto; border-radius: 6px; }
+.theme-card strong { color: var(--fg-strong); font-size: var(--fs-13); font-weight: 600; }
+.theme-card strong .tag { color: var(--muted); font-weight: 400; }
+.theme-card small { color: var(--muted); font-size: var(--fs-12); line-height: 1.5; }
+.theme-card .theme-del { justify-self: start; }
+/* 版式弹层（新建 / 回收站） */
+.restork-dlg { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: var(--s4); background: color-mix(in oklab, var(--fg-strong) 26%, transparent); }
+.restork-dlg[hidden] { display: none; }
+.restork-dlg .box { display: grid; gap: var(--s4); width: min(520px, 100%); max-height: 84dvh; overflow-y: auto; padding: var(--s5); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 6px 8px var(--shadow-lift); }
+.restork-dlg h2 { font-size: var(--fs-16); color: var(--fg-strong); }
+.restork-dlg .dlg-row { display: flex; justify-content: flex-end; gap: var(--s2); }
+.color-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s2); }
+.color-row .fld input { padding: 4px; height: 40px; min-height: 40px; }
+.trash-item { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s3) 0; border-top: 1px solid var(--border); }
+.trash-item:first-child { border-top: 0; }
+.trash-item strong { color: var(--fg-strong); font-size: var(--fs-14); }
 
 /* 自动化 */
 .sched { max-width: 760px; margin-inline: auto; display: grid; gap: var(--s3); }
@@ -775,7 +824,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 }
 .prov strong { color: var(--fg-strong); font-size: var(--fs-14); }
 .prov span, .prov small { color: var(--muted); font-size: var(--fs-13); }
-.prov small { font-family: var(--font-mono); font-size: var(--fs-12); }
+.prov small { font-size: var(--fs-12); }
 .prov-acts { display: flex; gap: var(--s2); margin-top: 10px; }
 .check-label { display: flex; align-items: center; gap: 10px; min-height: 36px; font-size: var(--fs-14); }
 .save-status { min-height: 1.4em; color: var(--ok-fg); font-size: var(--fs-13); }
@@ -791,7 +840,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .palette ul { max-height: 300px; margin: 0; padding: var(--s2); overflow-y: auto; list-style: none; }
 .palette li button { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); width: 100%; min-height: 44px; padding: 0 var(--s3); border-radius: 6px; color: var(--fg); font-size: var(--fs-14); text-align: left; }
 .palette li button:hover, .palette li button.cursor { background: var(--surface-alt); color: var(--fg-strong); }
-.palette li button .hint { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-12); }
+.palette li button .hint { color: var(--muted); font-size: var(--fs-12); }
 .palette .none { padding: var(--s4) var(--s5); color: var(--muted); font-size: var(--fs-13); }
 
 /* ── 响应式：≤920px 侧栏变顶部横条 ───────────────────────────────────── */
@@ -817,6 +866,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
   .context-line { font-size: var(--fs-22); }
   .runs, .split { grid-template-columns: minmax(0, 1fr); gap: var(--s5); }
   .run-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dl-row.three, .theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rd-top { flex-direction: column; }
   .rd-act { width: 100%; }
   .tabs { gap: var(--s4); overflow-x: auto; }
@@ -830,6 +880,8 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
   .src { grid-template-columns: minmax(0, 1fr); }
   .src .badges { grid-column: 1; grid-row: auto; }
   .form-row { grid-template-columns: minmax(0, 1fr); }
+  .dl-row, .dl-row.three, .theme-grid { grid-template-columns: minmax(0, 1fr); }
+  .color-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 /* ── 状态动效：入场、按压、进行中指示。命令面板故意没有动画 ── */
@@ -861,7 +913,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 .appr-tech::details-content {
   height: 0;
   overflow: hidden;
-  transition: none;
+  transition: height 200ms var(--ease-out), content-visibility 200ms allow-discrete;
 }
 .turn[open]::details-content,
 .deliv-card[open]::details-content,
@@ -928,8 +980,6 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
   .appr-tech::details-content { transition: none; }
 }
 </style>
-<link rel="stylesheet" href="restork-shell-v4.tokens.css">
-<link rel="stylesheet" href="restork-shell-redesign-v4.css">
 </head>
 <body>
 <a class="skip" href="#stage" id="skip-main" data-od-id="skip-main">跳到主内容</a>
@@ -1129,7 +1179,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
               </div>
             </div>
           </form>
-          <p class="mode-hint" id="mode-hint">查资料：会给出来源清单，并在结论里保留引用。</p>
+          <p class="mode-hint" id="mode-hint">查资料：附来源清单，结论保留引用。</p>
           <p class="run-status" id="run-status" role="status" hidden></p>
 
           <div class="examples" data-od-id="start-examples">
@@ -1250,7 +1300,6 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
       <!-- ── 任务 ────────────────────────────────────────────────── -->
       <section class="view" data-view="tasks" data-od-id="view-tasks">
         <div class="work">
-          <p class="kicker">本机可编辑。知识库里的 Markdown 任务要先预览差异，确认后才写入。</p>
           <form class="todo-create" id="todo-form" data-od-id="task-create">
             <div class="form-row">
               <label class="fld"><span>要做什么？</span><input name="title" required maxlength="200" placeholder="例如：复核实验结果" autocomplete="off"></label>
@@ -1295,7 +1344,6 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
                   <option value="local">本地 Qwen3-8B / 仅本机</option>
                 </select>
               </label>
-              <p class="fine">本次对话会一直用这里选的模型；Restork 不会在后台换成其他云端模型。</p>
               <button class="btn-secondary" type="submit">创建对话</button>
             </form>
             <div id="session-list" data-od-id="session-list"></div>
@@ -1323,13 +1371,114 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 
       <!-- ── 交付物 ──────────────────────────────────────────────── -->
       <section class="view" data-view="deliverables" data-od-id="view-deliverables">
-        <div class="deliv" id="deliv-list" data-od-id="deliv-list"></div>
+        <div class="deliv">
+          <div class="section-head"><h2>草稿与下载</h2><span class="n" id="deliv-count">5</span></div>
+          <div class="deliv-list" id="deliv-list" data-od-id="deliv-list"></div>
+
+          <div class="dl-create" data-od-id="deliv-create">
+            <div class="tabs" role="tablist" aria-label="新建交付物" data-od-id="deliv-tabs">
+              <button type="button" role="tab" data-dl-tab="report" aria-selected="true" data-od-id="deliv-tab-report">写报告</button>
+              <button type="button" role="tab" data-dl-tab="ai" aria-selected="false" data-od-id="deliv-tab-ai">AI 起草</button>
+              <button type="button" role="tab" data-dl-tab="deck" aria-selected="false" data-od-id="deliv-tab-deck">演示文稿</button>
+            </div>
+
+            <form class="dl-form" id="dl-report-form" data-dl-panel="report" data-od-id="deliv-report-form">
+              <div class="dl-row">
+                <label class="fld"><span>类型</span>
+                  <select name="kind"><option value="daily">日报</option><option value="weekly" selected>周报</option></select>
+                </label>
+                <label class="fld"><span>标题</span><input name="title" required maxlength="300" value="W33 周报"></label>
+              </div>
+              <label class="fld"><span>归入章节</span>
+                <select name="section">
+                  <option value="completed">已完成</option><option value="progress">进展</option>
+                  <option value="decisions">决定</option><option value="blockers">遇到的问题</option>
+                  <option value="next">下一步</option><option value="notes">补充</option>
+                </select>
+              </label>
+              <label class="fld"><span>发生了什么（每行一件事）</span>
+                <textarea name="entries" rows="5" maxlength="200000" required placeholder="例如：完成持久化循环的重试与压缩验证"></textarea>
+              </label>
+              <div class="form-actions">
+                <button class="btn-primary" type="submit" data-od-id="deliv-report-submit">生成草稿</button>
+                <p class="save-status" role="status" data-dl-status></p>
+              </div>
+            </form>
+
+            <form class="dl-form" id="dl-ai-form" data-dl-panel="ai" hidden data-od-id="deliv-ai-form">
+              <div class="dl-row">
+                <label class="fld"><span>类型</span>
+                  <select name="kind"><option value="daily">日报</option><option value="weekly" selected>周报</option></select>
+                </label>
+                <label class="fld"><span>标题</span><input name="title" required maxlength="300" value="近期运行摘要"></label>
+              </div>
+              <label class="fld"><span>模型</span>
+                <select name="provider">
+                  <option>智谱 GLM-4.6</option><option>DeepSeek V3.2</option><option>本地 Qwen3-8B</option>
+                </select>
+              </label>
+              <label class="fld"><span>重点写什么（可选）</span>
+                <textarea name="focus" rows="3" maxlength="2000" placeholder="例如：本周决定、遇到的问题和下周重点"></textarea>
+              </label>
+              <div class="form-actions">
+                <button class="btn-primary" type="submit" data-od-id="deliv-ai-submit">用模型起草</button>
+                <p class="save-status" role="status" data-dl-status></p>
+              </div>
+            </form>
+
+            <form class="dl-form" id="dl-deck-form" data-dl-panel="deck" hidden data-od-id="deliv-deck-form">
+              <div class="dl-row">
+                <label class="fld"><span>标题</span><input name="title" required maxlength="300" value="研究进展"></label>
+                <label class="fld"><span>参考已有报告（可选）</span>
+                  <select name="report" id="dl-deck-report"><option value="">只使用下面的要求</option></select>
+                </label>
+              </div>
+              <label class="fld"><span>要讲什么</span>
+                <textarea name="brief" rows="4" maxlength="4000" required placeholder="例如：说明研究结论，比较两种方案，最后给出三个下一步行动。"></textarea>
+              </label>
+              <div class="dl-row three">
+                <label class="fld"><span>模型</span>
+                  <select name="provider">
+                    <option>智谱 GLM-4.6</option><option>DeepSeek V3.2</option><option>本地 Qwen3-8B</option>
+                  </select>
+                </label>
+                <label class="fld"><span>页数</span><input name="slides" type="number" min="1" max="60" step="1" placeholder="自动"></label>
+                <label class="fld"><span>给谁看</span><input name="audience" required maxlength="120" value="团队"></label>
+              </div>
+              <div class="dl-row">
+                <label class="fld"><span>希望达成什么</span><input name="purpose" required maxlength="300" value="同步结论并确定下一步"></label>
+                <label class="fld"><span>听众熟悉程度</span>
+                  <select name="expertise">
+                    <option value="mixed" selected>有熟悉也有不熟悉</option>
+                    <option value="beginner">第一次接触</option>
+                    <option value="expert">熟悉这个领域</option>
+                  </select>
+                </label>
+              </div>
+              <div class="fld" data-od-id="theme-picker">
+                <div class="theme-tools">
+                  <span>选择版式</span>
+                  <span class="acts">
+                    <button class="btn-secondary" type="button" data-theme-new data-od-id="theme-new">新建</button>
+                    <button class="btn-secondary" type="button" data-theme-import data-od-id="theme-import">导入</button>
+                    <button class="btn-secondary" type="button" data-theme-trash data-od-id="theme-trash">回收站</button>
+                  </span>
+                </div>
+                <ul class="theme-grid" id="theme-grid"></ul>
+                <input type="file" id="theme-file" accept=".pptx,image/png,image/jpeg,image/webp" hidden aria-label="导入版式文件">
+              </div>
+              <div class="form-actions">
+                <button class="btn-primary" type="submit" data-od-id="deliv-deck-submit">生成可预览大纲</button>
+                <p class="save-status" role="status" data-dl-status></p>
+              </div>
+            </form>
+          </div>
+        </div>
       </section>
 
       <!-- ── 自动化 ──────────────────────────────────────────────── -->
       <section class="view" data-view="automation" data-od-id="view-automation">
         <div class="sched">
-          <p class="kicker">计划按本机时区触发。模型起草类任务会把 public 运行事实发给所选模型，可能产生费用。</p>
           <div id="sched-list" data-od-id="sched-list"></div>
           <form class="todo-create" id="sched-form" data-od-id="sched-create">
             <div class="form-row">
@@ -1344,7 +1493,6 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
               </label>
               <button class="btn-primary" type="submit">保存计划</button>
             </div>
-            <p class="fine">保存后才会出现在列表里。立即运行不会跳过写入确认。</p>
           </form>
         </div>
       </section>
@@ -1438,14 +1586,46 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
             </div>
             <div class="set-block">
               <h2>关于 Restork</h2>
-              <p class="kicker">免费、开源，面向研究者、开发者与知识工作者。重要的 AI 结果仍可能出错：请复核内容、保留备份，并把模型 Key 掌握在自己手里。</p>
-              <p class="fine">社区问题走 GitHub Discussions。私密漏洞报告不需要公开维护者邮箱。</p>
+              <p class="kicker">免费、开源。AI 结果仍可能出错：请复核内容、保留备份，模型 Key 掌握在自己手里。</p>
             </div>
           </div>
         </div>
       </section>
 
     </div>
+  </div>
+</div>
+
+<!-- ── 版式模板弹层 ─────────────────────────────────────────────────── -->
+<div class="restork-dlg" id="theme-dialog" hidden data-od-id="theme-dialog">
+  <form class="box" id="theme-form" role="dialog" aria-modal="true" aria-labelledby="theme-dialog-t">
+    <h2 id="theme-dialog-t">新建版式</h2>
+    <label class="fld"><span>名称</span><input name="name" required maxlength="120" placeholder="例如：组会专用"></label>
+    <label class="fld"><span>布局</span>
+      <select name="layout">
+        <option value="editorial">编辑排版</option><option value="minimal">清晰简报</option>
+        <option value="spotlight">深色舞台</option><option value="research">研究记录</option>
+        <option value="narrative">故事复盘</option><option value="blueprint">结构蓝图</option>
+      </select>
+    </label>
+    <div class="color-row">
+      <label class="fld"><span>背景</span><input type="color" name="background" value="#FBF7EF"></label>
+      <label class="fld"><span>文字</span><input type="color" name="foreground" value="#302A21"></label>
+      <label class="fld"><span>辅助</span><input type="color" name="muted" value="#786D5C"></label>
+      <label class="fld"><span>强调</span><input type="color" name="accent" value="#6657D9"></label>
+      <label class="fld"><span>次强调</span><input type="color" name="accent2" value="#E84D8A"></label>
+    </div>
+    <div class="dlg-row">
+      <button class="btn-secondary" type="button" data-theme-close>取消</button>
+      <button class="btn-primary" type="submit" data-od-id="theme-save">保存版式</button>
+    </div>
+  </form>
+</div>
+<div class="restork-dlg" id="theme-trash-dialog" hidden data-od-id="theme-trash-dialog">
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="theme-trash-t">
+    <h2 id="theme-trash-t">版式回收站</h2>
+    <div id="theme-trash-list"></div>
+    <div class="dlg-row"><button class="btn-secondary" type="button" data-theme-close>关闭</button></div>
   </div>
 </div>
 
@@ -1679,9 +1859,9 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 
   /* ── 开始页输入区 ───────────────────────────────────────────────── */
   var HINT = {
-    research: "查资料：会给出来源清单，并在结论里保留引用。",
-    study: "学知识：会从你选定的知识库出练习，答案单独放。",
-    work: "推进工作：动文件前，会先列出要改的路径和内容摘要等你确认。"
+    research: "查资料：附来源清单，结论保留引用。",
+    study: "学知识：练习出自你选定的笔记，答案单独放。",
+    work: "推进工作：动文件前先给你看改动，确认才执行。"
   };
   var goal = $("#goal"), submit = $("#start-submit"), hint = $("#mode-hint"), runStatus = $("#run-status");
   function grow() { goal.style.height = "auto"; goal.style.height = Math.min(goal.scrollHeight, 260) + "px"; }
@@ -1715,7 +1895,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
     submit.disabled = true;
     var created = createRun(mode, goal.value.trim());
     runStatus.hidden = false;
-    runStatus.textContent = "已创建运行 " + created + "（排队中）。已切到「运行」跟踪轮次、来源与写入确认。";
+    runStatus.textContent = "已创建并排队。已切到「运行」，可跟踪轮次、来源与写入确认。";
     goal.value = ""; grow();
     submit.removeAttribute("aria-busy");
     submit.textContent = "开始任务";
@@ -1892,11 +2072,6 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
     });
   }
-  function htmlToText(html) {
-    var d = document.createElement("div");
-    d.innerHTML = String(html);
-    return d.textContent || "";
-  }
   function runById(id) {
     for (var i = 0; i < RUNS.length; i++) if (RUNS[i].id === id) return RUNS[i];
     return null;
@@ -1919,7 +2094,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
       return '<button class="run-item" type="button" data-run="' + r.id + '"'
         + (r.id === currentRun ? ' aria-current="true"' : "")
         + ' data-od-id="run-item-' + r.id + '">'
-        + '<span class="row"><span class="mono">' + esc(r.modeName) + " · " + esc(r.id) + "</span>" + stateChip(r) + "</span>"
+        + '<span class="row"><span class="mode">' + esc(r.modeName) + "</span>" + stateChip(r) + "</span>"
         + '<span class="goal">' + esc(r.goal) + "</span>"
         + '<span class="foot">' + esc(r.started) + " · 已用 " + r.usedTurns + "/" + TURNS_CAP + " 轮"
         + (needsAttn(r) ? " · 待确认写入" : "") + "</span></button>";
@@ -1969,7 +2144,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 
   function processPanel(r) {
     if (!r.turns.length) {
-      return '<p class="panel-note">这次运行还没有产生轮次记录。开始后，每一轮的模型调用、工具结果与重试都会记在这里。</p>';
+      return '<p class="panel-note">还没有轮次记录。开始后，模型调用、工具结果与重试记在这里。</p>';
     }
     var open = r.state === "running" ? r.turns.length : 0;
     return '<div class="turns">' + r.turns.map(function (t) {
@@ -1984,14 +2159,12 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
       + '<div class="turn-end"><span>' + (r.state === "running"
         ? "正在等待下一步；停止后已完成的轮次仍会保留。"
         : "运行已结束，轮次记录保留在本机。")
-      + '</span><span class="t">' + esc(r.id) + " · " + esc(r.model) + "</span></div>";
+      + "</span></div>";
   }
 
   function sourcePanel(r) {
     if (!r.sources.length) {
-      return '<p class="panel-note">这次运行没有引用外部来源。' + (r.mode === "study"
-        ? "学习类运行只读取你选定的知识库笔记，出处记在产物里。"
-        : "工作类运行的依据是本机文件，改动列在产物里。") + "</p>";
+      return '<p class="panel-note">这次运行没有引用外部来源，依据是你的本机笔记。</p>';
     }
     return r.sources.map(function (s) {
       return '<div class="src" data-od-id="source-' + esc(s.hash.slice(-4)) + '">'
@@ -2007,7 +2180,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
 
   function outputPanel(r) {
     if (!r.outputs.length) {
-      return '<p class="panel-note">还没有产物。运行结束或你确认写入后，文件会列在这里，并保留对应的运行编号。</p>';
+      return '<p class="panel-note">还没有产物。运行结束或确认写入后，文件列在这里。</p>';
     }
     return r.outputs.map(function (o) {
       return '<section class="out-block">'
@@ -2035,13 +2208,13 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
       : "";
     box.innerHTML = '<div class="rd-head"><div class="rd-top"><div class="rd-title">'
       + "<h2>" + esc(r.goal) + "</h2>"
-      + '<p class="rd-meta"><span>' + esc(r.id) + "</span><span>" + esc(r.modeName) + "</span>"
+      + '<p class="rd-meta"><span>' + esc(r.modeName) + "</span>"
       + "<span>" + esc(r.model) + "</span><span>" + esc(r.started) + " 开始</span>"
       + "<span>范围 " + esc(r.scope) + "</span></p></div>"
       + '<div class="rd-act">' + stateChip(r) + lead + "</div></div>"
       + '<div class="budget"><div class="budget-bar" role="img" aria-label="已用 ' + r.usedTurns + " 轮，共 " + TURNS_CAP + ' 轮"><i style="width:'
       + Math.round(r.usedTurns / TURNS_CAP * 100) + '%"></i></div>'
-      + '<p class="budget-line"><span class="mono">已用 ' + r.usedTurns + " / " + TURNS_CAP + " 轮模型调用 · "
+      + '<p class="budget-line"><span class="mono">已用 ' + r.usedTurns + " / " + TURNS_CAP + " 轮 · "
       + r.tokens.toLocaleString("zh-CN") + " tokens</span><span>" + esc(r.stateNote) + "</span></p></div></div>"
       + approvalBlock(r)
       + '<div class="tabs" role="tablist" aria-label="运行详情">' + TABS.map(function (t) {
@@ -2152,7 +2325,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
   /* ── 任务 ───────────────────────────────────────────────────────── */
   var TASKS = [
     { id: "t1", title: "复核《研发方法论》的开放问题", details: "上次运行列出了 6 条，还没逐条闭合。", priority: "P1", due: "2026-08-16", origin: "由你添加", done: false },
-    { id: "t2", title: "确认 W33 周报写入 Notes/周报", details: "运行 run_4f2a91 正在等你确认。", priority: "P0", due: "2026-08-15", origin: "模型建议 · 已确认", done: false }
+    { id: "t2", title: "确认 W33 周报写入 Notes/周报", details: "一次运行正在等你确认写入。", priority: "P0", due: "2026-08-15", origin: "模型建议 · 已确认", done: false }
   ];
   var TRASH = [];
   var ICON_DEL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 7h14"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M8 7l1-2h6l1 2"/><path d="M7 7l1 12h8l1-12"/></svg>';
@@ -2271,14 +2444,13 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
     $("#thread").innerHTML = '<div class="thread-head"><h2>' + esc(s.title) + '</h2>'
       + '<div class="acts"><button class="btn-secondary" type="button" data-sess-export>导出</button>'
       + '<button class="btn-secondary" type="button" data-sess-del>删除</button></div></div>'
-      + '<div class="model-bar"><small>本次对话使用的模型</small><strong>' + esc(PROF[s.profile]) + "</strong>"
-      + "<p>原对话会继续使用这个供应商和模型。提案确认前不调用工具。</p></div>"
+      + '<div class="model-bar"><small>本次对话使用的模型</small><strong>' + esc(PROF[s.profile]) + "</strong></div>"
       + '<div class="msgs">' + s.msgs.map(function (m) {
         return '<article class="msg ' + (m.role === "you" ? "you" : "") + '"><small>'
           + (m.role === "you" ? "你" : "Restork") + " · " + esc(m.t) + "</small><p>" + esc(m.text) + "</p></article>";
       }).join("") + "</div>"
       + '<form class="thread-compose" id="msg-form"><label class="sr-only" for="msg-in">消息</label>'
-      + '<textarea id="msg-in" required maxlength="8000" placeholder="接着写。这条对话不会中途换模型。"></textarea>'
+      + '<textarea id="msg-in" required maxlength="8000" placeholder="接着写…"></textarea>'
       + '<button class="btn-primary" type="submit">发送</button></form>';
   }
   renderSessions(); renderThread();
@@ -2307,7 +2479,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
     var text = $("#msg-in").value.trim();
     if (!s || !text) return;
     s.msgs.push({ role: "you", t: "刚刚", text: text });
-    s.msgs.push({ role: "restork", t: "刚刚", text: "原型不会调用模型。这条回复只说明：当前对话锁定「" + PROF[s.profile] + "」，确认前不会动文件。" });
+    s.msgs.push({ role: "restork", t: "刚刚", text: "原型不会调用模型。当前对话锁定「" + PROF[s.profile] + "」，确认前不会动文件。" });
     s.updated = "刚刚";
     renderSessions(); renderThread();
   });
@@ -2340,7 +2512,7 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
   function renderVault() {
     var q = vaultQuery.toLowerCase();
     var items = NOTES.filter(function (n) {
-      return !q || n.path.toLowerCase().indexOf(q) >= 0 || htmlToText(n.body).toLowerCase().indexOf(q) >= 0;
+      return !q || n.path.toLowerCase().indexOf(q) >= 0 || n.body.replace(/<[^>]+>/g, "").toLowerCase().indexOf(q) >= 0;
     });
     $("#vault-live").textContent = q
       ? ("“" + vaultQuery + "” 的 " + items.length + " 条结果")
@@ -2391,28 +2563,271 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
     { id: "d5", title: "周报幻灯片（未渲染）", kind: "PPTX", from: "run_4f2a91", rev: 0, status: "需要先确认 Markdown",
       preview: "<p>还没有可下载的 PPTX。确认周报写入后，才能做可复现渲染。</p>" }
   ];
+  var DL_KIND_ZH = { daily: "日报", weekly: "周报" };
+  function delivActions(d) {
+    var acts = "";
+    if (d.kind === "Markdown") acts += '<button class="btn-secondary" type="button" data-dl="' + d.id + '">下载 Markdown</button>';
+    if (d.kind === "PPTX") acts += '<button class="btn-secondary" type="button" disabled>渲染 PPTX · 需先确认写入</button>';
+    if (d.deck) acts += '<button class="btn-secondary" type="button" data-dl="' + d.id + '">下载大纲 Markdown</button>'
+      + '<button class="btn-secondary" type="button" disabled title="原型未接入渲染器">下载 PPTX</button>'
+      + '<button class="btn-secondary" type="button" disabled title="原型未接入渲染器">下载 PDF</button>';
+    if (d.from) acts += '<button class="btn-secondary" type="button" data-view-btn="runs" data-open-run="' + d.from + '">打开来源运行</button>';
+    return acts;
+  }
   function renderDeliv() {
+    $("#deliv-count").textContent = DELIV.length;
     $("#deliv-list").innerHTML = DELIV.map(function (d) {
       return '<details class="deliv-card" data-od-id="deliv-' + d.id + '"><summary><div><h3>'
-        + esc(d.title) + '</h3><p class="meta">' + esc(d.kind) + " · " + esc(d.from) + " · 修订 " + d.rev
-        + " · " + esc(d.status) + "</p></div></summary>"
+        + esc(d.title) + '</h3><p class="meta">' + esc(d.kind) + " · 修订 " + d.rev + " · " + esc(d.status) + "</p></div></summary>"
         + '<div class="deliv-body"><div class="md-preview">' + d.preview + "</div>"
-        + '<div class="deliv-acts">'
-        + (d.kind === "Markdown" ? '<button class="btn-secondary" type="button" data-dl="' + d.id + '">下载 Markdown</button>' : "")
-        + (d.kind === "PPTX" ? '<button class="btn-secondary" type="button" disabled>渲染 PPTX · 需先确认写入</button>' : "")
-        + '<button class="btn-secondary" type="button" data-view-btn="runs" data-open-run="' + d.from + '">打开来源运行</button>'
-        + "</div></div></details>";
+        + '<div class="deliv-acts">' + delivActions(d) + "</div></div></details>";
+    }).join("") || '<p class="empty-note">还没有草稿。回开始页说一句「把这周的运行整理成周报」，第一份就有了。</p>';
+    var sel = $("#dl-deck-report"), cur = sel.value;
+    sel.innerHTML = '<option value="">只使用下面的要求</option>' + DELIV.filter(function (d) {
+      return d.kind === "Markdown";
+    }).map(function (d) {
+      return '<option value="' + d.id + '">' + esc(d.title) + "</option>";
     }).join("");
+    sel.value = cur;
   }
   renderDeliv();
   $("#deliv-list").addEventListener("click", function (e) {
-    var run = e.target.closest("[data-open-run]");
-    if (run) { setView("runs"); selectRun(run.dataset.openRun); return; }
+    var runBtn = e.target.closest("[data-open-run]");
+    if (runBtn) { setView("runs"); selectRun(runBtn.dataset.openRun); return; }
     var dl = e.target.closest("[data-dl]");
     if (!dl) return;
     var d = DELIV.filter(function (x) { return x.id === dl.dataset.dl; })[0];
-    var blob = new Blob([d.title + "\n\n（原型示例，不是真实文件内容）\n"], { type: "text/markdown;charset=utf-8" });
+    if (!d) return;
+    var body = d.deck
+      ? "# " + d.title + "\n\n" + d.slides.map(function (s, i) { return "## 第 " + (i + 1) + " 页 · " + s; }).join("\n\n") + "\n"
+      : d.title + "\n\n" + (d.lines ? d.lines.map(function (l) { return "- " + l; }).join("\n") + "\n" : "（原型示例，不是真实文件内容）\n");
+    var blob = new Blob([body], { type: "text/markdown;charset=utf-8" });
     var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = d.title + ".md"; a.click();
+  });
+
+  /* 创建入口：写报告 / AI 起草 / 演示文稿 */
+  $$("[data-dl-tab]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      $$("[data-dl-tab]").forEach(function (x) { x.setAttribute("aria-selected", String(x === b)); });
+      $$("[data-dl-panel]").forEach(function (p) { p.hidden = p.dataset.dlPanel !== b.dataset.dlTab; });
+    });
+  });
+  function dlStatus(form, msg) {
+    var el = form.querySelector("[data-dl-status]");
+    el.textContent = msg; replayRise(el);
+  }
+  function pushDeliv(d) {
+    d.id = "d" + Math.random().toString(16).slice(2, 6);
+    d.rev = 1; d.from = null;
+    DELIV.unshift(d); renderDeliv();
+  }
+  $("#dl-report-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var form = e.target, fd = new FormData(form);
+    var title = String(fd.get("title")).trim();
+    var lines = String(fd.get("entries")).split("\n").map(function (l) { return l.trim(); }).filter(Boolean);
+    pushDeliv({
+      title: title, kind: "Markdown", status: DL_KIND_ZH[fd.get("kind")] + " · 草稿",
+      lines: lines,
+      preview: "<h4>" + esc(title) + "</h4><p>" + lines.slice(0, 4).map(esc).join("<br>") + (lines.length > 4 ? "<br>…" : "") + "</p>"
+    });
+    dlStatus(form, "草稿已加入上方列表。");
+  });
+  $("#dl-ai-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var form = e.target, fd = new FormData(form);
+    var title = String(fd.get("title")).trim();
+    var lines = RUNS.filter(function (r) { return r.state === "succeeded"; }).map(function (r) { return r.goal; });
+    if (!lines.length) lines = ["（没有已完成的运行可整理）"];
+    var focus = String(fd.get("focus") || "").trim();
+    pushDeliv({
+      title: title, kind: "Markdown",
+      status: DL_KIND_ZH[fd.get("kind")] + " · " + String(fd.get("provider")) + " 起草 · 待复核",
+      lines: lines,
+      preview: "<h4>" + esc(title) + "</h4><p>" + lines.map(esc).join("<br>") + "</p>"
+        + (focus ? "<p>重点：" + esc(focus) + "</p>" : "")
+    });
+    dlStatus(form, "AI 草稿已加入上方列表，复核后再下载。");
+  });
+  $("#dl-deck-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var form = e.target, fd = new FormData(form);
+    var title = String(fd.get("title")).trim();
+    var slides = String(fd.get("brief")).split("\n").map(function (l) { return l.trim(); }).filter(Boolean);
+    var n = parseInt(fd.get("slides"), 10);
+    if (n > 0 && slides.length > n) slides = slides.slice(0, n);
+    var theme = themeById(currentTheme);
+    pushDeliv({
+      title: title, kind: "演示文稿", deck: true, slides: slides,
+      status: "大纲 · " + theme.nameZh + " · 待复核",
+      preview: "<h4>" + esc(title) + "</h4><p>" + slides.map(function (s, i) {
+        return "第 " + (i + 1) + " 页 · " + esc(s);
+      }).join("<br>") + "</p>"
+    });
+    dlStatus(form, "大纲已加入上方列表，可下载检查。");
+  });
+
+  /* 版式库：六套内置与真实产品 themes.ts 一致；自定义版式只保留在本页会话 */
+  var LAYOUT_ZH = { editorial: "编辑排版", minimal: "清晰简报", spotlight: "深色舞台", research: "研究记录", narrative: "故事复盘", blueprint: "结构蓝图" };
+  var THEMES = [
+    { id: "restork-print", nameZh: "打字纸", descZh: "暖色纸张与编辑式标题，适合复盘与汇报。", bg: "#fbf7ef", fg: "#302a21", accent: "#6657d9", accent2: "#e84d8a", layout: "editorial" },
+    { id: "restork-clarity", nameZh: "清晰简报", descZh: "留白清楚、钴蓝强调，适合正式简报。", bg: "#f8fafc", fg: "#172033", accent: "#2563eb", accent2: "#06b6d4", layout: "minimal" },
+    { id: "restork-midnight", nameZh: "深夜演示", descZh: "深色舞台配紫青高光，适合演讲与展示。", bg: "#11131a", fg: "#f8fafc", accent: "#a78bfa", accent2: "#22d3ee", layout: "spotlight" },
+    { id: "restork-ocean", nameZh: "海盐研究", descZh: "清冷研究配色，适合证据、论文与技术叙事。", bg: "#ecfeff", fg: "#164e63", accent: "#0891b2", accent2: "#0f766e", layout: "research" },
+    { id: "restork-ember", nameZh: "暖色复盘", descZh: "奶油底色配暖橙重点，适合故事与阶段复盘。", bg: "#fff7ed", fg: "#431407", accent: "#ea580c", accent2: "#e11d48", layout: "narrative" },
+    { id: "restork-blueprint", nameZh: "数据蓝图", descZh: "深蓝结构化画布，适合架构、数据与计划。", bg: "#eaf2ff", fg: "#102a56", accent: "#1d4ed8", accent2: "#7c3aed", layout: "blueprint" }
+  ];
+  var customThemes = [], themeTrash = [];
+  var LS_DECK_THEME = "restork.proto.deck-theme";
+  var currentTheme = store.get(LS_DECK_THEME) || "restork-print";
+  function themeById(id) {
+    var all = THEMES.concat(customThemes);
+    for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i];
+    return THEMES[0];
+  }
+  function themeSvg(t) {
+    var mut = ' fill="' + t.fg + '" opacity=".45"';
+    var body = {
+      editorial:
+        '<rect width="8" height="90" fill="' + t.accent + '"/>'
+        + '<rect x="20" y="15" width="48" height="5" rx="2.5" fill="' + t.accent2 + '"/>'
+        + '<rect x="20" y="28" width="96" height="10" rx="3" fill="' + t.fg + '"/>'
+        + '<rect x="20" y="47" width="68" height="4" rx="2"' + mut + '/>'
+        + '<rect x="20" y="57" width="54" height="4" rx="2"' + mut + '/>'
+        + '<rect x="105" y="50" width="39" height="25" rx="4" fill="' + t.accent + '" opacity=".18"/>'
+        + '<rect x="112" y="63" width="5" height="7" rx="1" fill="' + t.accent + '"/>'
+        + '<rect x="121" y="57" width="5" height="13" rx="1" fill="' + t.accent2 + '"/>'
+        + '<rect x="130" y="60" width="5" height="10" rx="1" fill="' + t.accent + '"/>',
+      minimal:
+        '<rect width="160" height="5" fill="' + t.accent + '"/>'
+        + '<rect x="17" y="18" width="72" height="9" rx="3" fill="' + t.fg + '"/>'
+        + '<rect x="17" y="36" width="112" height="4" rx="2"' + mut + '/>'
+        + '<rect x="17" y="47" width="96" height="4" rx="2"' + mut + '/>'
+        + '<rect x="17" y="58" width="64" height="4" rx="2"' + mut + '/>'
+        + '<circle cx="129" cy="64" r="13" fill="' + t.accent + '" opacity=".18"/>'
+        + '<path d="M122 65l5 5 10-13" stroke="' + t.accent + '" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+      spotlight:
+        '<circle cx="80" cy="39" r="30" fill="' + t.accent + '" opacity=".28"/>'
+        + '<rect x="39" y="25" width="82" height="10" rx="4" fill="' + t.fg + '"/>'
+        + '<rect x="49" y="43" width="62" height="5" rx="2.5" fill="' + t.accent2 + '"/>'
+        + '<rect x="58" y="55" width="44" height="4" rx="2"' + mut + '/>'
+        + '<rect y="82" width="160" height="8" fill="' + t.accent + '"/>',
+      research:
+        '<rect width="35" height="28" fill="' + t.accent + '"/>'
+        + '<rect x="45" y="13" width="92" height="8" rx="3" fill="' + t.fg + '"/>'
+        + '<polyline points="15,70 34,54 53,62 72,40 93,50" stroke="' + t.accent + '" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+        + '<circle cx="34" cy="54" r="3" fill="' + t.accent2 + '"/>'
+        + '<circle cx="72" cy="40" r="3" fill="' + t.accent2 + '"/>'
+        + '<rect x="104" y="39" width="38" height="5" rx="2" fill="' + t.accent2 + '"/>'
+        + '<rect x="104" y="52" width="31" height="4" rx="2"' + mut + '/>'
+        + '<rect x="104" y="63" width="36" height="4" rx="2"' + mut + '/>',
+      narrative:
+        '<rect x="152" width="8" height="90" fill="' + t.accent + '"/>'
+        + '<circle cx="35" cy="34" r="18" fill="' + t.accent + '" opacity=".28"/>'
+        + '<rect x="25" y="29" width="20" height="9" rx="3" fill="' + t.accent + '"/>'
+        + '<rect x="63" y="18" width="66" height="9" rx="3" fill="' + t.fg + '"/>'
+        + '<rect x="63" y="38" width="76" height="5" rx="2" fill="' + t.accent2 + '"/>'
+        + '<rect x="63" y="51" width="64" height="4" rx="2"' + mut + '/>'
+        + '<rect x="63" y="62" width="48" height="4" rx="2"' + mut + '/>',
+      blueprint:
+        '<path d="M17 18h35v20H17zm48 0h35v20H65zm48 0h30v20h-30zM31 51h35v21H31zm49 0h50v21H80z" fill="none" stroke="' + t.accent + '" stroke-width="1.6"/>'
+        + '<path d="M52 28h13m35 0h13M48 38v13m50-13v13M66 62h14" stroke="' + t.accent + '" stroke-width="1.6" fill="none"/>'
+        + '<circle cx="31" cy="28" r="4" fill="' + t.accent + '"/>'
+        + '<circle cx="82" cy="28" r="4" fill="' + t.accent2 + '"/>'
+        + '<circle cx="105" cy="62" r="4" fill="' + t.accent + '"/>'
+    }[t.layout] || "";
+    return '<svg viewBox="0 0 160 90" role="img" aria-label="' + esc(t.nameZh) + ' 版式预览">'
+      + '<rect width="160" height="90" rx="7" fill="' + t.bg + '"/>' + body + "</svg>";
+  }
+  function renderThemes() {
+    var all = THEMES.concat(customThemes);
+    if (!all.some(function (t) { return t.id === currentTheme; })) currentTheme = THEMES[0].id;
+    $("#theme-grid").innerHTML = all.map(function (t) {
+      return '<li><label class="theme-card" data-od-id="theme-' + t.id + '">'
+        + '<input type="radio" name="deck-theme" value="' + t.id + '"' + (t.id === currentTheme ? " checked" : "") + '>'
+        + themeSvg(t)
+        + '<strong>' + esc(t.nameZh) + (t.custom ? ' <span class="tag">· 我的</span>' : "") + "</strong>"
+        + '<small>' + esc(t.descZh) + "</small>"
+        + (t.custom ? '<span class="theme-del"><button class="textlink" type="button" data-theme-del="' + t.id + '">移入回收站</button></span>' : "")
+        + "</label></li>";
+    }).join("");
+  }
+  renderThemes();
+  $("#theme-grid").addEventListener("change", function (e) {
+    if (e.target.name === "deck-theme") { currentTheme = e.target.value; store.set(LS_DECK_THEME, currentTheme); }
+  });
+  $("#theme-grid").addEventListener("click", function (e) {
+    var del = e.target.closest("[data-theme-del]");
+    if (!del) return;
+    e.preventDefault();
+    customThemes = customThemes.filter(function (t) {
+      if (t.id === del.dataset.themeDel) { themeTrash.unshift(t); return false; }
+      return true;
+    });
+    renderThemes(); announce("已移入回收站。");
+  });
+  var themeDlg = $("#theme-dialog"), themeForm = $("#theme-form"), trashDlg = $("#theme-trash-dialog"), dlgOpener = null;
+  function openDlg(dlg, opener) {
+    dlgOpener = opener || null; dlg.hidden = false;
+    var f = dlg.querySelector("input, select, button"); if (f) f.focus();
+  }
+  function closeDlgs() {
+    themeDlg.hidden = true; trashDlg.hidden = true;
+    if (dlgOpener && dlgOpener.focus) dlgOpener.focus(); dlgOpener = null;
+  }
+  $("[data-theme-new]").addEventListener("click", function () { openDlg(themeDlg, this); });
+  $("[data-theme-trash]").addEventListener("click", function () { renderThemeTrash(); openDlg(trashDlg, this); });
+  $$("[data-theme-close]").forEach(function (b) { b.addEventListener("click", closeDlgs); });
+  [themeDlg, trashDlg].forEach(function (dlg) {
+    dlg.addEventListener("mousedown", function (e) { if (e.target === dlg) closeDlgs(); });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && (!themeDlg.hidden || !trashDlg.hidden)) closeDlgs();
+  });
+  themeForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var fd = new FormData(themeForm);
+    var t = {
+      id: "custom-" + Math.random().toString(16).slice(2, 7), custom: true,
+      nameZh: String(fd.get("name")).trim(),
+      descZh: "我的版式 · " + (LAYOUT_ZH[fd.get("layout")] || ""),
+      bg: String(fd.get("background")), fg: String(fd.get("foreground")),
+      accent: String(fd.get("accent")), accent2: String(fd.get("accent2")),
+      layout: String(fd.get("layout"))
+    };
+    customThemes.push(t); currentTheme = t.id; store.set(LS_DECK_THEME, currentTheme);
+    renderThemes(); closeDlgs(); announce("版式「" + t.nameZh + "」已保存并选中。");
+  });
+  $("[data-theme-import]").addEventListener("click", function () { $("#theme-file").click(); });
+  $("#theme-file").addEventListener("change", function () {
+    var f = this.files && this.files[0];
+    if (!f) return;
+    var base = THEMES[0];
+    customThemes.push({
+      id: "custom-" + Math.random().toString(16).slice(2, 7), custom: true,
+      nameZh: f.name.replace(/\.[^.]+$/, "") || "导入的版式",
+      descZh: "我的版式 · 从文件导入",
+      bg: base.bg, fg: base.fg, accent: base.accent, accent2: base.accent2, layout: "editorial"
+    });
+    currentTheme = customThemes[customThemes.length - 1].id; store.set(LS_DECK_THEME, currentTheme);
+    renderThemes();
+    announce("已从文件创建版式；原型不解析内容，配色沿用打字纸。");
+    this.value = "";
+  });
+  function renderThemeTrash() {
+    $("#theme-trash-list").innerHTML = themeTrash.map(function (t) {
+      return '<div class="trash-item"><strong>' + esc(t.nameZh) + "</strong>"
+        + '<button class="btn-secondary" type="button" data-theme-restore="' + t.id + '">恢复</button></div>';
+    }).join("") || '<p class="empty-note">回收站是空的。</p>';
+  }
+  $("#theme-trash-list").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-theme-restore]");
+    if (!b) return;
+    themeTrash = themeTrash.filter(function (t) {
+      if (t.id === b.dataset.themeRestore) { customThemes.push(t); return false; }
+      return true;
+    });
+    renderThemes(); renderThemeTrash();
   });
 
   /* ── 自动化 ─────────────────────────────────────────────────────── */
@@ -2962,9 +3377,9 @@ html[data-daypart="night"] #now-wx .wx-orb { fill: var(--moon); }
     { label: "自动化 · 计划与触发", view: "automation", hint: "视图" },
     { label: "设置 · 本机偏好", view: "settings", hint: "视图" },
     { label: "待确认的写入 · Notes/周报/2026-W33.md", view: "runs", run: "run_4f2a91", hint: "运行" },
-    { label: "run_91b7c3 · 一致性读对比", view: "runs", run: "run_91b7c3", hint: "运行" },
-    { label: "run_2d0c58 · 分布式一致性练习", view: "runs", run: "run_2d0c58", hint: "运行" },
-    { label: "run_method · 研发方法论复盘", view: "runs", run: "run_method", hint: "运行" }
+    { label: "一致性读对比 · 查资料", view: "runs", run: "run_91b7c3", hint: "运行" },
+    { label: "分布式一致性练习 · 学知识", view: "runs", run: "run_2d0c58", hint: "运行" },
+    { label: "研发方法论复盘 · 学知识", view: "runs", run: "run_method", hint: "运行" }
   ];
   var scrim = $("#scrim"), pInput = $("#palette-input"), pList = $("#palette-list"), cursor = 0, filtered = CMDS, paletteOpener = null;
   function render() {

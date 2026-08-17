@@ -281,7 +281,7 @@ describe("Automation workspace", () => {
         network_access_confirmed: true,
       },
     })));
-    expect(root.textContent).toContain("保存后才会出现在列表里。立即运行不会跳过写入确认");
+    expect(root.textContent).toContain("我知道 Restork 会把标记为 public 的运行标题、状态与停止原因发送给该模型");
     root.remove();
   });
 

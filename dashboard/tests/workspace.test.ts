@@ -1580,7 +1580,6 @@ describe("Rust conversation workspace", () => {
     expect(section?.textContent).toContain("重要的 AI 结果仍可能出错");
     expect(section?.querySelector<HTMLAnchorElement>('a[href$="DISCLAIMER.zh-CN.md"]')).not.toBeNull();
     expect(section?.querySelector<HTMLAnchorElement>('a[href$="SECURITY.zh-CN.md"]')).not.toBeNull();
-    expect(section?.textContent).toContain("不需要公开维护者的个人邮箱");
     expect(section?.textContent).not.toMatch(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
     root.remove();
   });
@@ -1781,7 +1780,6 @@ describe("Rust conversation workspace", () => {
 
     expect(root.querySelector("[data-first-run]")).toBeNull();
     expect(root.querySelector("[data-onboarding-reopen]")).toBeNull();
-    expect(root.querySelector("[data-start-page-return]")?.textContent).toContain("打开开始页");
 
     root.querySelector<HTMLButtonElement>("[data-vault-choose]")?.click();
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("desktop_choose_vault"));
