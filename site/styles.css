@@ -1,36 +1,50 @@
-/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 */
-/* Hallmark · genre: editorial workbench · tone: calm and concrete · anchor: warm paper with violet ink · macrostructure: Feature Stack (four decision rows + sticky real media) · nav: N2 stacked index · footer: Ft1 ledger · contrast: pass (40–41) · honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive: pass (34, 49–57) */
+/* Restork site · v4 shell language
+ * Warm paper + plum focus + ink, typewriter display, glassmorphism panels,
+ * gradient accents, ambient light. Same DOM contract as the Hallmark sheet.
+ */
+
 :root {
   color-scheme: light;
-  --paper: #fbf7ef;
-  --paper-deep: #f3eadc;
-  --paper-strong: #fffdf9;
-  --ink: #342b21;
-  --ink-soft: #504538;
-  --muted: #7c6e5b;
-  --line: #ddcfba;
-  --line-strong: #c9b79c;
-  --orange: #f59e0b;
-  --pink: #ec4899;
-  --violet: #7658df;
-  --cyan: #18aec5;
-  --green: #228966;
-  --focus: #4e3cb5;
-  --on-dark: #fffaf3;
-  --label: #786651;
-  --link: #4f3eb2;
-  --footer-ink: #74624d;
-  --rule-rose: rgb(236 72 153 / 10%);
-  --rule-paper: rgb(124 110 91 / 7%);
-  --paper-glass: rgb(255 253 249 / 88%);
-  --paper-glass-soft: rgb(255 253 249 / 78%);
-  --bleed: rgb(118 88 223 / 68%);
-  --shadow: rgb(66 49 29 / 13%);
-  --focus-ring: #8675df;
+  /* v4 tokens (oklch) */
+  --paper: oklch(97.8% 0.012 84);
+  --paper-deep: oklch(95.1% 0.018 82);
+  --paper-strong: oklch(99.2% 0.006 86);
+  --ink: oklch(24% 0.026 62);
+  --ink-soft: oklch(35% 0.028 66);
+  --muted: oklch(48% 0.032 70);
+  --line: oklch(84% 0.03 78);
+  --line-strong: oklch(72% 0.038 78);
+  /* accent ramp: plum core + gradient companions */
+  --violet: oklch(51% 0.18 295);
+  --violet-deep: oklch(45% 0.2 295);
+  --pink: oklch(60% 0.19 350);
+  --cyan: oklch(62% 0.12 215);
+  --green: oklch(52% 0.12 158);
+  --orange: oklch(62% 0.16 60);
+  --focus: oklch(45% 0.2 295);
+  --on-dark: oklch(98% 0.01 86);
+  --label: oklch(52% 0.04 74);
+  --link: oklch(46% 0.17 292);
+  --footer-ink: oklch(50% 0.035 74);
+  /* gradient recipes */
+  --grad-accent: linear-gradient(100deg, var(--violet) 0%, var(--pink) 52%, var(--cyan) 100%);
+  --grad-soft: linear-gradient(100deg, oklch(51% 0.18 295 / 14%), oklch(60% 0.19 350 / 12%) 52%, oklch(62% 0.12 215 / 12%));
+  --grad-hairline: linear-gradient(90deg, oklch(51% 0.18 295 / 55%), oklch(60% 0.19 350 / 38%) 45%, transparent 82%);
+  /* glass */
+  --glass-bg: linear-gradient(160deg, oklch(99.4% 0.005 86 / 82%), oklch(97.4% 0.014 84 / 68%));
+  --glass-border: oklch(99.8% 0.004 88 / 75%);
+  --glass-shadow: 0 1px 2px oklch(24% 0.026 62 / 5%), 0 18px 48px oklch(24% 0.026 62 / 10%);
+  --glass-shadow-hover: 0 2px 4px oklch(24% 0.026 62 / 6%), 0 26px 64px oklch(45% 0.12 295 / 16%);
+  /* print texture */
+  --rule-rose: oklch(60% 0.19 350 / 7%);
+  --rule-paper: oklch(48% 0.032 70 / 6%);
+  --shadow: oklch(24% 0.026 62 / 12%);
+  --focus-ring: oklch(60% 0.14 295);
   --content-max: 2048px;
   --font-ui: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans", sans-serif;
   --font-mark: "American Typewriter", Rockwell, "Roboto Slab", "Noto Serif SC", "Songti SC", STSong, SimSun, Georgia, serif;
   --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", "Segoe UI Mono", Consolas, "Liberation Mono", monospace;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   font-family: var(--font-ui);
   font-size: 16px;
   line-height: 1.55;
@@ -59,6 +73,43 @@ body {
     var(--paper);
   font-family: var(--font-ui);
   text-rendering: optimizeLegibility;
+}
+
+/* ambient light: two drifting gradient blooms behind the print texture */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 50%;
+  filter: blur(90px);
+}
+
+body::before {
+  top: -18vmax;
+  left: -12vmax;
+  width: 58vmax;
+  height: 58vmax;
+  background: radial-gradient(circle at 40% 40%, oklch(64% 0.16 295 / 20%), oklch(66% 0.17 350 / 10%) 52%, transparent 72%);
+  animation: drift-a 26s var(--ease-out) infinite alternate;
+}
+
+body::after {
+  right: -16vmax;
+  bottom: -20vmax;
+  width: 54vmax;
+  height: 54vmax;
+  background: radial-gradient(circle at 60% 60%, oklch(66% 0.11 215 / 16%), oklch(60% 0.12 158 / 8%) 55%, transparent 74%);
+  animation: drift-b 32s var(--ease-out) infinite alternate;
+}
+
+@keyframes drift-a {
+  to { transform: translate(6vmax, 4vmax) scale(1.08); }
+}
+
+@keyframes drift-b {
+  to { transform: translate(-5vmax, -5vmax) scale(1.1); }
 }
 
 a {
@@ -108,7 +159,8 @@ footer {
   align-content: center;
   gap: 0;
   padding-block: 16px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(90deg, var(--line-strong), var(--line) 55%, transparent) 1;
 }
 
 .brand {
@@ -157,15 +209,19 @@ nav a {
 
 nav a:hover {
   text-decoration: underline;
+  text-decoration-color: var(--violet);
 }
 
 .language {
   min-width: 54px;
   justify-content: center;
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-border);
   border-radius: 9px;
   padding: 8px 12px;
-  background: var(--paper-glass);
+  background: var(--glass-bg);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: 0 1px 2px oklch(24% 0.026 62 / 6%);
   font-weight: 700;
 }
 
@@ -204,31 +260,40 @@ h3 {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--ink);
-  font-family: var(--font-ui);
+  font-family: var(--font-mark);
 }
 
 h1 {
   max-width: 850px;
   margin-bottom: clamp(26px, 3vw, 38px);
   overflow-wrap: anywhere;
-  font-size: clamp(48px, 5.2vw, 80px);
-  font-weight: 780;
-  line-height: .99;
-  letter-spacing: -.055em;
+  font-size: clamp(46px, 5vw, 76px);
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -.035em;
   text-wrap: balance;
 }
 
 html[lang="zh-CN"] h1 {
   max-width: 900px;
-  font-size: clamp(46px, 4.7vw, 72px);
-  font-weight: 760;
-  line-height: 1.08;
-  letter-spacing: -.04em;
+  font-size: clamp(44px, 4.6vw, 70px);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -.03em;
 }
 
 h1 em {
-  color: var(--violet);
   font-style: normal;
+  background: var(--grad-accent);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gradient-pan 14s linear infinite alternate;
+}
+
+@keyframes gradient-pan {
+  to { background-position: 100% 0; }
 }
 
 .lede {
@@ -271,12 +336,27 @@ h1 em {
   letter-spacing: .03em;
 }
 
+/* glass download panel */
 .hero-downloads {
   position: relative;
   overflow: hidden;
   padding: clamp(28px, 3.6vw, 48px) clamp(26px, 3.4vw, 46px) 32px;
-  border-block: 1px solid var(--line-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(1.25);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  box-shadow: var(--glass-shadow);
   isolation: isolate;
+}
+
+/* top light band + gradient bleed under the glass panel */
+.hero-downloads::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, oklch(100% 0 0 / 90%), transparent);
 }
 
 .hero-downloads::after {
@@ -288,18 +368,18 @@ h1 em {
   z-index: -1;
   height: 15px;
   border-radius: 50%;
-  background: var(--bleed);
-  filter: blur(7px);
-  opacity: .62;
+  background: linear-gradient(90deg, oklch(51% 0.18 295 / 58%), oklch(60% 0.19 350 / 50%), oklch(62% 0.12 215 / 46%));
+  filter: blur(8px);
+  opacity: .6;
 }
 
 .hero-downloads h2 {
   max-width: 12ch;
   margin-bottom: 22px;
-  font-size: clamp(30px, 3vw, 46px);
-  font-weight: 760;
-  line-height: 1.08;
-  letter-spacing: -.035em;
+  font-size: clamp(28px, 2.9vw, 42px);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -.03em;
 }
 
 .download-actions {
@@ -307,6 +387,7 @@ h1 em {
 }
 
 .download-action {
+  position: relative;
   min-height: 82px;
   display: flex;
   align-items: center;
@@ -314,6 +395,23 @@ h1 em {
   gap: 20px;
   border-bottom: 1px solid var(--line);
   text-decoration: none;
+}
+
+.download-action::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: -14px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--grad-accent);
+  opacity: 0;
+  transition: opacity 180ms var(--ease-out);
+}
+
+.download-action:hover::before {
+  opacity: 1;
 }
 
 .download-action span {
@@ -344,10 +442,14 @@ h1 em {
   border-radius: 50%;
   color: var(--violet);
   font-size: 19px;
-  transition: color 180ms ease, border-color 180ms ease, transform 180ms ease;
+  transition: color 180ms var(--ease-out), border-color 180ms var(--ease-out), transform 180ms var(--ease-out), background-color 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
 }
 
 .download-action:hover b {
+  border-color: transparent;
+  color: var(--on-dark);
+  background: var(--grad-accent);
+  box-shadow: 0 6px 18px oklch(51% 0.18 295 / 32%);
   transform: translateY(2px);
 }
 
@@ -362,7 +464,8 @@ h1 em {
 .story,
 .trust {
   padding: clamp(76px, 9vw, 142px) 0;
-  border-top: 1px solid var(--line-strong);
+  border-top: 1px solid transparent;
+  border-image: linear-gradient(90deg, transparent, var(--line-strong) 18%, var(--line-strong) 82%, transparent) 1;
 }
 
 .section-heading {
@@ -373,16 +476,16 @@ h1 em {
 .section-heading h2,
 .community h2 {
   margin-bottom: 18px;
-  font-size: clamp(34px, 4.2vw, 64px);
-  font-weight: 760;
-  line-height: 1.05;
-  letter-spacing: -.045em;
+  font-size: clamp(32px, 4vw, 60px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -.04em;
   text-wrap: balance;
 }
 
 html[lang="zh-CN"] .section-heading h2,
 html[lang="zh-CN"] .community h2 {
-  letter-spacing: -.03em;
+  letter-spacing: -.02em;
 }
 
 .section-heading > p:last-child {
@@ -411,19 +514,28 @@ html[lang="zh-CN"] .community h2 {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
   gap: 18px;
-  padding: 27px 0 30px;
+  padding: 27px 8px 30px 0;
   border-bottom: 1px solid var(--line);
+  transition: background-color 220ms var(--ease-out);
+}
+
+.story-step:hover {
+  background: var(--grad-soft);
 }
 
 .story-step > span {
   padding-top: 4px;
-  color: var(--violet);
+  background: var(--grad-accent);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   font: 800 12px/1 var(--font-mono);
   letter-spacing: .08em;
 }
 
 .story-step h3 {
   margin-bottom: 8px;
+  font-family: var(--font-ui);
   font-size: clamp(20px, 1.7vw, 27px);
   font-weight: 740;
   line-height: 1.24;
@@ -446,8 +558,11 @@ html[lang="zh-CN"] .community h2 {
 
 .media-stage {
   overflow: hidden;
-  border: 1px solid var(--line-strong);
-  background: var(--paper-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
   box-shadow: 0 24px 60px var(--shadow);
 }
 
@@ -500,8 +615,13 @@ html[lang="zh-CN"] .community h2 {
   display: grid;
   grid-template-columns: minmax(155px, .5fr) minmax(0, 1fr);
   gap: clamp(24px, 4vw, 62px);
-  padding: 25px 0 28px;
+  padding: 25px 8px 28px 0;
   border-bottom: 1px solid var(--line);
+  transition: background-color 220ms var(--ease-out);
+}
+
+.trust-list > div:hover {
+  background: var(--grad-soft);
 }
 
 .trust-list dt {
@@ -521,6 +641,7 @@ html[lang="zh-CN"] .community h2 {
   font-size: 13px;
 }
 
+/* glass community band */
 .community {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(270px, .75fr);
@@ -528,14 +649,23 @@ html[lang="zh-CN"] .community h2 {
   gap: clamp(44px, 8vw, 120px);
   margin-bottom: clamp(70px, 9vw, 132px);
   padding: clamp(34px, 5vw, 64px);
-  border: 1px solid var(--line-strong);
-  background: var(--paper-glass-soft);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow: var(--glass-shadow);
+  transition: box-shadow 260ms var(--ease-out);
+}
+
+.community:hover {
+  box-shadow: var(--glass-shadow-hover);
 }
 
 .community h2 {
   max-width: 18ch;
   margin-bottom: 0;
-  font-size: clamp(30px, 3.6vw, 52px);
+  font-size: clamp(28px, 3.4vw, 48px);
 }
 
 .community .text-links {
@@ -550,7 +680,8 @@ footer {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid transparent;
+  border-image: var(--grad-hairline) 1;
   color: var(--footer-ink);
   font: 700 11px/1.6 var(--font-mono);
   letter-spacing: .08em;
@@ -562,7 +693,7 @@ nav a,
 .document-links a,
 .checksum-link,
 .download-action {
-  transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+  transition: color 180ms var(--ease-out), background-color 180ms var(--ease-out), border-color 180ms var(--ease-out), transform 180ms var(--ease-out);
 }
 
 .text-links a,
@@ -574,7 +705,7 @@ nav a,
 .text-links a:hover,
 .document-links a:hover,
 .checksum-link:hover {
-  color: var(--ink);
+  color: var(--violet-deep);
 }
 
 .download-action:active,
@@ -714,13 +845,13 @@ button:disabled,
   }
 
   h1 {
-    font-size: clamp(40px, 13.4vw, 58px);
-    line-height: 1.02;
+    font-size: clamp(38px, 12.6vw, 54px);
+    line-height: 1.06;
   }
 
   html[lang="zh-CN"] h1 {
-    font-size: clamp(38px, 11.2vw, 52px);
-    line-height: 1.12;
+    font-size: clamp(36px, 11vw, 50px);
+    line-height: 1.16;
   }
 
   .lede {
@@ -735,11 +866,11 @@ button:disabled,
 
   .hero-downloads {
     margin-inline: -2px;
-    padding: 28px 10px 28px;
+    padding: 28px 18px 28px;
   }
 
   .hero-downloads h2 {
-    font-size: 30px;
+    font-size: 28px;
   }
 
   .download-action {
@@ -757,7 +888,7 @@ button:disabled,
 
   .section-heading h2,
   .community h2 {
-    font-size: clamp(32px, 10vw, 44px);
+    font-size: clamp(30px, 9.6vw, 42px);
   }
 
   .feature-stack {
@@ -808,6 +939,11 @@ button:disabled,
     transition-duration: .01ms !important;
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  body::before,
+  body::after {
+    animation: none;
   }
 
   .hero-downloads::after {
