@@ -1638,7 +1638,7 @@ function overview(snapshot: DashboardSnapshot, locale: Locale): string {
           : tr(locale, "Added by you", "由你添加");
       return `<p class="task-row"><b>${priority}</b>${escapeHtml(cleanTaskText(task.text))}<small>${origin}</small></p>`;
     }).join("")
-    : `<p class="empty">${tr(locale, "No incomplete tasks. Add one yourself or ask the model for suggestions.", "没有未完成任务；你可以自己添加，也可以让模型先给出建议。")}</p>`;
+    : `<p class="empty">${tr(locale, "No incomplete tasks.", "没有未完成任务。")}</p>`;
   const radarRows = snapshot.radar.items.slice(0, 4).map((item) => radarSummary(item, locale)).join("")
     || `<p class="empty">${snapshot.radar.configured
       ? tr(locale, "The next public refresh will appear here.", "下一次公开来源刷新后会显示在这里。")
@@ -1742,7 +1742,7 @@ export function tasksView(snapshot: DashboardSnapshot, locale: Locale): string {
 }
 
 function todoEmpty(locale: Locale): string {
-  return `<p class="empty">${tr(locale, "Add a task yourself, or ask the model for suggestions.", "你可以自己添加，也可以让模型先给出建议。")}</p>`;
+  return `<p class="empty">${tr(locale, "No tasks yet.", "暂时没有任务。")}</p>`;
 }
 
 function todoTrashMarkup(tasks: MarkdownTask[], page: PageInfo | undefined, locale: Locale): string {

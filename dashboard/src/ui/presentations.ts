@@ -65,12 +65,7 @@ export function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Local
       <label>${tr(locale, "Slides", "页数")}
         <input name="slide_count" type="number" inputmode="numeric"
           min="${MIN_SLIDE_COUNT}" max="${MAX_SLIDE_COUNT}" step="1"
-          placeholder="${tr(locale, "Auto", "自动")}" aria-describedby="presentation-slide-count-hint">
-        <small id="presentation-slide-count-hint">${tr(
-          locale,
-          `Leave blank and Restork decides from your brief, or pick any number from ${MIN_SLIDE_COUNT} to ${MAX_SLIDE_COUNT}.`,
-          `留空就由 Restork 按你的说明决定，也可以填 ${MIN_SLIDE_COUNT} 到 ${MAX_SLIDE_COUNT} 之间任意页数。`,
-        )}</small></label>
+          placeholder="${tr(locale, "Auto", "自动")}"></label>
       <label>${tr(locale, "Audience", "给谁看")}<input name="audience" required maxlength="120" value="team"></label>
       <label>${tr(locale, "Purpose", "希望达成什么")}<input name="purpose" required maxlength="300" value="${tr(locale, "Share findings and agree on next steps", "同步结论并确定下一步")}"></label>
       <label>${tr(locale, "Audience familiarity", "听众熟悉程度")}<select name="expertise">
