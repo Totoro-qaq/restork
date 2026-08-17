@@ -176,7 +176,7 @@ function startHeading(
     return `<h2 id="start-title" class="start-context" data-start-title-static>${escapeMarkup(title)}<span class="quiet">${escapeMarkup(tail)}</span></h2>
       <p class="start-context-sub"><button type="button" class="textlink" data-start-resume-run>${escapeMarkup(reviewLink)}</button></p>`;
   }
-  return `<h2 id="start-title" class="sr-only">${escapeMarkup(tr(locale, "Start", "开始"))}</h2>`;
+  return `<h2 id="start-title">${escapeMarkup(tr(locale, "What do you want to do now?", "现在想做什么？"))}</h2>`;
 }
 
 export function fillRunSummaryHost(
@@ -249,12 +249,12 @@ function startStatusRow(
 }
 
 function approvalStatusLabel(count: number, expiresAt: string | undefined, locale: Locale): string {
-  const base = tr(locale, `${count} awaiting review`, `${count} 个待审批`);
+  const base = tr(locale, `${count} awaiting confirmation`, `${count} 个待确认写入`);
   if (!expiresAt) return base;
   const deadline = new Date(expiresAt);
   if (Number.isNaN(deadline.valueOf())) return base;
   const time = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(deadline);
-  return tr(locale, `${base} · next expires ${time}`, `${base} · 最近 ${time} 到期`);
+  return tr(locale, `${base} · next expires ${time}`, `${base} · ${time} 到期`);
 }
 
 export function modeWorkspaceMarkup(kind: "study" | "work", id?: string): string {
@@ -284,8 +284,9 @@ function startExamples(locale: Locale): string {
 }
 
 function statusButton(view: string, label: string, ariaLabel: string, urgent = false): string {
-  return `<button type="button" data-start-status-view="${view}" class="${urgent ? "is-urgent" : ""}"
-    aria-label="${escapeMarkup(ariaLabel)}">${escapeMarkup(label)}</button>`;
+  const tone = view === "runs" ? "tone-live" : "tone-attn";
+  return `<button type="button" data-start-status-view="${view}" class="${tone} ${urgent ? "is-urgent" : ""}"
+    aria-label="${escapeMarkup(ariaLabel)}"><i aria-hidden="true"></i>${escapeMarkup(label)}</button>`;
 }
 
 function runSummaryHostMarkup(suggestion: PendingRunSummary | undefined, locale: Locale): string {

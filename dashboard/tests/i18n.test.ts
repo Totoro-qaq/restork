@@ -44,7 +44,7 @@ describe("Dashboard locales", () => {
     expect(root.textContent).toContain("Dashboard");
     expect(root.querySelector(".start-mode-row")?.textContent).toContain("Research");
     expect(root.querySelector(".sidebar .mode-grid")).toBeNull();
-    expect(root.querySelector("#start-title")?.textContent).toBe("Start");
+    expect(root.querySelector("#start-title")?.textContent).toBe("What do you want to do now?");
     expect(root.textContent).not.toContain("What will you research, study, or finish today?");
     expect(root.textContent).toContain("Save API key securely");
     expect(root.textContent).toContain("The native prompt stores the key in system credentials");
@@ -61,7 +61,7 @@ describe("Dashboard locales", () => {
     root.querySelector<HTMLButtonElement>("[data-locale-switch]")?.click();
 
     expect(root.textContent).toContain("仪表盘");
-    expect(root.querySelector("#start-title")?.textContent).toBe("开始");
+    expect(root.querySelector("#start-title")?.textContent).toBe("现在想做什么？");
     expect(root.textContent).toContain("安全保存 API Key");
     expect(root.textContent).toContain("原生弹窗会把 Key 存入系统凭据库");
     expect(document.documentElement.lang).toBe("zh-CN");

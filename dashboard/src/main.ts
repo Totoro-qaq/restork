@@ -221,7 +221,6 @@ function syncProviderModelControls(form: HTMLFormElement, requestedModel?: strin
   const custom = form.querySelector<HTMLInputElement>("[data-provider-custom-model]");
   const hidden = form.elements.namedItem("model") as HTMLInputElement | null;
   const baseUrl = form.elements.namedItem("base_url") as HTMLInputElement | null;
-  const endpointNote = form.querySelector<HTMLElement>("[data-provider-endpoint-note]");
   if (!kind || !selected || !picker || !custom || !hidden || !baseUrl) return;
 
   let models: string[] = [];
@@ -264,9 +263,6 @@ function syncProviderModelControls(form: HTMLFormElement, requestedModel?: strin
 
   const editableEndpoint = selected.dataset.endpointPolicy === "public_https";
   baseUrl.readOnly = !editableEndpoint;
-  if (endpointNote) endpointNote.textContent = editableEndpoint
-    ? tr(localeOf(form), "Custom endpoints can be edited.", "自定义兼容端点可以修改地址。")
-    : tr(localeOf(form), "Official providers use a locked verified endpoint.", "官方供应商使用经过确认的固定地址。")
 }
 
 export function mountDashboard(root: HTMLElement, options: MountOptions = {}): void {

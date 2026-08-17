@@ -659,6 +659,10 @@ body {
   border: 1px solid rgb(var(--line-rgb) / 24%); color: var(--fg-secondary);
   background: rgb(var(--surface-rgb) / 58%); font: inherit; cursor: pointer;
 }
+.start-status-row button { display: inline-flex; align-items: center; gap: 8px; }
+.start-status-row button i { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--fg-muted); }
+.start-status-row button.tone-live i { background: var(--success); }
+.start-status-row button.tone-attn i { background: var(--warning); }
 .start-mode-row button {
   display: inline-flex; min-height: 44px; align-items: center; border: 0; border-radius: 8px;
   padding: 0 12px; color: var(--fg-muted); background: none; font: inherit; font-size: 13px; cursor: pointer;
@@ -2515,7 +2519,7 @@ button.danger-text { color: var(--danger-ink); background: rgb(var(--red-surface
 .skill-suggest-row {
   display: flex; flex-wrap: wrap; gap: 8px; min-height: 44px; align-items: center;
 }
-.skill-suggest-row[data-empty="true"] { visibility: hidden; }
+.skill-suggest-row[data-empty="true"] { display: none; }
 .skill-suggest-row[hidden] { display: none; }
 .skill-chip {
   display: grid; gap: 4px; max-width: 360px; padding: 8px 12px; text-align: left;
