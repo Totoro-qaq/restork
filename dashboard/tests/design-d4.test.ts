@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { mountDashboard } from "../src/main";
 import { agentWaitMarkup, waitNextForError, runEventsMarkup } from "../src/ui/render";
-import { runBudgetCapCopy } from "../src/ui/budget";
 import type { DashboardApi, DashboardSnapshot } from "../src/api/types";
 import { openDashboardView } from "./open-view";
 
@@ -132,13 +131,7 @@ describe("DSN-013 error next steps", () => {
 });
 
 describe("DSN-014 honest budget", () => {
-  it("shows model-turn caps on the start form and run detail without a price", () => {
-    const root = mount();
-    const startBudget = root.querySelector("[data-run-budget]")?.textContent ?? "";
-    expect(startBudget).toContain("16");
-    expect(startBudget).toContain("轮模型");
-    expect(startBudget).not.toMatch(/\$|USD|价格/);
-    expect(runBudgetCapCopy("en")).not.toMatch(/\$|USD|price/i);
+  it("shows the model-turn budget on run detail without a price", () => {
     const detail = runEventsMarkup(snapshot().runs[0], [], "zh-CN");
     expect(detail).toContain("data-run-budget");
     expect(detail).toContain("16");

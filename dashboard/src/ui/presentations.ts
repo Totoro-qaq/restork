@@ -54,7 +54,7 @@ export function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Local
             + `${escapeHtml(deliverableTitle(record, locale))}</option>`
         )).join("")}
       </select></label>
-      <label class="wide-label">${tr(locale, "What should this presentation say?", "这份演示稿要讲什么？")}
+      <label class="wide-label">${tr(locale, "What to cover", "要讲什么")}
         <textarea name="brief" rows="6" maxlength="4000" required placeholder="${tr(
           locale,
           "For example: explain the research result, compare two approaches, and end with three next actions.",
@@ -76,11 +76,6 @@ export function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Local
       ${presentationTemplateLibrary(templates, snapshot.workspaceV2?.presentationTemplateNext ?? null, locale)}
       <button type="submit" ${providers.length ? "" : "disabled"}>${tr(locale, "CREATE PREVIEW", "生成可预览大纲")}</button>
       <p id="presentation-studio-status" role="status">${providers.length ? "" : tr(locale, "Add a model in Settings first.", "请先在设置里添加模型。")}</p>
-      <p class="fine">${tr(
-        locale,
-        "Six themes, PPTX, and PDF are included in Restork. No extra renderer, office suite, or skill installation is required.",
-        "六套版式、PPTX 和 PDF 渲染都随 Restork 提供，不需要另装渲染器、办公套件或 Skill。",
-      )}</p>
     </form></div>
     ${presentationTemplateDialog(locale)}
     ${presentationTemplateTrashDialog(locale)}
@@ -299,7 +294,7 @@ function presentationTemplateLibrary(
     .join("");
   const custom = templates
     .map((record) => renderCustomThemeCard(record, selected, locale))
-    .join("") || `<p class="empty">${tr(locale, "No personal templates yet.", "还没有个人模板。")}</p>`;
+    .join("");
   const nextButton = next ? templatePageButton(next, locale) : "";
   return `<fieldset class="wide-label render-theme-picker"><legend>${tr(locale, "Choose a look", "选择版式")}</legend>
     <header class="template-picker-header"><div>
@@ -315,11 +310,9 @@ function presentationTemplateLibrary(
     </header>
     <section class="template-group" aria-labelledby="builtin-template-title"><header><div>
       <strong id="builtin-template-title">${tr(locale, "Built into Restork", "内置版式")}</strong>
-      <small>${tr(locale, "Always available and cannot be deleted", "始终可用，不可删除")}</small>
     </div></header><div class="template-card-grid">${builtins}</div></section>
     <section class="template-group" aria-labelledby="custom-template-title"><header><div>
       <strong id="custom-template-title">${tr(locale, "My templates", "我的模板")}</strong>
-      <small>${tr(locale, "Create, import, edit or move to trash", "可新建、导入、修改或移入回收站")}</small>
     </div></header><div class="template-card-grid" data-template-list>${custom}</div>${nextButton}</section>
   </fieldset>`;
 }

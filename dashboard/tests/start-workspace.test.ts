@@ -73,7 +73,8 @@ describe("run-first start workspace", () => {
     expect(root.querySelector<HTMLElement>('[data-view-panel="start"]')?.hidden).toBe(false);
     expect(root.querySelector<HTMLElement>('[data-view-panel="overview"]')?.hidden).toBe(true);
     expect(root.querySelector<HTMLFormElement>("#start-run-form")).not.toBeNull();
-    expect(root.querySelector("#start-title")?.textContent).toBe("想研究什么？");
+    expect(root.querySelector("#start-title")?.textContent).toBe("开始");
+    expect(root.querySelector("#start-title")?.classList.contains("sr-only")).toBe(true);
     expect(root.querySelector("[data-start-owner]")).toBeNull();
     expect(root.querySelector(".sidebar-identity")?.textContent).toContain("设置称呼");
     expect(root.textContent).not.toContain("早上好");
@@ -101,8 +102,8 @@ describe("run-first start workspace", () => {
     };
     const root = render(state);
 
-    expect(root.querySelector("[data-start-owner]")?.textContent).toBe("Totoro");
-    expect(root.querySelector("#start-title")?.textContent).toBe("想研究什么？");
+    expect(root.querySelector("[data-start-owner]")).toBeNull();
+    expect(root.querySelector("#start-title")?.textContent).toBe("开始");
     expect(root.querySelector(".sidebar-identity")?.textContent).toContain("Totoro");
     expect(root.textContent).not.toContain("早上好，Totoro");
     expect(root.querySelector(".sidebar-identity")?.getAttribute("data-view")).toBe("settings");
@@ -115,19 +116,19 @@ describe("run-first start workspace", () => {
     const work = root.querySelector<HTMLButtonElement>('[data-start-mode="work"]');
 
     expect(research?.getAttribute("aria-checked")).toBe("true");
-    expect(root.querySelector("#start-title")?.textContent).toBe("想研究什么？");
+    expect(root.querySelector("#start-title")?.textContent).toBe("开始");
     expect(root.querySelector<HTMLTextAreaElement>("#start-goal")?.placeholder).toBe("用一句话说清。");
     expect(root.querySelector<HTMLElement>("[data-start-study-fields]")?.hidden).toBe(true);
     expect(root.querySelector<HTMLElement>("[data-start-work-fields]")?.hidden).toBe(true);
 
     study?.click();
-    expect(root.querySelector("#start-title")?.textContent).toBe("想学习什么？");
+    expect(root.querySelector("#start-title")?.textContent).toBe("开始");
     expect(root.querySelector<HTMLTextAreaElement>("#start-goal")?.placeholder).toBe("用一句话说清。");
     expect(root.querySelector<HTMLElement>("[data-start-study-fields]")?.hidden).toBe(false);
     expect(root.querySelector<HTMLElement>("[data-start-work-fields]")?.hidden).toBe(true);
 
     work?.click();
-    expect(root.querySelector("#start-title")?.textContent).toBe("想推进什么工作？");
+    expect(root.querySelector("#start-title")?.textContent).toBe("开始");
     expect(root.querySelector<HTMLTextAreaElement>("#start-goal")?.placeholder).toBe("用一句话说清。");
     expect(root.querySelector<HTMLElement>("[data-start-study-fields]")?.hidden).toBe(true);
     expect(root.querySelector<HTMLElement>("[data-start-work-fields]")?.hidden).toBe(false);
