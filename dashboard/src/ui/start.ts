@@ -1,8 +1,8 @@
-import type { DashboardSnapshot, Mode, PendingRunSummary } from "../api/types";
+import type { DashboardSnapshot, Mode, PendingRunSummary, RunListEntry } from "../api/types";
 import type { Locale } from "../i18n";
 import { tr } from "../i18n";
-import { escapeMarkup } from "./dom";
 import { runBudgetCapCopy } from "./budget";
+import { escapeMarkup } from "./dom";
 
 const MODE_COPY: Record<Mode, { en: string; zh: string }> = {
   research: { en: "What do you want to research?", zh: "想研究什么？" },
@@ -12,8 +12,8 @@ const MODE_COPY: Record<Mode, { en: string; zh: string }> = {
 
 const MODE_HINTS: Record<Mode, { en: string; zh: string }> = {
   research: {
-    en: "Research: sources are listed, and conclusions keep their citations.",
-    zh: "查资料：会给出来源清单，并在结论里保留引用。",
+    en: "Research: sources listed; citations kept in the conclusion.",
+    zh: "查资料：附来源清单，结论保留引用。",
   },
   study: {
     en: "Study: draws on your notes; every write is confirmed before it lands.",
@@ -53,45 +53,42 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
   const vaultReady = snapshot.taskBoard.vault_configured ?? snapshot.taskBoard.configured;
   const providerOptions = startProviderOptions(snapshot);
   const modelReady = providerOptions.length > 0;
-  const suggestion = active.length === 0 ? snapshot.pendingRunSummaries?.[0] : undefined;
+  const suggestion = snapshot.pendingRunSummaries?.[0];
+  const resumeRun = active[0] ?? null;
+  // While a task is still running, the start page points at that run; the
+  // run-summary prompt only appears once nothing else is in flight.
+  const reviewSuggestion = resumeRun ? undefined : suggestion;
 
   const owner = startOwnerName(snapshot);
-  const reviewTitle = tr(locale, "Last task hasn't been reviewed.", "上次的任务还没复盘。");
-  const reviewTail = tr(locale, "Pick it back up?", "要接着写吗？");
-  const reviewLink = tr(locale, "Open that run", "打开那次运行");
-  const resumeCopy = suggestion
-    ? `<h2 id="start-title" class="start-context" data-start-title-static>${escapeMarkup(reviewTitle)}<span class="quiet">${escapeMarkup(reviewTail)}</span></h2>
-      <p class="start-context-sub"><button type="button" class="textlink" data-start-resume-run>${escapeMarkup(reviewLink)}</button></p>`
-    : `<h2 id="start-title">${escapeMarkup(startTitle("research", locale))}</h2>`;
   return `<section class="start-workspace" data-run-surface aria-labelledby="start-title">
     <div class="start-intro">
       ${owner ? `<p class="start-owner" data-start-owner>${escapeMarkup(owner)}</p>` : ""}
-      ${resumeCopy}
+      ${startHeading(reviewSuggestion, resumeRun, locale)}
     </div>
 
-    <form id="start-run-form" class="start-run-form" data-provider-ready="${String(modelReady)}">
+    <form id="start-run-form" class="start-run-form composer" data-provider-ready="${String(modelReady)}">
       <input type="hidden" name="mode" value="research" data-start-mode-value>
-      <div class="start-compose-row">
-        <label class="sr-only" for="start-goal">${tr(locale, "Task", "任务")}</label>
-        <textarea id="start-goal" name="goal" required maxlength="8000" rows="1"
-          autocomplete="off" placeholder="${escapeMarkup(startPlaceholder(locale))}"></textarea>
-        <button type="submit" class="btn-primary" data-start-submit
-          data-connect-label="${escapeMarkup(tr(locale, "Connect a model first", "先连接模型"))}">${tr(locale, "START TASK", "开始任务")}</button>
-      </div>
-      <div class="start-mode-row" role="radiogroup" aria-label="${tr(locale, "Task type", "任务类型")}">
-        ${startModeButton("research", tr(locale, "Research", "查资料"), true, locale)}
-        ${startModeButton("study", tr(locale, "Study", "学知识"), false, locale)}
-        ${startModeButton("work", tr(locale, "Work", "推进工作"), false, locale)}
+      <label class="sr-only" for="start-goal">${tr(locale, "Task", "任务")}</label>
+      <textarea id="start-goal" name="goal" required maxlength="8000" rows="1"
+        autocomplete="off" placeholder="${escapeMarkup(startPlaceholder(locale))}"></textarea>
+      <div class="composer-foot">
+        <div class="start-mode-row" role="radiogroup" aria-label="${tr(locale, "Task type", "任务类型")}">
+          ${startModeButton("research", tr(locale, "Research", "查资料"), true, locale)}
+          ${startModeButton("study", tr(locale, "Study", "学知识"), false, locale)}
+          ${startModeButton("work", tr(locale, "Work", "推进工作"), false, locale)}
+        </div>
+        <div class="foot-right">
+          ${providerOptions.length ? `<label class="model-pick">${tr(locale, "Model", "模型")}
+            <select name="provider_profile_id" required aria-label="${tr(locale, "Model", "模型")}">
+              ${providerOptions.map((provider) => `<option value="${escapeMarkup(provider.id)}">${escapeMarkup(provider.label)}</option>`).join("")}
+            </select>
+          </label>` : ""}
+          <input type="hidden" name="context_data_class" value="public">
+          <button type="submit" class="btn-primary" data-start-submit
+            data-connect-label="${escapeMarkup(tr(locale, "Connect a model first", "先连接模型"))}">${tr(locale, "Start task", "开始任务")}</button>
+        </div>
       </div>
       <div class="skill-suggest-row" data-skill-suggest data-empty="true" aria-live="polite"></div>
-      ${providerOptions.length ? `<div class="start-inline-options">
-        <label>${tr(locale, "Model", "模型")}
-          <select name="provider_profile_id" required>
-            ${providerOptions.map((provider) => `<option value="${escapeMarkup(provider.id)}">${escapeMarkup(provider.label)}</option>`).join("")}
-          </select>
-        </label>
-        <input type="hidden" name="context_data_class" value="public">
-      </div>` : `<input type="hidden" name="context_data_class" value="public">`}
       <p class="form-hint start-inline-fix" data-start-provider-hint ${modelReady ? "hidden" : ""}><span>${tr(
         locale,
         "Connect a model first. Your task text will stay here.",
@@ -150,13 +147,13 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
         </details>
       </fieldset>
 
-      <p class="start-run-budget" data-run-budget>${escapeMarkup(runBudgetCapCopy(locale))}</p>
       <div class="start-run-feedback">
         <p class="start-run-status" data-run-status role="status"></p>
         <button type="button" data-start-cancel hidden>${tr(locale, "Stop task", "停止任务")}</button>
       </div>
     </form>
     <p class="mode-hint" data-mode-hint>${escapeMarkup(modeHint("research", locale))}</p>
+    <p class="fine" data-run-budget>${escapeMarkup(runBudgetCapCopy(locale))}</p>
 
     <div data-run-wait></div>
     <section class="start-run-output" data-start-output hidden aria-label="${tr(locale, "Task output", "任务输出")}">
@@ -164,12 +161,41 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
     </section>
     ${modeWorkspaceMarkup("study")}
     ${modeWorkspaceMarkup("work")}
-    ${runSummaryHostMarkup(suggestion, locale)}
+    ${runSummaryHostMarkup(reviewSuggestion, locale)}
 
     ${startExamples(locale)}
 
     ${startStatusRow(vaultReady, active.length, pending.length, nextExpiry, locale)}
   </section>`;
+}
+
+function clipTopic(text: string, max = 18): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+function startHeading(
+  suggestion: PendingRunSummary | undefined,
+  resumeRun: RunListEntry | null,
+  locale: Locale,
+): string {
+  const reviewTail = tr(locale, "Pick it back up?", "要接着写吗？");
+  const reviewLink = tr(locale, "Open that run", "打开那次运行");
+  if (suggestion) {
+    const topic = clipTopic(suggestion.summary);
+    const title = tr(locale, `Last time «${topic}» still needs review.`, `上次的《${topic}》还没复盘。`);
+    return `<h2 id="start-title" class="start-context" data-start-title-static>${escapeMarkup(title)}<span class="quiet">${escapeMarkup(reviewTail)}</span></h2>
+      <p class="start-context-sub"><button type="button" class="textlink" data-start-resume-run>${escapeMarkup(reviewLink)}</button></p>`;
+  }
+  if (resumeRun) {
+    const goal = resumeRun.task?.goal ?? "";
+    const topic = clipTopic(goal || resumeRun.summary.run_id);
+    const title = tr(locale, `«${topic}» is still running.`, `《${topic}》还在进行中。`);
+    const tail = tr(locale, "Check on it?", "要去看看吗？");
+    return `<h2 id="start-title" class="start-context" data-start-title-static>${escapeMarkup(title)}<span class="quiet">${escapeMarkup(tail)}</span></h2>
+      <p class="start-context-sub"><button type="button" class="textlink" data-start-resume-run>${escapeMarkup(reviewLink)}</button></p>`;
+  }
+  return `<h2 id="start-title">${escapeMarkup(startTitle("research", locale))}</h2>`;
 }
 
 export function fillRunSummaryHost(
@@ -268,7 +294,7 @@ function startExamples(locale: Locale): string {
     ["study", "Build a practice set for distributed consistency from my notes.", "用我的笔记出一套分布式一致性练习"],
     ["work", "Draft this week's runs into a weekly report.", "把这周的运行记录起草成一份周报"],
   ];
-  return `<div class="start-examples" data-start-examples><small>${tr(locale, "TRY ONE", "可以试试")}</small>
+  return `<div class="start-examples" data-start-examples>
     ${examples.map(([mode, en, zh]) => {
       const goal = escapeMarkup(tr(locale, en, zh));
       return `<button type="button" data-start-example="${mode}" data-example-goal="${goal}">${goal}</button>`;

@@ -156,7 +156,7 @@ describe("save-to-vault buttons on artifacts", () => {
     const markup = researchPreviewMarkup(researchArtifact(), "en");
     expect(markup).toContain('data-note-save="research"');
     expect(markup).toContain('data-note-run-id="run-research-note-save"');
-    expect(markup).toContain("SAVE TO VAULT");
+    expect(markup).toContain("Save to vault");
     expect(markup).not.toContain('data-note-save="research" data-run-id=');
   });
 

@@ -68,11 +68,11 @@ describe("responsive readability", () => {
 
   it("keeps the Start task focused and collapses its controls on narrow windows", () => {
     expect(stylesheet).toMatch(/\.start-workspace\s*\{[^}]*width:\s*100%[^}]*align-content:\s*start/);
-    expect(stylesheet).toMatch(/\.start-compose-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
+    expect(stylesheet).toMatch(/\.composer-foot\s*\{[^}]*display:\s*flex[^}]*justify-content:\s*space-between/);
     expect(stylesheet).toMatch(/\.start-inline-fix\[hidden\]\s*\{\s*display:\s*none/);
     expect(stylesheet).toMatch(/\.start-run-summary-actions\s*\{[^}]*justify-content:\s*space-between/);
     const narrow = stylesheet.slice(stylesheet.indexOf("@media (max-width: 680px)"));
-    expect(narrow).toMatch(/\.start-compose-row\s*\{[^}]*grid-template-columns:\s*1fr/);
+    expect(narrow).toMatch(/\.composer-foot\s*\{[^}]*flex-direction:\s*column/);
     expect(narrow).toMatch(/\.start-status-row\s*\{[^}]*flex-direction:\s*column/);
   });
 
@@ -203,6 +203,6 @@ describe("responsive readability", () => {
   it("keeps the start mode active state visible and the submit button actionable when unready", () => {
     expect(stylesheet).toMatch(/\.start-mode-row button\.is-active\s*\{[^}]*background:/);
     expect(stylesheet).not.toMatch(/\.start-mode-row button\.is-active\s*\{[^}]*inset 3px 0 0 var\(--brand\)/);
-    expect(stylesheet).toMatch(/\.start-compose-row button\[data-action="open-settings"\]\s*\{[^}]*background:/);
+    expect(stylesheet).toMatch(/\.start-inline-fix button\s*\{[^}]*background:/);
   });
 });
