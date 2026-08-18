@@ -1383,7 +1383,7 @@ describe("authenticated workspace", () => {
     if (dataClass) dataClass.value = "confidential";
     root.querySelector<HTMLFormElement>("#start-run-form")?.requestSubmit();
 
-    await vi.waitFor(() => expect(root.textContent).toContain("WORK PLAN · PREVIEW ONLY"));
+    await vi.waitFor(() => expect(root.textContent).toContain("Work plan · Preview only"));
     expect(planWork).toHaveBeenCalledWith("run-work", expect.objectContaining({
       workspace_root: "/synthetic/private/repo",
       target_files: ["src/app.py"],
@@ -1394,7 +1394,7 @@ describe("authenticated workspace", () => {
     expect(root.textContent).not.toContain("/synthetic/private/repo");
     root.querySelector<HTMLButtonElement>("[data-work-preview]")?.click();
 
-    await vi.waitFor(() => expect(root.textContent).toContain("HANDOFF PACKAGE PREVIEW"));
+    await vi.waitFor(() => expect(root.textContent).toContain("Handoff package preview"));
     expect(root.textContent).toContain("<script>alert(1)</script>");
     expect(root.querySelector("script")).toBeNull();
     expect(root.textContent).toContain("personal_absolute_path");
@@ -1406,7 +1406,7 @@ describe("authenticated workspace", () => {
     ).toBe(false);
     root.querySelector<HTMLButtonElement>("[data-work-export]")?.click();
 
-    await vi.waitFor(() => expect(root.textContent).toContain("PRIVATE HANDOFF EXPORTED"));
+    await vi.waitFor(() => expect(root.textContent).toContain("Private handoff exported"));
     expect(root.querySelector(".start-workspace [data-work-workspace]")?.textContent).not.toContain(
       "<script>alert(1)</script>",
     );
@@ -1425,7 +1425,7 @@ describe("authenticated workspace", () => {
     }
     root.querySelector<HTMLFormElement>(".start-workspace [data-work-verify]")?.requestSubmit();
 
-    await vi.waitFor(() => expect(root.textContent).toContain("IMPORTED RESULT"));
+    await vi.waitFor(() => expect(root.textContent).toContain("Imported result"));
     expect(verify).toHaveBeenCalledWith("run-work", expect.objectContaining({
       summary: "private imported summary",
     }));
@@ -2438,7 +2438,7 @@ describe("Rust conversation workspace", () => {
     root.querySelector<HTMLButtonElement>("[data-extension-history]")?.click();
     await vi.waitFor(() => expect(api.extensionRevisions).toHaveBeenCalledWith("skill.synthetic"));
     const rollback = root.querySelector<HTMLButtonElement>(".extension-history button");
-    expect(rollback?.textContent).toContain("VIEW ROLLBACK");
+    expect(rollback?.textContent).toContain("View rollback");
     rollback?.click();
 
     // Confirmation is an in-app dialog now, not a blocking native prompt.

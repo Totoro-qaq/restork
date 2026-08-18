@@ -82,7 +82,7 @@ describe("Dashboard locales", () => {
   });
 
   it("localizes provider diagnostic failures without exposing transport details", () => {
-    expect(providerErrorMarkup("en")).toContain("CHECK FAILED");
+    expect(providerErrorMarkup("en")).toContain("Check failed");
     expect(providerErrorMarkup("zh-CN")).toContain("检查失败");
     expect(providerErrorMarkup("zh-CN", "invalid or expired access token"))
       .toContain("Core 返回：invalid or expired access token");

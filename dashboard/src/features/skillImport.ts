@@ -200,13 +200,13 @@ function renderSkillPreview(
   const approve = document.createElement("button");
   approve.type = "button";
   approve.textContent = discourage
-    ? tr(locale, "IMPORT ANYWAY", "仍要导入")
-    : tr(locale, "INSTALL REVIEWED VERSION", "安装已核验版本");
+    ? tr(locale, "Import anyway", "仍要导入")
+    : tr(locale, "Install reviewed version", "安装已核验版本");
   let confirmedOnce = !discourage;
   approve.addEventListener("click", async () => {
     if (!confirmedOnce) {
       confirmedOnce = true;
-      approve.textContent = tr(locale, "CONFIRM IMPORT", "确认导入");
+      approve.textContent = tr(locale, "Confirm import", "确认导入");
       return;
     }
     approve.disabled = true;
@@ -332,7 +332,7 @@ export function createExtensionInstallPreviewCard(
   details.append(summary, pre);
   const approve = document.createElement("button");
   approve.type = "button";
-  approve.textContent = tr(localeOf(root), "INSTALL REVIEWED VERSION", "安装已核验版本");
+  approve.textContent = tr(localeOf(root), "Install reviewed version", "安装已核验版本");
   approve.addEventListener("click", () => onApprove(approve));
   card.append(title, explanation, digest, details, approve);
   return card;

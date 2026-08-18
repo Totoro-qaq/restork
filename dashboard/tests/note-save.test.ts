@@ -172,26 +172,26 @@ describe("save-to-vault buttons on artifacts", () => {
 });
 
 describe("approval cards for vault writes", () => {
-  it("offers APPLY WRITE for an approved vault_write approval", () => {
+  it("offers Apply write for an approved vault_write approval", () => {
     const markup = approvalsView(snapshot([approval({ decision: "approved" })]), "en");
-    expect(markup).toContain("APPLY WRITE");
+    expect(markup).toContain("Apply write");
     expect(markup).toContain('data-task-apply="approval-note-save"');
     expect(markup).toContain('data-action-kind="vault_write"');
   });
 
-  it("offers APPLY WRITE for an approved task_write approval", () => {
+  it("offers Apply write for an approved task_write approval", () => {
     const markup = approvalsView(
       snapshot([approval({ decision: "approved", action_kind: "task_write" })]),
       "en",
     );
-    expect(markup).toContain("APPLY WRITE");
+    expect(markup).toContain("Apply write");
     expect(markup).toContain('data-task-apply="approval-note-save"');
   });
 
   it("keeps pending approvals on approve/reject and hides apply", () => {
     const markup = approvalsView(snapshot([approval()]), "en");
-    expect(markup).toContain("CONFIRM");
-    expect(markup).toContain("DO NOT APPLY");
+    expect(markup).toContain("Confirm");
+    expect(markup).toContain("Do not apply");
     expect(markup).not.toContain("data-task-apply");
   });
 

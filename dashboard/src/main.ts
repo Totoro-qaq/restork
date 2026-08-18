@@ -1380,7 +1380,7 @@ function bindToolPreview(
               + `<pre>${escapeMarkup(JSON.stringify(execution, null, 2))}</pre></article>`;
           }).catch((error) => {
             execute.disabled = false;
-            execute.textContent = tr(localeOf(root), "APPROVE & RUN", "批准并运行");
+            execute.textContent = tr(localeOf(root), "Approve & run", "批准并运行");
             announceError(root, errorText(error, localeOf(root)));
           });
         });
@@ -1498,7 +1498,7 @@ function configureExtensionCenter(
             approve.disabled = false;
             approve.textContent = tr(
               localeOf(root),
-              "INSTALL REVIEWED VERSION",
+              "Install reviewed version",
               "安装已核验版本",
             );
             announceError(root, errorText(error, localeOf(root)));
@@ -1552,7 +1552,7 @@ function configureExtensionCenter(
           if (record.manifest_hash !== currentHash && api.rollbackExtension) {
             const rollback = document.createElement("button");
             rollback.type = "button";
-            rollback.textContent = tr(localeOf(root), "VIEW ROLLBACK", "查看回滚内容");
+            rollback.textContent = tr(localeOf(root), "View rollback", "查看回滚内容");
             rollback.addEventListener("click", async () => {
               const confirmed = await confirmAction(
                 root,
@@ -1769,8 +1769,8 @@ function syncOverviewProvider(
         : tr(locale, "Open Settings to choose a model and save this provider.", "请打开设置，选择模型并保存这个供应商。"))}</p>`;
   }
   if (manage) manage.textContent = selected.configured
-    ? tr(locale, "MANAGE MODELS", "管理模型")
-    : tr(locale, "CONFIGURE PROVIDER", "配置供应商");
+    ? tr(locale, "Manage models", "管理模型")
+    : tr(locale, "Configure provider", "配置供应商");
   setOverviewProviderActionAvailability(root);
 }
 
@@ -3779,8 +3779,8 @@ function configureMusic(root: HTMLElement, api: DashboardApi): void {
     const playing = disc.classList.toggle("is-playing");
     button.setAttribute("aria-pressed", String(playing));
     button.textContent = playing
-      ? tr(localeOf(root), "PAUSE CD", "暂停唱片")
-      : tr(localeOf(root), "ROTATE CD", "转动唱片");
+      ? tr(localeOf(root), "Pause CD", "暂停唱片")
+      : tr(localeOf(root), "Rotate CD", "转动唱片");
   });
 }
 

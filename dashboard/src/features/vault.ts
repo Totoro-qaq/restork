@@ -275,11 +275,11 @@ function setVaultStatus(
   const badge = root.querySelector<HTMLElement>("#vault-live-badge");
   if (badge) {
     badge.textContent = state === "live"
-      ? tr(localeOf(root), "LIVE", "实时")
+      ? tr(localeOf(root), "Live", "实时")
       : state === "loading"
-        ? tr(localeOf(root), "SYNCING", "同步中")
+        ? tr(localeOf(root), "Syncing", "同步中")
         : state === "error"
-          ? tr(localeOf(root), "RETRYING", "重试中")
-          : tr(localeOf(root), "MANUAL", "手动");
+          ? tr(localeOf(root), "Retrying", "重试中")
+          : tr(localeOf(root), "Manual", "手动");
   }
 }
