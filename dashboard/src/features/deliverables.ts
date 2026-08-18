@@ -90,8 +90,8 @@ export function configureDeliverables(
         .finally(() => {
           button.disabled = false;
           button.textContent = format === "pptx"
-            ? tr(localeOf(root), "DOWNLOAD PPTX", "下载 PPTX")
-            : tr(localeOf(root), "DOWNLOAD PDF", "下载 PDF");
+            ? tr(localeOf(root), "Download PPTX", "下载 PPTX")
+            : tr(localeOf(root), "Download PDF", "下载 PDF");
         });
   });
   root.querySelector<HTMLFormElement>("#manual-report-form")?.addEventListener("submit", (event) => {

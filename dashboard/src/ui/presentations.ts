@@ -74,7 +74,7 @@ export function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Local
         <option value="expert">${tr(locale, "Expert", "熟悉这个领域")}</option>
       </select></label>
       ${presentationTemplateLibrary(templates, snapshot.workspaceV2?.presentationTemplateNext ?? null, locale)}
-      <button type="submit" ${providers.length ? "" : "disabled"}>${tr(locale, "CREATE PREVIEW", "生成可预览大纲")}</button>
+      <button type="submit" ${providers.length ? "" : "disabled"}>${tr(locale, "Create preview", "生成可预览大纲")}</button>
       <p id="presentation-studio-status" role="status">${providers.length ? "" : tr(locale, "Add a model in Settings first.", "请先在设置里添加模型。")}</p>
     </form></div>
     ${presentationTemplateDialog(locale)}
@@ -105,7 +105,7 @@ function manualReportForm(locale: Locale): string {
       "What happened? Write one item per line.",
       "今天或这周发生了什么？每行写一件事。",
     )}<textarea name="entries" rows="8" maxlength="200000" required></textarea></label>
-    <button type="submit">${tr(locale, "CREATE DRAFT", "生成草稿")}</button>
+    <button type="submit">${tr(locale, "Create draft", "生成草稿")}</button>
     <p id="manual-report-status" role="status"></p>
   </form>`;
 }
@@ -145,12 +145,12 @@ function deliverableCard(record: CatalogRecordV2, locale: Locale): string {
         <section class="vault-reading-view deliverable-preview">${safeMarkdownPreview(markdown ?? "")}</section>
         <div data-preview-actions-source hidden>
           <button type="button" data-report-download data-report-title="${escapeHtml(title)}">
-            ${tr(locale, "DOWNLOAD MARKDOWN", "下载 Markdown")}
+            ${tr(locale, "Download Markdown", "下载 Markdown")}
           </button>
         </div>
       </div><div class="record-actions">
         <button type="button" data-report-download data-report-title="${escapeHtml(title)}">
-          ${tr(locale, "DOWNLOAD MARKDOWN", "下载 Markdown")}
+          ${tr(locale, "Download Markdown", "下载 Markdown")}
         </button>
       </div></article>`;
   }
@@ -167,9 +167,9 @@ function deliverableCard(record: CatalogRecordV2, locale: Locale): string {
     )}
     <div class="record-actions">
       <button type="button" data-render-format="pptx" data-render-id="${deliverableId}"
-        data-render-revision="${revision}">${tr(locale, "DOWNLOAD PPTX", "下载 PPTX")}</button>
+        data-render-revision="${revision}">${tr(locale, "Download PPTX", "下载 PPTX")}</button>
       <button type="button" data-render-format="pdf" data-render-id="${deliverableId}"
-        data-render-revision="${revision}">${tr(locale, "DOWNLOAD PDF", "下载 PDF")}</button>
+        data-render-revision="${revision}">${tr(locale, "Download PDF", "下载 PDF")}</button>
     </div></article>`;
 }
 
@@ -215,9 +215,9 @@ function deckPreviewMarkup(
     <div class="preview-source" data-preview-source hidden>${cards}
       <div data-preview-actions-source hidden>
         <button type="button" data-render-format="pptx" data-render-id="${escapeHtml(deliverableId)}"
-          data-render-revision="${revision}">${tr(locale, "DOWNLOAD PPTX", "下载 PPTX")}</button>
+          data-render-revision="${revision}">${tr(locale, "Download PPTX", "下载 PPTX")}</button>
         <button type="button" data-render-format="pdf" data-render-id="${escapeHtml(deliverableId)}"
-          data-render-revision="${revision}">${tr(locale, "DOWNLOAD PDF", "下载 PDF")}</button>
+          data-render-revision="${revision}">${tr(locale, "Download PDF", "下载 PDF")}</button>
       </div>
     </div>`;
 }
@@ -301,11 +301,11 @@ function presentationTemplateLibrary(
       <strong>${tr(locale, "Last used", "上次使用")}</strong>
       <span>${escapeHtml(recentName)}${recentDate}</span>
     </div><div class="template-picker-actions">
-      <button type="button" class="template-action-button" data-template-add>${tr(locale, "NEW", "新建")}</button>
-      <label class="button-like template-action-button">${tr(locale, "IMPORT", "导入")}
+      <button type="button" class="template-action-button" data-template-add>${tr(locale, "New", "新建")}</button>
+      <label class="button-like template-action-button">${tr(locale, "Import", "导入")}
         <input type="file" data-template-import accept=".pptx,image/png,image/jpeg,image/webp">
       </label>
-      <button type="button" class="template-action-button" data-template-trash>${tr(locale, "TRASH", "回收站")}</button>
+      <button type="button" class="template-action-button" data-template-trash>${tr(locale, "Trash", "回收站")}</button>
     </div>
     </header>
     <section class="template-group" aria-labelledby="builtin-template-title"><header><div>
@@ -323,7 +323,7 @@ function templatePageButton(
 ): string {
   return `<button type="button" class="template-load-more" data-template-load-more`
     + ` data-after-time="${escapeHtml(next.updated_at)}" data-after-id="${escapeHtml(next.id)}"`
-    + ` data-after-version="${next.version}">${tr(locale, "LOAD MORE", "加载更多")}</button>`;
+    + ` data-after-version="${next.version}">${tr(locale, "Load more", "加载更多")}</button>`;
 }
 
 function renderThemeCard(
@@ -407,9 +407,9 @@ function renderCustomThemeCard(
   return `<article class="template-card" data-template-id="${escapeHtml(record.template_id)}" data-template-hash="${escapeHtml(record.template_hash)}">
     ${renderThemeCard(theme, selected, locale)}
     <div class="template-card-actions">
-      <button type="button" data-template-edit>${tr(locale, "EDIT", "修改")}</button>
-      <button type="button" data-template-copy>${tr(locale, "COPY", "复制")}</button>
-      <button type="button" data-template-delete>${tr(locale, "DELETE", "删除")}</button>
+      <button type="button" data-template-edit>${tr(locale, "Edit", "修改")}</button>
+      <button type="button" data-template-copy>${tr(locale, "Copy", "复制")}</button>
+      <button type="button" data-template-delete>${tr(locale, "Delete", "删除")}</button>
     </div>
   </article>`;
 }
@@ -431,7 +431,7 @@ export function presentationTemplateTrashMarkup(
     + ` data-template-hash="${escapeHtml(record.template_hash)}"><div>`
     + `<strong>${escapeHtml(record.template.theme.name)}</strong>`
     + `<small>${formatDate(record.updated_at, locale)}</small></div>`
-    + `<button type="button" data-template-restore>${tr(locale, "RESTORE", "恢复")}</button>`
+    + `<button type="button" data-template-restore>${tr(locale, "Restore", "恢复")}</button>`
     + `</article>`).join("");
   return cards || `<p class="empty">${tr(locale, "Trash is empty.", "回收站是空的。")}</p>`;
 }
@@ -461,8 +461,8 @@ function presentationTemplateDialog(locale: Locale): string {
     <label>${tr(locale, "Layout", "布局")}<select name="layout">${layouts.map(([value, en, zh]) => `<option value="${value}">${tr(locale, en, zh)}</option>`).join("")}</select></label>
     <div class="template-color-fields">${colorFields}</div>
     <div class="dialog-actions">
-      <button type="button" data-template-dialog-close>${tr(locale, "CANCEL", "取消")}</button>
-      <button type="submit">${tr(locale, "SAVE TEMPLATE", "保存模板")}</button>
+      <button type="button" data-template-dialog-close>${tr(locale, "Cancel", "取消")}</button>
+      <button type="submit">${tr(locale, "Save template", "保存模板")}</button>
     </div><p role="status" data-template-dialog-status></p>
   </form></dialog>`;
 }
@@ -498,7 +498,7 @@ function aiReportForm(snapshot: DashboardSnapshot, locale: Locale): string {
         "例如：本周决定、遇到的问题和下周重点",
       )}"></textarea>
     </label>
-    <button type="submit" ${noProvider ? "disabled" : ""}>${tr(locale, "DRAFT WITH MODEL", "用模型起草")}</button>
+    <button type="submit" ${noProvider ? "disabled" : ""}>${tr(locale, "Draft with model", "用模型起草")}</button>
     <p id="ai-report-status" role="status">${noProvider ? tr(locale, "Add a provider in Settings first.", "请先在设置中添加供应商。") : ""}</p></form>`;
 }
 

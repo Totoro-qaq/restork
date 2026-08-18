@@ -51,9 +51,9 @@ function approvalActions(approval: ApprovalRequest, locale: Locale): string {
   if (approval.decision === "pending") {
     return `<div class="approval-actions">
       <button class="btn-primary approval-confirm-action" type="button" data-approval-id="${id}"
-        data-action-kind="${actionKind}" data-decision="approve">${tr(locale, "CONFIRM", "确认")}</button>
+        data-action-kind="${actionKind}" data-decision="approve">${tr(locale, "Confirm", "确认")}</button>
       <button class="btn-secondary approval-reject-action" type="button" data-approval-id="${id}"
-        data-action-kind="${actionKind}" data-decision="reject">${tr(locale, "DO NOT APPLY", "不执行")}</button>
+        data-action-kind="${actionKind}" data-decision="reject">${tr(locale, "Do not apply", "不执行")}</button>
     </div>`;
   }
   const taskReady = approval.decision === "approved"
@@ -61,7 +61,7 @@ function approvalActions(approval: ApprovalRequest, locale: Locale): string {
   if (!taskReady) return "";
   return `<div class="approval-actions"><button class="btn-primary approval-apply-action" type="button"
     data-task-apply="${id}" data-action-kind="${actionKind}">
-    ${tr(locale, "APPLY WRITE", "应用写入")}</button></div>`;
+    ${tr(locale, "Apply write", "应用写入")}</button></div>`;
 }
 
 /** First layer answers what changes, where it lands, and when consent expires. */
@@ -74,15 +74,15 @@ export function approvalCardMarkup(
   const body = `<div class="approval-mark is-${escapeMarkup(approval.decision)}" data-approval-mark aria-hidden="true">${mark}</div>
     <p class="run-title approval-summary">${escapeMarkup(approvalSummary(approval, locale))}</p>
     <dl class="approval-impact">
-      <div><dt>${tr(locale, "DESTINATION", "写入位置")}</dt><dd>${escapeMarkup(approval.canonical_scope)}</dd></div>
-      <div><dt>${tr(locale, "EXPIRES", "有效期至")}</dt><dd><time datetime="${escapeMarkup(approval.expires_at)}">${escapeMarkup(formatDate(approval.expires_at, locale))}</time></dd></div>
+      <div><dt>${tr(locale, "Destination", "写入位置")}</dt><dd>${escapeMarkup(approval.canonical_scope)}</dd></div>
+      <div><dt>${tr(locale, "Expires", "有效期至")}</dt><dd><time datetime="${escapeMarkup(approval.expires_at)}">${escapeMarkup(formatDate(approval.expires_at, locale))}</time></dd></div>
     </dl>
     <details class="approval-technical"><summary>${tr(locale, "Technical details", "技术详情")}</summary>
       <dl class="metadata compact">
-        <div><dt>${tr(locale, "ACTION", "动作类型")}</dt><dd>${escapeMarkup(approval.action_kind)}</dd></div>
-        <div><dt>${tr(locale, "RISK", "风险类型")}</dt><dd>${escapeMarkup(approval.risk_class)}</dd></div>
-        <div><dt>${tr(locale, "RULE VERSION", "规则版本")}</dt><dd>${escapeMarkup(approval.policy_version)}</dd></div>
-        <div><dt>${tr(locale, "CONTENT FINGERPRINT", "内容指纹")}</dt><dd><code>${escapeMarkup(approval.action_digest.slice(0, 16))}…</code></dd></div>
+        <div><dt>${tr(locale, "Action", "动作类型")}</dt><dd>${escapeMarkup(approval.action_kind)}</dd></div>
+        <div><dt>${tr(locale, "Risk", "风险类型")}</dt><dd>${escapeMarkup(approval.risk_class)}</dd></div>
+        <div><dt>${tr(locale, "Rule version", "规则版本")}</dt><dd>${escapeMarkup(approval.policy_version)}</dd></div>
+        <div><dt>${tr(locale, "Content fingerprint", "内容指纹")}</dt><dd><code>${escapeMarkup(approval.action_digest.slice(0, 16))}…</code></dd></div>
       </dl>
     </details>
     ${approvalActions(approval, locale)}`;

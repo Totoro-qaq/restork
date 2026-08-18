@@ -73,7 +73,7 @@ export function configureStartWorkspace(
         submit.disabled = disabled;
         submit.setAttribute("aria-disabled", String(disabled));
         delete submit.dataset.action;
-        submit.textContent = submit.dataset.defaultLabel ?? "START TASK";
+        submit.textContent = submit.dataset.defaultLabel ?? "Start task";
       }
     }
   };
