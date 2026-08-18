@@ -129,7 +129,7 @@ export function agentWaitMarkup(
       <div><dt>${tr(locale, "Elapsed", "已用时间")}</dt><dd><time data-runtime-elapsed>0:00</time></dd></div>
     </dl>` : "";
   const stop = busy && detail?.cancellable
-    ? `<button type="button" class="btn-secondary runtime-stop" data-runtime-stop>${tr(locale, "STOP TASK", "停止任务")}</button>`
+    ? `<button type="button" class="btn-secondary runtime-stop" data-runtime-stop>${tr(locale, "Stop task", "停止任务")}</button>`
     : "";
   const sceneLabel = busy
     ? tr(locale, "Task in progress", "任务进行中")

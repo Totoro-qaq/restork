@@ -141,7 +141,7 @@ function bindTemplatePagination(
     }).catch((error) => {
       callbacks.error(friendlyError(error, locale));
       button.disabled = false;
-      button.textContent = tr(locale, "TRY AGAIN", "重试");
+      button.textContent = tr(locale, "Try again", "重试");
     });
   });
 }
@@ -180,7 +180,7 @@ async function loadTrashPage(
       else host.innerHTML = markup;
     }
     if (pageHost) pageHost.innerHTML = page.next
-      ? `<button type="button" data-template-trash-more>${tr(locale, "LOAD MORE", "加载更多")}</button>`
+      ? `<button type="button" data-template-trash-more>${tr(locale, "Load more", "加载更多")}</button>`
       : "";
     pageHost?.querySelector<HTMLButtonElement>("[data-template-trash-more]")
       ?.addEventListener("click", () => void loadTrashPage(dialog, api, callbacks, locale, page.next ?? undefined));
@@ -506,7 +506,7 @@ function loadMoreButton(cursor: CatalogCursorV2, locale: Locale): string {
     + ` data-after-time="${escapeAttribute(cursor.updated_at)}"`
     + ` data-after-id="${escapeAttribute(cursor.id)}"`
     + ` data-after-version="${cursor.version}">`
-    + `${tr(locale, "LOAD MORE", "加载更多")}</button>`;
+    + `${tr(locale, "Load more", "加载更多")}</button>`;
 }
 
 function escapeAttribute(value: string): string {

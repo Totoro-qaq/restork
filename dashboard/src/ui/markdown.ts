@@ -4,7 +4,10 @@ export function safeMarkdownPreview(markdown: string): string {
   return markdown.split(/\r?\n/).map((line) => {
     if (/^\s*```/.test(line)) {
       fenced = !fenced;
-      return `<div class="vault-code-fence" aria-hidden="true">${fenced ? "CODE" : "END"}</div>`;
+      // Decorative (aria-hidden) boundary marker. It used to read CODE/END in
+      // English regardless of locale; the fence itself carries the same meaning
+      // in every language.
+      return `<div class="vault-code-fence" aria-hidden="true">\`\`\`</div>`;
     }
     if (fenced) return `<pre class="vault-code-line"><code>${escapeHtml(line)}</code></pre>`;
     if (!line.trim()) return `<div class="vault-markdown-space" aria-hidden="true"></div>`;

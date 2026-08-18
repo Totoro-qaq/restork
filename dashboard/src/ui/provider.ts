@@ -46,10 +46,18 @@ export function providerWaitMarkup(
 ): string {
   const webSearch = target === "web_search";
   const label = model
-    ?? (webSearch ? "deepseek-v4-flash" : smoke ? "selected model" : "model access");
+    ?? (webSearch
+      ? "deepseek-v4-flash"
+      : smoke
+      ? tr(locale, "selected model", "所选模型")
+      : tr(locale, "model access", "模型访问"));
   return `<section class="provider-wait" role="status" aria-live="polite" aria-busy="true">
     <div class="typewriter-motion" aria-hidden="true"><i></i><i></i><i></i><span></span></div>
-    <div><small>${escapeMarkup(label.toUpperCase())} · ${webSearch ? "WEB SEARCH" : smoke ? "FIXED PUBLIC SMOKE TEST" : "MODEL ACCESS"}</small>
+    <div><small>${escapeMarkup(label)} · ${webSearch
+        ? tr(locale, "Web search", "联网检索")
+        : smoke
+        ? tr(locale, "Fixed public smoke test", "固定公开冒烟测试")
+        : tr(locale, "Model access", "模型访问")}</small>
       <strong>${webSearch
         ? tr(locale, "Running one minimal server-side web search…", "正在运行一次最小服务端联网检索……")
         : smoke
@@ -73,7 +81,7 @@ export function providerWaitMarkup(
 export function providerErrorMarkup(locale: Locale = "en", detail = ""): string {
   return `<article class="provider-diagnostic-result is-action" data-provider-status="provider_unavailable">
     <header>
-      <strong>${tr(locale, "CHECK FAILED", "检查失败")}</strong>
+      <strong>${tr(locale, "Check failed", "检查失败")}</strong>
       ${providerDiagnosticDismissMarkup(locale)}
     </header>
     <p>${tr(locale, "The model check could not complete. Check Core and try again.", "模型检查未能完成，请检查 Core 后重试。")}</p>
