@@ -150,6 +150,16 @@ describe("assistant stream upgrades the research envelope", () => {
     expect(markup).not.toMatch(/^<pre/);
   });
 
+  it("renders the work plan envelope as a ready note, not raw JSON", () => {
+    const payload = JSON.stringify({
+      plan_steps: [{ title: "收集运行记录" }, { title: "起草周报" }],
+    });
+    const markup = assistantStreamMarkup(payload, "zh-CN");
+    expect(markup).toContain("工作计划 · 2 个步骤已就绪");
+    expect(markup).toContain("<details>");
+    expect(markup).not.toMatch(/^<pre/);
+  });
+
   it("keeps an empty questions payload on the raw fallback", () => {
     const markup = assistantStreamMarkup("{\"questions\":[]}", "zh-CN");
     expect(markup).toContain("<pre data-assistant-stream>");
