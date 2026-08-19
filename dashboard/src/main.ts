@@ -2348,7 +2348,7 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
           cancellable: form.id === "start-run-form",
         });
       }
-      if (form.id === "start-run-form") paintStartRunEvent(surface, event, localeOf(root), api, run.run_id);
+      if (form.id === "start-run-form") paintStartRunEvent(surface, event, localeOf(root), api, run.run_id, mode);
     }, form.id === "start-run-form" ? "start" : "launcher");
     if (status) {
       status.textContent = tr(
@@ -2461,6 +2461,7 @@ function resumeStartRunFromSnapshot(
       active.summary.run_id,
       active.summary.state,
       active.summary.created_at,
+      active.summary.mode,
     );
   }
 }
@@ -2471,6 +2472,7 @@ function resumeStartRun(
   runId: string,
   state: string,
   createdAt?: string,
+  mode?: string,
 ): void {
   const surface = root.querySelector<HTMLElement>(".start-workspace");
   const panel = surface?.closest<HTMLElement>("[data-view-panel]");
@@ -2502,7 +2504,7 @@ function resumeStartRun(
         cancellable: true,
       });
     }
-    paintStartRunEvent(surface, event, localeOf(root), api, runId);
+    paintStartRunEvent(surface, event, localeOf(root), api, runId, mode);
   }, "start");
 }
 
@@ -2539,19 +2541,26 @@ function paintStartRunEvent(
   locale: Locale,
   api?: DashboardApi,
   runId?: string,
+  mode?: string,
 ): void {
   const status = surface.querySelector<HTMLElement>("[data-run-status]");
   const cancel = surface.querySelector<HTMLButtonElement>("[data-start-cancel]");
   const output = surface.querySelector<HTMLElement>("[data-start-output]");
   const text = surface.querySelector<HTMLElement>("[data-start-output-text]");
-  if (event.type === "assistant.delta" && typeof event.data.content === "string" && text) {
+  // 学习模式的诊断输出是结构化 JSON，原始 token 流不进入界面；
+  // 进度由等待卡呈现，问题由诊断表单呈现
+  const isStructuredStudy = mode === "study";
+  if (event.type === "assistant.delta" && typeof event.data.content === "string" && text && !isStructuredStudy) {
     if (output) output.hidden = false;
     text.append(document.createTextNode(event.data.content));
   }
   if (event.type === "run.completed") {
     if (status) status.textContent = tr(locale, "Task completed.", "任务已完成。");
     if (cancel) cancel.hidden = true;
-    if (text?.textContent) {
+    if (isStructuredStudy) {
+      if (output) output.hidden = true;
+      if (text) text.replaceChildren();
+    } else if (text?.textContent) {
       const upgraded = assistantStreamMarkup(text.textContent, locale);
       if (!upgraded.startsWith("<pre")) text.outerHTML = upgraded;
     }
