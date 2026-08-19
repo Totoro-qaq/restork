@@ -249,7 +249,9 @@ impl SafeWorkspace {
                 let relative_path = directory_path.join(entry.file_name());
                 if file_type.is_dir() {
                     let name = entry.file_name();
-                    if !matches!(name.to_str(), Some(".git" | ".obsidian" | ".trash")) {
+                    // 点开头目录（.git/.obsidian/.cobsidian/.trash 等）与不可读名称一律跳过，
+                    // 与 Obsidian 隐藏行为及界面承诺一致
+                    if matches!(name.to_str(), Some(name) if !name.starts_with('.')) {
                         stack.push((entry.open_dir()?, relative_path));
                     }
                     continue;
@@ -327,7 +329,7 @@ impl SafeWorkspace {
                 let relative_path = directory_path.join(entry.file_name());
                 if file_type.is_dir() {
                     let name = entry.file_name();
-                    if !matches!(name.to_str(), Some(".git" | ".obsidian" | ".trash")) {
+                    if matches!(name.to_str(), Some(name) if !name.starts_with('.')) {
                         stack.push((entry.open_dir()?, relative_path));
                     }
                 } else if relative_path.extension().and_then(|value| value.to_str()) == Some("md") {
@@ -367,7 +369,7 @@ impl SafeWorkspace {
                 let relative_path = directory_path.join(entry.file_name());
                 if file_type.is_dir() {
                     let name = entry.file_name();
-                    if !matches!(name.to_str(), Some(".git" | ".obsidian" | ".trash")) {
+                    if matches!(name.to_str(), Some(name) if !name.starts_with('.')) {
                         stack.push((entry.open_dir()?, relative_path));
                     }
                     continue;

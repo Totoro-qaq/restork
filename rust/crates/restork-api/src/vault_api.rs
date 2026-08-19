@@ -434,7 +434,8 @@ fn vault_event_path(root: &Path, path: &Path) -> Option<VaultEventPath> {
             let Component::Normal(part) = component else {
                 return true;
             };
-            matches!(part.to_str(), Some(".git" | ".obsidian" | ".trash"))
+            // 任何点开头路径段（.git/.obsidian/.cobsidian/.trash 等）都不进入事件流
+            part.to_str().map_or(true, |name| name.starts_with('.'))
         })
     {
         return None;

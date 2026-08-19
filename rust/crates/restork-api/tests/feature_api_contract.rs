@@ -236,6 +236,14 @@ async fn vault_browser_lists_searches_and_previews_only_safe_markdown_notes() {
     .expect("Markdown fixture");
     fs::write(vault.join("ignore.txt"), "local-first").expect("non-Markdown fixture");
     fs::write(vault.join(".obsidian/private.md"), "local-first").expect("hidden fixture");
+    // cobsidian 写入事务留下的备份目录同样不得出现在知识库列表/搜索里
+    let transaction = vault.join(".cobsidian/transactions/47e4d0d309d434c5f4cc");
+    fs::create_dir_all(&transaction).expect("cobsidian transaction folder");
+    fs::write(
+        transaction.join("before.md"),
+        "A reviewable local-first workflow backup.\n",
+    )
+    .expect("cobsidian backup fixture");
 
     let (status, listed) = call(
         app.clone(),
