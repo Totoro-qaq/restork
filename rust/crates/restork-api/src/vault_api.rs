@@ -435,7 +435,7 @@ fn vault_event_path(root: &Path, path: &Path) -> Option<VaultEventPath> {
                 return true;
             };
             // 任何点开头路径段（.git/.obsidian/.cobsidian/.trash 等）都不进入事件流
-            part.to_str().map_or(true, |name| name.starts_with('.'))
+            part.to_str().is_none_or(|name| name.starts_with('.'))
         })
     {
         return None;
