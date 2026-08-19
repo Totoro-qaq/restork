@@ -135,6 +135,26 @@ describe("assistant stream upgrades the research envelope", () => {
     expect(markup).toContain("data-assistant-stream");
   });
 
+  it("renders the study questions envelope as a ready note, not raw JSON", () => {
+    const payload = JSON.stringify({
+      questions: [
+        { prompt: "你希望 agent 完成什么？", response_kind: "text" },
+        { prompt: "崩溃后如何恢复？", response_kind: "text" },
+      ],
+    });
+    const markup = assistantStreamMarkup(payload, "zh-CN");
+    expect(markup).toContain("学习诊断 · 2 个问题已就绪");
+    expect(markup).not.toContain("<pre data-assistant-stream>");
+    // 原始负载仍然可审计，但折进 details 里
+    expect(markup).toContain("<details>");
+    expect(markup).not.toMatch(/^<pre/);
+  });
+
+  it("keeps an empty questions payload on the raw fallback", () => {
+    const markup = assistantStreamMarkup("{\"questions\":[]}", "zh-CN");
+    expect(markup).toContain("<pre data-assistant-stream>");
+  });
+
   it("escapes hostile content inside the envelope", () => {
     const markup = assistantStreamMarkup(
       JSON.stringify({ answer: "<script>alert(1)</script>" }),

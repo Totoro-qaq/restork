@@ -2344,6 +2344,23 @@ function envelopeList(title: string, items: string[]): string {
   return `<h4>${escapeHtml(title)}</h4><ul>${rows}</ul>`;
 }
 
+function parseStudyQuestionsEnvelope(output: string): number | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(output);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value == null) return null;
+  const questions = (value as Record<string, unknown>).questions;
+  if (!Array.isArray(questions) || !questions.length) return null;
+  const usable = questions.filter((question) => {
+    if (typeof question !== "object" || question == null) return false;
+    return typeof (question as Record<string, unknown>).prompt === "string";
+  });
+  return usable.length ? usable.length : null;
+}
+
 /**
  * The assistant stream box. While a run streams, the raw text accumulates in a
  * plain pre; once the research JSON envelope is complete it is upgraded to a
@@ -2351,7 +2368,19 @@ function envelopeList(title: string, items: string[]): string {
  */
 export function assistantStreamMarkup(output: string, locale: Locale = "en"): string {
   const envelope = parseResearchEnvelope(output);
-  if (!envelope) return `<pre data-assistant-stream>${escapeHtml(output)}</pre>`;
+  if (!envelope) {
+    const questionCount = parseStudyQuestionsEnvelope(output);
+    if (questionCount != null) {
+      const note = tr(
+        locale,
+        `Study diagnostic · ${questionCount} questions ready — answer them in the form above.`,
+        `学习诊断 · ${questionCount} 个问题已就绪，请在上方表单作答。`,
+      );
+      return `<div class="assistant-answer" data-assistant-stream><p>${escapeHtml(note)}</p>`
+        + `<details><summary>JSON</summary><pre>${escapeHtml(output)}</pre></details></div>`;
+    }
+    return `<pre data-assistant-stream>${escapeHtml(output)}</pre>`;
+  }
   const claims = envelope.claims.slice(0, 12).map((claim) => {
     const refs = claim.evidenceRefs.slice(0, 4).join(" · ");
     const kind = claim.kind ? ` <b>${escapeHtml(claim.kind)}</b>` : "";
