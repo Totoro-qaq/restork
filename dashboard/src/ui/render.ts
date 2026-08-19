@@ -2344,7 +2344,7 @@ function envelopeList(title: string, items: string[]): string {
   return `<h4>${escapeHtml(title)}</h4><ul>${rows}</ul>`;
 }
 
-function parseStudyQuestionsEnvelope(output: string): number | null {
+function parseStructuredListEnvelope(output: string): { key: "questions" | "plan_steps"; count: number } | null {
   let value: unknown;
   try {
     value = JSON.parse(output);
@@ -2352,13 +2352,18 @@ function parseStudyQuestionsEnvelope(output: string): number | null {
     return null;
   }
   if (typeof value !== "object" || value == null) return null;
-  const questions = (value as Record<string, unknown>).questions;
-  if (!Array.isArray(questions) || !questions.length) return null;
-  const usable = questions.filter((question) => {
-    if (typeof question !== "object" || question == null) return false;
-    return typeof (question as Record<string, unknown>).prompt === "string";
-  });
-  return usable.length ? usable.length : null;
+  const record = value as Record<string, unknown>;
+  for (const key of ["questions", "plan_steps"] as const) {
+    const items = record[key];
+    if (!Array.isArray(items) || !items.length) continue;
+    const field = key === "questions" ? "prompt" : "title";
+    const usable = items.filter((item) => {
+      if (typeof item !== "object" || item == null) return false;
+      return typeof (item as Record<string, unknown>)[field] === "string";
+    });
+    if (usable.length) return { key, count: usable.length };
+  }
+  return null;
 }
 
 /**
@@ -2369,13 +2374,19 @@ function parseStudyQuestionsEnvelope(output: string): number | null {
 export function assistantStreamMarkup(output: string, locale: Locale = "en"): string {
   const envelope = parseResearchEnvelope(output);
   if (!envelope) {
-    const questionCount = parseStudyQuestionsEnvelope(output);
-    if (questionCount != null) {
-      const note = tr(
-        locale,
-        `Study diagnostic · ${questionCount} questions ready — answer them in the form above.`,
-        `学习诊断 · ${questionCount} 个问题已就绪，请在上方表单作答。`,
-      );
+    const structured = parseStructuredListEnvelope(output);
+    if (structured) {
+      const note = structured.key === "questions"
+        ? tr(
+          locale,
+          `Study diagnostic · ${structured.count} questions ready — answer them in the form above.`,
+          `学习诊断 · ${structured.count} 个问题已就绪，请在上方表单作答。`,
+        )
+        : tr(
+          locale,
+          `Work plan · ${structured.count} steps ready — review them in the plan card above.`,
+          `工作计划 · ${structured.count} 个步骤已就绪，请在上方计划卡核对。`,
+        );
       return `<div class="assistant-answer" data-assistant-stream><p>${escapeHtml(note)}</p>`
         + `<details><summary>JSON</summary><pre>${escapeHtml(output)}</pre></details></div>`;
     }

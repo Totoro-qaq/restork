@@ -18,7 +18,11 @@ export function prepareStartRunFeedback(surface: ParentNode, runId: string): voi
     cancel.dataset.runId = runId;
   }
   if (output) output.hidden = true;
-  if (text) text.replaceChildren();
+  if (text) {
+    text.replaceChildren();
+    delete text.dataset.structured;
+    delete text.dataset.structuredChecked;
+  }
 }
 
 export function setStartRunBusy(surface: ParentNode, busy: boolean): void {
@@ -47,22 +51,32 @@ export function paintStartRunEvent(
   const cancel = surface.querySelector<HTMLButtonElement>("[data-start-cancel]");
   const output = surface.querySelector<HTMLElement>("[data-start-output]");
   const text = surface.querySelector<HTMLElement>("[data-start-output-text]");
-  // 学习模式的诊断输出是结构化 JSON，原始 token 流不进入界面；
-  // 进度由等待卡呈现，问题由诊断表单呈现
+  // 结构化负载（JSON / 代码块包裹的 JSON）是内部协议，原始 token 流不进入界面：
+  // 学习诊断由 mode 保证；其它模式按首块内容识别。进度由等待卡呈现。
   const isStructuredStudy = mode === "study";
-  if (event.type === "assistant.delta" && typeof event.data.content === "string" && text && !isStructuredStudy) {
-    if (output) output.hidden = false;
-    text.append(document.createTextNode(event.data.content));
+  if (event.type === "assistant.delta" && typeof event.data.content === "string" && text) {
+    const chunk = event.data.content;
+    if (!text.dataset.structuredChecked) {
+      text.dataset.structuredChecked = "1";
+      const lead = chunk.trimStart();
+      if (lead.startsWith("{") || lead.startsWith("```")) text.dataset.structured = "1";
+    }
+    text.append(document.createTextNode(chunk));
+    if (output && !isStructuredStudy && text.dataset.structured !== "1") output.hidden = false;
   }
   if (event.type === "run.completed") {
     if (status) status.textContent = tr(locale, "Task completed.", "任务已完成。");
     if (cancel) cancel.hidden = true;
-    if (isStructuredStudy) {
-      if (output) output.hidden = true;
-      if (text) text.replaceChildren();
-    } else if (text?.textContent) {
+    if (text?.textContent) {
       const upgraded = assistantStreamMarkup(text.textContent, locale);
-      if (!upgraded.startsWith("<pre")) text.outerHTML = upgraded;
+      if (!upgraded.startsWith("<pre")) {
+        text.outerHTML = upgraded;
+        if (output) output.hidden = false;
+      } else if (isStructuredStudy || text.dataset.structured === "1") {
+        // 未识别的结构化负载不展示原文；结果由模式专属界面（诊断表单/计划卡）呈现
+        if (output) output.hidden = true;
+        text.replaceChildren();
+      }
     }
     setStartRunBusy(surface, false);
     const completedId = runId ?? cancel?.dataset.runId;
