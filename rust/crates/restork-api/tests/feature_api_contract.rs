@@ -354,6 +354,86 @@ async fn vault_event_stream_reports_external_markdown_changes_without_note_conte
 }
 
 #[tokio::test]
+async fn available_tools_reflect_vault_and_provider_capability() {
+    let (app, authorization, _directory, _vault) = paired_app().await;
+    for (id, base_url) in [
+        ("deepseek-main", "https://api.deepseek.com"),
+        ("glm-main", "https://open.bigmodel.cn/api/paas/v4"),
+    ] {
+        let (status, _) = call(
+            app.clone(),
+            Method::PUT,
+            &format!("/v1/provider-profiles/{id}"),
+            Some(json!({
+                "expected_revision": null,
+                "provider": {
+                    "profile_id": id,
+                    "version": 1,
+                    "display_name": id,
+                    "kind": if id == "deepseek-main" { "deepseek" } else { "glm" },
+                    "base_url": base_url,
+                    "model": "synthetic",
+                    "secret_ref": "keychain:synthetic",
+                    "fallback": "disabled"
+                }
+            })),
+            Some(&authorization),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    let (status, deepseek) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/tools/available?provider_profile_id=deepseek-main",
+        None,
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let deepseek = deepseek.expect("deepseek tools");
+    let tools = deepseek["tools"].as_array().expect("tools array");
+    for expected in ["vault_search", "source_read", "vault_write", "web_search"] {
+        assert!(
+            tools.iter().any(|tool| tool == expected),
+            "missing {expected}"
+        );
+    }
+    assert_eq!(deepseek["web_search_supported"], true);
+
+    // GLM 等非 DeepSeek 供应商不提供 web_search，但也不影响 vault 工具
+    let (status, glm) = call(
+        app.clone(),
+        Method::GET,
+        "/v1/tools/available?provider_profile_id=glm-main",
+        None,
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let glm = glm.expect("glm tools");
+    assert_eq!(glm["web_search_supported"], false);
+    let tools = glm["tools"].as_array().expect("tools array");
+    assert!(tools.iter().any(|tool| tool == "vault_search"));
+    assert!(!tools.iter().any(|tool| tool == "web_search"));
+
+    let (status, _) = call(
+        app,
+        Method::GET,
+        "/v1/tools/available?provider_profile_id=missing",
+        None,
+        Some(&authorization),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn memory_retention_cas_export_and_source_purge_are_enforced() {
     let (app, authorization, _directory, _vault) = paired_app().await;
     let (status, expired) = call(

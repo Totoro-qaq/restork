@@ -2390,7 +2390,12 @@ export function assistantStreamMarkup(output: string, locale: Locale = "en"): st
       return `<div class="assistant-answer" data-assistant-stream><p>${escapeHtml(note)}</p>`
         + `<details><summary>JSON</summary><pre>${escapeHtml(output)}</pre></details></div>`;
     }
-    return `<pre data-assistant-stream>${escapeHtml(output)}</pre>`;
+    // 未完成的 JSON 保持原文（流式中途）；散文回答按 Markdown 渲染，不再裸露 # 号
+    const lead = output.trimStart();
+    if (lead.startsWith("{") || lead.startsWith("```") || !output.trim()) {
+      return `<pre data-assistant-stream>${escapeHtml(output)}</pre>`;
+    }
+    return `<div class="assistant-answer markdown-body" data-assistant-stream>${safeMarkdownPreview(output)}</div>`;
   }
   const claims = envelope.claims.slice(0, 12).map((claim) => {
     const refs = claim.evidenceRefs.slice(0, 4).join(" · ");

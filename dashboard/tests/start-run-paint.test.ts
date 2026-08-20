@@ -8,7 +8,12 @@ function surface(): HTMLElement {
   host.innerHTML = `
     <span data-run-status></span>
     <button type="button" data-start-cancel hidden></button>
-    <section data-start-output hidden><pre data-start-output-text></pre></section>
+    <section data-start-output hidden>
+      <details open data-start-output-details>
+        <summary><span>任务输出</span></summary>
+        <div class="start-output-scroll" data-start-output-body><div class="markdown-body" data-start-output-text></div></div>
+      </details>
+    </section>
   `;
   return host;
 }
@@ -22,15 +27,18 @@ function completed(id: number): RunEvent {
 }
 
 describe("start run output painting", () => {
-  it("streams prose answers live and keeps them after completion", () => {
+  it("streams prose answers as rendered markdown and keeps them after completion", () => {
     const root = surface();
     prepareStartRunFeedback(root, "run-1");
-    paintStartRunEvent(root, delta(1, "这是一段"), "zh-CN");
+    paintStartRunEvent(root, delta(1, "# 这是标题\n"), "zh-CN");
     paintStartRunEvent(root, delta(2, "普通回答。"), "zh-CN");
     const output = root.querySelector<HTMLElement>("[data-start-output]")!;
     expect(output.hidden).toBe(false);
+    // 实时渲染成标题元素，而不是裸露的 # 号
+    expect(root.querySelector("[data-start-output-text] h2")?.textContent).toBe("这是标题");
+    expect(root.textContent).not.toContain("# 这是标题");
     paintStartRunEvent(root, completed(3), "zh-CN");
-    expect(root.textContent).toContain("这是一段普通回答。");
+    expect(root.textContent).toContain("普通回答。");
   });
 
   it("never shows raw question JSON while streaming or after completion", () => {
@@ -44,7 +52,23 @@ describe("start run output painting", () => {
     // 完成后升级为就绪提示卡，而不是原始 JSON
     expect(root.textContent).toContain("学习诊断 · 1 个问题已就绪");
     expect(root.querySelector<HTMLElement>("[data-start-output]")!.hidden).toBe(false);
-    expect(root.querySelector("pre[data-start-output-text]")).toBeNull();
+    // 原始负载只留在可折叠的 JSON 抽屉里，不会平铺出来
+    expect(root.querySelector("[data-start-output-text] details > summary")?.textContent).toBe("JSON");
+    // 升级后的卡片留在滚动容器内部，渲染宿主本身不能被替换掉
+    expect(root.querySelector("[data-start-output-body] [data-start-output-text]")).not.toBeNull();
+  });
+
+  it("keeps painting the run after a completed run upgraded the output", () => {
+    const root = surface();
+    prepareStartRunFeedback(root, "run-2a");
+    paintStartRunEvent(root, delta(1, "第一次回答。"), "zh-CN");
+    paintStartRunEvent(root, completed(2), "zh-CN");
+    prepareStartRunFeedback(root, "run-2b");
+    paintStartRunEvent(root, delta(3, "## 第二次标题"), "zh-CN");
+    const output = root.querySelector<HTMLElement>("[data-start-output]")!;
+    expect(output.hidden).toBe(false);
+    expect(root.querySelector("[data-start-output-text] h3")?.textContent).toBe("第二次标题");
+    expect(root.textContent).not.toContain("第一次回答。");
   });
 
   it("hides unrecognised structured payloads instead of dumping raw JSON", () => {

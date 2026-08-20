@@ -78,6 +78,7 @@ import {
 } from "./features/vault";
 import { configureStartWorkspace, jumpToStartMode, modeWorkspaceNote } from "./features/start";
 import { paintStartRunEvent, prepareStartRunFeedback, setStartRunBusy } from "./features/startRunPaint";
+import { configureToolPicker, pickedAllowedTools } from "./features/startToolPicker";
 import { configureCommandPalette } from "./features/commandPalette";
 import { configurePreviewDialog } from "./features/previewDialog";
 import { configureRuntimeScene } from "./features/runtimeScene";
@@ -371,6 +372,7 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   }));
   configurePreviewDialog(root);
   configureSkillTriggers(root, snapshot);
+  configureToolPicker(root, api, snapshot);
   updateCleanups.get(root)?.();
   updateCleanups.set(root, configureUpdates(root, detectDesktopBridge(), {
     openSettings: () => selectView(root, "settings"),
@@ -2328,6 +2330,7 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
       dataClass,
       providerProfileId,
       form.id === "start-run-form" ? selectedSkillIds(form) : [],
+      form.id === "start-run-form" ? pickedAllowedTools(form) : [],
     );
     createdRun = run;
     if (waitHost) {

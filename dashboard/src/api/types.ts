@@ -1420,7 +1420,11 @@ export interface DashboardApi {
     dataClass?: WorkDataClass,
     providerProfileId?: string,
     skillIds?: string[],
+    allowedTools?: string[],
   ): Promise<RunSummary>;
+  listAvailableTools?(
+    providerProfileId: string,
+  ): Promise<{ tools: string[]; web_search_supported: boolean }>;
   prepareStudy(
     runId: string,
     objective: string,

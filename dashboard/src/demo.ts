@@ -946,6 +946,12 @@ class DemoApi implements DashboardApi {
   async createRun(mode: Mode, goal: string): Promise<RunSummary> {
     return { ...snapshot.runs[0].summary, run_id: `demo-${mode}`, mode, task_id: goal };
   }
+  async listAvailableTools(): Promise<{ tools: string[]; web_search_supported: boolean }> {
+    return {
+      tools: ["web_search", "vault_search", "source_read", "vault_write"],
+      web_search_supported: true,
+    };
+  }
   async prepareStudy(): Promise<StudyDiagnostic> { return studyDiagnostic; }
   async submitStudyDiagnostic(): Promise<StudyArtifact> { return studyArtifact; }
   async submitStudyPractice(

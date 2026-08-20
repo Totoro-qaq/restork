@@ -528,6 +528,10 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
         methods: &["GET"],
     },
     ApiRouteDescription {
+        path: "/v1/tools/available",
+        methods: &["GET"],
+    },
+    ApiRouteDescription {
         path: "/v1/sessions/{session_id}/tools/{tool_id}",
         methods: &["GET"],
     },

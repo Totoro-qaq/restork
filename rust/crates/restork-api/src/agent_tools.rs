@@ -18,7 +18,16 @@ use restork_provider::{ChatTool, NativeSecretStore, ProviderClient, WebSearchReq
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
+use axum::{
+    Json,
+    extract::{Request, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use restork_core::auth::RUNS_READ;
+
 use super::ApiState;
+use super::{authorize, configured_provider, error_response, error_response_owned};
 
 pub(super) const VAULT_SEARCH: &str = "vault_search";
 pub(super) const SOURCE_READ: &str = "source_read";
@@ -331,8 +340,57 @@ fn ephemeral_execution_id() -> Result<String, ToolFailure> {
     ))
 }
 
+/// 服务端联网搜索能力表——本仓库里唯一决定「这个模型能不能联网」的地方。
+///
+/// 加一个新模型时只加一行 `(ProviderKind, 官方 base_url)`，前提是
+/// `ProviderClient::web_search` 已经能按这家的请求形态发出去（各家的
+/// server-side search 参数并不通用）。base_url 精确匹配：自建网关和
+/// 代理端点一律没有这个能力，免得把检索请求发到不受控的地址。
+const SERVER_SIDE_WEB_SEARCH: &[(ProviderKind, &str)] =
+    &[(ProviderKind::DeepSeek, "https://api.deepseek.com")];
+
 fn supports_web_search(profile: &ProviderProfile) -> bool {
-    profile.kind() == ProviderKind::DeepSeek && profile.base_url() == "https://api.deepseek.com"
+    SERVER_SIDE_WEB_SEARCH
+        .iter()
+        .any(|(kind, base_url)| profile.kind() == *kind && profile.base_url() == *base_url)
+}
+
+/// Read-only listing of the tools a run could select with the given provider
+/// profile. The start-page picker calls this instead of duplicating the
+/// capability rules, so new providers only change this one table server-side.
+pub(super) async fn list_available_tools(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), RUNS_READ) {
+        return *response;
+    }
+    let query = request.uri().query().unwrap_or_default();
+    let profile_id = query
+        .split('&')
+        .find_map(|pair| {
+            pair.split_once('=')
+                .filter(|(key, _)| *key == "provider_profile_id")
+                .map(|(_, value)| value.trim().to_owned())
+        })
+        .unwrap_or_default();
+    if profile_id.is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "provider_profile_id is required");
+    }
+    let profile = match configured_provider(&state, &profile_id) {
+        Ok(Some(profile)) => profile,
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "provider is not configured"),
+        Err(response) => return response,
+    };
+    match available_tool_ids(&state, &profile) {
+        Ok(tools) => Json(json!({
+            "provider_profile_id": profile_id,
+            "tools": tools.iter().collect::<Vec<_>>(),
+            "web_search_supported": supports_web_search(&profile),
+        }))
+        .into_response(),
+        Err(detail) => error_response_owned(StatusCode::SERVICE_UNAVAILABLE, detail),
+    }
 }
 
 struct VaultSearchTool {
@@ -675,7 +733,22 @@ mod tests {
     use restork_core::{durable_loop::AgentTool, workspace::SafeWorkspace};
     use serde_json::json;
 
-    use super::VaultWriteTool;
+    use super::{SERVER_SIDE_WEB_SEARCH, VaultWriteTool};
+
+    /// 能力表是「加新模型改一处」的那一处；这条测试盯住它不被写歪：
+    /// 每一行都必须指向该供应商注册表里的官方端点，且一个供应商只出现一次。
+    #[test]
+    fn server_side_web_search_rows_point_at_official_endpoints() {
+        let mut seen = std::collections::BTreeSet::new();
+        for (kind, base_url) in SERVER_SIDE_WEB_SEARCH {
+            assert_eq!(
+                kind.definition().default_base_url,
+                *base_url,
+                "{kind:?} 的联网搜索必须绑定注册表里的官方 base_url"
+            );
+            assert!(seen.insert(*kind), "{kind:?} 在能力表里重复了");
+        }
+    }
 
     #[test]
     fn write_normalization_defaults_to_the_reviewed_current_hash() {

@@ -60,6 +60,9 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
           ${startModeButton("work", tr(locale, "Work", "推进工作"), false, locale)}
         </div>
         <div class="foot-right">
+          <button type="button" class="tool-pick-open" data-tool-picker-open aria-haspopup="true" aria-expanded="false"
+            title="${tr(locale, "Choose tools and skills for this run, or type / in the box", "选择本次运行的工具与技能，也可以在输入框打 /")}"
+            >+<span class="sr-only">${tr(locale, "Choose tools and skills", "选择工具与技能")}</span></button>
           ${providerOptions.length ? `<label class="model-pick">${tr(locale, "Model", "模型")}
             <select name="provider_profile_id" required aria-label="${tr(locale, "Model", "模型")}">
               ${providerOptions.map((provider) => `<option value="${escapeMarkup(provider.id)}">${escapeMarkup(provider.label)}</option>`).join("")}
@@ -71,6 +74,13 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
         </div>
       </div>
       <div class="skill-suggest-row" data-skill-suggest data-empty="true" aria-live="polite"></div>
+      <div class="tool-picker" data-tool-picker hidden>
+        <div class="tool-picker-head"><b>${tr(locale, "This run can use", "本次运行可用")}</b>
+          <button type="button" class="tool-picker-close" data-tool-picker-close aria-label="${tr(locale, "Close", "关闭")}">×</button></div>
+        <div class="tool-picker-group" data-tool-picker-tools><small>${tr(locale, "Tools", "工具")}</small><div class="tool-picker-chips" data-tool-picker-tool-chips></div></div>
+        <div class="tool-picker-group" data-tool-picker-skills><small>${tr(locale, "Skills", "技能")}</small><div class="tool-picker-chips" data-tool-picker-skill-chips></div></div>
+        <p class="form-hint" data-tool-picker-note></p>
+      </div>
       <p class="form-hint start-inline-fix" data-start-provider-hint ${modelReady ? "hidden" : ""}><span>${tr(
         locale,
         "Connect a model first. Your task text will stay here.",
@@ -138,7 +148,10 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
 
     <div data-run-wait></div>
     <section class="start-run-output" data-start-output hidden aria-label="${tr(locale, "Task output", "任务输出")}">
-      <pre data-start-output-text></pre>
+      <details open data-start-output-details>
+        <summary><span>${tr(locale, "Task output", "任务输出")}</span></summary>
+        <div class="start-output-scroll" data-start-output-body><div class="markdown-body" data-start-output-text></div></div>
+      </details>
     </section>
     ${modeWorkspaceMarkup("study")}
     ${modeWorkspaceMarkup("work")}
