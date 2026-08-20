@@ -1,5 +1,6 @@
 import { mountDashboard } from "./main";
 import type {
+  AvailableToolsV2,
   ApprovalRequest,
   AiReportDraftInputV2,
   CatalogRecordV2,
@@ -946,10 +947,12 @@ class DemoApi implements DashboardApi {
   async createRun(mode: Mode, goal: string): Promise<RunSummary> {
     return { ...snapshot.runs[0].summary, run_id: `demo-${mode}`, mode, task_id: goal };
   }
-  async listAvailableTools(): Promise<{ tools: string[]; web_search_supported: boolean }> {
+  async listAvailableTools(): Promise<AvailableToolsV2> {
     return {
       tools: ["web_search", "vault_search", "source_read", "vault_write"],
       web_search_supported: true,
+      x_search_supported: false,
+      x_search_status: "not_installed",
     };
   }
   async prepareStudy(): Promise<StudyDiagnostic> { return studyDiagnostic; }

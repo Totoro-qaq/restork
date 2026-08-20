@@ -125,7 +125,7 @@ async fn paired_app() -> (Router, String, TestDirectory) {
 async fn bootstrap_returns_one_typed_workspace_projection() {
     let (app, authorization, _directory) = paired_app().await;
     let (status, body) = call(
-        app,
+        app.clone(),
         Method::GET,
         "/v1/bootstrap?timezone=Asia%2FShanghai",
         None,
@@ -284,6 +284,7 @@ async fn durable_agent_runs_are_created_idempotently_and_listed() {
         "goal": "Summarise the frozen evidence.",
         "mode": "research",
         "provider_profile_id": "deepseek",
+        "reasoning_effort": "max",
         "auto_start": false
     });
     let (status, created) = call_idempotent(
@@ -300,6 +301,7 @@ async fn durable_agent_runs_are_created_idempotently_and_listed() {
     assert_eq!(created["replayed"], false);
     assert_eq!(created["started"], false);
     assert_eq!(created["run"]["task_spec"]["data_class"], "public");
+    assert_eq!(created["run"]["task_spec"]["reasoning_effort"], "max");
     let run_id = created["run"]["run_id"]
         .as_str()
         .expect("run id")
@@ -329,7 +331,7 @@ async fn durable_agent_runs_are_created_idempotently_and_listed() {
     assert_eq!(runs.expect("runs")["runs"][0]["summary"]["run_id"], run_id);
 
     let (status, run) = call(
-        app,
+        app.clone(),
         Method::GET,
         &format!("/v1/runs/{run_id}"),
         None,
@@ -338,6 +340,23 @@ async fn durable_agent_runs_are_created_idempotently_and_listed() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(run.expect("run")["state"], "proposed");
+
+    let (status, invalid) = call_idempotent(
+        app,
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "goal": "Reject an unsupported per-run reasoning level.",
+            "mode": "research",
+            "provider_profile_id": "deepseek",
+            "reasoning_effort": "low",
+            "auto_start": false
+        }),
+        &authorization,
+        "run-create-invalid-reasoning",
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{invalid:?}");
 }
 
 #[tokio::test]

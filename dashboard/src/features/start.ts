@@ -1,6 +1,7 @@
 import type { DashboardSnapshot, Mode, PendingRunSummary } from "../api/types";
 import { localeOf, tr, type Locale } from "../i18n";
 import { fillRunSummaryHost } from "../ui/start";
+import { configureStartReasoning } from "./startReasoning";
 
 export interface StartWorkspaceEffects {
   submit(form: HTMLFormElement): void;
@@ -21,6 +22,7 @@ export function configureStartWorkspace(
 ): void {
   const form = root.querySelector<HTMLFormElement>("#start-run-form");
   if (!form) return;
+  configureStartReasoning(root, snapshot);
   const goal = form.querySelector<HTMLTextAreaElement>("#start-goal");
   const modeValue = form.querySelector<HTMLInputElement>("[data-start-mode-value]");
   const studyFields = form.querySelector<HTMLElement>("[data-start-study-fields]");

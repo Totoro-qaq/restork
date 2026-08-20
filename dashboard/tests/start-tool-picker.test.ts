@@ -48,7 +48,12 @@ function snapshot(): DashboardSnapshot {
 
 function api(tools: string[]): DashboardApi {
   return {
-    listAvailableTools: async () => ({ tools, web_search_supported: tools.includes("web_search") }),
+    listAvailableTools: async () => ({
+      tools,
+      web_search_supported: tools.includes("web_search"),
+      x_search_supported: tools.includes("x_search"),
+      x_search_status: tools.includes("x_search") ? "ready" : "not_installed",
+    }),
   } as unknown as DashboardApi;
 }
 
@@ -69,6 +74,16 @@ describe("start tool picker", () => {
     const skillChips = [...form.querySelectorAll<HTMLButtonElement>("[data-picker-skill-chip]")];
     expect(skillChips.map((chip) => chip.textContent)).toEqual(["Last 30 days"]);
     // 未触碰时不上送，后端默认全部可用
+    expect(pickedAllowedTools(form)).toEqual([]);
+  });
+
+  it("shows X search as unavailable until the local Grok CLI is ready", async () => {
+    const { root, form } = fixture();
+    configureToolPicker(root, api(["vault_search"]), snapshot());
+    await openPicker(root);
+    const disabled = form.querySelector<HTMLButtonElement>(".tool-chip:disabled");
+    expect(disabled?.textContent).toBe("X search via Grok");
+    expect(disabled?.title).toContain("Install Grok CLI");
     expect(pickedAllowedTools(form)).toEqual([]);
   });
 

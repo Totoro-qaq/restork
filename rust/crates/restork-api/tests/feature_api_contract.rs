@@ -403,6 +403,18 @@ async fn available_tools_reflect_vault_and_provider_capability() {
         );
     }
     assert_eq!(deepseek["web_search_supported"], true);
+    let x_status = deepseek["x_search_status"]
+        .as_str()
+        .expect("X search status");
+    assert!(matches!(
+        x_status,
+        "ready" | "not_installed" | "login_required"
+    ));
+    assert_eq!(deepseek["x_search_supported"], x_status == "ready");
+    assert_eq!(
+        tools.iter().any(|tool| tool == "x_search"),
+        x_status == "ready"
+    );
 
     // GLM 等非 DeepSeek 供应商不提供 web_search，但也不影响 vault 工具
     let (status, glm) = call(
@@ -417,6 +429,7 @@ async fn available_tools_reflect_vault_and_provider_capability() {
     assert_eq!(status, StatusCode::OK);
     let glm = glm.expect("glm tools");
     assert_eq!(glm["web_search_supported"], false);
+    assert_eq!(glm["x_search_status"], deepseek["x_search_status"]);
     let tools = glm["tools"].as_array().expect("tools array");
     assert!(tools.iter().any(|tool| tool == "vault_search"));
     assert!(!tools.iter().any(|tool| tool == "web_search"));

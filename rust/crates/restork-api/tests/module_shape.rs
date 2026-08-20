@@ -23,6 +23,7 @@ const MODULE_MAXIMUM_LINES: usize = 3_600;
 /// directory scan, and it makes adding a module a deliberate act:
 /// `every_module_is_accounted_for` fails until a new file appears here.
 const MODULES: &[&str] = &[
+    "agent_run_options",
     "agent_tools",
     "auth_api",
     "automation_api",

@@ -79,6 +79,7 @@ import {
 import { configureStartWorkspace, jumpToStartMode, modeWorkspaceNote } from "./features/start";
 import { paintStartRunEvent, prepareStartRunFeedback, setStartRunBusy } from "./features/startRunPaint";
 import { configureToolPicker, pickedAllowedTools } from "./features/startToolPicker";
+import { selectedReasoningEffort } from "./features/startReasoning";
 import { configureCommandPalette } from "./features/commandPalette";
 import { configurePreviewDialog } from "./features/previewDialog";
 import { configureRuntimeScene } from "./features/runtimeScene";
@@ -2324,14 +2325,12 @@ async function createRun(root: HTMLElement, api: DashboardApi, form: HTMLFormEle
   let stream: AbortController | null = null;
   let createdRun: RunSummary | null = null;
   try {
-    const run = await api.createRun(
-      mode,
-      goal,
-      dataClass,
-      providerProfileId,
-      form.id === "start-run-form" ? selectedSkillIds(form) : [],
-      form.id === "start-run-form" ? pickedAllowedTools(form) : [],
-    );
+    const skillIds = form.id === "start-run-form" ? selectedSkillIds(form) : [];
+    const allowedTools = form.id === "start-run-form" ? pickedAllowedTools(form) : [];
+    const reasoningEffort = form.id === "start-run-form" ? selectedReasoningEffort(form) : undefined;
+    const run = reasoningEffort === undefined
+      ? await api.createRun(mode, goal, dataClass, providerProfileId, skillIds, allowedTools)
+      : await api.createRun(mode, goal, dataClass, providerProfileId, skillIds, allowedTools, reasoningEffort);
     createdRun = run;
     if (waitHost) {
       const createdAt = Date.parse(run.created_at);

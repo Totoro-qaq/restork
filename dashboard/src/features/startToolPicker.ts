@@ -1,5 +1,5 @@
 import { localeOf, tr } from "../i18n";
-import type { DashboardApi, DashboardSnapshot } from "../api/types";
+import type { AvailableToolsV2, DashboardApi, DashboardSnapshot } from "../api/types";
 import { enabledSkills, selectedSkillIds } from "./skillSuggest";
 
 /**
@@ -14,12 +14,13 @@ import { enabledSkills, selectedSkillIds } from "./skillSuggest";
 
 const CORE_TOOL_LABELS: Record<string, [string, string]> = {
   web_search: ["Web search", "联网搜索"],
+  x_search: ["X search via Grok", "Grok · X 搜索"],
   vault_search: ["Vault search", "知识库搜索"],
   source_read: ["Read one selected source", "读取选定来源"],
   vault_write: ["Write confirmed notes", "确认后写入知识库"],
 };
 
-const toolCache = new WeakMap<HTMLFormElement, Map<string, string[]>>();
+const toolCache = new WeakMap<HTMLFormElement, Map<string, AvailableToolsV2>>();
 
 export function configureToolPicker(
   root: HTMLElement,
@@ -176,19 +177,24 @@ async function paintToolPicker(
     byProvider = new Map();
     toolCache.set(form, byProvider);
   }
-  let tools = byProvider.get(providerId);
-  if (!tools) {
+  let listing = byProvider.get(providerId);
+  if (!listing) {
     if (note) note.textContent = tr(locale, "Loading available tools…", "正在读取可用工具…");
     try {
-      const listing = await api.listAvailableTools!(providerId);
-      tools = listing.tools;
-      byProvider.set(providerId, tools);
+      listing = await api.listAvailableTools!(providerId);
+      byProvider.set(providerId, listing);
     } catch {
-      tools = [];
+      listing = {
+        tools: [],
+        web_search_supported: false,
+        x_search_supported: false,
+        x_search_status: "not_installed",
+      };
       if (note) note.textContent = tr(locale, "Could not load tools for this model.", "暂时读不到这个模型的可用工具。");
     }
   }
   if (!form.isConnected) return;
+  const tools = listing.tools;
   const touched = form.dataset.allowedToolsTouched === "1";
   const selected = new Set(touched ? pickedAllowedTools(form) : tools);
   toolHost.replaceChildren();
@@ -202,16 +208,38 @@ async function paintToolPicker(
     chip.textContent = tr(locale, en, zh);
     toolHost.append(chip);
   }
+  if (!tools.includes("x_search") && listing.x_search_status !== "ready") {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "tool-chip";
+    chip.disabled = true;
+    chip.setAttribute("aria-disabled", "true");
+    chip.textContent = tr(locale, "X search via Grok", "Grok · X 搜索");
+    chip.title = listing.x_search_status === "login_required"
+      ? tr(locale, "Run grok login to enable X search.", "运行 grok login 后即可启用 X 搜索。")
+      : tr(locale, "Install Grok CLI to enable X search.", "安装 Grok CLI 后即可启用 X 搜索。");
+    toolHost.append(chip);
+  }
   if (note) {
-    note.textContent = tools.includes("web_search")
-      ? tr(locale, "Web search runs on the model provider's servers.", "联网搜索由模型供应商服务端执行。")
-      : tr(locale, "This model has no server-side web search.", "这个模型没有服务端联网搜索。");
+    if (listing.x_search_status === "ready") {
+      note.textContent = tr(
+        locale,
+        "X search uses your authenticated local Grok CLI; model web search stays provider-side.",
+        "X 搜索使用本机已登录的 Grok CLI；普通联网搜索仍由模型供应商执行。",
+      );
+    } else if (listing.x_search_status === "login_required") {
+      note.textContent = tr(locale, "Grok CLI is installed. Run grok login to enable X search.", "已找到 Grok CLI；运行 grok login 后可启用 X 搜索。");
+    } else if (tools.includes("web_search")) {
+      note.textContent = tr(locale, "Web search runs on the model provider's servers. Install Grok CLI to add X search.", "联网搜索由模型供应商执行；安装 Grok CLI 可增加 X 搜索。");
+    } else {
+      note.textContent = tr(locale, "This model has no server-side web search. Install Grok CLI to add X search.", "这个模型没有服务端联网搜索；安装 Grok CLI 可增加 X 搜索。");
+    }
   }
 }
 
 function toggleToolChip(root: HTMLElement, form: HTMLFormElement, chip: HTMLButtonElement): void {
   const providerId = form.querySelector<HTMLSelectElement>('select[name="provider_profile_id"]')?.value ?? "";
-  const all = toolCache.get(form)?.get(providerId) ?? [];
+  const all = toolCache.get(form)?.get(providerId)?.tools ?? [];
   const pressed = chip.getAttribute("aria-pressed") === "true";
   const current = new Set(
     form.dataset.allowedToolsTouched === "1" ? pickedAllowedTools(form) : all,

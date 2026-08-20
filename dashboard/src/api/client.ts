@@ -1,6 +1,7 @@
 import { EventCursor, EventStreamDecoder } from "./events";
 import { streamDurableEvents } from "./reconnectable-stream";
 import type {
+  AvailableToolsV2,
   ApprovalRequest,
   DashboardApi,
   DashboardListKind,
@@ -32,6 +33,7 @@ import type {
   WorkResultManifest,
   WorkStartInput,
   WorkVerificationReport,
+  ReasoningEffortV2,
   CalendarConfigurationInput,
   MusicConfigurationInput,
   ConversationPage,
@@ -842,6 +844,7 @@ export class LocalApiClient implements DashboardApi {
     providerProfileId = "deepseek",
     skillIds: string[] = [],
     allowedTools: string[] = [],
+    reasoningEffort?: ReasoningEffortV2,
   ): Promise<RunSummary> {
     const identity = crypto.randomUUID();
     const response = await this.#request<{ run: RunSummary }>(
@@ -855,6 +858,7 @@ export class LocalApiClient implements DashboardApi {
         auto_start: mode === "research",
         allowed_tools: allowedTools,
         skill_ids: skillIds,
+        reasoning_effort: reasoningEffort,
       },
       true,
       `dashboard-create-${identity}`,
@@ -864,7 +868,7 @@ export class LocalApiClient implements DashboardApi {
 
   async listAvailableTools(
     providerProfileId: string,
-  ): Promise<{ tools: string[]; web_search_supported: boolean }> {
+  ): Promise<AvailableToolsV2> {
     return this.#request(
       "GET",
       `/v1/tools/available?provider_profile_id=${encodeURIComponent(providerProfileId)}`,

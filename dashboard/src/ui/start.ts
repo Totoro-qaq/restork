@@ -67,7 +67,17 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
             <select name="provider_profile_id" required aria-label="${tr(locale, "Model", "模型")}">
               ${providerOptions.map((provider) => `<option value="${escapeMarkup(provider.id)}">${escapeMarkup(provider.label)}</option>`).join("")}
             </select>
-          </label>` : ""}
+          </label>
+          <div class="reasoning-pick" data-reasoning-control data-configurable="false">
+            <label for="start-reasoning-range">${tr(locale, "Thinking", "思考")}</label>
+            <input type="hidden" name="reasoning_effort" value="">
+            <div class="reasoning-slider">
+              <span class="reasoning-particles" data-reasoning-particles aria-hidden="true"></span>
+              <input id="start-reasoning-range" type="range" data-reasoning-range min="0" max="1" step="1" value="0"
+                aria-label="${tr(locale, "Thinking effort for this task", "本次任务的思考强度")}">
+            </div>
+            <output for="start-reasoning-range" data-reasoning-output>${tr(locale, "Model decides", "模型决定")}</output>
+          </div>` : ""}
           <input type="hidden" name="context_data_class" value="public">
           <button type="submit" class="btn-primary" data-start-submit
             data-connect-label="${escapeMarkup(tr(locale, "Connect a model first", "先连接模型"))}">${tr(locale, "Start task", "开始任务")}</button>

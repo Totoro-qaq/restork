@@ -1141,6 +1141,15 @@ export interface ReasoningConfigV2 {
   max_tokens: number | null;
 }
 
+export type XSearchStatusV2 = "ready" | "not_installed" | "login_required";
+
+export interface AvailableToolsV2 {
+  tools: string[];
+  web_search_supported: boolean;
+  x_search_supported: boolean;
+  x_search_status: XSearchStatusV2;
+}
+
 export type ProviderKindV2 =
   | "deepseek"
   | "openai"
@@ -1421,10 +1430,11 @@ export interface DashboardApi {
     providerProfileId?: string,
     skillIds?: string[],
     allowedTools?: string[],
+    reasoningEffort?: ReasoningEffortV2,
   ): Promise<RunSummary>;
   listAvailableTools?(
     providerProfileId: string,
-  ): Promise<{ tools: string[]; web_search_supported: boolean }>;
+  ): Promise<AvailableToolsV2>;
   prepareStudy(
     runId: string,
     objective: string,
