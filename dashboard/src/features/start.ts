@@ -1,6 +1,7 @@
 import type { DashboardSnapshot, Mode, PendingRunSummary } from "../api/types";
 import { localeOf, tr, type Locale } from "../i18n";
 import { fillRunSummaryHost } from "../ui/start";
+import { bindEnterToSubmit } from "../ui/dom";
 import { configureStartReasoning } from "./startReasoning";
 
 export interface StartWorkspaceEffects {
@@ -162,9 +163,7 @@ export function configureStartWorkspace(
       chooseWorkspace.removeAttribute("aria-busy");
     });
   });
-  goal?.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
-    event.preventDefault();
+  if (goal) bindEnterToSubmit(goal, () => {
     if (submit?.dataset.action === "open-settings") {
       effects.selectView("settings");
       return;

@@ -57,7 +57,7 @@ import {
 import type { AgentWaitStage, RuntimeActivity } from "./ui/runtimeScene";
 import { startClock } from "./ui/clock";
 import { startSky } from "./ui/sky";
-import { activeView, bindRovingFocus, escapeMarkup, fillModeWorkspace, paintNavBadge } from "./ui/dom";
+import { activeView, bindEnterToSubmit, bindRovingFocus, escapeMarkup, fillModeWorkspace, paintNavBadge } from "./ui/dom";
 import { configureAutomation } from "./features/automation";
 import { bindRunDetailTabs, loadRunDetailFirstPage, prepareRunDetail, type RunDetailTab } from "./features/runDetail";
 import {
@@ -813,12 +813,7 @@ function configureRustWorkspace(
 
   const messageForm = root.querySelector<HTMLFormElement>("#session-message-form");
   const messageText = messageForm?.querySelector<HTMLTextAreaElement>("textarea");
-  messageText?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      messageForm?.requestSubmit();
-    }
-  });
+  if (messageText && messageForm) bindEnterToSubmit(messageText, () => messageForm.requestSubmit());
   messageForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     const pane = root.querySelector<HTMLElement>(".conversation-pane");
@@ -2515,13 +2510,12 @@ async function cancelStartRun(root: HTMLElement, api: DashboardApi, runId: strin
   const surface = root.querySelector<HTMLElement>("#start-run-form");
   const cancel = surface?.querySelector<HTMLButtonElement>("[data-start-cancel]");
   const status = surface?.querySelector<HTMLElement>("[data-run-status]");
+  const waitHost = surface?.querySelector<HTMLElement>("[data-run-wait]");
   if (cancel) cancel.disabled = true;
   try {
     await api.cancelRun(runId);
-    stopEventStream(root);
-    if (cancel) cancel.hidden = true;
-    if (status) status.textContent = tr(localeOf(root), "Task stopped.", "任务已停止。");
-    if (surface) setStartRunBusy(surface, false);
+    if (status) status.textContent = tr(localeOf(root), "Stopping task…", "正在停止任务…");
+    if (waitHost) waitHost.innerHTML = agentWaitMarkup("cancelling", localeOf(root));
   } catch (error) {
     if (cancel) cancel.disabled = false;
     if (status) status.textContent = errorText(error, localeOf(root));
@@ -3623,7 +3617,8 @@ function stopEventStream(root: HTMLElement): void {
 }
 
 function waitStageForEvent(current: AgentWaitStage, event: RunEvent): AgentWaitStage {
-  if (["run.failed", "run.cancelled", "research.failed", "study.failed", "work.failed", "model.failed"].includes(event.type)) return "error";
+  if (event.type === "run.cancelled") return "cancelled";
+  if (["run.failed", "research.failed", "study.failed", "work.failed", "model.failed"].includes(event.type)) return "error";
   if (event.type === "run.completed") return "complete";
   if (event.type === "retry.scheduled") return "retry";
   if (event.type === "model.started") return "model";

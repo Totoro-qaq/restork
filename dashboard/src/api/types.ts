@@ -900,6 +900,7 @@ export interface CatalogRecordV2 {
   deliverable_id?: string;
   schedule_id?: string;
   package_kind?: string;
+  builtin?: boolean;
   kind?: string;
   state: string;
   revision?: number;
@@ -1141,7 +1142,7 @@ export interface ReasoningConfigV2 {
   max_tokens: number | null;
 }
 
-export type XSearchStatusV2 = "ready" | "not_installed" | "login_required";
+export type XSearchStatusV2 = "ready" | "not_installed" | "api_key_required";
 
 export interface AvailableToolsV2 {
   tools: string[];

@@ -169,7 +169,8 @@ async function paintToolPicker(
     }
   }
 
-  // 工具区（服务端权威列表，按供应商缓存）
+  // 工具区（服务端权威列表）。每次打开都重新读取：CLI 安装和 API Key
+  // 都可能在 Restork 运行期间发生，旧页面缓存不能把新能力藏起来。
   const toolHost = form.querySelector<HTMLElement>("[data-tool-picker-tool-chips]");
   if (!toolHost) return;
   let byProvider = toolCache.get(form);
@@ -177,21 +178,20 @@ async function paintToolPicker(
     byProvider = new Map();
     toolCache.set(form, byProvider);
   }
-  let listing = byProvider.get(providerId);
-  if (!listing) {
-    if (note) note.textContent = tr(locale, "Loading available tools…", "正在读取可用工具…");
-    try {
-      listing = await api.listAvailableTools!(providerId);
-      byProvider.set(providerId, listing);
-    } catch {
-      listing = {
-        tools: [],
-        web_search_supported: false,
-        x_search_supported: false,
-        x_search_status: "not_installed",
-      };
-      if (note) note.textContent = tr(locale, "Could not load tools for this model.", "暂时读不到这个模型的可用工具。");
-    }
+  let listing: AvailableToolsV2;
+  if (note) note.textContent = tr(locale, "Loading available tools…", "正在读取可用工具…");
+  try {
+    listing = await api.listAvailableTools!(providerId);
+    byProvider.set(providerId, listing);
+  } catch {
+    listing = {
+      tools: [],
+      web_search_supported: false,
+      x_search_supported: false,
+      x_search_status: "not_installed",
+    };
+    byProvider.set(providerId, listing);
+    if (note) note.textContent = tr(locale, "Could not load tools for this model.", "暂时读不到这个模型的可用工具。");
   }
   if (!form.isConnected) return;
   const tools = listing.tools;
@@ -215,8 +215,8 @@ async function paintToolPicker(
     chip.disabled = true;
     chip.setAttribute("aria-disabled", "true");
     chip.textContent = tr(locale, "X search via Grok", "Grok · X 搜索");
-    chip.title = listing.x_search_status === "login_required"
-      ? tr(locale, "Run grok login to enable X search.", "运行 grok login 后即可启用 X 搜索。")
+    chip.title = listing.x_search_status === "api_key_required"
+      ? tr(locale, "Open grok once and add your xAI API key to enable X search.", "在终端打开一次 grok 并添加 xAI API Key，即可启用 X 搜索。")
       : tr(locale, "Install Grok CLI to enable X search.", "安装 Grok CLI 后即可启用 X 搜索。");
     toolHost.append(chip);
   }
@@ -227,8 +227,8 @@ async function paintToolPicker(
         "X search uses your authenticated local Grok CLI; model web search stays provider-side.",
         "X 搜索使用本机已登录的 Grok CLI；普通联网搜索仍由模型供应商执行。",
       );
-    } else if (listing.x_search_status === "login_required") {
-      note.textContent = tr(locale, "Grok CLI is installed. Run grok login to enable X search.", "已找到 Grok CLI；运行 grok login 后可启用 X 搜索。");
+    } else if (listing.x_search_status === "api_key_required") {
+      note.textContent = tr(locale, "Grok CLI is installed. Open grok once and add your xAI API key.", "已找到 Grok CLI；请在终端打开一次 grok 并添加 xAI API Key。");
     } else if (tools.includes("web_search")) {
       note.textContent = tr(locale, "Web search runs on the model provider's servers. Install Grok CLI to add X search.", "联网搜索由模型供应商执行；安装 Grok CLI 可增加 X 搜索。");
     } else {

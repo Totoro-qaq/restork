@@ -9,7 +9,9 @@ export type AgentWaitStage =
   | "model"
   | "verify"
   | "retry"
+  | "cancelling"
   | "complete"
+  | "cancelled"
   | "blocked"
   | "error";
 
@@ -36,6 +38,7 @@ const ACTIVE_STAGES = new Set<AgentWaitStage>([
   "model",
   "verify",
   "retry",
+  "cancelling",
 ]);
 
 function text(value: unknown): string {
@@ -110,7 +113,9 @@ export function agentWaitMarkup(
     model: tr(locale, "The selected model is drafting the result…", "所选模型正在整理结果…"),
     verify: tr(locale, "Checking sources, format and permissions…", "正在核对来源、格式与权限…"),
     retry: tr(locale, "The last attempt did not finish. Trying again…", "上一次没有完成，正在重试…"),
+    cancelling: tr(locale, "Stopping the task and waiting for Core to confirm…", "正在停止任务，等待 Core 确认…"),
     complete: tr(locale, "Done. The result is ready to review.", "完成了，结果可以查看。"),
+    cancelled: tr(locale, "Stopped. This task is no longer running.", "已停止，这项任务不再运行。"),
     blocked: tr(locale, "The task did not start.", "任务未能启动。"),
     error: tr(locale, "The task stopped before completion.", "任务没有完成。"),
   }[stage];
@@ -128,7 +133,7 @@ export function agentWaitMarkup(
       <div><dt>${tr(locale, "Tool", "工具")}</dt><dd>${escapeMarkup(toolCopy(stage, activity, locale))}</dd></div>
       <div><dt>${tr(locale, "Elapsed", "已用时间")}</dt><dd><time data-runtime-elapsed>0:00</time></dd></div>
     </dl>` : "";
-  const stop = busy && detail?.cancellable
+  const stop = busy && stage !== "cancelling" && detail?.cancellable
     ? `<button type="button" class="btn-secondary runtime-stop" data-runtime-stop>${tr(locale, "Stop task", "停止任务")}</button>`
     : "";
   const sceneLabel = busy
@@ -137,7 +142,7 @@ export function agentWaitMarkup(
   const steps = labels.map((label, index) => {
     const className = index < current || stage === "complete"
       ? "is-done"
-      : index === current && stage !== "error" ? "is-current" : "";
+      : index === current && !["error", "cancelled", "cancelling"].includes(stage) ? "is-current" : "";
     return `<li class="${className}">${escapeMarkup(label)}</li>`;
   }).join("");
   return `<section class="agent-wait runtime-scene is-${stage}" data-runtime-scene data-runtime-active="${String(busy)}"

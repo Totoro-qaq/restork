@@ -142,6 +142,15 @@ async fn bootstrap_returns_one_typed_workspace_projection() {
     assert_eq!(body["domains"]["sessions"]["state"], "ready");
     assert!(body["workspaceV2"]["dailyContext"]["local_date"].is_string());
     assert!(body["workspaceV2"]["sessions"].is_array());
+    let bundled = body["workspaceV2"]["extensions"]
+        .as_array()
+        .expect("extension catalog")
+        .iter()
+        .find(|record| record["package_id"] == "skill.last-30-days")
+        .expect("bundled Last 30 Days skill");
+    assert_eq!(bundled["state"], "enabled");
+    assert_eq!(bundled["manifest"]["default_mode"], "research");
+    assert!(bundled["manifest"].get("instructions").is_none());
     let providers = body["workspaceV2"]["providerRegistry"]["items"]
         .as_array()
         .expect("provider registry");
@@ -154,6 +163,32 @@ async fn bootstrap_returns_one_typed_workspace_projection() {
         .expect("installation-aware setup command");
     assert!(setup_command.ends_with(" provider configure deepseek"));
     assert!(body["musicSources"].is_array());
+}
+
+#[tokio::test]
+async fn bundled_last_30_days_skill_can_be_frozen_into_a_run_without_installing_it() {
+    let (app, authorization, _directory) = paired_app().await;
+    let (status, created) = call_idempotent(
+        app,
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "goal": "Review current discussion with dated sources.",
+            "mode": "research",
+            "provider_profile_id": "deepseek",
+            "auto_start": false,
+            "skill_ids": ["skill.last-30-days"]
+        }),
+        &authorization,
+        "run-bundled-last-30-days",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CREATED, "{created:?}");
+    let skill = &created.expect("created run")["run"]["task_spec"]["skills"][0];
+    assert_eq!(skill["skill_id"], "skill.last-30-days");
+    assert_eq!(skill["name"], "Last 30 Days · 最近 30 天");
+    assert_eq!(skill["manifest_hash"].as_str().map(str::len), Some(64));
 }
 
 #[tokio::test]

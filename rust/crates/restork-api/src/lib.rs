@@ -23,6 +23,7 @@ mod agent_run_options;
 mod agent_tools;
 mod auth_api;
 mod automation_api;
+mod bundled_skills;
 mod catalog_api;
 mod config_api;
 mod core_skills;
@@ -1579,9 +1580,16 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
             serde_json::json!([]),
         );
         let (extensions, extensions_status) = bootstrap_storage_value(
-            storage
-                .extensions_page(None, 20)
-                .map(|page| crate::skill_wire::records(page.items)),
+            storage.extensions_page(None, 20).map(|page| {
+                let mut items = page.items;
+                if !items
+                    .iter()
+                    .any(|record| crate::bundled_skills::skill(&record.package_id).is_some())
+                {
+                    items.insert(0, crate::bundled_skills::catalog_record());
+                }
+                crate::skill_wire::records(items)
+            }),
             serde_json::json!([]),
         );
         let (deliverables, deliverables_status) = bootstrap_storage_value(

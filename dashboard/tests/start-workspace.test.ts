@@ -281,6 +281,27 @@ describe("run-first start workspace", () => {
     root.remove();
   });
 
+  it("lets Chinese IME Enter commit a candidate instead of starting the task", () => {
+    const state = snapshot();
+    const root = document.createElement("main");
+    root.innerHTML = workspaceMarkup(state, "zh-CN");
+    const submit = vi.fn();
+    configureStartWorkspace(root, state, {
+      submit,
+      selectView: () => undefined,
+    });
+    const goal = root.querySelector<HTMLTextAreaElement>("#start-goal")!;
+
+    goal.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "pi" }));
+    goal.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    goal.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "皮" }));
+    // macOS WebKit can emit another Enter after compositionend without the
+    // isComposing flag. That event must also be treated as candidate commit.
+    goal.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(submit).not.toHaveBeenCalled();
+  });
+
   it("offers an inline route to fix missing model and Vault configuration", () => {
     const state = snapshot();
     state.provider = null;

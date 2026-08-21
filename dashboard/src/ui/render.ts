@@ -617,25 +617,28 @@ function extensionCard(record: CatalogRecordV2, locale: Locale): string {
   const profiles = stringArray(manifest.enabled_profiles);
   const permissions = stringArray(manifest.requested_permissions);
   const version = stringValue(manifest.version) || tr(locale, "unknown version", "未知版本");
+  const displayName = stringValue(manifest.display_name);
+  const description = stringValue(manifest.description);
   const procedure = stringValue(manifest.procedure);
   const transport = transportLabel(manifest.transport);
   const source = sourceLabel(manifest.provenance);
   const summary = kind === "skill"
-    ? procedure || tr(locale, "Prompt procedure declared by this Skill.", "此 Skill 声明的 Prompt 流程。")
+    ? description || procedure || tr(locale, "Prompt procedure declared by this Skill.", "此 Skill 声明的 Prompt 流程。")
     : kind === "mcp"
       ? `${transport || tr(locale, "No transport", "未声明传输")} · ${tools.length} ${tr(locale, "tools", "个工具")}`
       : `${objectArray(manifest.skills).length} Skills · ${objectArray(manifest.mcp_servers).length} MCP`;
   const packageId = record.package_id ?? "extension";
-  const searchText = [packageId, kind, version, summary, source, transport, ...profiles, ...permissions, ...tools.flatMap((tool) => [tool.id, tool.name, tool.description])]
+  const searchText = [packageId, displayName, kind, version, summary, source, transport, ...profiles, ...permissions, ...tools.flatMap((tool) => [tool.id, tool.name, tool.description])]
     .join(" ")
     .toLocaleLowerCase();
+  const builtin = record.builtin === true || source.includes("restork-bundled");
   return `<details class="extension-card extension-row" role="listitem" data-extension-card-kind="${escapeHtml(kind)}" data-extension-search-text="${escapeHtml(searchText)}">
-    <summary><span><small>${escapeHtml(kind.toUpperCase())} · ${escapeHtml(version)}</small><strong>${escapeHtml(packageId)}</strong><em>${escapeHtml(summary)}</em></span><span class="extension-state ${record.state === "enabled" ? "is-enabled" : ""}">${escapeHtml(extensionStateLabel(record.state, locale))}</span></summary>
+    <summary><span><small>${escapeHtml(kind.toUpperCase())} · ${escapeHtml(version)}${displayName ? ` · ${escapeHtml(packageId)}` : ""}</small><strong>${escapeHtml(displayName || packageId)}</strong><em>${escapeHtml(summary)}</em></span><span class="extension-state ${record.state === "enabled" ? "is-enabled" : ""}">${escapeHtml(builtin ? tr(locale, "Built-in · Ready", "内置 · 就绪") : extensionStateLabel(record.state, locale))}</span></summary>
     <div class="extension-card-details">
       <dl><div><dt>${tr(locale, "Source", "来源")}</dt><dd>${escapeHtml(source || tr(locale, "Not declared", "未声明"))}</dd></div><div><dt>${tr(locale, "Version", "版本")}</dt><dd>${escapeHtml(version)}</dd></div><div><dt>${tr(locale, "Connection", "连接方式")}</dt><dd>${escapeHtml(transport || tr(locale, "Not applicable", "不适用"))}</dd></div><div><dt>${tr(locale, "Run setups", "运行配置")}</dt><dd>${escapeHtml(profiles.join(", ") || tr(locale, "None", "无"))}</dd></div><div><dt>${tr(locale, "Permissions", "权限")}</dt><dd>${escapeHtml(permissions.join(", ") || tr(locale, "None requested", "未申请"))}</dd></div></dl>
       <section class="extension-tool-list" aria-label="${tr(locale, "Declared tools", "声明的工具")}"><strong>${tr(locale, "Tools", "工具")} · ${tools.length}</strong>${tools.length ? `<ul>${tools.map((tool) => `<li><b>${escapeHtml(tool.name)}</b><code>${escapeHtml(tool.id)}</code>${tool.description ? `<span>${escapeHtml(tool.description)}</span>` : ""}</li>`).join("")}</ul>` : `<p>${tr(locale, "This extension declares no tools.", "这个扩展没有声明工具。")}</p>`}</section>
       <details class="extension-technical-details"><summary>${tr(locale, "Technical details", "技术信息")}</summary><dl><div><dt>${tr(locale, "Fingerprint", "内容指纹")}</dt><dd><code>${escapeHtml(record.manifest_hash ?? tr(locale, "Not available", "暂无"))}</code></dd></div><div><dt>${tr(locale, "Updated", "更新时间")}</dt><dd>${formatDate(record.updated_at, locale)}</dd></div></dl></details>
-      ${record.manifest_hash ? `<div class="record-actions"><button type="button" data-extension-state="${record.state === "enabled" ? "disable" : "enable"}" data-extension-id="${escapeHtml(packageId)}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${record.state === "enabled" ? tr(locale, "Disable", "停用") : tr(locale, "Check & enable", "查看并启用")}</button><button type="button" class="quiet-button" data-extension-history data-extension-id="${escapeHtml(packageId)}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${tr(locale, "Versions & rollback", "版本与回滚")}</button></div><div class="extension-history" data-extension-history-results role="status"></div>` : ""}
+      ${record.manifest_hash && !builtin ? `<div class="record-actions"><button type="button" data-extension-state="${record.state === "enabled" ? "disable" : "enable"}" data-extension-id="${escapeHtml(packageId)}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${record.state === "enabled" ? tr(locale, "Disable", "停用") : tr(locale, "Check & enable", "查看并启用")}</button><button type="button" class="quiet-button" data-extension-history data-extension-id="${escapeHtml(packageId)}" data-extension-hash="${escapeHtml(record.manifest_hash)}">${tr(locale, "Versions & rollback", "版本与回滚")}</button></div><div class="extension-history" data-extension-history-results role="status"></div>` : ""}
     </div>
   </details>`;
 }

@@ -2121,6 +2121,8 @@ describe("Rust conversation workspace", () => {
       manifest: {
         schema_version: 1,
         version: "1.0.0",
+        display_name: "Synthetic Research",
+        description: "Research a bounded set of public papers.",
         enabled_profiles: ["research-cloud"],
         requested_permissions: ["network:https://example.com"],
         provenance: {
@@ -2159,7 +2161,9 @@ describe("Rust conversation workspace", () => {
     expect(root.textContent).toContain("添加扩展");
     const installed = root.querySelector<HTMLDetailsElement>('[data-extension-list] [data-extension-card-kind="skill"]');
     expect(installed?.open).toBe(false);
+    expect(installed?.querySelector("summary strong")?.textContent).toBe("Synthetic Research");
     expect(installed?.textContent).toContain("skill.synthetic");
+    expect(installed?.textContent).toContain("Research a bounded set of public papers.");
     expect(installed?.textContent).toContain("来源");
     expect(installed?.textContent).toContain("权限");
     expect(installed?.textContent).toContain("Search papers");
