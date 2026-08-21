@@ -87,20 +87,20 @@ describe("start tool picker", () => {
     expect(pickedAllowedTools(form)).toEqual([]);
   });
 
-  it("reports the API-key setup required by the installed Grok CLI", async () => {
+  it("reports the OAuth login required by the official Grok CLI", async () => {
     const { root, form } = fixture();
     const localApi = api(["vault_search"]);
     localApi.listAvailableTools = async () => ({
       tools: ["vault_search"],
       web_search_supported: false,
       x_search_supported: false,
-      x_search_status: "api_key_required",
+      x_search_status: "login_required",
     });
     configureToolPicker(root, localApi, snapshot());
     await openPicker(root);
 
-    expect(form.querySelector<HTMLButtonElement>(".tool-chip:disabled")?.title).toContain("xAI API key");
-    expect(form.querySelector("[data-tool-picker-note]")?.textContent).toContain("Grok CLI is installed");
+    expect(form.querySelector<HTMLButtonElement>(".tool-chip:disabled")?.title).toContain("grok login");
+    expect(form.querySelector("[data-tool-picker-note]")?.textContent).toContain("Official Grok CLI is installed");
   });
 
   it("rechecks local tools when reopened so an installed CLI is not hidden by cache", async () => {

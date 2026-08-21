@@ -408,7 +408,7 @@ async fn available_tools_reflect_vault_and_provider_capability() {
         .expect("X search status");
     assert!(matches!(
         x_status,
-        "ready" | "not_installed" | "api_key_required"
+        "ready" | "not_installed" | "login_required"
     ));
     assert_eq!(deepseek["x_search_supported"], x_status == "ready");
     assert_eq!(

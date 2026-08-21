@@ -1142,7 +1142,7 @@ export interface ReasoningConfigV2 {
   max_tokens: number | null;
 }
 
-export type XSearchStatusV2 = "ready" | "not_installed" | "api_key_required";
+export type XSearchStatusV2 = "ready" | "not_installed" | "login_required";
 
 export interface AvailableToolsV2 {
   tools: string[];

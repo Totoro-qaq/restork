@@ -106,7 +106,7 @@ pub(super) fn registered_tools(
         let executable = grok_binary()
             .ok_or_else(|| "Grok CLI is unavailable. Install it from x.ai first.".to_owned())?;
         if !grok_auth_available() {
-            return Err("Grok CLI is installed but has no API key. Open `grok` once and paste your xAI API key, or set `GROK_API_KEY`.".to_owned());
+            return Err("Official Grok CLI is installed but not signed in. Run `grok login` and complete xAI OAuth, or set `XAI_API_KEY`.".to_owned());
         }
         tools.push(Arc::new(GrokXSearchTool { executable }));
     }
@@ -421,21 +421,20 @@ fn grok_integration_status() -> &'static str {
     if grok_binary().is_none() {
         "not_installed"
     } else if !grok_auth_available() {
-        "api_key_required"
+        "login_required"
     } else {
         "ready"
     }
 }
 
 fn grok_auth_available() -> bool {
-    if env::var_os("GROK_API_KEY").is_some_and(|value| !value.is_empty()) {
+    if env::var_os("XAI_API_KEY").is_some_and(|value| !value.is_empty()) {
         return true;
     }
-    system_home_dir()
-        .is_some_and(|home| grok_settings_have_api_key(&home.join(".grok/user-settings.json")))
+    system_home_dir().is_some_and(|home| grok_auth_file_has_token(&home.join(".grok/auth.json")))
 }
 
-fn grok_settings_have_api_key(path: &Path) -> bool {
+fn grok_auth_file_has_token(path: &Path) -> bool {
     let Ok(metadata) = path.metadata() else {
         return false;
     };
@@ -445,14 +444,17 @@ fn grok_settings_have_api_key(path: &Path) -> bool {
     fs::read_to_string(path)
         .ok()
         .and_then(|content| serde_json::from_str::<Value>(&content).ok())
-        .and_then(|settings| {
-            settings
-                .get("apiKey")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .map(str::to_owned)
+        .and_then(|auth| {
+            auth.as_object().map(|scopes| {
+                scopes.values().any(|scope| {
+                    scope
+                        .get("key")
+                        .and_then(Value::as_str)
+                        .is_some_and(|token| !token.trim().is_empty())
+                })
+            })
         })
-        .is_some_and(|key| !key.is_empty())
+        .unwrap_or(false)
 }
 
 fn grok_binary() -> Option<PathBuf> {
@@ -792,7 +794,7 @@ impl AgentTool for GrokXSearchTool {
             };
             if !output.status.success() {
                 return Err(grok_search_failure(
-                    "Grok CLI X search did not complete. Open `grok` once to configure its API key, then check network access.",
+                    "Grok CLI X search did not complete. Run `grok login` to refresh xAI OAuth, then check network access.",
                 ));
             }
             if output.stdout.len() > GROK_SEARCH_MAX_BYTES {
@@ -820,19 +822,27 @@ fn grok_search_command(
     workspace: &Path,
 ) -> tokio::process::Command {
     let mut command = tokio::process::Command::new(executable);
-    // Grok CLI 1.1.x exposes X search as a provider tool during a headless
-    // prompt. Run it in an empty temporary workspace and keep shell tools in
-    // the CLI sandbox; Restork only consumes the returned JSON evidence.
+    // Official xAI Grok CLI exposes backend-hosted X search in headless mode.
+    // The explicit allowlist removes filesystem, shell, web, plugin, and
+    // subagent tools; Restork only consumes the returned JSON evidence.
     command
-        .arg("--directory")
+        .arg("--cwd")
         .arg(workspace)
-        .arg("--sandbox")
-        .arg("--max-tool-rounds")
+        .arg("--no-plan")
+        .arg("--no-subagents")
+        .arg("--tools")
+        .arg("x_search")
+        .arg("--disallowed-tools")
+        .arg("Agent")
+        .arg("--deny")
+        .arg("MCPTool")
+        .arg("--max-turns")
         .arg("4")
-        .arg("--prompt")
+        .arg("--single")
         .arg(prompt)
-        .arg("--format")
-        .arg("json");
+        .arg("--output-format")
+        .arg("json")
+        .arg("--verbatim");
     command
 }
 
@@ -1004,7 +1014,7 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        SERVER_SIDE_WEB_SEARCH, VaultWriteTool, grok_search_command, grok_settings_have_api_key,
+        SERVER_SIDE_WEB_SEARCH, VaultWriteTool, grok_auth_file_has_token, grok_search_command,
         normalize_x_search_query,
     };
 
@@ -1056,7 +1066,7 @@ mod tests {
     }
 
     #[test]
-    fn grok_search_uses_the_installed_cli_1_1_headless_flags() {
+    fn grok_search_uses_official_xai_cli_headless_flags() {
         let command = grok_search_command(
             Path::new("/tmp/grok"),
             "find current posts",
@@ -1068,28 +1078,46 @@ mod tests {
             .map(|argument| argument.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
         let expected = vec![
-            "--directory".to_owned(),
+            "--cwd".to_owned(),
             "/tmp/isolated-grok-workspace".to_owned(),
-            "--sandbox".to_owned(),
-            "--max-tool-rounds".to_owned(),
+            "--no-plan".to_owned(),
+            "--no-subagents".to_owned(),
+            "--tools".to_owned(),
+            "x_search".to_owned(),
+            "--disallowed-tools".to_owned(),
+            "Agent".to_owned(),
+            "--deny".to_owned(),
+            "MCPTool".to_owned(),
+            "--max-turns".to_owned(),
             "4".to_owned(),
-            "--prompt".to_owned(),
+            "--single".to_owned(),
             "find current posts".to_owned(),
-            "--format".to_owned(),
+            "--output-format".to_owned(),
             "json".to_owned(),
+            "--verbatim".to_owned(),
         ];
 
         assert_eq!(arguments, expected);
-        assert!(!arguments.iter().any(|argument| argument == "grok login"));
+        assert_eq!(
+            arguments
+                .iter()
+                .filter(|argument| *argument == "x_search")
+                .count(),
+            1
+        );
     }
 
     #[test]
-    fn grok_settings_require_a_nonempty_api_key() {
-        let directory = tempfile::tempdir().expect("temporary settings directory");
-        let path = directory.path().join("user-settings.json");
-        std::fs::write(&path, r#"{"apiKey":""}"#).expect("empty settings");
-        assert!(!grok_settings_have_api_key(&path));
-        std::fs::write(&path, r#"{"apiKey":"xai-test"}"#).expect("configured settings");
-        assert!(grok_settings_have_api_key(&path));
+    fn grok_oauth_file_requires_a_nonempty_scoped_token() {
+        let directory = tempfile::tempdir().expect("temporary auth directory");
+        let path = directory.path().join("auth.json");
+        std::fs::write(&path, r#"{"https://auth.x.ai::client":{"key":""}}"#).expect("empty auth");
+        assert!(!grok_auth_file_has_token(&path));
+        std::fs::write(
+            &path,
+            r#"{"https://auth.x.ai::client":{"key":"oauth-test","expires_at":999}}"#,
+        )
+        .expect("configured auth");
+        assert!(grok_auth_file_has_token(&path));
     }
 }
