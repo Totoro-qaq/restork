@@ -163,6 +163,7 @@ describe("skill triggers", () => {
         "public",
         expect.any(String),
         ["ppt-master"],
+        [],
       );
     });
   });

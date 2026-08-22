@@ -2,6 +2,7 @@ import type { DashboardSnapshot, Mode, PendingRunSummary, RunListEntry } from ".
 import type { Locale } from "../i18n";
 import { tr } from "../i18n";
 import { escapeMarkup } from "./dom";
+import { isRunActive } from "../runState";
 
 const MODE_HINTS: Record<Mode, { en: string; zh: string }> = {
   research: {
@@ -28,7 +29,7 @@ export function startPlaceholder(locale: Locale): string {
 }
 
 export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale): string {
-  const active = snapshot.runs.filter((entry) => !["completed", "failed", "cancelled"].includes(entry.summary.state));
+  const active = snapshot.runs.filter((entry) => isRunActive(entry.summary.state));
   const pending = snapshot.approvals.filter((approval) => approval.decision === "pending");
   const nextExpiry = pending
     .map((approval) => approval.expires_at)
@@ -60,17 +61,47 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
           ${startModeButton("work", tr(locale, "Work", "推进工作"), false, locale)}
         </div>
         <div class="foot-right">
+          <div class="online-tool-toggles" aria-label="${tr(locale, "Online sources", "在线来源")}">
+            <button type="button" class="online-tool-toggle" data-quick-tool-toggle="web_search"
+              aria-pressed="false" disabled title="${tr(locale, "Checking web search…", "正在检查联网搜索…")}">
+              <span aria-hidden="true">◎</span>${tr(locale, "Web", "联网")}
+            </button>
+            <button type="button" class="online-tool-toggle" data-quick-tool-toggle="x_search"
+              aria-pressed="false" disabled title="${tr(locale, "Checking X search…", "正在检查 X 搜索…")}">
+              <span aria-hidden="true">𝕏</span><span class="sr-only">${tr(locale, "X search", "X 搜索")}</span>
+            </button>
+          </div>
+          <button type="button" class="tool-pick-open" data-tool-picker-open aria-haspopup="true" aria-expanded="false"
+            title="${tr(locale, "Choose tools and skills for this run, or type / in the box", "选择本次运行的工具与技能，也可以在输入框打 /")}"
+            >+<span class="sr-only">${tr(locale, "Choose tools and skills", "选择工具与技能")}</span></button>
           ${providerOptions.length ? `<label class="model-pick">${tr(locale, "Model", "模型")}
             <select name="provider_profile_id" required aria-label="${tr(locale, "Model", "模型")}">
               ${providerOptions.map((provider) => `<option value="${escapeMarkup(provider.id)}">${escapeMarkup(provider.label)}</option>`).join("")}
             </select>
-          </label>` : ""}
+          </label>
+          <div class="reasoning-pick" data-reasoning-control data-configurable="false">
+            <label for="start-reasoning-range">${tr(locale, "Thinking", "思考")}</label>
+            <input type="hidden" name="reasoning_effort" value="">
+            <div class="reasoning-slider">
+              <span class="reasoning-particles" data-reasoning-particles aria-hidden="true"></span>
+              <input id="start-reasoning-range" type="range" data-reasoning-range min="0" max="1" step="1" value="0"
+                aria-label="${tr(locale, "Thinking effort for this task", "本次任务的思考强度")}">
+            </div>
+            <output for="start-reasoning-range" data-reasoning-output>${tr(locale, "Model decides", "模型决定")}</output>
+          </div>` : ""}
           <input type="hidden" name="context_data_class" value="public">
           <button type="submit" class="btn-primary" data-start-submit
             data-connect-label="${escapeMarkup(tr(locale, "Connect a model first", "先连接模型"))}">${tr(locale, "Start task", "开始任务")}</button>
         </div>
       </div>
       <div class="skill-suggest-row" data-skill-suggest data-empty="true" aria-live="polite"></div>
+      <div class="tool-picker" data-tool-picker hidden>
+        <div class="tool-picker-head"><b>${tr(locale, "This run can use", "本次运行可用")}</b>
+          <button type="button" class="tool-picker-close" data-tool-picker-close aria-label="${tr(locale, "Close", "关闭")}">×</button></div>
+        <div class="tool-picker-group" data-tool-picker-tools><small>${tr(locale, "Tools", "工具")}</small><div class="tool-picker-chips" data-tool-picker-tool-chips></div></div>
+        <div class="tool-picker-group" data-tool-picker-skills><small>${tr(locale, "Skills", "技能")}</small><div class="tool-picker-chips" data-tool-picker-skill-chips></div></div>
+        <p class="form-hint" data-tool-picker-note></p>
+      </div>
       <p class="form-hint start-inline-fix" data-start-provider-hint ${modelReady ? "hidden" : ""}><span>${tr(
         locale,
         "Connect a model first. Your task text will stay here.",
@@ -138,7 +169,10 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
 
     <div data-run-wait></div>
     <section class="start-run-output" data-start-output hidden aria-label="${tr(locale, "Task output", "任务输出")}">
-      <pre data-start-output-text></pre>
+      <details open data-start-output-details>
+        <summary><span>${tr(locale, "Task output", "任务输出")}</span></summary>
+        <div class="start-output-scroll" data-start-output-body><div class="markdown-body" data-start-output-text></div></div>
+      </details>
     </section>
     ${modeWorkspaceMarkup("study")}
     ${modeWorkspaceMarkup("work")}

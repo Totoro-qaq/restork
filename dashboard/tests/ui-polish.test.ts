@@ -196,7 +196,15 @@ describe("responsive readability", () => {
     expect(stylesheet).toMatch(/\.schedule-list-header\s*\{[^}]*display:\s*flex[^}]*align-items:\s*center/);
     expect(stylesheet).toMatch(/\.schedule-list-title\s*\{[^}]*display:\s*flex[^}]*align-items:\s*baseline/);
     expect(stylesheet).toMatch(/\.core-skill-card\s*\{[^}]*font-family:\s*var\(--font-ui\)/);
-    expect(stylesheet).toMatch(/\.core-skill-grid\s*\{[^}]*grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/);
+    expect(stylesheet).toMatch(/\.extension-grid\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(min\(100%, 280px\), 1fr\)\)/);
+  });
+
+  it("keeps capability cards and model automation controls on one spacing system", () => {
+    expect(stylesheet).toMatch(/\.capability-grid\s*\{[^}]*gap:\s*12px/);
+    expect(stylesheet).toMatch(/\.capability-card\s*\{[^}]*min-height:\s*164px[^}]*padding:\s*16px/);
+    expect(stylesheet).toMatch(/\.schedule-model-fields\s*\{[^}]*grid-template-columns:\s*minmax\(220px, \.8fr\) minmax\(320px, 1\.2fr\)[^}]*gap:\s*16px/);
+    expect(stylesheet).toMatch(/\.schedule-model-fields select,\s*\n\.schedule-model-fields textarea\s*\{[^}]*width:\s*100%/);
+    expect(stylesheet).toMatch(/\.schedule-model-fields textarea\s*\{[^}]*min-height:\s*112px/);
   });
 
   it("keeps the start mode active state visible and the submit button actionable when unready", () => {

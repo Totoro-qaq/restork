@@ -1,6 +1,9 @@
 import type { DashboardSnapshot, Mode, PendingRunSummary } from "../api/types";
 import { localeOf, tr, type Locale } from "../i18n";
 import { fillRunSummaryHost } from "../ui/start";
+import { bindEnterToSubmit } from "../ui/dom";
+import { isRunActive } from "../runState";
+import { configureStartReasoning } from "./startReasoning";
 
 export interface StartWorkspaceEffects {
   submit(form: HTMLFormElement): void;
@@ -21,6 +24,7 @@ export function configureStartWorkspace(
 ): void {
   const form = root.querySelector<HTMLFormElement>("#start-run-form");
   if (!form) return;
+  configureStartReasoning(root, snapshot);
   const goal = form.querySelector<HTMLTextAreaElement>("#start-goal");
   const modeValue = form.querySelector<HTMLInputElement>("[data-start-mode-value]");
   const studyFields = form.querySelector<HTMLElement>("[data-start-study-fields]");
@@ -160,9 +164,7 @@ export function configureStartWorkspace(
       chooseWorkspace.removeAttribute("aria-busy");
     });
   });
-  goal?.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
-    event.preventDefault();
+  if (goal) bindEnterToSubmit(goal, () => {
     if (submit?.dataset.action === "open-settings") {
       effects.selectView("settings");
       return;
@@ -230,7 +232,7 @@ export function configureStartWorkspace(
   }
 
   const active = snapshot.runs.find(
-    (entry) => !["completed", "failed", "cancelled"].includes(entry.summary.state),
+    (entry) => isRunActive(entry.summary.state),
   );
   if (active) {
     form.dataset.runBusy = "true";

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "id": "skill.last-30-days",
+  "version": "1.0.0",
+  "provenance": {
+    "source": {
+      "kind": "catalog",
+      "catalog_id": "restork-bundled",
+      "version": "1.0.0"
+    },
+    "license": "MIT",
+    "content_hash": "ce56bc54f391f52c815289df51798c4be596fdb6547c90854484aa048052d944",
+    "signature": null
+  },
+  "compatibility": {
+    "minimum_core_version": "0.1.0",
+    "maximum_core_version": null
+  },
+  "enabled_profiles": [],
+  "procedure": "bundled-skills/last-30-days.md",
+  "prompt_references": [],
+  "schema_references": [],
+  "template_references": [],
+  "requested_permissions": [],
+  "display_name": "Last 30 Days · 最近 30 天",
+  "description": "研究最近 30 天的公开信息与讨论，保留时间、来源和可核对链接。",
+  "keywords": [
+    "last 30 days",
+    "recent research",
+    "trends",
+    "X search",
+    "最近30天",
+    "近期研究",
+    "趋势"
+  ],
+  "default_mode": "research"
+}

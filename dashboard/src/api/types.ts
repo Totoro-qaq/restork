@@ -11,9 +11,9 @@ export interface CatalogCursorV2 {
   id: string;
   version: number;
 }
-
 export type PresentationThemeLayoutV2 =
-  | "editorial" | "minimal" | "spotlight" | "research" | "narrative" | "blueprint";
+  | "editorial" | "minimal" | "spotlight" | "research" | "narrative" | "blueprint"
+  | "ppt_master_apple" | "ppt_master_jangpm" | "ppt_master_mckinsey" | "ppt_master_naver_ir";
 
 export interface PresentationThemeSnapshotV2 {
   theme_id: string;
@@ -900,6 +900,7 @@ export interface CatalogRecordV2 {
   deliverable_id?: string;
   schedule_id?: string;
   package_kind?: string;
+  builtin?: boolean;
   kind?: string;
   state: string;
   revision?: number;
@@ -1032,6 +1033,7 @@ export interface DeckDraftInputV2 {
   slide_count?: number;
   theme_id: string;
   provider_profile_id: string;
+  skill_id?: string;
   language: string;
   audience: {
     audience_id: string;
@@ -1139,6 +1141,15 @@ export type ReasoningEffortV2 =
 export interface ReasoningConfigV2 {
   effort: ReasoningEffortV2;
   max_tokens: number | null;
+}
+
+export type XSearchStatusV2 = "ready" | "not_installed" | "login_required";
+export interface AvailableToolsV2 {
+  tools: string[];
+  web_search_supported: boolean;
+  web_search_backend: "provider" | "grok_cli" | "unavailable";
+  x_search_supported: boolean;
+  x_search_status: XSearchStatusV2;
 }
 
 export type ProviderKindV2 =
@@ -1420,7 +1431,12 @@ export interface DashboardApi {
     dataClass?: WorkDataClass,
     providerProfileId?: string,
     skillIds?: string[],
+    allowedTools?: string[],
+    reasoningEffort?: ReasoningEffortV2,
   ): Promise<RunSummary>;
+  listAvailableTools?(
+    providerProfileId: string,
+  ): Promise<AvailableToolsV2>;
   prepareStudy(
     runId: string,
     objective: string,
@@ -1450,6 +1466,7 @@ export interface DashboardApi {
   radarAction(itemId: string, action: RadarAction): Promise<RadarActionResult>;
   configureRadar(input: RadarConfigurationInput): Promise<RadarConfiguration>;
   cancelRun(runId: string): Promise<void>;
+  retryRun?(runId: string): Promise<void>;
   loadRunSummary?(runId: string): Promise<PendingRunSummary | null>;
   acceptRunSummary?(runId: string): Promise<MemoryRecord>;
   dismissRunSummary?(runId: string): Promise<void>;

@@ -26,8 +26,9 @@ rust-embed.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2.workspace = true
+tempfile = "=3.27.0"
 time = { workspace = true, features = ["formatting", "parsing"] }
-tokio = { workspace = true, features = ["rt", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "process", "rt", "sync", "time"] }
 url.workspace = true
 zeroize.workspace = true
 
@@ -39,7 +40,6 @@ windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 http-body-util.workspace = true
-tempfile = "=3.27.0"
 time = { workspace = true, features = ["formatting"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }
 tower = { workspace = true, features = ["util"] }

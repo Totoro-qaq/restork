@@ -8,6 +8,35 @@ export function escapeMarkup(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+/**
+ * Submit a textarea with Enter without stealing the Enter that commits an IME
+ * candidate. WebKit can dispatch that key immediately after `compositionend`
+ * with `isComposing === false`, so the explicit composition flag alone is not
+ * sufficient on the macOS desktop WebView.
+ */
+export function bindEnterToSubmit(
+  textarea: HTMLTextAreaElement,
+  submit: () => void,
+): void {
+  let composing = false;
+  let compositionEndedAt = Number.NEGATIVE_INFINITY;
+  textarea.addEventListener("compositionstart", () => {
+    composing = true;
+  });
+  textarea.addEventListener("compositionend", () => {
+    composing = false;
+    compositionEndedAt = Date.now();
+  });
+  textarea.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.shiftKey) return;
+    const legacyComposing = event.keyCode === 229;
+    const justCommittedCandidate = Date.now() - compositionEndedAt < 120;
+    if (composing || event.isComposing || legacyComposing || justCommittedCandidate) return;
+    event.preventDefault();
+    submit();
+  });
+}
+
 /** Return the currently visible workspace without coupling features to the rail. */
 export function activeView(root: HTMLElement): string {
   const panel = root.querySelector<HTMLElement>("[data-view-panel]:not([hidden])");

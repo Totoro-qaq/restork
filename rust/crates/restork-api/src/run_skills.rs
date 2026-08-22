@@ -44,6 +44,17 @@ pub(crate) fn prepare_run(
     })
 }
 
+pub(crate) fn prepare_deliverable_guidance(
+    storage: &Database,
+    skill_id: Option<&str>,
+) -> Result<Option<FrozenSkill>, Response> {
+    let Some(skill_id) = skill_id.filter(|value| !value.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let mut skills = resolve(storage, &[skill_id.to_owned()])?;
+    Ok(skills.pop())
+}
+
 pub(crate) fn audit_value(skills: &[FrozenSkill]) -> Value {
     json!(
         skills
@@ -127,6 +138,18 @@ fn resolve(storage: &Database, skill_ids: &[String]) -> Result<Vec<FrozenSkill>,
                 "skill id is invalid",
             ));
         }
+        if let Some(manifest) = crate::bundled_skills::skill(skill_id) {
+            frozen.push(FrozenSkill {
+                skill_id: manifest.id.clone(),
+                manifest_hash: crate::bundled_skills::manifest_hash(),
+                name: manifest
+                    .display_name
+                    .clone()
+                    .unwrap_or_else(|| manifest.id.clone()),
+                instructions: manifest.instructions.clone(),
+            });
+            continue;
+        }
         let record = match storage.extension(skill_id) {
             Ok(Some(record)) => record,
             Ok(None) => {
@@ -174,6 +197,20 @@ fn load_revision(
     skill_id: &str,
     manifest_hash: &str,
 ) -> Result<Option<FrozenSkill>, StorageError> {
+    if let Some(manifest) = crate::bundled_skills::skill(skill_id) {
+        if crate::bundled_skills::manifest_hash() != manifest_hash {
+            return Ok(None);
+        }
+        return Ok(Some(FrozenSkill {
+            skill_id: manifest.id.clone(),
+            manifest_hash: manifest_hash.to_owned(),
+            name: manifest
+                .display_name
+                .clone()
+                .unwrap_or_else(|| manifest.id.clone()),
+            instructions: manifest.instructions.clone(),
+        }));
+    }
     if let Some(current) = storage.extension(skill_id)?
         && current.manifest_hash == manifest_hash
     {

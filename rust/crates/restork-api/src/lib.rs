@@ -19,9 +19,11 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod agent_run_options;
 mod agent_tools;
 mod auth_api;
 mod automation_api;
+mod bundled_skills;
 mod catalog_api;
 mod config_api;
 mod core_skills;
@@ -40,6 +42,7 @@ mod state;
 mod todo_api;
 mod vault_api;
 
+use agent_run_options::AgentRunCreate;
 use auth_api::*;
 use automation_api::*;
 use catalog_api::*;
@@ -528,6 +531,10 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
         methods: &["GET"],
     },
     ApiRouteDescription {
+        path: "/v1/tools/available",
+        methods: &["GET"],
+    },
+    ApiRouteDescription {
         path: "/v1/sessions/{session_id}/tools/{tool_id}",
         methods: &["GET"],
     },
@@ -652,23 +659,6 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
         methods: &["POST"],
     },
 ];
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AgentRunCreate {
-    goal: String,
-    mode: String,
-    provider_profile_id: String,
-    #[serde(default = "default_public_data_class")]
-    data_class: String,
-    bounds: Option<AgentBounds>,
-    #[serde(default = "default_true")]
-    auto_start: bool,
-    #[serde(default)]
-    allowed_tools: BTreeSet<String>,
-    #[serde(default)]
-    skill_ids: Vec<String>,
-}
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1199,10 +1189,10 @@ struct DeckDraftCompose {
     slide_count: Option<u8>,
     theme_id: String,
     provider_profile_id: String,
+    skill_id: Option<String>,
     language: String,
     audience: AudienceInput,
 }
-
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct PresentationTemplateSource {
@@ -1590,9 +1580,16 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
             serde_json::json!([]),
         );
         let (extensions, extensions_status) = bootstrap_storage_value(
-            storage
-                .extensions_page(None, 20)
-                .map(|page| crate::skill_wire::records(page.items)),
+            storage.extensions_page(None, 20).map(|page| {
+                let mut items = page.items;
+                if !items
+                    .iter()
+                    .any(|record| crate::bundled_skills::skill(&record.package_id).is_some())
+                {
+                    items.insert(0, crate::bundled_skills::catalog_record());
+                }
+                crate::skill_wire::records(items)
+            }),
             serde_json::json!([]),
         );
         let (deliverables, deliverables_status) = bootstrap_storage_value(
@@ -2353,6 +2350,11 @@ async fn create_agent_run(State(state): State<ApiState>, request: Request) -> Re
         Ok(None) => return error_response(StatusCode::NOT_FOUND, "provider is not configured"),
         Err(response) => return response,
     };
+    let profile =
+        match agent_run_options::requested_reasoning_profile(profile, payload.reasoning_effort) {
+            Ok(profile) => profile,
+            Err(response) => return response,
+        };
     let available_tools = match agent_tools::available_tool_ids(&state, &profile) {
         Ok(tools) => tools,
         Err(detail) => return error_response_owned(StatusCode::SERVICE_UNAVAILABLE, detail),
@@ -2373,7 +2375,7 @@ async fn create_agent_run(State(state): State<ApiState>, request: Request) -> Re
         Err(response) => return response,
     };
     let skills_audit = run_skills::audit_value(&prepared.skills);
-    let binding_document = serde_json::json!({
+    let mut binding_document = serde_json::json!({
         "goal": payload.goal,
         "mode": payload.mode,
         "provider_profile_id": payload.provider_profile_id,
@@ -2382,6 +2384,7 @@ async fn create_agent_run(State(state): State<ApiState>, request: Request) -> Re
         "allowed_tools": &allowed_tools,
         "skills": &skills_audit,
     });
+    agent_run_options::insert_reasoning_effort(&mut binding_document, payload.reasoning_effort);
     let binding = match serde_json::to_vec(&binding_document) {
         Ok(document) => sha256_hex(&document),
         Err(_) => return error_response(StatusCode::UNPROCESSABLE_ENTITY, "invalid run request"),
@@ -2401,7 +2404,7 @@ async fn create_agent_run(State(state): State<ApiState>, request: Request) -> Re
         Ok(value) => value,
         Err(response) => return response,
     };
-    let task_spec = serde_json::json!({
+    let mut task_spec = serde_json::json!({
         "goal": payload.goal,
         "mode": payload.mode,
         "provider_profile_id": payload.provider_profile_id,
@@ -2415,6 +2418,7 @@ async fn create_agent_run(State(state): State<ApiState>, request: Request) -> Re
         "allowed_tools": &allowed_tools,
         "skills": skills_audit,
     });
+    agent_run_options::insert_reasoning_effort(&mut task_spec, payload.reasoning_effort);
     if let Err(error) = storage.create_run(NewRun {
         run_id: &run_id,
         task_id: &task_id,
@@ -2441,6 +2445,7 @@ async fn create_agent_run(State(state): State<ApiState>, request: Request) -> Re
             "prompt_version": task_spec["prompt"]["version"],
             "prompt_hash": task_spec["prompt"]["hash"],
             "skills": skills_audit,
+            "reasoning_effort": payload.reasoning_effort,
         }),
     }) {
         return storage_error_response(error);
@@ -2603,8 +2608,18 @@ fn spawn_agent_run(
         })?;
     let profile = configured_provider(&state, provider_profile_id)?
         .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "provider is not configured"))?;
-    let bounds = serde_json::from_value::<AgentBounds>(run.task_spec["bounds"].clone())
+    let profile = agent_run_options::stored_reasoning_profile(profile, &run.task_spec)?;
+    let mut bounds = serde_json::from_value::<AgentBounds>(run.task_spec["bounds"].clone())
         .map_err(|_| error_response(StatusCode::UNPROCESSABLE_ENTITY, "run bounds are invalid"))?;
+    if run.state == "retryable"
+        && matches!(
+            run.stop_reason.as_deref(),
+            Some("wall_time_limit" | "provider_unavailable" | "output_limit")
+        )
+    {
+        // Retry raises only runtime envelopes; all authority remains frozen.
+        bounds.raise_runtime_envelope_to_conservative();
+    }
     let prompt = &run.task_spec["prompt"];
     let provenance = PromptProvenance {
         prompt_id: prompt["prompt_id"].as_str().unwrap_or("agent").to_owned(),

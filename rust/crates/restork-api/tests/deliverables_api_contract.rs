@@ -447,6 +447,53 @@ async fn model_presentation_accepts_a_user_brief_theme_and_slide_count_without_a
     let base_url = spawn_mock_ollama(&model_draft).await;
     configure_ollama_profile(&app, &authorization, &base_url).await;
 
+    let skill_package = json!({
+        "format": "agent_skill_v1",
+        "files": [{
+            "path": "SKILL.md",
+            "content": "---\nname: ppt-master\ndescription: Presentation planning guidance\n---\nUse action titles and a deliberate narrative rhythm.\n"
+        }]
+    });
+    let (status, preview) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/extensions",
+        Some(json!({"package_kind": "skill", "manifest": skill_package.clone()})),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "preview: {preview:?}");
+    let preview_digest = preview.expect("skill preview")["preview_digest"]
+        .as_str()
+        .expect("preview digest")
+        .to_owned();
+    let (status, installed) = call(
+        app.clone(),
+        Method::POST,
+        "/v1/extensions",
+        Some(json!({
+            "package_kind": "skill",
+            "manifest": skill_package,
+            "approved_preview_digest": preview_digest,
+        })),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "install: {installed:?}");
+    let skill_hash = installed.expect("installed skill")["manifest_hash"]
+        .as_str()
+        .expect("manifest hash")
+        .to_owned();
+    let (status, enabled) = call(
+        app.clone(),
+        Method::PATCH,
+        "/v1/extensions/ppt-master",
+        Some(json!({"action": "enable", "expected_hash": skill_hash.clone()})),
+        Some(&authorization),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "enable: {enabled:?}");
+
     let (status, body) = call(
         app,
         Method::POST,
@@ -460,6 +507,7 @@ async fn model_presentation_accepts_a_user_brief_theme_and_slide_count_without_a
             "slide_count": 6,
             "theme_id": "restork-midnight",
             "provider_profile_id": "ollama",
+            "skill_id": "ppt-master",
             "language": "zh-CN",
             "audience": {
                 "audience_id": "team",
@@ -475,6 +523,14 @@ async fn model_presentation_accepts_a_user_brief_theme_and_slide_count_without_a
     let record = body.expect("deck record");
     assert_eq!(record["state"], "outline_review");
     assert_eq!(record["artifact"]["theme"]["theme_id"], "restork-midnight");
+    assert_eq!(
+        record["artifact"]["drafting_skill"]["skill_id"],
+        "ppt-master"
+    );
+    assert_eq!(
+        record["artifact"]["drafting_skill"]["manifest_hash"],
+        skill_hash
+    );
     let slides = record["artifact"]["slides"].as_array().expect("slides");
     assert_eq!(slides.len(), 6, "title plus five model slides");
     assert_eq!(slides[2]["action_title"], "把研究结论变成下一步行动");

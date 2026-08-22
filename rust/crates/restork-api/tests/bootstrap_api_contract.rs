@@ -125,7 +125,7 @@ async fn paired_app() -> (Router, String, TestDirectory) {
 async fn bootstrap_returns_one_typed_workspace_projection() {
     let (app, authorization, _directory) = paired_app().await;
     let (status, body) = call(
-        app,
+        app.clone(),
         Method::GET,
         "/v1/bootstrap?timezone=Asia%2FShanghai",
         None,
@@ -142,6 +142,15 @@ async fn bootstrap_returns_one_typed_workspace_projection() {
     assert_eq!(body["domains"]["sessions"]["state"], "ready");
     assert!(body["workspaceV2"]["dailyContext"]["local_date"].is_string());
     assert!(body["workspaceV2"]["sessions"].is_array());
+    let bundled = body["workspaceV2"]["extensions"]
+        .as_array()
+        .expect("extension catalog")
+        .iter()
+        .find(|record| record["package_id"] == "skill.last-30-days")
+        .expect("bundled Last 30 Days skill");
+    assert_eq!(bundled["state"], "enabled");
+    assert_eq!(bundled["manifest"]["default_mode"], "research");
+    assert!(bundled["manifest"].get("instructions").is_none());
     let providers = body["workspaceV2"]["providerRegistry"]["items"]
         .as_array()
         .expect("provider registry");
@@ -154,6 +163,32 @@ async fn bootstrap_returns_one_typed_workspace_projection() {
         .expect("installation-aware setup command");
     assert!(setup_command.ends_with(" provider configure deepseek"));
     assert!(body["musicSources"].is_array());
+}
+
+#[tokio::test]
+async fn bundled_last_30_days_skill_can_be_frozen_into_a_run_without_installing_it() {
+    let (app, authorization, _directory) = paired_app().await;
+    let (status, created) = call_idempotent(
+        app,
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "goal": "Review current discussion with dated sources.",
+            "mode": "research",
+            "provider_profile_id": "deepseek",
+            "auto_start": false,
+            "skill_ids": ["skill.last-30-days"]
+        }),
+        &authorization,
+        "run-bundled-last-30-days",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CREATED, "{created:?}");
+    let skill = &created.expect("created run")["run"]["task_spec"]["skills"][0];
+    assert_eq!(skill["skill_id"], "skill.last-30-days");
+    assert_eq!(skill["name"], "Last 30 Days · 最近 30 天");
+    assert_eq!(skill["manifest_hash"].as_str().map(str::len), Some(64));
 }
 
 #[tokio::test]
@@ -284,6 +319,7 @@ async fn durable_agent_runs_are_created_idempotently_and_listed() {
         "goal": "Summarise the frozen evidence.",
         "mode": "research",
         "provider_profile_id": "deepseek",
+        "reasoning_effort": "max",
         "auto_start": false
     });
     let (status, created) = call_idempotent(
@@ -300,6 +336,7 @@ async fn durable_agent_runs_are_created_idempotently_and_listed() {
     assert_eq!(created["replayed"], false);
     assert_eq!(created["started"], false);
     assert_eq!(created["run"]["task_spec"]["data_class"], "public");
+    assert_eq!(created["run"]["task_spec"]["reasoning_effort"], "max");
     let run_id = created["run"]["run_id"]
         .as_str()
         .expect("run id")
@@ -329,7 +366,7 @@ async fn durable_agent_runs_are_created_idempotently_and_listed() {
     assert_eq!(runs.expect("runs")["runs"][0]["summary"]["run_id"], run_id);
 
     let (status, run) = call(
-        app,
+        app.clone(),
         Method::GET,
         &format!("/v1/runs/{run_id}"),
         None,
@@ -338,6 +375,23 @@ async fn durable_agent_runs_are_created_idempotently_and_listed() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(run.expect("run")["state"], "proposed");
+
+    let (status, invalid) = call_idempotent(
+        app,
+        Method::POST,
+        "/v1/runs",
+        json!({
+            "goal": "Reject an unsupported per-run reasoning level.",
+            "mode": "research",
+            "provider_profile_id": "deepseek",
+            "reasoning_effort": "low",
+            "auto_start": false
+        }),
+        &authorization,
+        "run-create-invalid-reasoning",
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{invalid:?}");
 }
 
 #[tokio::test]

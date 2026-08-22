@@ -21,6 +21,10 @@ pub enum ThemeLayout {
     Research,
     Narrative,
     Blueprint,
+    PptMasterApple,
+    PptMasterJangpm,
+    PptMasterMckinsey,
+    PptMasterNaverIr,
 }
 
 /// A frozen, renderer-safe copy of a user-created presentation theme.

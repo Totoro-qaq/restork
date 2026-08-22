@@ -233,6 +233,36 @@ describe("run-first start workspace", () => {
     expect(cancel).toHaveBeenCalledWith("run-active");
   });
 
+  it("does not treat a retryable run as still running on the start page", () => {
+    const state = snapshot();
+    state.runs.push({
+      summary: {
+        run_id: "run-retryable",
+        task_id: "task-retryable",
+        mode: "research",
+        state: "retryable",
+        state_version: 2,
+        stop_reason: "provider_unavailable",
+        created_at: "2026-08-11T00:00:00Z",
+        updated_at: "2026-08-11T00:01:00Z",
+      },
+      task: null,
+      budget: null,
+    });
+    const root = document.createElement("main");
+    root.innerHTML = workspaceMarkup(state, "zh-CN");
+    const resume = vi.fn();
+    configureStartWorkspace(root, state, {
+      submit: () => undefined,
+      selectView: () => undefined,
+      resume,
+    });
+
+    expect(resume).not.toHaveBeenCalled();
+    expect(root.querySelector<HTMLFormElement>("#start-run-form")?.dataset.runBusy).not.toBe("true");
+    expect(root.querySelector<HTMLButtonElement>("[data-start-cancel]")?.hidden).toBe(true);
+  });
+
   it("keeps the goal editable while directing an unconfigured model to Settings", () => {
     const state = snapshot();
     state.provider = null;
@@ -279,6 +309,27 @@ describe("run-first start workspace", () => {
     expect(study?.getAttribute("aria-checked")).toBe("true");
     expect(document.activeElement).toBe(study);
     root.remove();
+  });
+
+  it("lets Chinese IME Enter commit a candidate instead of starting the task", () => {
+    const state = snapshot();
+    const root = document.createElement("main");
+    root.innerHTML = workspaceMarkup(state, "zh-CN");
+    const submit = vi.fn();
+    configureStartWorkspace(root, state, {
+      submit,
+      selectView: () => undefined,
+    });
+    const goal = root.querySelector<HTMLTextAreaElement>("#start-goal")!;
+
+    goal.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "pi" }));
+    goal.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    goal.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "皮" }));
+    // macOS WebKit can emit another Enter after compositionend without the
+    // isComposing flag. That event must also be treated as candidate commit.
+    goal.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it("offers an inline route to fix missing model and Vault configuration", () => {

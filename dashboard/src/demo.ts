@@ -1,5 +1,6 @@
 import { mountDashboard } from "./main";
 import type {
+  AvailableToolsV2,
   ApprovalRequest,
   AiReportDraftInputV2,
   CatalogRecordV2,
@@ -946,6 +947,15 @@ class DemoApi implements DashboardApi {
   async createRun(mode: Mode, goal: string): Promise<RunSummary> {
     return { ...snapshot.runs[0].summary, run_id: `demo-${mode}`, mode, task_id: goal };
   }
+  async listAvailableTools(): Promise<AvailableToolsV2> {
+    return {
+      tools: ["web_search", "vault_search", "source_read", "vault_write"],
+      web_search_supported: true,
+      web_search_backend: "provider",
+      x_search_supported: false,
+      x_search_status: "not_installed",
+    };
+  }
   async prepareStudy(): Promise<StudyDiagnostic> { return studyDiagnostic; }
   async submitStudyDiagnostic(): Promise<StudyArtifact> { return studyArtifact; }
   async submitStudyPractice(
@@ -997,6 +1007,7 @@ class DemoApi implements DashboardApi {
     return { ...input };
   }
   async cancelRun(): Promise<void> {}
+  async retryRun(): Promise<void> {}
   async previewTask(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }
   async captureTask(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }
   async previewResearchNote(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }

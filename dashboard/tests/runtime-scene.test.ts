@@ -43,6 +43,24 @@ describe("runtime scene", () => {
     expect(markup).not.toContain("runtime-facts");
   });
 
+  it("renders cancellation as a terminal state instead of an active task", () => {
+    const markup = agentWaitMarkup("cancelled", "zh-CN", { cancellable: true });
+
+    expect(markup).toContain('data-runtime-active="false"');
+    expect(markup).toContain("已停止，这项任务不再运行");
+    expect(markup).not.toContain("任务进行中");
+    expect(markup).not.toContain("data-runtime-stop");
+    expect(markup).not.toContain("data-runtime-elapsed");
+  });
+
+  it("shows cancellation as pending until Core reports the terminal event", () => {
+    const markup = agentWaitMarkup("cancelling", "zh-CN", { cancellable: true });
+
+    expect(markup).toContain('data-runtime-active="true"');
+    expect(markup).toContain("正在停止任务，等待 Core 确认");
+    expect(markup).not.toContain("data-runtime-stop");
+  });
+
   it("does not promise cancellation for a generic wait scene", () => {
     const markup = agentWaitMarkup("sources", "en");
 

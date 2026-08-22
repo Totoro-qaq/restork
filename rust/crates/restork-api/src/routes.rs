@@ -121,6 +121,10 @@ fn knowledge_routes() -> Router<ApiState> {
         .route("/v1/vault/search", get(vault_api::search_vault_notes))
         .route("/v1/vault/note", get(vault_api::read_vault_note))
         .route("/v1/vault/events", get(vault_api::vault_events))
+        .route(
+            "/v1/tools/available",
+            get(agent_tools::list_available_tools),
+        )
 }
 
 fn mode_routes() -> Router<ApiState> {

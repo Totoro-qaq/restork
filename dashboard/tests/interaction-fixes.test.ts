@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { mountDashboard } from "../src/main";
-import { assistantStreamMarkup, eventRow } from "../src/ui/render";
+import { assistantStreamMarkup, eventRow, runEventsMarkup } from "../src/ui/render";
 import type {
   DashboardApi,
   DashboardSnapshot,
@@ -65,7 +65,7 @@ afterEach(() => {
 });
 
 describe("event rows stay human-readable", () => {
-  it("summarises model telemetry and tucks raw JSON behind a disclosure", () => {
+  it("renders a redacted diagnostic row without nesting another disclosure", () => {
     const row = eventRow({
       id: 7,
       type: "model.completed",
@@ -80,8 +80,45 @@ describe("event rows stay human-readable", () => {
     expect(row).toContain("1,234 tokens");
     expect(row).toContain("web_search");
     expect(row).toContain("$0.0015");
-    expect(row).toContain("<details>");
+    expect(row).not.toContain("<details>");
+    expect(row).toContain("<pre><code>");
     expect(row).toContain("&quot;iteration&quot;");
+  });
+
+  it("keeps raw events in one collapsed developer section and offers retry", () => {
+    const run = runEntry("retryable", "retryable");
+    run.summary.stop_reason = "provider_unavailable";
+    const markup = runEventsMarkup(run, [{
+      id: 1,
+      type: "tool.completed",
+      data: {
+        tool: "vault_search",
+        observation: { result: { items: [{ excerpt: "private note", relative_path: "Private.md" }] } },
+      },
+    }], "zh-CN");
+
+    expect(markup).toContain("任务已暂停，可以重试");
+    expect(markup).toContain("这次模型调用没有完成");
+    expect(markup).not.toContain("模型服务暂时不可用");
+    expect(markup).toContain("data-run-retry");
+    expect(markup).toContain("开发者诊断");
+    expect(markup).toContain("[redacted]");
+    expect(markup).not.toContain("private note");
+    expect(markup).not.toContain("Private.md");
+    expect(markup).not.toContain("技术详情");
+  });
+
+  it("explains the concrete provider failure when Core recorded one", () => {
+    const run = runEntry("retryable-specific", "retryable");
+    run.summary.stop_reason = "provider_unavailable";
+    const markup = runEventsMarkup(run, [{
+      id: 2,
+      type: "provider.failed",
+      data: { kind: "invalid_response", retryable: false },
+    }], "zh-CN");
+
+    expect(markup).toContain("模型返回了 Restork 暂时无法读取的响应");
+    expect(markup).toContain("模型调用中断");
   });
 
   it("renders Chinese summaries for a Chinese locale", () => {
@@ -116,7 +153,7 @@ describe("assistant stream upgrades the research envelope", () => {
     expect(markup).toContain("<pre data-assistant-stream>");
   });
 
-  it("renders the answer with claims and tucks the raw JSON away", () => {
+  it("renders the answer with claims without exposing the raw JSON envelope", () => {
     const envelope = JSON.stringify({
       answer: "这是回答。",
       claims: [
@@ -131,7 +168,8 @@ describe("assistant stream upgrades the research envelope", () => {
     expect(markup).toContain("https://a.test/x");
     expect(markup).toContain("关键论断");
     expect(markup).toContain("两处来源矛盾");
-    expect(markup).toContain("<details>");
+    expect(markup).not.toContain("<details>");
+    expect(markup).not.toContain("claim_id");
     expect(markup).toContain("data-assistant-stream");
   });
 
@@ -145,8 +183,8 @@ describe("assistant stream upgrades the research envelope", () => {
     const markup = assistantStreamMarkup(payload, "zh-CN");
     expect(markup).toContain("学习诊断 · 2 个问题已就绪");
     expect(markup).not.toContain("<pre data-assistant-stream>");
-    // 原始负载仍然可审计，但折进 details 里
-    expect(markup).toContain("<details>");
+    expect(markup).not.toContain("<details>");
+    expect(markup).not.toContain("questions");
     expect(markup).not.toMatch(/^<pre/);
   });
 
@@ -156,7 +194,8 @@ describe("assistant stream upgrades the research envelope", () => {
     });
     const markup = assistantStreamMarkup(payload, "zh-CN");
     expect(markup).toContain("工作计划 · 2 个步骤已就绪");
-    expect(markup).toContain("<details>");
+    expect(markup).not.toContain("<details>");
+    expect(markup).not.toContain("plan_steps");
     expect(markup).not.toMatch(/^<pre/);
   });
 

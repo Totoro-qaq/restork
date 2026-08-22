@@ -25,6 +25,9 @@ export function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Local
   const reports = records.filter((record) => record.kind === "daily_report" || record.kind === "weekly_report");
   const templates = snapshot.workspaceV2?.presentationTemplates ?? [];
   const providers = snapshot.workspaceV2?.providers ?? [];
+  const enabledSkills = (snapshot.workspaceV2?.extensions ?? []).filter(
+    (record) => record.package_kind === "skill" && record.state === "enabled",
+  );
   const providerOptions = providers.map((record) => (
     `<option value="${escapeHtml(record.provider.profile_id)}">`
       + `${escapeHtml(record.provider.display_name)} · ${escapeHtml(record.provider.model)}</option>`
@@ -62,6 +65,15 @@ export function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Local
         )}"></textarea>
       </label>
       <label>${tr(locale, "Model", "模型")}<select name="provider_profile_id" required>${providerOptions}</select></label>
+      <label>${tr(locale, "Presentation skill (optional)", "演示 Skill（可选）")}<select name="skill_id">
+        <option value="">${tr(locale, "Restork built-in only", "仅使用 Restork 内置能力")}</option>
+        ${enabledSkills.map((record) => {
+          const displayName = typeof record.manifest?.display_name === "string"
+            ? record.manifest.display_name
+            : record.package_id;
+          return `<option value="${escapeHtml(record.package_id ?? "")}">${escapeHtml(displayName ?? "Skill")}</option>`;
+        }).join("")}
+      </select><small>${tr(locale, "Only reviewed text guidance is used; scripts and binaries never run.", "只采用审核过的文本指引；不会运行脚本或二进制文件。")}</small></label>
       <label>${tr(locale, "Slides", "页数")}
         <input name="slide_count" type="number" inputmode="numeric"
           min="${MIN_SLIDE_COUNT}" max="${MAX_SLIDE_COUNT}" step="1"
@@ -156,8 +168,22 @@ function deliverableCard(record: CatalogRecordV2, locale: Locale): string {
   }
   const deliverableId = escapeHtml(record.deliverable_id ?? "");
   const revision = record.revision ?? 1;
+  const draftingSkill = record.artifact?.drafting_skill;
+  const draftingSkillName = draftingSkill && typeof draftingSkill === "object" && !Array.isArray(draftingSkill)
+    ? (draftingSkill as Record<string, unknown>).name
+    : null;
+  const themeRecord = record.artifact?.theme;
+  const themeId = themeRecord && typeof themeRecord === "object" && !Array.isArray(themeRecord)
+    ? (themeRecord as Record<string, unknown>).theme_id
+    : null;
+  const rendererLabel = typeof themeId === "string" && themeId.startsWith("ppt-master-")
+    ? ` · ${tr(locale, "PPT Master compatibility renderer", "PPT Master 兼容渲染器")}`
+    : "";
+  const draftingSkillLabel = typeof draftingSkillName === "string"
+    ? ` · Skill: ${escapeHtml(draftingSkillName)}`
+    : "";
   return `<article class="deck-record"><strong>${escapeHtml(title)}</strong>
-    <span>${tr(locale, "Presentation", "演示文稿")} · ${tr(locale, "Ready to review", "可预览")}</span>
+    <span>${tr(locale, "Presentation", "演示文稿")} · ${tr(locale, "Ready to review", "可预览")}${rendererLabel}${draftingSkillLabel}</span>
     <small>${formatDate(record.updated_at, locale)}</small>${deckPreviewMarkup(
       record.artifact,
       locale,
@@ -198,11 +224,20 @@ function deckPreviewMarkup(
     const slide = raw as Record<string, unknown>;
     const title = slidePreviewTitle(slide, locale);
     const lines = slidePreviewLines(slide, claims);
+    const role = typeof slide.role === "string" ? slide.role : "evidence";
     const colors = `--slide-bg:${theme.background};--slide-fg:${theme.foreground};`
       + `--slide-accent:${theme.accent};--slide-accent-2:${theme.accentSecondary}`;
-    const bullets = lines.slice(0, 5).map((line) => `<li>${escapeHtml(line)}</li>`).join("");
-    return `<article class="slide-preview-card" data-slide-layout="${theme.layout}" style="${colors}">
-      <i aria-hidden="true"></i><strong>${escapeHtml(title)}</strong><ul>${bullets}</ul>
+    // The export only numbers timeline and architecture panels; the preview used
+    // to number every role, so a comparison slide previewed as "01 02" and then
+    // exported without them.
+    const numbered = role === "timeline" || role === "architecture";
+    const content = theme.layout.startsWith("ppt_master_")
+      ? `<div class="ppt-master-preview-content">${lines.slice(0, 4).map((line, index) => (
+        `<span>${numbered ? `<b>${String(index + 1).padStart(2, "0")}</b>` : ""}${escapeHtml(line)}</span>`
+      )).join("")}</div>`
+      : `<ul>${lines.slice(0, 5).map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`;
+    return `<article class="slide-preview-card" data-slide-layout="${theme.layout}" data-slide-role="${escapeHtml(role)}" style="${colors}">
+      <i aria-hidden="true"></i><strong>${escapeHtml(title)}</strong>${content}
     </article>`;
   }).join("");
   return `<button type="button" class="quiet-button" data-preview-open data-preview-kind="deck"
@@ -266,7 +301,10 @@ function presentationThemeFromArtifact(snapshot: Record<string, unknown>) {
 }
 
 function isPresentationLayout(value: string): value is PresentationThemeLayoutV2 {
-  return ["editorial", "minimal", "spotlight", "research", "narrative", "blueprint"].includes(value);
+  return [
+    "editorial", "minimal", "spotlight", "research", "narrative", "blueprint",
+    "ppt_master_apple", "ppt_master_jangpm", "ppt_master_mckinsey", "ppt_master_naver_ir",
+  ].includes(value);
 }
 
 function presentationTemplateLibrary(
@@ -290,6 +328,11 @@ function presentationTemplateLibrary(
       : "";
   const recentDate = recentRecord?.usedAt ? ` · ${formatDate(recentRecord.usedAt, locale)}` : "";
   const builtins = BUILTIN_RENDER_THEMES
+    .filter((theme) => !theme.id.startsWith("ppt-master-"))
+    .map((theme) => renderThemeCard(theme, selected, locale))
+    .join("");
+  const pptMaster = BUILTIN_RENDER_THEMES
+    .filter((theme) => theme.id.startsWith("ppt-master-"))
     .map((theme) => renderThemeCard(theme, selected, locale))
     .join("");
   const custom = templates
@@ -311,6 +354,11 @@ function presentationTemplateLibrary(
     <section class="template-group" aria-labelledby="builtin-template-title"><header><div>
       <strong id="builtin-template-title">${tr(locale, "Built into Restork", "内置版式")}</strong>
     </div></header><div class="template-card-grid">${builtins}</div></section>
+    <section class="template-group ppt-master-template-group" aria-labelledby="ppt-master-template-title"><header><div>
+      <small>${tr(locale, "Compatible renderer · reviewed local assets", "兼容渲染器 · 已审核本机资产")}</small>
+      <strong id="ppt-master-template-title">PPT Master</strong>
+      <span>${tr(locale, "Preserves page roles instead of flattening every slide into bullets.", "保留页面角色，不再把所有页面压成项目符号。")}</span>
+    </div></header><div class="template-card-grid">${pptMaster}</div></section>
     <section class="template-group" aria-labelledby="custom-template-title"><header><div>
       <strong id="custom-template-title">${tr(locale, "My templates", "我的模板")}</strong>
     </div></header><div class="template-card-grid" data-template-list>${custom}</div>${nextButton}</section>
@@ -393,6 +441,27 @@ function themePreviewGraphic(
       <circle cx="31" cy="28" r="4" class="theme-preview-accent" fill="${accent}"/>
       <circle cx="82" cy="28" r="4" class="theme-preview-secondary" fill="${secondary}"/>
       <circle cx="105" cy="62" r="4" class="theme-preview-accent" fill="${accent}"/>`,
+    ppt_master_apple: `<rect x="12" y="10" width="16" height="2" fill="${accent}"/>
+      <rect x="12" y="20" width="104" height="12" rx="2" fill="${foreground}"/>
+      <rect x="12" y="42" width="63" height="27" rx="3" fill="#f5f5f7"/>
+      <rect x="81" y="42" width="63" height="27" rx="3" fill="#f5f5f7"/>
+      <rect x="12" y="80" width="136" height="1" fill="#d2d2d7"/>`,
+    ppt_master_jangpm: `<rect x="11" y="14" width="5" height="25" fill="${accent}"/>
+      <rect x="23" y="14" width="92" height="10" rx="2" fill="${foreground}"/>
+      <rect x="23" y="42" width="57" height="29" rx="3" fill="#ffffff"/>
+      <rect x="86" y="42" width="57" height="29" rx="3" fill="#ffffff"/>
+      <rect x="11" y="80" width="138" height="1" fill="#e5e7eb"/>`,
+    ppt_master_mckinsey: `<rect x="7" y="8" width="12" height="3" fill="${accent}"/>
+      <rect x="7" y="17" width="125" height="8" rx="1" fill="${foreground}"/>
+      <rect x="7" y="31" width="146" height="1" fill="#999999"/>
+      <rect x="7" y="40" width="70" height="30" fill="#f2f2f2"/>
+      <rect x="83" y="40" width="70" height="30" fill="#f2f2f2"/>
+      <rect x="7" y="81" width="146" height="1" fill="#d0d0d0"/>`,
+    ppt_master_naver_ir: `<rect x="0" y="0" width="6" height="90" fill="${accent}"/>
+      <rect x="16" y="14" width="104" height="10" rx="2" fill="${foreground}"/>
+      <rect x="16" y="38" width="61" height="31" rx="2" fill="#f7f8f8"/>
+      <rect x="83" y="38" width="61" height="31" rx="2" fill="#f7f8f8"/>
+      <rect x="16" y="80" width="128" height="1" fill="#e5e5e5"/>`,
   };
   return `<svg class="theme-preview-svg" data-preview-layout="${layout}" viewBox="0 0 160 90"`
     + ` role="img" focusable="false">${frame}${graphics[layout]}</svg>`;

@@ -10,7 +10,8 @@ export interface BuiltinRenderTheme {
   foreground: string;
   accent: string;
   accentSecondary: string;
-  layout: "editorial" | "minimal" | "spotlight" | "research" | "narrative" | "blueprint";
+  layout: "editorial" | "minimal" | "spotlight" | "research" | "narrative" | "blueprint"
+    | "ppt_master_apple" | "ppt_master_jangpm" | "ppt_master_mckinsey" | "ppt_master_naver_ir";
 }
 
 /**
@@ -48,6 +49,26 @@ export const BUILTIN_RENDER_THEMES: readonly BuiltinRenderTheme[] = [
     id: "restork-blueprint", nameEn: "Blueprint", nameZh: "数据蓝图",
     descriptionEn: "Structured navy for architecture and plans.", descriptionZh: "深蓝结构化画布，适合架构、数据与计划。",
     background: "#eaf2ff", foreground: "#102a56", accent: "#1d4ed8", accentSecondary: "#7c3aed", layout: "blueprint",
+  },
+  {
+    id: "ppt-master-apple", nameEn: "PPT Master · Apple", nameZh: "PPT Master · Apple",
+    descriptionEn: "13-layout monochrome product keynote compatibility pack.", descriptionZh: "兼容上游 13 页黑白产品发布 deck。",
+    background: "#ffffff", foreground: "#1d1d1f", accent: "#1d1d1f", accentSecondary: "#6e6e73", layout: "ppt_master_apple",
+  },
+  {
+    id: "ppt-master-jangpm", nameEn: "PPT Master · JangPM", nameZh: "PPT Master · JangPM",
+    descriptionEn: "Editorial lecture and report compatibility pack.", descriptionZh: "兼容上游编辑式讲义与报告 deck。",
+    background: "#fafaf9", foreground: "#1a1a1a", accent: "#4633e3", accentSecondary: "#e8e5fc", layout: "ppt_master_jangpm",
+  },
+  {
+    id: "ppt-master-mckinsey", nameEn: "PPT Master · McKinsey style", nameZh: "PPT Master · 咨询报告",
+    descriptionEn: "10-layout evidence-first strategy deck compatibility pack.", descriptionZh: "兼容上游 10 页证据优先策略 deck。",
+    background: "#ffffff", foreground: "#1a1a1a", accent: "#0f2a4a", accentSecondary: "#2e9bd6", layout: "ppt_master_mckinsey",
+  },
+  {
+    id: "ppt-master-naver-ir", nameEn: "PPT Master · NAVER IR", nameZh: "PPT Master · NAVER IR",
+    descriptionEn: "7-layout restrained investor-relations compatibility pack.", descriptionZh: "兼容上游 7 页克制型投资者关系 deck。",
+    background: "#ffffff", foreground: "#262626", accent: "#03c75a", accentSecondary: "#4472c4", layout: "ppt_master_naver_ir",
   },
 ] as const;
 
