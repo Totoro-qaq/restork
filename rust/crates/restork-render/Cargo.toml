@@ -11,7 +11,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2.workspace = true
 subsetter.workspace = true
-ttf-parser.workspace = true
+skrifa.workspace = true
 
 [lib]
 name = "restork_render"

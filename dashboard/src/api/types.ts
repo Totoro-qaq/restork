@@ -11,7 +11,6 @@ export interface CatalogCursorV2 {
   id: string;
   version: number;
 }
-
 export type PresentationThemeLayoutV2 =
   | "editorial" | "minimal" | "spotlight" | "research" | "narrative" | "blueprint"
   | "ppt_master_apple" | "ppt_master_jangpm" | "ppt_master_mckinsey" | "ppt_master_naver_ir";
@@ -1145,7 +1144,6 @@ export interface ReasoningConfigV2 {
 }
 
 export type XSearchStatusV2 = "ready" | "not_installed" | "login_required";
-
 export interface AvailableToolsV2 {
   tools: string[];
   web_search_supported: boolean;

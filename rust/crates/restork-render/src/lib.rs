@@ -7,9 +7,9 @@ use restork_deliverables::deck::{ThemeLayout, ThemeSnapshot};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use skrifa::prelude::{FontRef, LocationRef, MetadataProvider, Size};
 use std::collections::{BTreeMap, BTreeSet};
 use subsetter::{GlyphRemapper, Tag, subset_with_variations};
-use ttf_parser::{Face, GlyphId};
 
 const MAX_SLIDES: usize = 200;
 const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
@@ -1880,8 +1880,11 @@ struct PdfCjkFont {
 
 impl PdfCjkFont {
     fn build(deck: &DeckView) -> Result<Self, RenderError> {
-        let face = Face::parse(CJK_FONT, 0).map_err(|_| RenderError::Encoding)?;
-        let units = u32::from(face.units_per_em()).max(1);
+        let font = FontRef::new(CJK_FONT).map_err(|_| RenderError::Encoding)?;
+        let metrics = font.metrics(Size::unscaled(), LocationRef::default());
+        let glyph_metrics = font.glyph_metrics(Size::unscaled(), LocationRef::default());
+        let charmap = font.charmap();
+        let units = u32::from(metrics.units_per_em).max(1);
         let characters = pdf_cjk_characters(deck);
         if characters.len() >= usize::from(u16::MAX) {
             return Err(RenderError::OutsideLimits);
@@ -1892,14 +1895,20 @@ impl PdfCjkFont {
         let mut source_glyphs = Vec::with_capacity(characters.len());
         let mut advances = Vec::with_capacity(characters.len());
         for (index, character) in characters.into_iter().enumerate() {
-            let glyph = face.glyph_index(character).unwrap_or(GlyphId(0));
-            remapper.remap(glyph.0);
+            let glyph = charmap.map(character).unwrap_or_default();
+            let source_glyph =
+                u16::try_from(glyph.to_u32()).map_err(|_| RenderError::OutsideLimits)?;
+            remapper.remap(source_glyph);
             mapping.insert(
                 character,
                 u16::try_from(index + 1).map_err(|_| RenderError::OutsideLimits)?,
             );
-            source_glyphs.push(glyph.0);
-            let advance = u32::from(face.glyph_hor_advance(glyph).unwrap_or(face.units_per_em()));
+            source_glyphs.push(source_glyph);
+            let advance = glyph_metrics
+                .advance_width(glyph)
+                .unwrap_or(f32::from(metrics.units_per_em))
+                .round()
+                .max(0.0) as u32;
             advances.push((advance.saturating_mul(1_000) + units / 2) / units);
         }
 
@@ -1926,8 +1935,8 @@ impl PdfCjkFont {
             )
         };
         let to_unicode = to_unicode_cmap(&mapping).into_bytes();
-        let bounds = face.global_bounding_box();
-        let scale = |value: i16| (f64::from(value) * 1_000.0 / f64::from(units)).round() as i32;
+        let bounds = metrics.bounds.ok_or(RenderError::Encoding)?;
+        let scale = |value: f32| (value * 1_000.0 / units as f32).round() as i32;
         Ok(Self {
             base_font,
             subset,
@@ -1941,9 +1950,9 @@ impl PdfCjkFont {
                 scale(bounds.x_max),
                 scale(bounds.y_max),
             ],
-            ascent: scale(face.ascender()),
-            descent: scale(face.descender()),
-            cap_height: scale(face.ascender()),
+            ascent: scale(metrics.ascent),
+            descent: scale(metrics.descent),
+            cap_height: scale(metrics.cap_height.unwrap_or(metrics.ascent)),
         })
     }
 
