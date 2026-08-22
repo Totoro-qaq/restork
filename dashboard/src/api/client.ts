@@ -1009,6 +1009,16 @@ export class LocalApiClient implements DashboardApi {
     );
   }
 
+  async retryRun(runId: string): Promise<void> {
+    await this.#request<{ run_id: string; state: string }>(
+      "POST",
+      `/v1/runs/${encodeURIComponent(runId)}/advance`,
+      { approved_tool_calls: [], denied_tool_calls: [] },
+      true,
+      `dashboard-run-retry-${crypto.randomUUID()}`,
+    );
+  }
+
   async loadRunSummary(runId: string): Promise<PendingRunSummary | null> {
     const path = `/v1/runs/${encodeURIComponent(runId)}/summary-suggestion`;
     const response = await this.#fetch(path, { method: "GET", headers: { Accept: "application/json" } }, true);
@@ -1359,7 +1369,7 @@ export class LocalApiClient implements DashboardApi {
         true,
       ),
       onEvent,
-      terminalTypes: new Set(["run.completed", "run.failed", "run.cancelled"]),
+      terminalTypes: new Set(["run.completed", "run.failed", "run.cancelled", "run.stopped"]),
       signal,
       responseError: apiError,
     });

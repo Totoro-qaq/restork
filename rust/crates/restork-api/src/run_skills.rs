@@ -44,6 +44,17 @@ pub(crate) fn prepare_run(
     })
 }
 
+pub(crate) fn prepare_deliverable_guidance(
+    storage: &Database,
+    skill_id: Option<&str>,
+) -> Result<Option<FrozenSkill>, Response> {
+    let Some(skill_id) = skill_id.filter(|value| !value.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let mut skills = resolve(storage, &[skill_id.to_owned()])?;
+    Ok(skills.pop())
+}
+
 pub(crate) fn audit_value(skills: &[FrozenSkill]) -> Value {
     json!(
         skills

@@ -2,6 +2,7 @@ import "./styles.css";
 
 import { LocalApiClient, systemTimeZone } from "./api/client";
 import { bindDesktopExternalLinks, detectDesktopBridge } from "./desktop";
+import { isRunActive } from "./runState";
 import type { DesktopBridge } from "./desktop";
 import type {
   ConversationTurn,
@@ -2450,7 +2451,7 @@ function resumeStartRunFromSnapshot(
   snapshot: DashboardSnapshot,
 ): void {
   const active = snapshot.runs.find(
-    (entry) => !["completed", "failed", "cancelled"].includes(entry.summary.state),
+    (entry) => isRunActive(entry.summary.state),
   );
   if (active) {
     resumeStartRun(
@@ -3032,6 +3033,15 @@ async function showRun(
       bindRunDetailTabs(detail, (tab) => {
         activeTab = tab;
       });
+      detail.querySelector<HTMLButtonElement>("[data-run-retry]")?.addEventListener("click", (event) => {
+        void retryRun(
+          root,
+          api,
+          run.summary.run_id,
+          received.at(-1)?.id ?? 0,
+          event.currentTarget as HTMLButtonElement,
+        );
+      });
       detail.querySelector<HTMLButtonElement>('[data-page-kind="events"]')?.addEventListener(
         "click",
         (event) => {
@@ -3110,9 +3120,18 @@ async function showRun(
     };
     render(true);
     const after = received.at(-1)?.id ?? 0;
-    if (!["completed", "failed", "cancelled"].includes(run.summary.state)) {
+    if (isRunActive(run.summary.state)) {
       startEventStream(root, api, run.summary.run_id, after, (event) => {
         received.push(event);
+        if (isRunTerminalEvent(event)) {
+          const eventState = typeof event.data.state === "string" ? event.data.state : "";
+          run.summary.state = eventState || terminalStateForEvent(event.type);
+          run.summary.stop_reason = typeof event.data.stop_reason === "string"
+            ? event.data.stop_reason
+            : run.summary.stop_reason;
+          render();
+          return;
+        }
         // Append one row. Re-rendering the whole run per event made live
         // streaming quadratic and destroyed focus, selection, and scroll.
         if (!appendRunEvent(detail, event, localeOf(root))) render();
@@ -3120,6 +3139,38 @@ async function showRun(
     }
   } catch (error) {
     detail.textContent = errorText(error, localeOf(root));
+  }
+}
+
+async function retryRun(
+  root: HTMLElement,
+  api: DashboardApi,
+  runId: string,
+  after: number,
+  button: HTMLButtonElement,
+): Promise<void> {
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  try {
+    if (!api.retryRun) throw new Error(tr(
+      localeOf(root),
+      "The connected Core does not support retrying this task.",
+      "当前连接的 Core 不支持重试这项任务。",
+    ));
+    await api.retryRun(runId);
+    announceStatus(root, tr(localeOf(root), "Task restarted.", "任务已重新开始。"));
+    await refresh(root, api, "runs");
+    // The advance response only confirms scheduling. Keep following the same
+    // durable run so a fast provider failure cannot leave the refreshed UI on
+    // the transient `running` snapshot.
+    startEventStream(root, api, runId, after, (event) => {
+      if (!isRunTerminalEvent(event)) return;
+      void refresh(root, api, currentPanel(root) || "runs");
+    }, "retry-status");
+  } catch (error) {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    announceError(root, errorText(error, localeOf(root)));
   }
 }
 
@@ -3505,9 +3556,8 @@ function bindListInteractions(
       host.querySelectorAll<HTMLButtonElement>("[data-run-filter]").forEach((peer) => {
         peer.setAttribute("aria-pressed", String(peer === button));
       });
-      const terminal = ["completed", "failed", "cancelled"];
       host.querySelectorAll<HTMLElement>("[data-run-list] [data-run-state]").forEach((item) => {
-        const live = !terminal.includes(item.dataset.runState ?? "");
+        const live = isRunActive(item.dataset.runState ?? "");
         item.hidden = filter === "live" ? !live : false;
       });
     });
@@ -3618,6 +3668,7 @@ function stopEventStream(root: HTMLElement): void {
 
 function waitStageForEvent(current: AgentWaitStage, event: RunEvent): AgentWaitStage {
   if (event.type === "run.cancelled") return "cancelled";
+  if (event.type === "run.stopped") return "error";
   if (["run.failed", "research.failed", "study.failed", "work.failed", "model.failed"].includes(event.type)) return "error";
   if (event.type === "run.completed") return "complete";
   if (event.type === "retry.scheduled") return "retry";
@@ -3628,6 +3679,16 @@ function waitStageForEvent(current: AgentWaitStage, event: RunEvent): AgentWaitS
   if (state === "verifying") return "verify";
   if (state === "completed") return "complete";
   return current;
+}
+
+function isRunTerminalEvent(event: RunEvent): boolean {
+  return ["run.completed", "run.failed", "run.cancelled", "run.stopped"].includes(event.type);
+}
+
+function terminalStateForEvent(type: string): string {
+  if (type === "run.completed") return "completed";
+  if (type === "run.cancelled") return "cancelled";
+  return "failed";
 }
 
 async function refresh(root: HTMLElement, api: DashboardApi, view = "start"): Promise<void> {

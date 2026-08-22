@@ -104,9 +104,10 @@ impl AgentBounds {
             maximum_iterations: 16,
             maximum_repairs: 4,
             maximum_provider_retries: 2,
-            // One server-side web search can take 30-60s and tool calls run
-            // sequentially; 120s starved any research run that searched twice.
-            maximum_wall_time_ms: 300_000,
+            // External tools run sequentially. Grok-backed Web/X searches each
+            // have a 180s safety timeout, so a healthy research turn with two
+            // Web calls plus one X call can legitimately exceed five minutes.
+            maximum_wall_time_ms: 900_000,
             // Thinking-mode providers (e.g. DeepSeek with reasoning effort) bill
             // reasoning tokens into usage; a single vault-grounded study
             // diagnostic was observed at ~73k total tokens, so 64k stopped
@@ -115,9 +116,20 @@ impl AgentBounds {
             // Same rationale for cost: one observed diagnostic cost ~$0.032; a
             // full diagnostic + learning-path flow needs headroom over $0.10.
             maximum_cost_usd_micros: 500_000,
-            maximum_output_tokens_per_request: 8_192,
+            // A reviewed Vault replacement is encoded inside one structured
+            // tool call. Citation-rich notes can exceed 16k model tokens once
+            // JSON escaping and reasoning-provider accounting are included.
+            maximum_output_tokens_per_request: 32_768,
             maximum_context_tokens: 64_000,
         }
+    }
+
+    pub fn raise_runtime_envelope_to_conservative(&mut self) {
+        let current = Self::conservative();
+        self.maximum_wall_time_ms = self.maximum_wall_time_ms.max(current.maximum_wall_time_ms);
+        self.maximum_output_tokens_per_request = self
+            .maximum_output_tokens_per_request
+            .max(current.maximum_output_tokens_per_request);
     }
 
     fn validate(self) -> Result<Self, AgentError> {
@@ -156,6 +168,7 @@ pub enum AgentStopReason {
     ProviderAuthentication,
     ProviderConfiguration,
     ProviderUnavailable,
+    OutputLimit,
     CheckpointConflict,
 }
 
@@ -175,6 +188,7 @@ impl AgentStopReason {
             Self::ProviderAuthentication => "provider_authentication",
             Self::ProviderConfiguration => "provider_configuration",
             Self::ProviderUnavailable => "provider_unavailable",
+            Self::OutputLimit => "output_limit",
             Self::CheckpointConflict => "checkpoint_conflict",
         }
     }
@@ -346,6 +360,26 @@ impl DurableAgent {
                     .map_err(|_| AgentError::InvalidCheckpoint)
             },
         )?;
+
+        let repaired_tool_messages = remove_orphaned_tool_messages(&mut checkpoint.messages);
+        let repaired_system_messages = normalize_compaction_summaries(&mut checkpoint.messages);
+        if repaired_tool_messages > 0 || repaired_system_messages > 0 {
+            last_sequence = self.append_event(
+                run_id,
+                "context.repaired",
+                json!({
+                    "removed_orphan_tool_messages": repaired_tool_messages,
+                    "normalized_compaction_summaries": repaired_system_messages,
+                    "tool_history_is_contiguous": true,
+                }),
+            )?;
+            self.save_checkpoint(
+                run_id,
+                &checkpoint,
+                &mut expected_checkpoint_sequence,
+                last_sequence,
+            )?;
+        }
 
         if run.state == "awaiting_approval" {
             let Some(call) = checkpoint.pending_tool.clone() else {
@@ -573,6 +607,14 @@ impl DurableAgent {
                     continue;
                 }
                 Ok(Err(ModelCallError::Provider(error))) => {
+                    last_sequence = self.append_event(
+                        run_id,
+                        "provider.failed",
+                        json!({
+                            "kind": error.status(),
+                            "retryable": retryable_provider(&error),
+                        }),
+                    )?;
                     let reason = provider_stop_reason(&error);
                     return self.finish(
                         &mut run,
@@ -622,6 +664,16 @@ impl DurableAgent {
             }
 
             if completion.tool_calls.is_empty() {
+                if output_was_truncated(completion.finish_reason.as_deref()) {
+                    return self.finish(
+                        &mut run,
+                        &checkpoint,
+                        &mut expected_checkpoint_sequence,
+                        &mut last_sequence,
+                        AgentStopReason::OutputLimit,
+                        None,
+                    );
+                }
                 return self.finish(
                     &mut run,
                     &checkpoint,
@@ -750,10 +802,14 @@ impl DurableAgent {
     }
 
     fn claim_running(&self, run: &RunRecord) -> Result<RunRecord, AgentError> {
-        if !matches!(
-            run.state.as_str(),
-            "proposed" | "retryable" | "awaiting_approval"
-        ) {
+        let legacy_wall_time_retry = run.state == "failed"
+            && run.stop_reason.as_deref() == Some(AgentStopReason::WallTimeLimit.as_str());
+        if !legacy_wall_time_retry
+            && !matches!(
+                run.state.as_str(),
+                "proposed" | "retryable" | "awaiting_approval"
+            )
+        {
             return Err(AgentError::AlreadyAdvancing);
         }
         self.storage
@@ -932,7 +988,9 @@ impl DurableAgent {
         if tokens <= self.bounds.maximum_context_tokens || checkpoint.messages.len() <= 8 {
             return Ok(());
         }
-        let split = checkpoint.messages.len().saturating_sub(6).max(2);
+        let Some(split) = compaction_split_index(&checkpoint.messages) else {
+            return Ok(());
+        };
         let removed = checkpoint.messages[1..split].to_vec();
         let summary = removed
             .iter()
@@ -945,7 +1003,7 @@ impl DurableAgent {
         checkpoint.messages.splice(
             1..split,
             [ChatMessage::text(
-                "system",
+                "user",
                 format!(
                     "Visible context compaction of {} contiguous earlier messages:\n{}",
                     removed.len(),
@@ -1009,7 +1067,12 @@ impl DurableAgent {
             AgentStopReason::Completed => "completed",
             AgentStopReason::Cancelled => "cancelled",
             AgentStopReason::ApprovalRequired => "awaiting_approval",
-            AgentStopReason::ProviderUnavailable => "retryable",
+            // The checkpoint is saved after every completed tool observation.
+            // A new advance gets a fresh wall-clock window and can safely
+            // continue without replaying those read-only calls.
+            AgentStopReason::ProviderUnavailable
+            | AgentStopReason::WallTimeLimit
+            | AgentStopReason::OutputLimit => "retryable",
             _ => "failed",
         };
         *last_sequence = self.append_event(
@@ -1076,6 +1139,80 @@ impl DurableAgent {
     }
 }
 
+/// Pick a compaction boundary between complete protocol turns. A tool result
+/// must never survive without the assistant tool call that declared its id.
+fn compaction_split_index(messages: &[ChatMessage]) -> Option<usize> {
+    if messages.len() <= 8 {
+        return None;
+    }
+    let desired = messages.len().saturating_sub(6).max(2);
+    if messages.get(desired)?.role != "tool" {
+        return (desired < messages.len()).then_some(desired);
+    }
+
+    // Prefer removing the entire older tool-call group. This preserves the
+    // newest complete group while still reducing a large context materially.
+    let mut after_group = desired;
+    while after_group < messages.len() && messages[after_group].role == "tool" {
+        after_group += 1;
+    }
+    if after_group < messages.len() {
+        return Some(after_group);
+    }
+
+    // The newest group itself is wider than the six-message retention target;
+    // retain it in full instead of creating orphan tool results.
+    let mut before_group = desired;
+    while before_group > 1 && messages[before_group].role == "tool" {
+        before_group -= 1;
+    }
+    (before_group > 1).then_some(before_group)
+}
+
+/// Repair snapshots produced by older compaction code. Only structurally
+/// orphaned tool results are removed; user and assistant content is untouched.
+fn remove_orphaned_tool_messages(messages: &mut Vec<ChatMessage>) -> usize {
+    let before = messages.len();
+    let mut pending_tool_calls = BTreeSet::new();
+    messages.retain(|message| match message.role.as_str() {
+        "assistant" => {
+            pending_tool_calls = message
+                .tool_calls
+                .iter()
+                .map(|call| call.id.clone())
+                .collect();
+            true
+        }
+        "tool" => message
+            .tool_call_id
+            .as_deref()
+            .is_some_and(|call_id| pending_tool_calls.remove(call_id)),
+        _ => {
+            pending_tool_calls.clear();
+            true
+        }
+    });
+    before.saturating_sub(messages.len())
+}
+
+/// Older compaction snapshots inserted an additional system message after the
+/// initial system prompt. Some OpenAI-compatible providers, including GLM,
+/// require system instructions to remain first and unique.
+fn normalize_compaction_summaries(messages: &mut [ChatMessage]) -> usize {
+    let mut repaired = 0;
+    for message in messages.iter_mut().skip(1) {
+        if message.role == "system"
+            && message
+                .content
+                .starts_with("Visible context compaction of ")
+        {
+            message.role = "user".to_owned();
+            repaired += 1;
+        }
+    }
+    repaired
+}
+
 fn action_digest(tool_name: &str, normalized_arguments: &Value) -> String {
     let mut hasher = Sha256::new();
     hasher.update(tool_name.as_bytes());
@@ -1117,6 +1254,15 @@ fn retryable_provider(error: &ProviderError) -> bool {
         error,
         ProviderError::RateLimited | ProviderError::Timeout | ProviderError::Unavailable
     )
+}
+
+fn output_was_truncated(finish_reason: Option<&str>) -> bool {
+    finish_reason.is_some_and(|reason| {
+        matches!(
+            reason.to_ascii_lowercase().as_str(),
+            "length" | "max_tokens" | "max_output_tokens" | "model_length"
+        )
+    })
 }
 
 fn provider_stop_reason(error: &ProviderError) -> AgentStopReason {

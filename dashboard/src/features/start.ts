@@ -2,6 +2,7 @@ import type { DashboardSnapshot, Mode, PendingRunSummary } from "../api/types";
 import { localeOf, tr, type Locale } from "../i18n";
 import { fillRunSummaryHost } from "../ui/start";
 import { bindEnterToSubmit } from "../ui/dom";
+import { isRunActive } from "../runState";
 import { configureStartReasoning } from "./startReasoning";
 
 export interface StartWorkspaceEffects {
@@ -231,7 +232,7 @@ export function configureStartWorkspace(
   }
 
   const active = snapshot.runs.find(
-    (entry) => !["completed", "failed", "cancelled"].includes(entry.summary.state),
+    (entry) => isRunActive(entry.summary.state),
   );
   if (active) {
     form.dataset.runBusy = "true";

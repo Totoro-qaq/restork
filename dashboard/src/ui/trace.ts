@@ -10,6 +10,7 @@ export interface TraceToolCall {
 
 export interface TraceIteration {
   iteration: number;
+  completed: boolean;
   tokens: number | null;
   costMicros: number | null;
   plannedTools: string[];
@@ -21,6 +22,8 @@ export interface TraceIteration {
 
 export interface RunTrace {
   iterations: TraceIteration[];
+  completedIterations: number;
+  interruptedIterations: number;
   totalTokens: number | null;
   totalCostMicros: number | null;
   totalTools: number;
@@ -82,6 +85,7 @@ export function buildRunTrace(events: RunEvent[]): RunTrace {
     if (!bucket) {
       bucket = {
         iteration,
+        completed: false,
         tokens: null,
         costMicros: null,
         plannedTools: [],
@@ -117,6 +121,7 @@ export function buildRunTrace(events: RunEvent[]): RunTrace {
         const bucket = ensure(iteration);
         bucket.tokens = num(data.total_tokens);
         bucket.costMicros = num(data.cost_usd_micros);
+        bucket.completed = true;
         bucket.plannedTools = Array.isArray(data.tool_calls)
           ? data.tool_calls.filter((name): name is string => typeof name === "string")
           : [];
@@ -177,8 +182,11 @@ export function buildRunTrace(events: RunEvent[]): RunTrace {
   const tokenSum = iterations.reduce((sum, bucket) => sum + (bucket.tokens ?? 0), 0);
   const costSum = iterations.reduce((sum, bucket) => sum + (bucket.costMicros ?? 0), 0);
   const hasCost = iterations.some((bucket) => bucket.costMicros != null);
+  const completedIterations = iterations.filter((bucket) => bucket.completed).length;
   return {
     iterations,
+    completedIterations,
+    interruptedIterations: iterations.length - completedIterations,
     totalTokens: tokenSum > 0 ? tokenSum : terminalTokens,
     totalCostMicros: hasCost ? costSum : null,
     totalTools,
@@ -194,39 +202,73 @@ function chip(label: string): string {
   return `<span class="trace-chip">${label}</span>`;
 }
 
+const TOOL_LABELS: Record<string, [string, string]> = {
+  vault_search: ["Search knowledge base", "搜索知识库"],
+  source_read: ["Read source", "阅读资料"],
+  web_search: ["Search the web", "搜索网页"],
+  x_search: ["Search X", "搜索 X"],
+  grok_x_search: ["Search X", "搜索 X"],
+  read_note: ["Read note", "阅读笔记"],
+};
+
+export function toolLabel(name: string, locale: Locale): string {
+  const label = TOOL_LABELS[name];
+  return label ? tr(locale, label[0], label[1]) : name.replaceAll("_", " ");
+}
+
+interface AggregatedTool {
+  name: string;
+  ok: boolean;
+  count: number;
+  resultCount: number;
+}
+
+function aggregateTools(tools: TraceToolCall[]): AggregatedTool[] {
+  const grouped = new Map<string, AggregatedTool>();
+  for (const tool of tools) {
+    const key = `${tool.ok ? "ok" : "failed"}:${tool.name}`;
+    const current = grouped.get(key) ?? { name: tool.name, ok: tool.ok, count: 0, resultCount: 0 };
+    current.count += 1;
+    const resultCount = Number(tool.detail);
+    if (tool.ok && Number.isFinite(resultCount)) current.resultCount += resultCount;
+    grouped.set(key, current);
+  }
+  return [...grouped.values()];
+}
+
 function iterationTitle(bucket: TraceIteration, locale: Locale): string {
-  const tokens = bucket.tokens == null ? "" : ` · ${bucket.tokens.toLocaleString()} tokens`;
-  const cost =
-    bucket.costMicros == null ? "" : ` · $${(bucket.costMicros / 1_000_000).toFixed(4)}`;
-  const tools = bucket.tools.length
-    ? ` · ${bucket.tools.map((tool) => `${tool.ok ? "✓" : "✗"} ${tool.name}`).join(", ")}`
+  const state = bucket.completed
+    ? tr(locale, "Completed", "已完成")
+    : tr(locale, "Interrupted", "已中断");
+  const tools = aggregateTools(bucket.tools);
+  const activity = tools.length
+    ? ` · ${tools.map((tool) => `${toolLabel(tool.name, locale)}${tool.count > 1 ? ` ×${tool.count}` : ""}`).join(" · ")}`
     : "";
-  return `${tr(locale, `Iteration ${bucket.iteration}`, `第 ${bucket.iteration} 轮`)}${tokens}${cost}${tools}`;
+  return `${tr(locale, `Step ${bucket.iteration}`, `第 ${bucket.iteration} 次处理`)} · ${state}${activity}`;
 }
 
 export function traceMarkup(trace: RunTrace, locale: Locale = "en"): string {
   if (trace.iterations.length === 0) return "";
 
-  const chips: string[] = [
-    chip(
-      tr(
-        locale,
-        `${trace.iterations.length} iteration(s)`,
-        `${trace.iterations.length} 轮迭代`,
-      ),
-    ),
-  ];
-  if (trace.totalTokens != null) chips.push(chip(`${trace.totalTokens.toLocaleString()} tokens`));
-  if (trace.totalCostMicros != null) {
-    chips.push(chip(`$${(trace.totalCostMicros / 1_000_000).toFixed(4)}`));
+  const chips: string[] = [chip(tr(
+    locale,
+    `${trace.completedIterations}/${trace.iterations.length} processing steps completed`,
+    `${trace.completedIterations}/${trace.iterations.length} 次处理完成`,
+  ))];
+  if (trace.interruptedIterations > 0) {
+    chips.push(chip(tr(
+      locale,
+      `${trace.interruptedIterations} interrupted`,
+      `${trace.interruptedIterations} 次中断`,
+    )));
   }
   if (trace.totalTools > 0) {
     chips.push(
       chip(
         tr(
           locale,
-          `tools ${trace.totalTools - trace.failedTools}/${trace.totalTools} ok`,
-          `工具 ${trace.totalTools - trace.failedTools}/${trace.totalTools} 成功`,
+          `${trace.totalTools - trace.failedTools}/${trace.totalTools} tool actions completed`,
+          `${trace.totalTools - trace.failedTools}/${trace.totalTools} 次工具操作完成`,
         ),
       ),
     );
@@ -241,13 +283,14 @@ export function traceMarkup(trace: RunTrace, locale: Locale = "en"): string {
     chips.push(chip(tr(locale, `${trace.retries} retry(ies)`, `${trace.retries} 次重试`)));
   }
   if (trace.compactions > 0) {
-    chips.push(chip(tr(locale, `${trace.compactions} compaction(s)`, `${trace.compactions} 次压缩`)));
+    chips.push(chip(tr(locale, `${trace.compactions} context summary`, `${trace.compactions} 次内容整理`)));
   }
 
   const segments = trace.iterations
     .map((bucket) => {
       const classes = ["trace-seg"];
       if (bucket.tools.some((tool) => !tool.ok)) classes.push("has-failure");
+      if (!bucket.completed) classes.push("is-interrupted");
       if (bucket.approvals > 0) classes.push("has-approval");
       if (bucket.compacted) classes.push("has-compaction");
       const weight = Math.max(1, Math.round((bucket.tokens ?? 0) / 100) || 1);
@@ -259,16 +302,19 @@ export function traceMarkup(trace: RunTrace, locale: Locale = "en"): string {
 
   const rows = trace.iterations
     .map((bucket) => {
-      const toolLines = bucket.tools.length
-        ? `<ul class="trace-tools">${bucket.tools
-            .map(
-              (tool) =>
-                `<li class="${tool.ok ? "ok" : "failed"}"><b>${tool.ok ? "✓" : "✗"}</b> ${escape(
-                  tool.name,
-                )}${tool.detail ? ` <small>${escape(tool.detail)}</small>` : ""}</li>`,
-            )
+      const tools = aggregateTools(bucket.tools);
+      const toolLines = tools.length
+        ? `<ul class="trace-tools">${tools
+            .map((tool) => {
+              const results = tool.resultCount > 0
+                ? tr(locale, `${tool.resultCount} results`, `共 ${tool.resultCount} 条结果`)
+                : "";
+              return `<li class="${tool.ok ? "ok" : "failed"}"><b>${tool.ok ? "✓" : "✗"}</b> ${escape(
+                toolLabel(tool.name, locale),
+              )}${tool.count > 1 ? ` ×${tool.count}` : ""}${results ? ` <small>${escape(results)}</small>` : ""}</li>`;
+            })
             .join("")}</ul>`
-        : `<p class="trace-empty">${tr(locale, "No tool calls in this iteration.", "本轮没有工具调用。")}</p>`;
+        : `<p class="trace-empty">${tr(locale, "No source or tool activity in this step.", "这一步没有资料或工具操作。")}</p>`;
       const flags: string[] = [];
       if (bucket.approvals > 0) {
         flags.push(tr(locale, `${bucket.approvals} confirmation(s)`, `${bucket.approvals} 次等待确认`));
@@ -285,12 +331,19 @@ export function traceMarkup(trace: RunTrace, locale: Locale = "en"): string {
     })
     .join("");
 
+  const metrics = trace.totalTokens != null || trace.totalCostMicros != null
+    ? `<details class="trace-metrics"><summary>${tr(locale, "Run data", "运行数据")}</summary><dl>`
+      + `${trace.totalTokens == null ? "" : `<div><dt>Token</dt><dd>${trace.totalTokens.toLocaleString()}</dd></div>`}`
+      + `${trace.totalCostMicros == null ? "" : `<div><dt>${tr(locale, "Estimated cost", "预估费用")}</dt><dd>$${(trace.totalCostMicros / 1_000_000).toFixed(4)}</dd></div>`}`
+      + `</dl></details>`
+    : "";
+
   return `<section class="trace-panel" aria-labelledby="trace-title">
-    <header><p class="eyebrow">${tr(locale, "Sources, tools and retries", "来源、工具与重试")}</p><h3 id="trace-title">${tr(locale, "Run record", "运行记录")}</h3></header>
+    <header><p class="eyebrow">${tr(locale, "Progress and source activity", "进度与资料活动")}</p><h3 id="trace-title">${tr(locale, "Task process", "任务过程")}</h3></header>
     <div class="trace-chips">${chips.join("")}</div>
     <div class="trace-timeline" role="img" aria-label="${escape(
       tr(locale, "Iteration timeline", "迭代时间线"),
     )}">${segments}</div>
-    <ol class="trace-iterations">${rows}</ol>
+    <ol class="trace-iterations">${rows}</ol>${metrics}
   </section>`;
 }

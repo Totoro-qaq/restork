@@ -13,7 +13,8 @@ export interface CatalogCursorV2 {
 }
 
 export type PresentationThemeLayoutV2 =
-  | "editorial" | "minimal" | "spotlight" | "research" | "narrative" | "blueprint";
+  | "editorial" | "minimal" | "spotlight" | "research" | "narrative" | "blueprint"
+  | "ppt_master_apple" | "ppt_master_jangpm" | "ppt_master_mckinsey" | "ppt_master_naver_ir";
 
 export interface PresentationThemeSnapshotV2 {
   theme_id: string;
@@ -1033,6 +1034,7 @@ export interface DeckDraftInputV2 {
   slide_count?: number;
   theme_id: string;
   provider_profile_id: string;
+  skill_id?: string;
   language: string;
   audience: {
     audience_id: string;
@@ -1147,6 +1149,7 @@ export type XSearchStatusV2 = "ready" | "not_installed" | "login_required";
 export interface AvailableToolsV2 {
   tools: string[];
   web_search_supported: boolean;
+  web_search_backend: "provider" | "grok_cli" | "unavailable";
   x_search_supported: boolean;
   x_search_status: XSearchStatusV2;
 }
@@ -1465,6 +1468,7 @@ export interface DashboardApi {
   radarAction(itemId: string, action: RadarAction): Promise<RadarActionResult>;
   configureRadar(input: RadarConfigurationInput): Promise<RadarConfiguration>;
   cancelRun(runId: string): Promise<void>;
+  retryRun?(runId: string): Promise<void>;
   loadRunSummary?(runId: string): Promise<PendingRunSummary | null>;
   acceptRunSummary?(runId: string): Promise<MemoryRecord>;
   dismissRunSummary?(runId: string): Promise<void>;

@@ -1837,7 +1837,7 @@ describe("Rust conversation workspace", () => {
 
     openDashboardView(root, "extensions");
 
-    expect(root.textContent).toContain("Core 内置 Skills");
+    expect(root.textContent).toContain("Restork 可用能力");
     expect(root.textContent).toContain("资料研究与核对");
     expect(root.textContent).toContain("日报与周报");
     expect(root.textContent).toContain("vault_search");
@@ -1845,6 +1845,9 @@ describe("Rust conversation workspace", () => {
     expect(root.textContent).toContain("vault_write");
     expect(root.textContent).toContain("web_search");
     expect(root.querySelectorAll("[data-extension-list] .extension-card")).toHaveLength(0);
+    expect(root.querySelectorAll("[data-extension-list] .capability-card")).toHaveLength(9);
+    expect(root.querySelectorAll('[data-extension-card-kind="skill"]')).toHaveLength(5);
+    expect(root.querySelectorAll('[data-extension-card-kind="tool"]')).toHaveLength(4);
   });
 
   it("makes local or cloud selection explicit when a conversation is created", async () => {
@@ -2159,7 +2162,7 @@ describe("Rust conversation workspace", () => {
     expect(root.querySelector<HTMLElement>('[data-view-panel="extensions"]')?.hidden).toBe(false);
     expect(root.querySelector("#extension-install-form")).not.toBeNull();
     expect(root.textContent).toContain("添加扩展");
-    const installed = root.querySelector<HTMLDetailsElement>('[data-extension-list] [data-extension-card-kind="skill"]');
+    const installed = root.querySelector<HTMLDetailsElement>('[data-extension-list] .extension-card[data-extension-card-kind="skill"]');
     expect(installed?.open).toBe(false);
     expect(installed?.querySelector("summary strong")?.textContent).toBe("Synthetic Research");
     expect(installed?.textContent).toContain("skill.synthetic");
@@ -2174,7 +2177,7 @@ describe("Rust conversation workspace", () => {
     extensionSearch!.value = "paper.search";
     extensionSearch!.dispatchEvent(new Event("input", { bubbles: true }));
     expect(installed?.hidden).toBe(false);
-    expect(root.querySelector<HTMLElement>("[data-extension-result-count]")?.textContent).toContain("1");
+    expect(root.querySelector<HTMLElement>("[data-extension-result-count]")?.textContent).toContain("2");
     extensionSearch!.value = "nothing-matches-this";
     extensionSearch!.dispatchEvent(new Event("input", { bubbles: true }));
     expect(installed?.hidden).toBe(true);
@@ -2188,6 +2191,9 @@ describe("Rust conversation workspace", () => {
     openDashboardView(root, "extensions");
     root.querySelector<HTMLButtonElement>('[data-extension-filter="plugin"]')?.click();
     expect(root.querySelector<HTMLElement>('[data-extension-card-kind="skill"]')?.hidden).toBe(true);
+    root.querySelector<HTMLButtonElement>('[data-extension-filter="tool"]')?.click();
+    expect(root.querySelectorAll<HTMLElement>('[data-extension-card-kind="tool"]:not([hidden])')).toHaveLength(5);
+    expect(root.querySelector<HTMLElement>('.extension-card[data-extension-card-kind="skill"]')?.hidden).toBe(true);
 
     root.querySelector<HTMLButtonElement>('[data-view="deliverables"]')?.click();
     expect(root.querySelector("#manual-report-form")).not.toBeNull();
@@ -2247,7 +2253,7 @@ describe("Rust conversation workspace", () => {
     mountDashboard(root, { api, snapshot: state });
 
     openDashboardView(root, "extensions");
-    expect(root.textContent).toContain("Tools Restork can run");
+    expect(root.textContent).toContain("Capabilities available to Restork");
     expect(root.textContent).toContain("paper.search");
     expect(root.textContent).toContain("network:https://example.com");
 
@@ -2331,7 +2337,7 @@ describe("Rust conversation workspace", () => {
     expect(input.timezone).toBeTruthy();
   });
 
-  it("ships a zero-install presentation studio with six themes, model choice, preview, and download", async () => {
+  it("ships native and PPT Master presentation engines with model choice, faithful preview, and download", async () => {
     const root = document.createElement("main");
     const api = fakeApi();
     const state = workspaceSnapshot();
@@ -2351,6 +2357,14 @@ describe("Rust conversation workspace", () => {
       revision: 1,
       updated_at: "2026-08-04T00:00:00Z",
     }];
+    state.workspaceV2.extensions.push({
+      package_id: "ppt-master",
+      package_kind: "skill",
+      state: "enabled",
+      manifest_hash: "a".repeat(64),
+      manifest: { display_name: "PPT Master" },
+      updated_at: "2026-08-04T00:00:00Z",
+    });
     state.workspaceV2.deliverables.push({
       deliverable_id: "deck-preview",
       kind: "deck",
@@ -2378,12 +2392,15 @@ describe("Rust conversation workspace", () => {
     root.querySelector<HTMLButtonElement>('[data-view="deliverables"]')?.click();
     const form = root.querySelector<HTMLFormElement>("#presentation-studio-form");
     expect(form).not.toBeNull();
-    expect(root.querySelectorAll("[data-render-theme]")).toHaveLength(6);
+    expect(root.querySelectorAll("[data-render-theme]")).toHaveLength(10);
     expect(new Set(Array.from(root.querySelectorAll<HTMLElement>("[data-render-theme]"))
-      .map((element) => element.dataset.themeLayout))).toHaveLength(6);
+      .map((element) => element.dataset.themeLayout))).toHaveLength(10);
+    expect(root.querySelectorAll('.ppt-master-template-group [data-render-theme]')).toHaveLength(4);
     expect(form?.querySelector('textarea[name="brief"]')).not.toBeNull();
     expect(form?.querySelector('input[name="slide_count"][type="number"]')).not.toBeNull();
     expect(form?.querySelector('select[name="provider_profile_id"]')).not.toBeNull();
+    const skillSelect = form?.querySelector<HTMLSelectElement>('select[name="skill_id"]');
+    expect(skillSelect?.textContent).toContain("PPT Master");
     expect(root.querySelectorAll(".slide-preview-card")).toHaveLength(1);
     expect(root.querySelector('[data-render-format="pptx"]')).not.toBeNull();
     expect(root.querySelector('[data-render-format="pdf"]')).not.toBeNull();
@@ -2394,12 +2411,15 @@ describe("Rust conversation workspace", () => {
     const slideCount = form?.elements.namedItem("slide_count");
     if (!(slideCount instanceof HTMLInputElement)) throw new Error("slide_count field");
     slideCount.value = "7";
+    if (!skillSelect) throw new Error("skill field");
+    skillSelect.value = "ppt-master";
     form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await vi.waitFor(() => expect(compose).toHaveBeenCalledOnce());
     expect(compose.mock.calls[0]?.[0]).toMatchObject({
       slide_count: 7,
       theme_id: "restork-print",
       provider_profile_id: "ollama",
+      skill_id: "ppt-master",
       brief: "把研究结论整理成六页团队汇报，并给出下一步。",
     });
   });

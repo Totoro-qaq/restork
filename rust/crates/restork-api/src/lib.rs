@@ -1189,10 +1189,10 @@ struct DeckDraftCompose {
     slide_count: Option<u8>,
     theme_id: String,
     provider_profile_id: String,
+    skill_id: Option<String>,
     language: String,
     audience: AudienceInput,
 }
-
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct PresentationTemplateSource {
@@ -2609,8 +2609,17 @@ fn spawn_agent_run(
     let profile = configured_provider(&state, provider_profile_id)?
         .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "provider is not configured"))?;
     let profile = agent_run_options::stored_reasoning_profile(profile, &run.task_spec)?;
-    let bounds = serde_json::from_value::<AgentBounds>(run.task_spec["bounds"].clone())
+    let mut bounds = serde_json::from_value::<AgentBounds>(run.task_spec["bounds"].clone())
         .map_err(|_| error_response(StatusCode::UNPROCESSABLE_ENTITY, "run bounds are invalid"))?;
+    if run.state == "retryable"
+        && matches!(
+            run.stop_reason.as_deref(),
+            Some("wall_time_limit" | "provider_unavailable" | "output_limit")
+        )
+    {
+        // Retry raises only runtime envelopes; all authority remains frozen.
+        bounds.raise_runtime_envelope_to_conservative();
+    }
     let prompt = &run.task_spec["prompt"];
     let provenance = PromptProvenance {
         prompt_id: prompt["prompt_id"].as_str().unwrap_or("agent").to_owned(),

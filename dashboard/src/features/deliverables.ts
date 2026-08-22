@@ -165,6 +165,7 @@ export function configureDeliverables(
       slide_count: slideCount,
       theme_id: themeId,
       provider_profile_id: providerProfileId,
+      skill_id: String(data.get("skill_id") ?? "").trim() || undefined,
       language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
       audience: {
         audience_id: String(data.get("audience") ?? "team").trim(),

@@ -951,6 +951,7 @@ class DemoApi implements DashboardApi {
     return {
       tools: ["web_search", "vault_search", "source_read", "vault_write"],
       web_search_supported: true,
+      web_search_backend: "provider",
       x_search_supported: false,
       x_search_status: "not_installed",
     };
@@ -1006,6 +1007,7 @@ class DemoApi implements DashboardApi {
     return { ...input };
   }
   async cancelRun(): Promise<void> {}
+  async retryRun(): Promise<void> {}
   async previewTask(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }
   async captureTask(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }
   async previewResearchNote(): Promise<TaskMutationPreview> { return {} as TaskMutationPreview; }

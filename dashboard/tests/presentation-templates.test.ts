@@ -11,7 +11,10 @@ import {
   configurePresentationTemplates,
   inspectPptxArchive,
 } from "../src/features/presentationTemplates";
-import { rememberPresentationThemeId } from "../src/deliverables/themes";
+import {
+  BUILTIN_RENDER_THEMES,
+  rememberPresentationThemeId,
+} from "../src/deliverables/themes";
 import { workspaceMarkup } from "../src/ui/render";
 
 function template(id: string, name = "My deck"): PresentationTemplateRecordV2 {
@@ -96,15 +99,18 @@ describe("presentation template library", () => {
     root.innerHTML = workspaceMarkup(snapshot([template("theme-personal")]), "zh-CN");
 
     expect(root.textContent).toContain("上次使用");
-    expect(root.querySelectorAll("[data-render-theme]")).toHaveLength(7);
+    expect(root.querySelectorAll("[data-render-theme]")).toHaveLength(BUILTIN_RENDER_THEMES.length + 1);
     expect(root.querySelector("[data-template-id] [data-template-delete]")).not.toBeNull();
     expect(root.querySelector("[data-render-theme=restork-print] [data-template-delete]")).toBeNull();
     expect(root.querySelector("[data-template-import]")?.getAttribute("accept")).toContain(".pptx");
     expect(root.querySelectorAll(".template-picker-actions > .template-action-button")).toHaveLength(3);
-    expect(root.querySelectorAll("[data-render-theme] .theme-thumbnail")).toHaveLength(7);
-    expect(root.querySelectorAll("[data-render-theme] .theme-preview-svg")).toHaveLength(7);
+    expect(root.querySelectorAll("[data-render-theme] .theme-thumbnail"))
+      .toHaveLength(BUILTIN_RENDER_THEMES.length + 1);
+    expect(root.querySelectorAll("[data-render-theme] .theme-preview-svg"))
+      .toHaveLength(BUILTIN_RENDER_THEMES.length + 1);
     expect(new Set(Array.from(root.querySelectorAll("[data-render-theme] .theme-preview-svg"))
-      .map((preview) => preview.getAttribute("data-preview-layout"))).size).toBe(6);
+      .map((preview) => preview.getAttribute("data-preview-layout"))).size)
+      .toBe(new Set(BUILTIN_RENDER_THEMES.map((theme) => theme.layout)).size);
     const printTheme = root.querySelector<HTMLElement>("[data-render-theme=restork-print]");
     expect(printTheme?.hasAttribute("style")).toBe(false);
     expect(printTheme?.querySelector(".theme-preview-bg")?.getAttribute("fill")).toBe("#fbf7ef");

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { paintStartRunEvent, prepareStartRunFeedback } from "../src/features/startRunPaint";
+import { paintStartRunEvent, prepareStartRunFeedback, setStartRunBusy } from "../src/features/startRunPaint";
 import type { RunEvent } from "../src/api/types";
 
 function surface(): HTMLElement {
   const host = document.createElement("div");
   host.innerHTML = `
+    <form id="start-run-form"><button type="submit" data-start-submit>开始任务</button></form>
     <span data-run-status></span>
     <button type="button" data-start-cancel hidden></button>
     <section data-start-output hidden>
@@ -52,8 +53,9 @@ describe("start run output painting", () => {
     // 完成后升级为就绪提示卡，而不是原始 JSON
     expect(root.textContent).toContain("学习诊断 · 1 个问题已就绪");
     expect(root.querySelector<HTMLElement>("[data-start-output]")!.hidden).toBe(false);
-    // 原始负载只留在可折叠的 JSON 抽屉里，不会平铺出来
-    expect(root.querySelector("[data-start-output-text] details > summary")?.textContent).toBe("JSON");
+    // 结构化负载不再出现在普通产品界面；原始事件仅在运行页的开发者诊断中保留。
+    expect(root.querySelector("[data-start-output-text] details > summary")).toBeNull();
+    expect(root.querySelector("[data-start-output-text]")?.textContent).not.toContain("questions");
     // 升级后的卡片留在滚动容器内部，渲染宿主本身不能被替换掉
     expect(root.querySelector("[data-start-output-body] [data-start-output-text]")).not.toBeNull();
   });
@@ -100,5 +102,24 @@ describe("start run output painting", () => {
     prepareStartRunFeedback(root, "run-6");
     paintStartRunEvent(root, delta(2, "新的普通回答"), "zh-CN");
     expect(root.querySelector<HTMLElement>("[data-start-output]")!.hidden).toBe(false);
+  });
+
+  it("releases the start page when a retryable run stops", () => {
+    const root = surface();
+    prepareStartRunFeedback(root, "run-7");
+    setStartRunBusy(root, true);
+
+    paintStartRunEvent(root, {
+      id: 4,
+      type: "run.stopped",
+      data: { state: "retryable", stop_reason: "provider_unavailable" },
+    }, "zh-CN");
+
+    const form = root.querySelector<HTMLFormElement>("#start-run-form")!;
+    expect(form.dataset.runBusy).toBe("false");
+    expect(root.querySelector<HTMLButtonElement>("[data-start-submit]")!.disabled).toBe(false);
+    expect(root.querySelector<HTMLButtonElement>("[data-start-cancel]")!.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>("[data-run-status]")!.textContent)
+      .toContain("任务已暂停");
   });
 });

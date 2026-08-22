@@ -1731,12 +1731,15 @@ fn encode_openai_messages(
                     .collect::<Result<Vec<_>, ProviderError>>()?,
             );
         }
-        if matches!(profile.kind(), ProviderKind::DeepSeek | ProviderKind::MiMo) {
+        if matches!(
+            profile.kind(),
+            ProviderKind::DeepSeek | ProviderKind::Glm | ProviderKind::MiMo
+        ) {
             match &message.reasoning_content {
                 Some(reasoning_content) => {
                     value["reasoning_content"] = Value::String(reasoning_content.clone());
                 }
-                // DeepSeek thinking mode rejects multi-turn tool-call history
+                // Thinking-mode providers can reject multi-turn tool-call history
                 // whose assistant messages lack the `reasoning_content` field
                 // (HTTP 400); an empty string satisfies the wire contract.
                 // Restork strips reasoning at rest per the retention policy, so
@@ -2998,7 +3001,7 @@ mod tests {
     }
 
     #[test]
-    fn deepseek_thinking_tool_continuation_carries_reasoning_content() {
+    fn thinking_tool_continuation_carries_reasoning_content_after_resume() {
         let mut assistant = ChatMessage::text("assistant", "");
         assistant.tool_calls.push(ToolCall {
             id: "call-1".to_owned(),
@@ -3018,6 +3021,15 @@ mod tests {
         )
         .expect("DeepSeek continuation without persisted reasoning");
         assert_eq!(body["messages"][0]["reasoning_content"], "");
+        let glm = build_openai_chat_request_with_options(
+            &profile(ProviderKind::Glm),
+            &[assistant.clone()],
+            128,
+            &tool_options(),
+            false,
+        )
+        .expect("GLM continuation without persisted reasoning");
+        assert_eq!(glm["messages"][0]["reasoning_content"], "");
         assistant.reasoning_content = Some("I should inspect the connected vault.".to_owned());
         let body = build_openai_chat_request_with_options(
             &profile(ProviderKind::DeepSeek),
@@ -3154,44 +3166,17 @@ mod tests {
 
     #[tokio::test]
     async fn bounded_json_reader_preserves_body_timeout_classification() {
-        use axum::{Router, body::Body, routing::get};
-        use std::convert::Infallible;
-
-        let app = Router::new().route(
-            "/slow-json",
-            get(|| async {
-                let chunks = futures_util::stream::unfold(0_u8, |state| async move {
-                    match state {
-                        0 => Some((
-                            Ok::<_, Infallible>(bytes::Bytes::from_static(b"{\"status\":")),
-                            1,
-                        )),
-                        1 => {
-                            tokio::time::sleep(Duration::from_millis(200)).await;
-                            Some((Ok(bytes::Bytes::from_static(b"\"completed\"}")), 2))
-                        }
-                        _ => None,
-                    }
-                });
-                Body::from_stream(chunks)
-            }),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("listener");
-        let address = listener.local_addr().expect("address");
-        let server = tokio::spawn(async move {
-            axum::serve(listener, app).await.expect("mock server");
-        });
-        let client = Client::builder()
-            .timeout(Duration::from_millis(75))
-            .build()
-            .expect("test client");
-        let response = client
-            .get(format!("http://{address}/slow-json"))
-            .send()
-            .await
-            .expect("response headers");
+        let chunks = futures_util::stream::iter([
+            Ok(bytes::Bytes::from_static(b"{\"status\":")),
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "synthetic body timeout",
+            )),
+        ]);
+        let response: reqwest::Response = axum::http::Response::builder()
+            .body(reqwest::Body::wrap_stream(chunks))
+            .expect("synthetic response")
+            .into();
 
         assert_eq!(
             read_bounded_json(response, WEB_SEARCH_RESPONSE_MAX_BYTES)
@@ -3199,7 +3184,6 @@ mod tests {
                 .expect_err("body deadline must remain a timeout"),
             ProviderError::Timeout
         );
-        server.abort();
     }
 
     #[tokio::test]

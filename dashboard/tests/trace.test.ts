@@ -76,25 +76,43 @@ describe("traceMarkup", () => {
     expect(html).toContain("trace-timeline");
     expect(html).toContain("has-failure");
     expect(html).toContain("has-compaction");
-    expect(html).toContain("2,600 tokens");
+    expect(html).toContain("Run data");
+    expect(html).toContain("<dd>2,600</dd>");
     expect(html).toContain("$0.0036");
-    expect(html).toContain("tools 1/2 ok");
-    expect(html).toContain("web_search");
-    expect(html).toContain("read_note");
+    expect(html).toContain("1/2 tool actions completed");
+    expect(html).toContain("Search the web");
+    expect(html).toContain("Read note");
+    expect(html).not.toContain("web_search");
   });
 
   it("localizes the header and chips", () => {
     const html = traceMarkup(buildRunTrace(researchEvents()), "zh-CN");
-    expect(html).toContain("运行记录");
-    expect(html).toContain("来源、工具与重试");
-    expect(html).toContain("3 轮迭代");
-    expect(html).toContain("工具 1/2 成功");
-    expect(html).toContain("第 1 轮");
+    expect(html).toContain("任务过程");
+    expect(html).toContain("进度与资料活动");
+    expect(html).toContain("3/3 次处理完成");
+    expect(html).toContain("1/2 次工具操作完成");
+    expect(html).toContain("第 1 次处理");
+    expect(html).toContain("搜索网页");
   });
 
-  it("escapes HTML carried by tool payloads", () => {
+  it("does not expose tool error payloads in the user-facing process", () => {
     const html = traceMarkup(buildRunTrace(researchEvents()));
     expect(html).not.toContain("<missing>");
-    expect(html).toContain("&lt;missing&gt;");
+    expect(html).not.toContain("missing");
+  });
+
+  it("distinguishes completed processing from an interrupted final model call", () => {
+    const events = [
+      ...researchEvents().slice(0, -1),
+      event(13, "model.started", { iteration: 4 }),
+      event(14, "run.stopped", { state: "retryable", stop_reason: "provider_unavailable", total_tokens: 2600 }),
+    ];
+    const trace = buildRunTrace(events);
+    const html = traceMarkup(trace, "zh-CN");
+    expect(trace.completedIterations).toBe(3);
+    expect(trace.interruptedIterations).toBe(1);
+    expect(html).toContain("3/4 次处理完成");
+    expect(html).toContain("1 次中断");
+    expect(html).toContain("第 4 次处理 · 已中断");
   });
 });

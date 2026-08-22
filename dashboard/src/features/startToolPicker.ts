@@ -33,6 +33,7 @@ export function configureToolPicker(
   if (!form || !openButton || !popover) return;
 
   const goal = form.querySelector<HTMLTextAreaElement>("#start-goal");
+  const quickButtons = [...form.querySelectorAll<HTMLButtonElement>("[data-quick-tool-toggle]")];
 
   const close = (): void => {
     popover.hidden = true;
@@ -51,8 +52,18 @@ export function configureToolPicker(
     form.querySelector<HTMLSelectElement>('select[name="provider_profile_id"]')
       ?.addEventListener("change", () => {
         toolCache.delete(form);
-        if (!popover.hidden) void paintToolPicker(root, api, snapshot, form);
+        void paintToolPicker(root, api, snapshot, form);
       });
+    for (const button of quickButtons) {
+      button.addEventListener("click", () => {
+        const providerId = form.querySelector<HTMLSelectElement>('select[name="provider_profile_id"]')?.value ?? "";
+        const listing = toolCache.get(form)?.get(providerId);
+        const toolId = button.dataset.quickToolToggle ?? "";
+        if (!listing || !listing.tools.includes(toolId)) return;
+        toggleTool(root, form, toolId, listing.tools);
+        paintQuickToolToggles(root, form, listing);
+      });
+    }
     popover.addEventListener("click", (event) => {
       const chip = (event.target as Element).closest<HTMLButtonElement>("[data-tool-chip]");
       if (chip) {
@@ -87,6 +98,8 @@ export function configureToolPicker(
     });
   }
   paintPickerBadge(root, form);
+  // 联网状态是开始任务前的核心事实，不能等用户猜到「+」里才加载。
+  void paintToolPicker(root, api, snapshot, form);
 }
 
 /** 词首的「/」：开头，或者前面是空白。 */
@@ -187,6 +200,7 @@ async function paintToolPicker(
     listing = {
       tools: [],
       web_search_supported: false,
+      web_search_backend: "unavailable",
       x_search_supported: false,
       x_search_status: "not_installed",
     };
@@ -197,6 +211,7 @@ async function paintToolPicker(
   const tools = listing.tools;
   const touched = form.dataset.allowedToolsTouched === "1";
   const selected = new Set(touched ? pickedAllowedTools(form) : tools);
+  paintQuickToolToggles(root, form, listing);
   toolHost.replaceChildren();
   for (const tool of tools) {
     const [en, zh] = CORE_TOOL_LABELS[tool] ?? [tool, tool];
@@ -221,11 +236,17 @@ async function paintToolPicker(
     toolHost.append(chip);
   }
   if (note) {
-    if (listing.x_search_status === "ready") {
+    if (listing.web_search_backend === "grok_cli" && listing.x_search_status === "ready") {
       note.textContent = tr(
         locale,
-        "X search uses your authenticated local Grok CLI; model web search stays provider-side.",
-        "X 搜索使用本机已登录的 Grok CLI；普通联网搜索仍由模型供应商执行。",
+        "Web and X search use your authenticated local Grok CLI and work with every selected model.",
+        "网页和 X 搜索均使用本机已登录的 Grok CLI，可供任意所选模型使用。",
+      );
+    } else if (listing.x_search_status === "ready") {
+      note.textContent = tr(
+        locale,
+        "Web search uses this model provider; X search uses your authenticated local Grok CLI.",
+        "网页搜索使用当前模型供应商；X 搜索使用本机已登录的 Grok CLI。",
       );
     } else if (listing.x_search_status === "login_required") {
       note.textContent = tr(locale, "Official Grok CLI is installed. Run grok login and complete xAI OAuth.", "已找到官方 Grok CLI；请在终端运行 grok login 并完成 xAI 登录。");
@@ -237,25 +258,68 @@ async function paintToolPicker(
   }
 }
 
-function toggleToolChip(root: HTMLElement, form: HTMLFormElement, chip: HTMLButtonElement): void {
-  const providerId = form.querySelector<HTMLSelectElement>('select[name="provider_profile_id"]')?.value ?? "";
-  const all = toolCache.get(form)?.get(providerId)?.tools ?? [];
-  const pressed = chip.getAttribute("aria-pressed") === "true";
+function paintQuickToolToggles(
+  root: HTMLElement,
+  form: HTMLFormElement,
+  listing: AvailableToolsV2,
+): void {
+  const locale = localeOf(root);
+  const selected = new Set(
+    form.dataset.allowedToolsTouched === "1" ? pickedAllowedTools(form) : listing.tools,
+  );
+  for (const button of form.querySelectorAll<HTMLButtonElement>("[data-quick-tool-toggle]")) {
+    const toolId = button.dataset.quickToolToggle ?? "";
+    const available = listing.tools.includes(toolId);
+    button.disabled = !available;
+    button.setAttribute("aria-pressed", String(available && selected.has(toolId)));
+    if (toolId === "web_search") {
+      button.title = available
+        ? listing.web_search_backend === "grok_cli"
+          ? tr(locale, "Web search on · via local Grok CLI", "联网搜索已开启 · 本机 Grok CLI")
+          : tr(locale, "Web search on · via model provider", "联网搜索已开启 · 模型供应商")
+        : tr(locale, "Web search is unavailable", "联网搜索不可用");
+    } else {
+      button.title = available
+        ? tr(locale, "X search on · via local Grok CLI", "X 搜索已开启 · 本机 Grok CLI")
+        : listing.x_search_status === "login_required"
+          ? tr(locale, "Run grok login to enable X search", "运行 grok login 后启用 X 搜索")
+          : tr(locale, "Install Grok CLI to enable X search", "安装 Grok CLI 后启用 X 搜索");
+    }
+  }
+}
+
+function toggleTool(
+  root: HTMLElement,
+  form: HTMLFormElement,
+  toolId: string,
+  all: string[],
+): boolean {
   const current = new Set(
     form.dataset.allowedToolsTouched === "1" ? pickedAllowedTools(form) : all,
   );
-  // 至少保留一个工具，避免「全不选」被后端解释为「全部可用」
-  if (pressed && current.size <= 1) {
+  if (current.has(toolId) && current.size <= 1) {
     const note = form.querySelector<HTMLElement>("[data-tool-picker-note]");
     if (note) note.textContent = tr(localeOf(root), "Keep at least one tool.", "至少保留一个工具。");
-    return;
+    return false;
   }
-  if (pressed) current.delete(chip.dataset.toolChip ?? "");
-  else current.add(chip.dataset.toolChip ?? "");
+  if (current.has(toolId)) current.delete(toolId);
+  else current.add(toolId);
   form.dataset.allowedToolsTouched = "1";
   form.dataset.allowedTools = [...current].join(",");
-  chip.setAttribute("aria-pressed", String(!pressed));
+  for (const control of form.querySelectorAll<HTMLButtonElement>("[data-tool-chip], [data-quick-tool-toggle]")) {
+    const id = control.dataset.toolChip ?? control.dataset.quickToolToggle ?? "";
+    if (id === toolId) control.setAttribute("aria-pressed", String(current.has(toolId)));
+  }
   paintPickerBadge(root, form);
+  return true;
+}
+
+function toggleToolChip(root: HTMLElement, form: HTMLFormElement, chip: HTMLButtonElement): void {
+  const providerId = form.querySelector<HTMLSelectElement>('select[name="provider_profile_id"]')?.value ?? "";
+  const all = toolCache.get(form)?.get(providerId)?.tools ?? [];
+  const providerListing = toolCache.get(form)?.get(providerId);
+  if (!toggleTool(root, form, chip.dataset.toolChip ?? "", all)) return;
+  if (providerListing) paintQuickToolToggles(root, form, providerListing);
 }
 
 function toggleSkillChip(

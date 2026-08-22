@@ -13,6 +13,8 @@ function fixture(): { root: HTMLElement; form: HTMLFormElement } {
     <form id="start-run-form">
       <textarea id="start-goal"></textarea>
       <select name="provider_profile_id"><option value="deepseek">DeepSeek</option></select>
+      <button type="button" data-quick-tool-toggle="web_search" aria-pressed="false" disabled>Web</button>
+      <button type="button" data-quick-tool-toggle="x_search" aria-pressed="false" disabled>X</button>
       <button type="button" data-tool-picker-open aria-expanded="false">+<span class="sr-only">选择工具与技能</span></button>
       <div data-tool-picker hidden>
         <button type="button" data-tool-picker-close>×</button>
@@ -51,6 +53,7 @@ function api(tools: string[]): DashboardApi {
     listAvailableTools: async () => ({
       tools,
       web_search_supported: tools.includes("web_search"),
+      web_search_backend: tools.includes("web_search") ? "grok_cli" : "unavailable",
       x_search_supported: tools.includes("x_search"),
       x_search_status: tools.includes("x_search") ? "ready" : "not_installed",
     }),
@@ -93,6 +96,7 @@ describe("start tool picker", () => {
     localApi.listAvailableTools = async () => ({
       tools: ["vault_search"],
       web_search_supported: false,
+      web_search_backend: "unavailable",
       x_search_supported: false,
       x_search_status: "login_required",
     });
@@ -109,12 +113,21 @@ describe("start tool picker", () => {
       .mockResolvedValueOnce({
         tools: ["vault_search"],
         web_search_supported: false,
+        web_search_backend: "unavailable",
         x_search_supported: false,
         x_search_status: "not_installed",
       })
       .mockResolvedValueOnce({
-        tools: ["vault_search", "x_search"],
-        web_search_supported: false,
+        tools: ["web_search", "vault_search", "x_search"],
+        web_search_supported: true,
+        web_search_backend: "grok_cli",
+        x_search_supported: true,
+        x_search_status: "ready",
+      })
+      .mockResolvedValueOnce({
+        tools: ["web_search", "vault_search", "x_search"],
+        web_search_supported: true,
+        web_search_backend: "grok_cli",
         x_search_supported: true,
         x_search_status: "ready",
       });
@@ -123,8 +136,26 @@ describe("start tool picker", () => {
     root.querySelector<HTMLButtonElement>("[data-tool-picker-open]")!.click();
     await openPicker(root);
 
-    expect(listAvailableTools).toHaveBeenCalledTimes(2);
+    expect(listAvailableTools).toHaveBeenCalledTimes(3);
     expect(form.querySelector('[data-tool-chip="x_search"]')).not.toBeNull();
+  });
+
+  it("shows model-independent Web and X controls directly on the composer", async () => {
+    const { root, form } = fixture();
+    configureToolPicker(root, api(["web_search", "x_search", "vault_search"]), snapshot());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const web = form.querySelector<HTMLButtonElement>('[data-quick-tool-toggle="web_search"]')!;
+    const x = form.querySelector<HTMLButtonElement>('[data-quick-tool-toggle="x_search"]')!;
+    expect(web.disabled).toBe(false);
+    expect(x.disabled).toBe(false);
+    expect(web.getAttribute("aria-pressed")).toBe("true");
+    expect(x.getAttribute("aria-pressed")).toBe("true");
+
+    web.click();
+    expect(web.getAttribute("aria-pressed")).toBe("false");
+    expect(pickedAllowedTools(form)).toEqual(["x_search", "vault_search"]);
   });
 
   it("sends exactly the user's selection once touched", async () => {

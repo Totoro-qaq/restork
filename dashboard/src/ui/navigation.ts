@@ -1,10 +1,7 @@
 import type { DashboardSnapshot } from "../api/types";
 import { tr, type Locale } from "../i18n";
 import { escapeMarkup } from "./dom";
-
-function isTerminal(state: string): boolean {
-  return ["completed", "failed", "cancelled"].includes(state);
-}
+import { isRunActive } from "../runState";
 
 /** Page name + one-line subtitle shown in the top bar, keyed by parent view. */
 export function whereCopy(view: string, locale: Locale): { title: string; sub: string } {
@@ -64,7 +61,7 @@ function navGroup(id: string, locale: Locale, en: string, zh: string, items: str
  * Approvals, memory, radar, and extensions are aliases, not rail items.
  */
 export function primaryNav(snapshot: DashboardSnapshot, locale: Locale): string {
-  const active = snapshot.runs.filter((entry) => !isTerminal(entry.summary.state)).length;
+  const active = snapshot.runs.filter((entry) => isRunActive(entry.summary.state)).length;
   const pending = snapshot.approvals.filter((approval) => approval.decision === "pending").length;
   const incomplete = snapshot.taskBoard.tasks.filter((task) => !task.completed).length;
   const v2 = snapshot.workspaceV2;

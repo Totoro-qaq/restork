@@ -416,7 +416,8 @@ async fn available_tools_reflect_vault_and_provider_capability() {
         x_status == "ready"
     );
 
-    // GLM 等非 DeepSeek 供应商不提供 web_search，但也不影响 vault 工具
+    // GLM 等非原生联网供应商在 Grok CLI 就绪时复用本机联网能力；
+    // 未安装或未登录时仍保留 Vault 工具并诚实报告不可用。
     let (status, glm) = call(
         app.clone(),
         Method::GET,
@@ -428,11 +429,20 @@ async fn available_tools_reflect_vault_and_provider_capability() {
     .await;
     assert_eq!(status, StatusCode::OK);
     let glm = glm.expect("glm tools");
-    assert_eq!(glm["web_search_supported"], false);
+    let grok_ready = x_status == "ready";
+    assert_eq!(glm["web_search_supported"], grok_ready);
+    assert_eq!(
+        glm["web_search_backend"],
+        if grok_ready {
+            "grok_cli"
+        } else {
+            "unavailable"
+        }
+    );
     assert_eq!(glm["x_search_status"], deepseek["x_search_status"]);
     let tools = glm["tools"].as_array().expect("tools array");
     assert!(tools.iter().any(|tool| tool == "vault_search"));
-    assert!(!tools.iter().any(|tool| tool == "web_search"));
+    assert_eq!(tools.iter().any(|tool| tool == "web_search"), grok_ready);
 
     let (status, _) = call(
         app,

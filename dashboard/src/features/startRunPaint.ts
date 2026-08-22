@@ -132,5 +132,12 @@ export function paintStartRunEvent(
     if (status) status.textContent = tr(locale, "Task stopped.", "任务已停止。");
     if (cancel) cancel.hidden = true;
     setStartRunBusy(surface, false);
+  } else if (event.type === "run.stopped") {
+    const retryable = event.data.state === "retryable";
+    if (status) status.textContent = retryable
+      ? tr(locale, "Task paused. You can retry it from Runs.", "任务已暂停，可到「运行」中重新尝试。")
+      : tr(locale, "Task stopped. Open Runs for details.", "任务已停止，可到「运行」查看原因。");
+    if (cancel) cancel.hidden = true;
+    setStartRunBusy(surface, false);
   }
 }

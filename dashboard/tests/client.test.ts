@@ -108,6 +108,33 @@ describe("LocalApiClient weather configuration", () => {
   });
 });
 
+describe("LocalApiClient run recovery", () => {
+  it("retries a durable run through the Core advance endpoint", async () => {
+    const responses = [
+      jsonResponse({ access_token: "paired-token" }),
+      jsonResponse({ run_id: "run-retryable", state: "scheduled" }),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected request");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+
+    await client.pair("pairing-code");
+    await client.retryRun("run-retryable");
+
+    expect(fetchMock.mock.calls[1][0]).toBe("/v1/runs/run-retryable/advance");
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
+      approved_tool_calls: [],
+      denied_tool_calls: [],
+    });
+    expect(new Headers(fetchMock.mock.calls[1][1]?.headers).get("Idempotency-Key"))
+      .toMatch(/^dashboard-run-retry-/);
+  });
+});
+
 describe("LocalApiClient calendar configuration", () => {
   it("imports ICS content through the paired local Core", async () => {
     const responses = [
@@ -591,6 +618,44 @@ describe("LocalApiClient provider diagnostics", () => {
 });
 
 describe("LocalApiClient authenticated SSE", () => {
+  it("treats run.stopped as terminal instead of reconnecting forever", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode([
+          "id: 9",
+          "event: run.stopped",
+          'data: {"state":"retryable","stop_reason":"provider_unavailable"}',
+          "",
+          "",
+        ].join("\n")));
+        controller.close();
+      },
+    });
+    const responses = [
+      jsonResponse({ access_token: "paired-token" }),
+      new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } }),
+    ];
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("unexpected reconnect");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new LocalApiClient();
+    const delivered: RunEvent[] = [];
+
+    await client.pair("pairing-code");
+    await client.streamEvents(
+      "run-stopped",
+      8,
+      (event) => delivered.push(event),
+      new AbortController().signal,
+    );
+
+    expect(delivered.map((event) => event.type)).toEqual(["run.stopped"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("decodes UTF-8 chunks and stops after a durable terminal event", async () => {
     const payload = [
       "id: 5",

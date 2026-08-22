@@ -2,6 +2,7 @@ import type { DashboardSnapshot, Mode, PendingRunSummary, RunListEntry } from ".
 import type { Locale } from "../i18n";
 import { tr } from "../i18n";
 import { escapeMarkup } from "./dom";
+import { isRunActive } from "../runState";
 
 const MODE_HINTS: Record<Mode, { en: string; zh: string }> = {
   research: {
@@ -28,7 +29,7 @@ export function startPlaceholder(locale: Locale): string {
 }
 
 export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale): string {
-  const active = snapshot.runs.filter((entry) => !["completed", "failed", "cancelled"].includes(entry.summary.state));
+  const active = snapshot.runs.filter((entry) => isRunActive(entry.summary.state));
   const pending = snapshot.approvals.filter((approval) => approval.decision === "pending");
   const nextExpiry = pending
     .map((approval) => approval.expires_at)
@@ -60,6 +61,16 @@ export function startWorkspaceMarkup(snapshot: DashboardSnapshot, locale: Locale
           ${startModeButton("work", tr(locale, "Work", "推进工作"), false, locale)}
         </div>
         <div class="foot-right">
+          <div class="online-tool-toggles" aria-label="${tr(locale, "Online sources", "在线来源")}">
+            <button type="button" class="online-tool-toggle" data-quick-tool-toggle="web_search"
+              aria-pressed="false" disabled title="${tr(locale, "Checking web search…", "正在检查联网搜索…")}">
+              <span aria-hidden="true">◎</span>${tr(locale, "Web", "联网")}
+            </button>
+            <button type="button" class="online-tool-toggle" data-quick-tool-toggle="x_search"
+              aria-pressed="false" disabled title="${tr(locale, "Checking X search…", "正在检查 X 搜索…")}">
+              <span aria-hidden="true">𝕏</span><span class="sr-only">${tr(locale, "X search", "X 搜索")}</span>
+            </button>
+          </div>
           <button type="button" class="tool-pick-open" data-tool-picker-open aria-haspopup="true" aria-expanded="false"
             title="${tr(locale, "Choose tools and skills for this run, or type / in the box", "选择本次运行的工具与技能，也可以在输入框打 /")}"
             >+<span class="sr-only">${tr(locale, "Choose tools and skills", "选择工具与技能")}</span></button>
