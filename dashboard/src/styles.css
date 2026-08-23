@@ -3908,16 +3908,18 @@ details.todo-trash > *:not(summary),
 }
 .cyber-scan {
   position: absolute;
-  top: 0;
   right: 0;
   left: 0;
-  height: 2px;
-  opacity: .42;
-  background: linear-gradient(90deg, transparent, var(--brand), var(--danger), transparent);
-  box-shadow: 0 0 24px var(--cyber-glow);
-  transform: translate3d(0, -2vh, 0);
+  height: 34vh;
+  opacity: .78;
+  background: linear-gradient(180deg,
+    transparent,
+    rgb(var(--accent-rgb) / 9%) 62%,
+    rgb(var(--accent-rgb) / 16%) 88%,
+    transparent);
+  transform: translate3d(0, -40vh, 0);
   will-change: transform;
-  animation: cyber-scan 7s linear infinite;
+  animation: cyber-scan 7.5s cubic-bezier(.5, 0, .5, 1) infinite;
 }
 .cyber-lines {
   position: absolute;
@@ -3994,7 +3996,10 @@ details.todo-trash > *:not(summary),
 @keyframes cyber-drift-a { to { transform: translate3d(16vw, 12vh, 0) scale(1.22); } }
 @keyframes cyber-drift-b { to { transform: translate3d(-14vw, -10vh, 0) scale(1.18); } }
 @keyframes cyber-grid { to { transform: perspective(280px) rotateX(68deg) translate3d(0, 86px, 0); } }
-@keyframes cyber-scan { to { transform: translate3d(0, 104vh, 0); } }
+@keyframes cyber-scan {
+  from { transform: translate3d(0, -40vh, 0); }
+  to { transform: translate3d(0, 115vh, 0); }
+}
 @keyframes cyber-meter { 65%, 100% { transform: translateX(100%); } }
 
 @media (max-width: 1000px) {
