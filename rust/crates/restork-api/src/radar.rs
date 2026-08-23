@@ -4,6 +4,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::agent_tools::collect_verified_x_posts;
 use super::{sha256_hex, state::ApiState};
 
 #[derive(Deserialize)]
@@ -17,6 +18,10 @@ pub(super) struct RadarConfiguration {
     pub(super) github_user: Option<String>,
     #[serde(default)]
     pub(super) hacker_news: bool,
+    #[serde(default)]
+    pub(super) x_search: bool,
+    #[serde(default)]
+    pub(super) x_topics: String,
 }
 
 pub(super) struct NewRadarOwned {
@@ -77,6 +82,39 @@ pub(super) fn github_radar_record(item: &Value) -> Option<NewRadarOwned> {
         score: f64::from(relevance) * 100_000.0 + stars.min(99_999) as f64,
         stars_total: Some(i64::try_from(stars).unwrap_or(i64::MAX)),
         published_at: item["pushed_at"].as_str().map(ToOwned::to_owned),
+    })
+}
+
+pub(super) async fn verified_x_radar_records(
+    topics: &str,
+    now: DateTime<Utc>,
+) -> Result<Vec<NewRadarOwned>, String> {
+    let query = format!(
+        "Find up to 12 recent public X posts from the last 24 hours about these topics: {topics}. Prefer original posts from official project accounts and firsthand technical discussion. Return only exact posts you find."
+    );
+    collect_verified_x_posts(&query).await.map(|posts| {
+        posts
+            .into_iter()
+            .take(12)
+            .map(|post| {
+                let score = post
+                    .posted_at
+                    .as_deref()
+                    .and_then(|value| value.parse::<DateTime<Utc>>().ok())
+                    .map_or_else(|| now.timestamp() as f64, |value| value.timestamp() as f64);
+                NewRadarOwned {
+                    item_id: format!("x-{}", post.post_id),
+                    lane: "x".to_owned(),
+                    title: format!("@{}", post.author_handle),
+                    source: "X · independently verified".to_owned(),
+                    url: post.post_url,
+                    summary: post.text_excerpt,
+                    score,
+                    stars_total: None,
+                    published_at: post.posted_at,
+                }
+            })
+            .collect()
     })
 }
 

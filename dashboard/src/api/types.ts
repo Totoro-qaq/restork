@@ -215,11 +215,11 @@ export interface DeletedTodoPage {
   page: PageInfo;
 }
 
-export type RadarAction = "dismiss" | "read_later" | "research" | "make_task";
+export type RadarAction = "dismiss" | "read_later" | "research" | "make_task" | "save_topic";
 
 export interface RadarItem {
   item_id: string;
-  lane: "my_stars" | "trending" | "hn" | "papers";
+  lane: "my_stars" | "trending" | "hn" | "papers" | "x";
   title: string;
   source: string;
   url: string;
@@ -483,12 +483,16 @@ export interface RadarConfigurationInput {
   enabled: boolean;
   github_discovery: boolean;
   hacker_news: boolean;
+  x_search: boolean;
+  x_topics: string;
 }
 
 export interface RadarConfiguration {
   enabled: boolean;
   github_discovery: boolean;
   hacker_news: boolean;
+  x_search: boolean;
+  x_topics: string;
 }
 
 export interface PendingRunSummary {

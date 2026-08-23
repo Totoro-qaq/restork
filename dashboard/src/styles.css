@@ -1431,6 +1431,13 @@ kbd,
 .radar-item a { min-width: 0; overflow-wrap: anywhere; color: var(--link); font-size: var(--text-sm); line-height: var(--leading-normal); text-decoration-thickness: 1px; text-underline-offset: 2px; }
 .radar-item p { margin: 4px 0 0; border: 0; padding: 0; overflow-wrap: anywhere; color: var(--fg-secondary); font-size: var(--text-xs); line-height: var(--leading-normal); }
 .radar-item small { display: block; margin-top: 4px; color: var(--fg-muted); font-size: var(--text-xs); line-height: var(--leading-normal); }
+.radar-x-lane { grid-column: 1 / -1; min-width: 0; margin-top: 12px; border: 1px dashed rgb(var(--line-rgb) / 22%); border-radius: 10px; padding: 8px; background: rgb(var(--surface-rgb) / 28%); }
+.radar-x-lane > h3 { margin: 0; border-bottom: 1px dashed rgb(var(--line-rgb) / 22%); padding: 4px 0 12px; color: var(--fg-secondary); font-size: var(--text-sm); letter-spacing: .08em; }
+.radar-x-note { margin: 8px 0 0; color: var(--fg-muted); font-size: var(--text-xs); line-height: var(--leading-normal); }
+.radar-x-list { max-height: min(42vh, 520px); min-height: 0; overflow-y: auto; padding-right: 4px; scrollbar-gutter: stable; }
+.radar-x-item > header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
+.radar-x-item > header > a { font-weight: 700; }
+.radar-x-verified, .radar-x-topic { flex: none; color: var(--success-ink); font-size: var(--text-2xs); font-weight: 700; letter-spacing: .06em; }
 .radar-item button { min-height: var(--control-min); margin: 4px 4px 0 0; border: 1px solid rgb(var(--line-rgb) / 22%); border-radius: 99px; padding: 4px 8px; color: var(--fg-secondary); background: rgb(var(--surface-rgb) / 60%); font-size: var(--text-xs); }
 .radar-item button:hover { color: var(--action-fg); background: var(--brand); }
 .radar-item-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }

@@ -1107,6 +1107,8 @@ describe("authenticated workspace", () => {
       enabled: true,
       github_discovery: true,
       hacker_news: true,
+      x_search: true,
+      x_topics: "coding agents, local-first AI, agent security",
     }));
     expect(api.loadPage).toHaveBeenCalledWith("radar", "");
   });
@@ -1127,8 +1129,9 @@ describe("authenticated workspace", () => {
     expect(api.loadPage).toHaveBeenCalledTimes(1);
   });
 
-  it("adds verified X evidence to the existing Radar without inventing a new navigation page", () => {
+  it("adds verified X evidence to the existing Radar without inventing a new navigation page", async () => {
     const root = document.createElement("main");
+    const api = fakeApi();
     const xItem = {
       item_id: "x-2082263717916586117",
       lane: "x" as const,
@@ -1142,7 +1145,7 @@ describe("authenticated workspace", () => {
       data_class: "public",
     };
     mountDashboard(root, {
-      api: fakeApi(),
+      api,
       snapshot: { ...snapshot, radar: { configured: true, items: [xItem] } },
     });
     openDashboardView(root, "radar");
@@ -1153,10 +1156,14 @@ describe("authenticated workspace", () => {
     expect(navCopy).not.toContain("X 雷达");
     const panel = root.querySelector<HTMLElement>('[data-view-panel="radar"]');
     expect(panel?.querySelector("h2")?.textContent).toBe("Radar");
-    expect(panel?.querySelector(".radar-x-lane")?.textContent).toContain("X · 已核验证据");
+    expect(panel?.querySelector(".radar-x-lane")?.textContent).toContain("X · verified public evidence");
     expect(panel?.textContent).toContain("We quietly released the open-source Codex Security CLI.");
-    expect(panel?.textContent).toContain("已核验");
-    expect(panel?.querySelector('[data-radar-action="save_topic"]')).not.toBeNull();
+    expect(panel?.textContent).toContain("verified");
+    panel?.querySelector<HTMLButtonElement>('[data-radar-action="save_topic"]')?.click();
+    await vi.waitFor(() => expect(api.radarAction).toHaveBeenCalledWith(
+      "x-2082263717916586117",
+      "save_topic",
+    ));
   });
 
   it("launches a Radar Research run and renders its write-free preview", async () => {

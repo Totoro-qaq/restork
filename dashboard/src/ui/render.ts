@@ -1858,21 +1858,25 @@ export function radarView(snapshot: DashboardSnapshot, locale: Locale): string {
   const configForm = `<form id="radar-config-form" class="radar-config">
     <label class="radar-config-source"><input type="checkbox" name="github_discovery" value="1" checked> ${tr(locale, "Discover public AI, Agent and MCP projects on GitHub", "发现 GitHub 上公开的 AI、Agent 与 MCP 项目")}</label>
     <label class="radar-config-source"><input type="checkbox" name="hacker_news" value="1" checked> ${tr(locale, "Include Hacker News top stories", "收录 Hacker News 热门")}</label>
+    <label class="radar-config-source"><input type="checkbox" name="x_search" value="1" checked> ${tr(locale, "Include independently verified public X evidence", "收录经过独立核验的公开 X 证据")}</label>
+    <label>${tr(locale, "X topics", "X 关注主题")}<input type="text" name="x_topics" maxlength="500" value="coding agents, local-first AI, agent security"></label>
     <button type="submit">${tr(locale, "Save & fetch", "保存并拉取")}</button>
-    <small>${tr(locale, "GitHub discovery uses fixed public searches, engineering relevance ranking and a 30-minute cache. All fetching happens through the Core; the browser never goes online.", "GitHub 发现使用固定公开搜索、工程相关性排序和 30 分钟缓存。所有抓取都由 Core 完成；浏览器不会自行联网。")}</small>
+    <small>${tr(locale, "Core fetches every source. X discovery uses the signed-in Grok CLI, then independently verifies each public URL, author and post body before it can appear here.", "所有来源都由 Core 拉取。X 候选由已登录的 Grok CLI 发现，并独立核验公开链接、作者与正文后才会出现在这里。")}</small>
     <p class="form-hint" id="radar-config-status" role="status"></p>
   </form>`;
   if (!snapshot.radar.configured) {
     return `<article class="paper-card full-card"><header><h2>Radar</h2><span class="ribbon radar">${tr(locale, "Core connectors", "Core 连接器")}</span></header>
-      <div class="radar-onboarding"><strong>${tr(locale, "Choose what Restork should watch", "选择 Restork 要关注的公开来源")}</strong><p>${tr(locale, "No account or GitHub username is needed. Restork searches public AI, Agent and MCP projects and can also include Hacker News. The Core fetches and caches them only after you opt in here.", "无需账号或 GitHub 用户名。Restork 会发现公开的 AI、Agent 与 MCP 项目，也可收录 Hacker News；只有你在这里明确启用后，Core 才会联网拉取并缓存。")}</p></div>
+      <div class="radar-onboarding"><strong>${tr(locale, "Choose what Restork should watch", "选择 Restork 要关注的公开来源")}</strong><p>${tr(locale, "Restork can watch public GitHub projects, Hacker News, and verified X evidence. Core fetches and caches them only after you opt in here.", "Restork 可关注 GitHub 公开项目、Hacker News 与已核验 X 证据；只有你在这里明确启用后，Core 才会拉取并缓存。")}</p></div>
       ${configForm}
     </article>`;
   }
   const githubItems = snapshot.radar.items.filter((item) => item.lane === "trending");
   const hackerNewsItems = snapshot.radar.items.filter((item) => item.lane === "hn");
+  const xItems = snapshot.radar.items.filter((item) => item.lane === "x");
   return `<article class="paper-card full-card"><header><h2>Radar</h2><span class="ribbon radar">${tr(locale, "Core connectors", "Core 连接器")}</span></header>
     <div id="research-result" class="research-result-host" role="status"></div>
-    <div class="lanes"><section class="radar-github-lane"><h3>GitHub AI / Agent</h3>${radarGithubPeriods(githubItems, locale)}</section><section><h3>Hacker News</h3>${hackerNewsItems.map((item) => radarItem(item, locale)).join("") || `<p class="empty">${tr(locale, "No public stories in this refresh.", "本次刷新没有公开条目。")}</p>`}</section></div>${paginationControl("radar", snapshot.pagination?.radar, locale)}
+    <div class="lanes"><section class="radar-github-lane"><h3>GitHub AI / Agent</h3>${radarGithubPeriods(githubItems, locale)}</section><section><h3>Hacker News</h3>${hackerNewsItems.map((item) => radarItem(item, locale)).join("") || `<p class="empty">${tr(locale, "No public stories in this refresh.", "本次刷新没有公开条目。")}</p>`}</section></div>
+    <section class="radar-x-lane"><h3>${tr(locale, "X · verified public evidence", "X · 已核验证据")}</h3><p class="radar-x-note">${tr(locale, "Candidates appear only after their public URL, author and post body pass independent verification.", "候选只有在公开链接、作者与正文通过独立核验后才会显示。")}</p><div class="radar-x-list">${xItems.map((item) => radarXItem(item, locale)).join("") || `<p class="empty">${tr(locale, "No verified X evidence in this refresh.", "本次刷新没有通过核验的 X 证据。")}</p>`}</div></section>${paginationControl("radar", snapshot.pagination?.radar, locale)}
     <details class="radar-recheck"><summary>${tr(locale, "Radar sources", "Radar 来源设置")}</summary>${configForm}</details>
   </article>`;
 }
@@ -2269,6 +2273,13 @@ function radarDelta(value: number | null | undefined, period: "daily" | "weekly"
 function radarItem(item: RadarItem, locale: Locale, emphasis?: "daily" | "weekly"): string {
   const metrics = item.lane === "trending" ? `<div class="radar-star-metrics"><span class="is-total">★ ${formatRadarStars(item.stars_total, locale)}</span><span class="${emphasis === "daily" ? "is-emphasis" : ""}">${escapeHtml(radarDelta(item.stars_daily, "daily", locale))}</span><span class="${emphasis === "weekly" ? "is-emphasis" : ""}">${escapeHtml(radarDelta(item.stars_weekly, "weekly", locale))}</span></div>` : "";
   return `<article class="radar-item">${safeLink(item.url, item.title, 'target="_blank" rel="noreferrer"')}${metrics}<p>${escapeHtml(item.summary)}</p><small>${escapeHtml(item.source)} · ${escapeHtml(item.state)}</small><div class="radar-item-actions"><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="research">${tr(locale, "research", "研究")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="read_later">${tr(locale, "read later", "稍后阅读")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="make_task">${tr(locale, "make task", "建任务")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="dismiss">${tr(locale, "dismiss", "忽略")}</button></div></article>`;
+}
+
+function radarXItem(item: RadarItem, locale: Locale): string {
+  const topic = item.state === "topic"
+    ? `<span class="radar-x-topic">${tr(locale, "Saved as topic", "已存为选题")}</span>`
+    : `<button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="save_topic">${tr(locale, "save as topic", "存为选题")}</button>`;
+  return `<article class="radar-item radar-x-item"><header>${safeLink(item.url, item.title, 'target="_blank" rel="noreferrer"')}<span class="radar-x-verified">${tr(locale, "verified", "已核验")}</span></header><p>${escapeHtml(item.summary)}</p><small>${escapeHtml(item.source)}${item.published_at ? ` · ${formatDate(item.published_at, locale)}` : ""}</small><div class="radar-item-actions">${topic}<button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="research">${tr(locale, "research", "研究")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="read_later">${tr(locale, "read later", "稍后阅读")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="dismiss">${tr(locale, "dismiss", "忽略")}</button></div></article>`;
 }
 
 function radarSummary(item: RadarItem, locale: Locale): string {

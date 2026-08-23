@@ -50,13 +50,15 @@ async function saveRadarConfig(
   const data = new FormData(form);
   const githubDiscovery = data.get("github_discovery") === "1";
   const hackerNews = data.get("hacker_news") === "1";
+  const xSearch = data.get("x_search") === "1";
+  const xTopics = String(data.get("x_topics") ?? "").trim();
   const status = form.querySelector<HTMLElement>("#radar-config-status");
-  if (!githubDiscovery && !hackerNews) {
+  if (!githubDiscovery && !hackerNews && !xSearch) {
     if (status) {
       status.textContent = tr(
         localeOf(root),
-        "Enable at least one source: public GitHub AI/Agent projects or Hacker News.",
-        "至少启用一个来源：GitHub 公开 AI/Agent 项目或 Hacker News。",
+        "Enable at least one source: GitHub, Hacker News, or verified X evidence.",
+        "至少启用一个来源：GitHub、Hacker News 或已核验 X 证据。",
       );
     }
     return;
@@ -67,6 +69,8 @@ async function saveRadarConfig(
       enabled: true,
       github_discovery: githubDiscovery,
       hacker_news: hackerNews,
+      x_search: xSearch,
+      x_topics: xTopics,
     });
     await refreshRadarPanel(root, api, snapshot, effects);
     effects.status(tr(localeOf(root), "Radar sources saved.", "Radar 来源已保存。"));

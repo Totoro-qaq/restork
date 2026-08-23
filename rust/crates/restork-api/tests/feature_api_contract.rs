@@ -8,7 +8,7 @@ use axum::{
 use futures_util::StreamExt;
 use http_body_util::BodyExt;
 use restork_core::auth::PairingAuthority;
-use restork_storage::Database;
+use restork_storage::{Database, NewRadarRecord};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -119,8 +119,46 @@ async fn radar_configuration_uses_public_github_discovery_without_an_account() {
     let body = body.expect("Radar configuration");
     assert_eq!(body["github_discovery"], true);
     assert_eq!(body["x_search"], true);
-    assert_eq!(body["x_topics"], "coding agents, local-first AI, agent security");
+    assert_eq!(
+        body["x_topics"],
+        "coding agents, local-first AI, agent security"
+    );
     assert!(body.get("github_user").is_none());
+}
+
+#[tokio::test]
+async fn verified_x_evidence_can_be_saved_as_a_local_topic() {
+    let (app, authorization, directory, _vault) = paired_app().await;
+    let database = Database::open(directory.0.join("restork.db")).expect("database");
+    database
+        .upsert_radar(NewRadarRecord {
+            item_id: "x-2082263717916586117",
+            lane: "x",
+            title: "@OpenAI",
+            source: "X · independently verified",
+            url: "https://x.com/OpenAI/status/2082263717916586117",
+            summary: "We quietly released the open-source Codex Security CLI.",
+            score: 1.0,
+            stars_total: None,
+            published_at: Some("2026-07-29T00:35:31Z"),
+            state: "new",
+            data_class: "public",
+            occurred_at: "2026-08-23T00:00:00Z",
+        })
+        .expect("X fixture");
+
+    let (status, body) = call(
+        app,
+        Method::POST,
+        "/v1/radar/x-2082263717916586117/action",
+        Some(json!({"action": "save_topic"})),
+        Some(&authorization),
+        Some("radar-save-topic"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body.expect("Radar action")["item"]["state"], "topic");
 }
 
 #[tokio::test]

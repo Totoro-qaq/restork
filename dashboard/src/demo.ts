@@ -385,6 +385,18 @@ const snapshot: DashboardSnapshot = {
         state: "read_later",
         data_class: "public",
       },
+      {
+        item_id: "x-2082263717916586117",
+        lane: "x",
+        title: "@OpenAI",
+        source: "X · independently verified",
+        url: "https://x.com/OpenAI/status/2082263717916586117",
+        summary: "We quietly released the open-source Codex Security CLI, but Hacker News found it before we had a chance to share it here.",
+        score: 0.91,
+        published_at: "2026-07-29T00:35:31Z",
+        state: "new",
+        data_class: "public",
+      },
     ],
   },
   memory: {
