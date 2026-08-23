@@ -1,6 +1,8 @@
 use std::{fs, path::PathBuf, sync::Arc, thread};
 
-use restork_storage::{Database, NewEvent, NewLocalTodo, NewRadarRecord, NewRun};
+use restork_storage::{
+    Database, NewEvent, NewLocalTodo, NewRadarRecord, NewRun, NewXCocreationDraft,
+};
 use rusqlite::Connection;
 use serde_json::json;
 
@@ -33,7 +35,7 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
         assert_eq!(mode, 0o600);
     }
 
-    assert_eq!(database.schema_version().expect("schema version"), 15);
+    assert_eq!(database.schema_version().expect("schema version"), 16);
     let history = database.migration_history().expect("migration history");
     assert_eq!(
         history
@@ -56,6 +58,7 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
             (13, "local_todos"),
             (14, "recoverable_schedules"),
             (15, "memory_suggestions"),
+            (16, "x_cocreation"),
         ]
     );
     assert_ne!(history[0].checksum, history[1].checksum);
@@ -92,6 +95,80 @@ fn rust_database_creates_the_frozen_v1_tables_and_migration_ledger() {
     ] {
         assert!(tables.contains(required), "missing {required}");
     }
+}
+
+#[test]
+fn x_cocreation_drafts_record_manual_publication_and_prune_expired_evidence() {
+    let directory = TestDirectory::new("x-cocreation");
+    let database = Database::open(directory.database()).expect("open database");
+    for (item_id, occurred_at) in [
+        ("x-2082263717916586117", "2026-08-20T09:00:00Z"),
+        ("x-2070000000000000000", "2026-07-01T09:00:00Z"),
+    ] {
+        database
+            .upsert_radar(NewRadarRecord {
+                item_id,
+                lane: "x",
+                title: "@OpenAI",
+                source: "X · independently verified",
+                url: &format!("https://x.com/OpenAI/status/{}", &item_id[2..]),
+                summary: "A verified public release note.",
+                score: 1.0,
+                stars_total: None,
+                published_at: Some(occurred_at),
+                state: "topic",
+                data_class: "public",
+                occurred_at,
+            })
+            .expect("store X evidence");
+    }
+
+    let artifact = json!({
+        "schema_version": 1,
+        "category": "开发判断",
+        "title": "Why reviewed writes are worth one more step",
+        "evidence_ids": ["x-2082263717916586117"],
+        "variants": [
+            {"label": "A", "body": "Start from the change, not the announcement.", "first_reply": "Source: https://x.com/OpenAI/status/2082263717916586117"},
+            {"label": "B", "body": "A preview is part of the product, not ceremony.", "first_reply": "Source: https://x.com/OpenAI/status/2082263717916586117"},
+            {"label": "C", "body": "Local-first still needs a visible write boundary.", "first_reply": "Source: https://x.com/OpenAI/status/2082263717916586117"}
+        ],
+        "image_directions": ["Annotated approval boundary", "Evidence-to-note flow"]
+    });
+    let draft = database
+        .save_x_cocreation_draft(NewXCocreationDraft {
+            draft_id: "x-draft-1",
+            artifact: &artifact,
+            state: "draft",
+            occurred_at: "2026-08-24T09:00:00Z",
+        })
+        .expect("save X draft");
+    assert_eq!(draft.artifact["variants"].as_array().map(Vec::len), Some(3));
+
+    let published = database
+        .record_x_cocreation_publication(
+            "x-draft-1",
+            "Start with the concrete change.",
+            "Source: https://x.com/OpenAI/status/2082263717916586117",
+            None,
+            &["opening".to_owned(), "length".to_owned()],
+            &draft.updated_at,
+            "2026-08-24T10:00:00Z",
+        )
+        .expect("record manual publication");
+    assert_eq!(published.state, "published");
+    assert_eq!(published.final_url, None);
+    assert_eq!(database.x_voice_observation_counts().expect("voice counts")["opening"], 1);
+
+    let deleted = database
+        .delete_expired_x_evidence("2026-07-25T00:00:00Z")
+        .expect("prune expired X evidence");
+    assert_eq!(deleted, 1);
+    let remaining = database
+        .radar_items(100, 0)
+        .expect("remaining Radar items");
+    assert!(remaining.iter().any(|item| item.item_id == "x-2082263717916586117"));
+    assert!(!remaining.iter().any(|item| item.item_id == "x-2070000000000000000"));
 }
 
 #[test]
