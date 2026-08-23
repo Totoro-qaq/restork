@@ -1614,6 +1614,21 @@ describe("Rust conversation workspace", () => {
     const root = document.createElement("main");
     const state = workspaceSnapshot();
     if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.providers = [{
+      provider: {
+        profile_id: "deepseek",
+        version: 1,
+        display_name: "DeepSeek",
+        kind: "deepseek",
+        base_url: "https://api.deepseek.com",
+        model: "deepseek-v4-pro",
+        secret_ref: "keychain:restork/provider/deepseek",
+        fallback: "disabled",
+        reasoning: { effort: "high", max_tokens: null },
+      },
+      revision: 1,
+      updated_at: "2026-08-24T00:00:00Z",
+    }];
     state.workspaceV2.xCocreation = {
       status: "ready",
       auth_mode: "oauth",
@@ -1655,11 +1670,11 @@ describe("Rust conversation workspace", () => {
     api.recordXCocreationPublication = vi.fn(async (draftId, input) => ({
       ...state.workspaceV2!.xCocreation!.drafts[0],
       draft_id: draftId,
-      state: "published",
+      state: "published" as const,
       final_body: input.final_body,
       final_reply: input.final_reply,
       final_url: input.final_url ?? null,
-      publication_verification: "user_recorded",
+      publication_verification: "user_recorded" as const,
     }));
     mountDashboard(root, { api, snapshot: state });
     openDashboardView(root, "deliverables");
@@ -1677,6 +1692,21 @@ describe("Rust conversation workspace", () => {
     const root = document.createElement("main");
     const state = workspaceSnapshot();
     if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.providers = [{
+      provider: {
+        profile_id: "deepseek",
+        version: 1,
+        display_name: "DeepSeek",
+        kind: "deepseek",
+        base_url: "https://api.deepseek.com",
+        model: "deepseek-v4-pro",
+        secret_ref: "keychain:restork/provider/deepseek",
+        fallback: "disabled",
+        reasoning: { effort: "high", max_tokens: null },
+      },
+      revision: 1,
+      updated_at: "2026-08-24T00:00:00Z",
+    }];
     state.workspaceV2.xCocreation = {
       status: "ready",
       auth_mode: "oauth",
@@ -1698,7 +1728,7 @@ describe("Rust conversation workspace", () => {
     const form = root.querySelector<HTMLFormElement>("#x-cocreation-settings-form");
     expect(form?.textContent).toContain("X 情报与写作");
     expect(form?.textContent).toContain("Grok Build / xAI 账户额度");
-    expect(root.querySelector('[data-settings-panel="extensions"]')?.textContent)
+    expect(root.querySelector('[data-view-panel="extensions"]')?.textContent)
       .not.toContain("X 情报与写作");
     form?.requestSubmit();
     await vi.waitFor(() => expect(api.saveXCocreationSettings).toHaveBeenCalled());

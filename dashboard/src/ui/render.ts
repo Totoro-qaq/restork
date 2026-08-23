@@ -1096,6 +1096,7 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
   const profiles = snapshot.workspaceV2?.profiles ?? [];
   const prompts = snapshot.workspaceV2?.prompts ?? [];
   const providerRegistry = snapshot.workspaceV2?.providerRegistry?.items ?? [];
+  const xCocreation = snapshot.workspaceV2?.xCocreation;
   const activePrompt = prompts.find((revision) => revision.active);
   const projectBaseUrl = "https://github.com/Totoro-qaq/restork";
   const projectBoundaryUrl = `${projectBaseUrl}/blob/main/DISCLAIMER${locale === "zh-CN" ? ".zh-CN" : ""}.md`;
@@ -1121,6 +1122,21 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
           </fieldset>
           <label>${tr(locale, "Open on launch", "启动后打开")}<select name="startup_page"><option value="start" ${settings.startup_page !== "dashboard" ? "selected" : ""}>${tr(locale, "Start", "开始页")}</option><option value="dashboard" ${settings.startup_page === "dashboard" ? "selected" : ""}>${tr(locale, "Dashboard", "仪表盘")}</option></select></label>
           <button type="submit" class="btn-primary">${tr(locale, "Save locally", "保存到本地")}</button><p id="personal-settings-status" role="status"></p>
+        </form>
+        <form id="x-cocreation-settings-form" class="x-cocreation-settings">
+          <header><div><small>${tr(locale, "Read only + drafts", "只读 + 草稿")}</small><h3>${tr(locale, "X intelligence & writing", "X 情报与写作")}</h3></div>
+            <span>${escapeHtml(xCocreation?.status ?? "not_installed")}</span></header>
+          <p class="fine">${xCocreation?.auth_mode === "api_key"
+            ? tr(locale, "API key mode may create xAI API charges; scheduled automation stays off by default.", "API key 模式可能产生 xAI API 费用；定时自动化默认保持关闭。")
+            : tr(locale, "X search uses your signed-in Grok Build / xAI account allowance. Restork requests no X publishing permission.", "X 搜索使用你已登录的 Grok Build / xAI 账户额度；Restork 不申请任何 X 发布权限。")}</p>
+          <label class="check-label"><input type="checkbox" name="enabled" ${xCocreation?.settings?.enabled ? "checked" : ""}>${tr(locale, "Enable X evidence and writing", "启用 X 证据与写作")}</label>
+          <label class="wide-label">${tr(locale, "Topics and accounts", "关注主题与账号")}<textarea name="topics_and_accounts" rows="3" maxlength="500" required>${escapeHtml(xCocreation?.settings?.topics_and_accounts ?? "coding agents, local-first AI, agent security")}</textarea></label>
+          <label>${tr(locale, "Daily Radar time", "每日雷达时间")}<input type="time" name="daily_time" required value="${escapeHtml(xCocreation?.settings?.daily_time ?? "09:00")}"></label>
+          <label>${tr(locale, "Weekly draft time", "每周选题时间")}<input type="time" name="weekly_time" required value="${escapeHtml(xCocreation?.settings?.weekly_time ?? "09:00")}"></label>
+          <label>${tr(locale, "Draft model", "草稿模型")}<select name="provider_profile_id" required>${providers.map((record) => `<option value="${escapeHtml(record.provider.profile_id)}" ${xCocreation?.settings?.provider_profile_id === record.provider.profile_id ? "selected" : ""}>${escapeHtml(record.provider.display_name)} · ${escapeHtml(record.provider.model)}</option>`).join("")}</select></label>
+          <label class="check-label"><input type="checkbox" name="automation_enabled" ${xCocreation?.settings?.automation_enabled ? "checked" : ""} ${xCocreation?.auth_mode === "api_key" ? "disabled" : ""}>${tr(locale, "Run these two schedules automatically", "按以上两个时间自动运行")}</label>
+          <input type="hidden" name="auth_mode" value="${escapeHtml(xCocreation?.auth_mode ?? "unknown")}">
+          <button type="submit" ${providers.length ? "" : "disabled"}>${tr(locale, "Save X settings", "保存 X 设置")}</button><p data-x-settings-status role="status"></p>
         </form>
       </section>
       <section class="settings-section" data-settings-panel="knowledge" hidden><header><div><small>${tr(locale, "Knowledge base", "知识库")}</small><h3>${tr(locale, "Vault directory", "知识库目录")}</h3></div></header>

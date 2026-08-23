@@ -42,6 +42,7 @@ mod state;
 mod todo_api;
 mod vault_api;
 mod x_cocreation_api;
+use x_cocreation_api::*;
 
 use agent_run_options::AgentRunCreate;
 use auth_api::*;
@@ -1772,6 +1773,40 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
             ),
         ),
     };
+    let x_cocreation = state.storage.as_ref().map_or_else(
+        || {
+            serde_json::json!({
+                "drafts": [],
+                "status": agent_tools::grok_integration_status(),
+                "auth_mode": agent_tools::grok_auth_mode(),
+                "settings": null,
+            })
+        },
+        |storage| {
+            let drafts = storage.x_cocreation_drafts(50).unwrap_or_default();
+            let settings = storage
+                .daily_cache("x-cocreation-config")
+                .ok()
+                .flatten()
+                .map(|record| record.payload)
+                .unwrap_or_else(|| {
+                    serde_json::json!({
+                        "enabled": false,
+                        "topics_and_accounts": "coding agents, local-first AI, agent security",
+                        "daily_time": "09:00",
+                        "weekly_time": "09:00",
+                        "provider_profile_id": "",
+                        "automation_enabled": false,
+                    })
+                });
+            serde_json::json!({
+                "drafts": drafts,
+                "status": agent_tools::grok_integration_status(),
+                "auth_mode": agent_tools::grok_auth_mode(),
+                "settings": settings,
+            })
+        },
+    );
 
     Json(serde_json::json!({
         "runs": runs,
@@ -1799,6 +1834,7 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
             "sessions": sessions,
             "extensions": extensions,
             "deliverables": deliverables,
+            "xCocreation": x_cocreation,
             "presentationTemplates": presentation_templates,
             "presentationTemplateNext": presentation_template_next,
             "schedules": schedules,

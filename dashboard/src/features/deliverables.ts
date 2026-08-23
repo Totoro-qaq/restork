@@ -38,6 +38,73 @@ export function configureDeliverables(
   snapshot: DashboardSnapshot,
   effects: DeliverablesEffects,
 ): void {
+  root.querySelector<HTMLFormElement>("#x-cocreation-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const data = new FormData(form);
+    const status = form.querySelector<HTMLElement>("[data-x-cocreation-status]");
+    const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (!api.composeXCocreationDrafts) return;
+    if (button) button.disabled = true;
+    if (status) status.textContent = tr(localeOf(root), "Drafting from verified evidence and your week…", "正在根据已核验证据和你这一周生成草稿…");
+    void api.composeXCocreationDrafts({
+      provider_profile_id: String(data.get("provider_profile_id") ?? ""),
+      weekly_summary: String(data.get("weekly_summary") ?? "").trim(),
+      language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
+    }).then(() => effects.reload())
+      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); })
+      .finally(() => { if (button) button.disabled = false; });
+  });
+  root.querySelectorAll<HTMLFormElement>("[data-x-publication-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!api.recordXCocreationPublication) return;
+      const data = new FormData(form);
+      const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+      if (button) button.disabled = true;
+      const allowed = new Set(["opening", "length", "tone", "remove_numbers", "cta", "image"] as const);
+      const differenceKinds = data.getAll("difference_kinds")
+        .map(String)
+        .filter((kind): kind is "opening" | "length" | "tone" | "remove_numbers" | "cta" | "image" => allowed.has(kind as never));
+      void api.recordXCocreationPublication(form.dataset.draftId ?? "", {
+        final_body: String(data.get("final_body") ?? "").trim(),
+        final_reply: String(data.get("final_reply") ?? "").trim(),
+        final_url: String(data.get("final_url") ?? "").trim() || undefined,
+        difference_kinds: differenceKinds,
+        expected_updated_at: form.dataset.updatedAt ?? "",
+      }).then(() => effects.reload())
+        .catch((error) => effects.error(errorText(error, localeOf(root))))
+        .finally(() => { if (button) button.disabled = false; });
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-x-voice-preview]")?.addEventListener("click", (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    const status = root.querySelector<HTMLElement>("[data-x-cocreation-status]");
+    if (!api.previewXVoiceProfile) return;
+    button.disabled = true;
+    void api.previewXVoiceProfile().then(() => {
+      if (status) status.textContent = tr(localeOf(root), "Writing-preference preview is waiting in Approvals; no file was written yet.", "写作偏好预览已进入审批；现在还没有写入文件。");
+      return effects.reload();
+    }).catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); })
+      .finally(() => { button.disabled = false; });
+  });
+  root.querySelector<HTMLFormElement>("#x-cocreation-settings-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    const data = new FormData(form);
+    const status = form.querySelector<HTMLElement>("[data-x-settings-status]");
+    if (!api.saveXCocreationSettings) return;
+    void api.saveXCocreationSettings({
+      enabled: data.get("enabled") === "on",
+      topics_and_accounts: String(data.get("topics_and_accounts") ?? "").trim(),
+      daily_time: String(data.get("daily_time") ?? "09:00"),
+      weekly_time: String(data.get("weekly_time") ?? "09:00"),
+      provider_profile_id: String(data.get("provider_profile_id") ?? ""),
+      automation_enabled: data.get("automation_enabled") === "on",
+      auth_mode: String(data.get("auth_mode") ?? "unknown") as "oauth" | "api_key" | "unknown",
+    }).then(() => effects.reload())
+      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
+  });
   root.addEventListener("click", (event) => {
     const button = (event.target as Element).closest<HTMLButtonElement>("[data-report-download]");
     if (!button || !root.contains(button)) return;

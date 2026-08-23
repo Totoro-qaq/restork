@@ -1438,6 +1438,22 @@ kbd,
 .radar-x-item > header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; }
 .radar-x-item > header > a { font-weight: 700; }
 .radar-x-verified, .radar-x-topic { flex: none; color: var(--success-ink); font-size: var(--text-2xs); font-weight: 700; letter-spacing: .06em; }
+
+.x-cocreation-studio { display: grid; gap: var(--space-4); padding-block: var(--space-5); border-block: 1px solid var(--line); }
+.x-cocreation-studio > header, .x-draft-card > header, .x-cocreation-settings > header { display: flex; justify-content: space-between; gap: var(--space-4); align-items: start; }
+.x-cocreation-compose, .x-cocreation-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.x-cocreation-compose .wide-label, .x-cocreation-compose [role="status"], .x-cocreation-settings .wide-label, .x-cocreation-settings .fine { grid-column: 1 / -1; }
+.x-cocreation-drafts { display: grid; gap: var(--space-4); }
+.x-draft-card { display: grid; gap: var(--space-4); padding: var(--space-4); border: 1px solid var(--line); background: var(--surface-alt); }
+.x-draft-variants { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.x-draft-variants form { display: grid; gap: var(--space-2); align-content: start; padding: var(--space-3); border: 1px solid var(--line); }
+.x-difference-kinds { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.x-difference-kinds label { display: inline-flex; gap: var(--space-1); align-items: center; }
+.x-image-directions { display: grid; gap: var(--space-2); }
+.x-image-directions p { display: flex; gap: var(--space-2); margin: 0; }
+.x-image-directions b { color: var(--accent); }
+@media (max-width: 1100px) { .x-draft-variants { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .x-cocreation-compose, .x-cocreation-settings { grid-template-columns: 1fr; } }
 .radar-item button { min-height: var(--control-min); margin: 4px 4px 0 0; border: 1px solid rgb(var(--line-rgb) / 22%); border-radius: 99px; padding: 4px 8px; color: var(--fg-secondary); background: rgb(var(--surface-rgb) / 60%); font-size: var(--text-xs); }
 .radar-item button:hover { color: var(--action-fg); background: var(--brand); }
 .radar-item-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }

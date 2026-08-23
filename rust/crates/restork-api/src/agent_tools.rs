@@ -445,7 +445,7 @@ pub(super) async fn list_available_tools(
     }
 }
 
-fn grok_integration_status() -> &'static str {
+pub(super) fn grok_integration_status() -> &'static str {
     if grok_binary().is_none() {
         "not_installed"
     } else if !grok_auth_available() {
@@ -455,7 +455,7 @@ fn grok_integration_status() -> &'static str {
     }
 }
 
-fn grok_auth_mode() -> &'static str {
+pub(super) fn grok_auth_mode() -> &'static str {
     if env::var_os("XAI_API_KEY").is_some_and(|value| !value.is_empty()) {
         "api_key"
     } else if system_home_dir()

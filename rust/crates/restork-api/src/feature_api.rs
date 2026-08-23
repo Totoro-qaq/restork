@@ -1591,7 +1591,7 @@ async fn refresh_radar(storage: &restork_storage::Database, config: &Value) -> R
     Ok(())
 }
 
-fn configured_workspace(state: &ApiState) -> Result<SafeWorkspace, Response> {
+pub(super) fn configured_workspace(state: &ApiState) -> Result<SafeWorkspace, Response> {
     let root = state.vault_dir.as_deref().ok_or_else(|| {
         error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault is not configured")
     })?;
