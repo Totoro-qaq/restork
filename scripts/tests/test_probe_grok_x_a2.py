@@ -133,6 +133,32 @@ class GrokXA2ProbeTests(unittest.TestCase):
         self.assertEqual(verified["post_url"], self.valid_item["post_url"])
         self.assertTrue(verified["provenance_verified"])
 
+    def test_a4_accepts_a_long_verbatim_excerpt_when_oembed_truncates_it(self):
+        item = dict(
+            self.valid_item,
+            text_excerpt=(
+                "We quietly released the open-source Codex Security CLI, but Hacker News found it first. "
+                "The full candidate continues with exact public wording that oEmbed does not return."
+            ),
+        )
+        truncated = dict(
+            self.valid_oembed,
+            html=(
+                '<blockquote><p>We quietly released the open-source Codex Security CLI, but Hacker News '
+                "found it first.…</p></blockquote>"
+            ),
+        )
+
+        verified = probe.validate_oembed_response(
+            item,
+            status=200,
+            final_url="https://publish.x.com/oembed",
+            content_type="application/json",
+            body=json.dumps(truncated).encode(),
+        )
+
+        self.assertTrue(verified["provenance_verified"])
+
     def test_a4_fails_closed_for_author_or_excerpt_mismatch(self):
         wrong_author = dict(self.valid_oembed, author_url="https://x.com/not_openai")
         with self.assertRaisesRegex(probe.VerificationError, "author"):
