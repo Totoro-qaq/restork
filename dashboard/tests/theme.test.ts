@@ -135,6 +135,15 @@ describe("theme is a real control, not a placebo", () => {
     expect(stylesheet).toMatch(/\.topline::after\s*\{[\s\S]*?linear-gradient\(90deg, transparent, var\(--brand\)/);
   });
 
+  it("restores breathing room inside framed cyber dashboard cards", () => {
+    expect(stylesheet).toMatch(
+      /:root\[data-theme="cyberpunk"\] \.board > \.dashboard-card,[\s\S]*?padding:\s*var\(--space-6\)/,
+    );
+    expect(stylesheet).toMatch(
+      /@media \(max-width: 680px\)[\s\S]*?:root\[data-theme="cyberpunk"\] \.board > \.dashboard-card,[\s\S]*?padding:\s*var\(--space-5\)/,
+    );
+  });
+
   it("gives the dark theme a different background and foreground", () => {
     const dark = stylesheet.slice(stylesheet.indexOf(':root[data-theme="dark"]'));
     const block = dark.slice(0, dark.indexOf("}"));
