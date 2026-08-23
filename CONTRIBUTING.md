@@ -88,3 +88,8 @@ directories and remove them after use.
 - Do not use repository or CI secrets in pull-request workflows.
 - Do not add network access, Vault writes, or external side effects without an
   explicit approval boundary and a corresponding specification update.
+
+## Settings keyboard QA
+
+- [English](docs/reviews/settings-keyboard-qa.md)
+- [简体中文](docs/reviews/settings-keyboard-qa.zh-CN.md)
