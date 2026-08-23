@@ -27,6 +27,7 @@ mod daily;
 mod mcp;
 mod operation;
 mod workspace;
+mod x_cocreation;
 
 pub use automation::{CheckpointFileBlob, CheckpointRecord, EvaluationRecord, SubtaskRecord};
 pub use catalog::{
@@ -49,8 +50,9 @@ pub use workspace::{
     SessionForkMessage, SessionForkRecord, SessionPage, SessionRecord, SessionSearchHit,
     StoredSessionMessage,
 };
+pub use x_cocreation::{NewXCocreationDraft, XCocreationDraftRecord};
 
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 16;
 
 const MIGRATION_LEDGER: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -323,6 +325,7 @@ const RADAR_STAR_HISTORY: &str = include_str!("../migrations/0012_radar_star_his
 const LOCAL_TODOS: &str = include_str!("../migrations/0013_local_todos.sql");
 const RECOVERABLE_SCHEDULES: &str = include_str!("../migrations/0014_recoverable_schedules.sql");
 const MEMORY_SUGGESTIONS: &str = include_str!("../migrations/0015_memory_suggestions.sql");
+const X_COCREATION: &str = include_str!("../migrations/0016_x_cocreation.sql");
 
 #[derive(Clone, Copy)]
 struct Migration {
@@ -331,7 +334,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 15] = [
+const MIGRATIONS: [Migration; 16] = [
     Migration {
         version: 1,
         name: "v1_schema_adoption",
@@ -406,6 +409,11 @@ const MIGRATIONS: [Migration; 15] = [
         version: 15,
         name: "memory_suggestions",
         sql: MEMORY_SUGGESTIONS,
+    },
+    Migration {
+        version: 16,
+        name: "x_cocreation",
+        sql: X_COCREATION,
     },
 ];
 

@@ -158,17 +158,26 @@ fn x_cocreation_drafts_record_manual_publication_and_prune_expired_evidence() {
         .expect("record manual publication");
     assert_eq!(published.state, "published");
     assert_eq!(published.final_url, None);
-    assert_eq!(database.x_voice_observation_counts().expect("voice counts")["opening"], 1);
+    assert_eq!(
+        database.x_voice_observation_counts().expect("voice counts")["opening"],
+        1
+    );
 
     let deleted = database
         .delete_expired_x_evidence("2026-07-25T00:00:00Z")
         .expect("prune expired X evidence");
     assert_eq!(deleted, 1);
-    let remaining = database
-        .radar_items(100, 0)
-        .expect("remaining Radar items");
-    assert!(remaining.iter().any(|item| item.item_id == "x-2082263717916586117"));
-    assert!(!remaining.iter().any(|item| item.item_id == "x-2070000000000000000"));
+    let remaining = database.radar_items(100, 0).expect("remaining Radar items");
+    assert!(
+        remaining
+            .iter()
+            .any(|item| item.item_id == "x-2082263717916586117")
+    );
+    assert!(
+        !remaining
+            .iter()
+            .any(|item| item.item_id == "x-2070000000000000000")
+    );
 }
 
 #[test]

@@ -116,6 +116,14 @@ fn knowledge_routes() -> Router<ApiState> {
             "/v1/radar/{item_id}/action",
             axum::routing::post(radar_action),
         )
+        .route(
+            "/v1/x-cocreation/drafts/{draft_id}/published",
+            axum::routing::post(record_x_cocreation_publication),
+        )
+        .route(
+            "/v1/x-cocreation/voice/preview",
+            axum::routing::post(preview_x_voice_profile),
+        )
         .route("/v1/search", get(feature_api::search_workspace))
         .route("/v1/vault/files", get(vault_api::list_vault_notes))
         .route("/v1/vault/search", get(vault_api::search_vault_notes))

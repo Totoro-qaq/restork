@@ -40,7 +40,12 @@ async fn call(
         .await
         .expect("response");
     let status = response.status();
-    let bytes = response.into_body().collect().await.expect("body").to_bytes();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
     let body = (!bytes.is_empty()).then(|| serde_json::from_slice(&bytes).expect("JSON"));
     (status, body)
 }
@@ -49,9 +54,8 @@ async fn paired_app() -> (Router, String, TestDirectory, PathBuf) {
     let directory = TestDirectory(tempfile::tempdir().expect("temporary directory"));
     let vault = directory.0.path().join("vault");
     fs::create_dir(&vault).expect("Vault fixture");
-    let database = Arc::new(
-        Database::open(directory.0.path().join("restork.db")).expect("database"),
-    );
+    let database =
+        Arc::new(Database::open(directory.0.path().join("restork.db")).expect("database"));
     let authority = PairingAuthority::new(Duration::from_secs(300)).expect("authority");
     let code = authority.initial_pairing_code();
     let app = restork_api::router_with_runtime(authority, database, Some(vault.clone()));
@@ -154,7 +158,7 @@ async fn voice_learning_requires_three_edits_and_stays_behind_vault_approval() {
     let (status, _) = call(
         app.clone(),
         Method::POST,
-        &format!("/v1/approvals/{approval_id}/decision"),
+        &format!("/v1/approvals/{approval_id}"),
         Some(json!({"decision":"approve"})),
         Some(&authorization),
         Some("x-voice-approve"),
