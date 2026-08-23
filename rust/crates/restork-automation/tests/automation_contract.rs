@@ -164,6 +164,39 @@ fn model_schedule_jobs_are_draft_only_and_reject_effect_requests() {
 }
 
 #[test]
+fn x_schedules_separate_read_only_collection_from_reviewable_drafting() {
+    let radar = ScheduleSpec::new(
+        "x-radar-daily",
+        "Asia/Shanghai",
+        Recurrence::Daily { hour: 9, minute: 10 },
+        MissedRunPolicy::Skip,
+        ScheduleJob::XRadarRefresh {
+            topics: "agent harness, @OpenAI".to_owned(),
+            network_access_confirmed: true,
+        },
+    )
+    .expect("read-only X Radar schedule");
+    let drafts = ScheduleSpec::new(
+        "x-drafts-weekly",
+        "Asia/Shanghai",
+        Recurrence::Weekly {
+            weekday_monday_zero: 0,
+            hour: 9,
+            minute: 20,
+        },
+        MissedRunPolicy::CreateDraft,
+        ScheduleJob::XCocreationDraft {
+            provider_profile_id: "deepseek".to_owned(),
+            language: "zh-CN".to_owned(),
+            network_access_confirmed: true,
+        },
+    )
+    .expect("reviewable X draft schedule");
+    assert!(matches!(radar.job, ScheduleJob::XRadarRefresh { .. }));
+    assert!(matches!(drafts.job, ScheduleJob::XCocreationDraft { .. }));
+}
+
+#[test]
 fn checkpoint_restore_is_bounded_and_requires_a_pre_rollback_snapshot() {
     let checkpoint = CheckpointSpec::new(
         "checkpoint-1",

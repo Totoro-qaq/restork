@@ -213,3 +213,38 @@ async fn manual_publication_accepts_an_optional_final_url_and_reports_it_as_user
     assert_eq!(body["publication_verification"], "user_recorded");
     assert_eq!(body["state"], "published");
 }
+
+#[tokio::test]
+async fn x_settings_create_two_bounded_reviewable_schedules() {
+    let (app, authorization, directory, _vault) = paired_app().await;
+    let (status, body) = call(
+        app,
+        Method::PUT,
+        "/v1/x-cocreation/settings",
+        Some(json!({
+            "enabled": true,
+            "topics_and_accounts": "agent harness, @OpenAI",
+            "daily_time": "09:10",
+            "weekly_time": "09:20",
+            "provider_profile_id": "deepseek",
+            "automation_enabled": true
+        })),
+        Some(&authorization),
+        Some("x-settings-schedules"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body.expect("settings")["automation_enabled"], true);
+
+    let database = Database::open(directory.0.path().join("restork.db")).expect("database");
+    let schedules = database.schedules_page(None, 20).expect("schedules").items;
+    assert_eq!(schedules.len(), 2);
+    assert!(schedules.iter().any(|record| {
+        record.schedule["job"]["kind"] == "x_radar_refresh"
+            && record.schedule["missed_run_policy"] == "skip"
+    }));
+    assert!(schedules.iter().any(|record| {
+        record.schedule["job"]["kind"] == "x_cocreation_draft"
+            && record.schedule["missed_run_policy"] == "create_draft"
+    }));
+}
