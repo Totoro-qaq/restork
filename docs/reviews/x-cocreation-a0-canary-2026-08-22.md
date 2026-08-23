@@ -197,3 +197,21 @@ xAI 官方文档将 `x_search` 定义为托管在 xAI 服务端的内置工具�
 因此 12/12 个 completed update 的空 `content` 不是套餐权限证据，也不是可通过本地 MCP 修复的协议缺陷。Spec 撤销「必须取得 observation」这一不可满足条件：模型输出与 citations 只产生候选证据，A4 负责独立验证 URL、作者与引用正文；只有验证通过的候选才生成 `evidence_id` 并进入产品层。
 
 MCP 决策：v1 不新增 MCP Server。Restork 已有原生工具边界，包装同一 CLI 不会增加来源信息，只会增加配置与故障面。若未来有两个以上独立宿主需要复用验证能力，或上游提供正式 X Search MCP endpoint，再另立 ADR。
+
+## 2026-08-23 · A4 完成与 A2 新鲜复跑
+
+A4 验证器固定请求 `publish.x.com/oembed`，对 URL、author、响应 schema、128 KiB 上限与公开正文执行失败关闭。验证通过后不采用模型 `text_excerpt`，而是用净化后的公开 `<p>` 正文覆盖；模型摘要是否吻合只保留为诊断字段。旧 A2 批次重放 27/27 通过，其中 2 条检测到模型在真实原文之后续写，均被公开正文替换。
+
+随后从新临时目录完整运行 7 条 A2；原始 stdout/stderr 仍只留在 `/tmp`：
+
+| # | 场景 | 尝试 | 终态 | 候选 / 已验证 | 丢弃 |
+|---:|---|---:|---|---:|---:|
+| 1 | OpenAI / Codex 官方原帖 | 1 | `verified_pass` | 4 / 4 | 0 |
+| 2 | Vercel / AI SDK 官方原帖 | 2 | `verified_pass` | 4 / 4 | 0 |
+| 3 | 本地 / 端侧 Agent 实作 | 1 | `verified_pass` | 4 / 4 | 0 |
+| 4 | Prompt injection / tool poisoning | 1 | `verified_pass` | 4 / 4 | 0 |
+| 5 | `@simonw` 指定账号 | 1 | `verified_pass` | 3 / 3 | 0 |
+| 6 | 云端与本地 coding agent 对比 | 1 | `verified_pass` | 3 / 3 | 1 个超长候选 |
+| 7 | 开源 agent harness / runtime | 1 | `verified_pass` | 4 / 4 | 0 |
+
+最终判定：A2 7/7，A4 Gate 通过，Slice A 可以进入静态稿。该结论只证明 Gate 探针与真实 Grok/oEmbed 链路；Restork 原生 Rust `x_search` 尚未移入 A4 网络验证，Slice C 前仍不得把它标成已发布能力。

@@ -22,11 +22,10 @@ v1 只解决这一段。账号是从零开始的，现在的瓶颈是文案质�
 1. A0 已完成：3 条 canary（一手发布、问题讨论、指定账号）3/3 通过，环境与 envelope 已记录。
 2. A1 已完成：`items[]` schema、逐项 URL/ID/作者/时间/长度校验、结构化序列降级与恶意输入 fixture 已落成。A2 首轮仅 2/7 通过，证明最终模型 JSON 仍不能作为来源证明。
 3. A3 已完成上游契约确认：三类查询共 12 次 X 工具调用全部完成；ACP update 不含 observation，符合 xAI 服务端工具只暴露调用记录、最终内容和 citations 的公开边界。v1 不再等待 observation，也不新增 MCP 绕过该边界。
-4. A2 已完整重跑：2/7 结构通过、5/7 进度空对象；通过的 8 条只是候选 URL，尚未经过正式 citation/内容验证，不放行 Slice B。
-5. A4 落成 citation 与公开内容验证器：有独立 citations 时先匹配 citation，再固定 host/redirect、200/404/429 语义、author_url、正文对应、响应上限、超时、限流与删除/不可见 fixture。当前一次探测为真实 8/8 返回 200、变造 ID 返回 404，只是候选证据，不是稳定性证明。
-6. 扩展最终 schema，明确 `phase: progress | complete`；进度对象不能结束调用。对 progress-only 允许最多一次受总预算约束的重试，仍无 complete 就失败。
-7. A4 与终态修复完成后，再完整重跑 A2；7/7 必须结束于独立验证的有效结果或明确的 `complete` 空结果。失败则在「手工核验 v0」与「只读 X Posts lookup」之间做产品决策。
-8. 产出更新后的 Gate 记录，作为 Slice B 静态稿的真实素材。
+4. A4 已完成：固定 `publish.x.com/oembed`、200/404/429 语义、URL/author/schema/128 KiB 边界、超时与 endpoint 漂移全部失败关闭；公开正文覆盖模型摘要，模型续写不进入产品证据。
+5. 最终 schema 已明确 `phase: progress | complete`；进度对象不能结束调用，对 progress-only 最多一次受总预算约束的重试。
+6. A2 新鲜完整重跑 7/7 `verified_pass`：26 条公开证据验证通过，1 条超长候选被安全丢弃；旧批次 27/27 重放通过。
+7. Slice A Gate 已通过；进入 Slice B 静态稿。Slice C 接入前，将探针中的同一验证契约移入 Restork 原生 `x_search` 适配器。
 
 ### 为什么 v1 不做 MCP
 
