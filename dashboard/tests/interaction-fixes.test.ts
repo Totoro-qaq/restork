@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { mountDashboard } from "../src/main";
+import { prepareRunDetail, syncRunDetailScrollbar } from "../src/features/runDetail";
 import { assistantStreamMarkup, eventRow, runEventsMarkup } from "../src/ui/render";
 import type {
   DashboardApi,
@@ -209,6 +210,62 @@ describe("assistant stream upgrades the research envelope", () => {
       JSON.stringify({ answer: "<script>alert(1)</script>" }),
     );
     expect(markup).not.toContain("<script>");
+  });
+
+  it("keeps a completed long prose result compact and restores escaped line breaks", () => {
+    const output = `${"第一段研究结论。".repeat(70)}\\n\\n## 证据\\n${"第二段证据。".repeat(70)}`;
+    const markup = assistantStreamMarkup(output, "zh-CN", true);
+
+    expect(markup).toContain("assistant-answer-compact");
+    expect(markup).toContain("查看完整模型输出");
+    expect(markup).toContain("<details");
+    expect(markup).not.toContain("\\n\\n");
+  });
+
+  it("labels terminal output as a result instead of an always-expanded stream", () => {
+    const run = runEntry("completed-output", "completed");
+    const content = "研究结果。".repeat(180);
+    const markup = runEventsMarkup(run, [{ id: 1, type: "assistant.delta", data: { content } }], "zh-CN");
+
+    expect(markup).toContain("assistant-stream is-complete");
+    expect(markup).toContain("模型整理结果");
+    expect(markup).toContain("查看完整模型输出");
+    expect(markup).not.toContain("助手 · 流式输出");
+  });
+});
+
+describe("run detail navigation", () => {
+  it("returns the detail pane to the top before loading another run", () => {
+    const root = document.createElement("main");
+    root.innerHTML = '<div data-run-list><button data-run-id="run-1"></button></div><div id="run-detail"></div>';
+    const button = root.querySelector<HTMLButtonElement>("[data-run-id]")!;
+    const detail = root.querySelector<HTMLElement>("#run-detail")!;
+    detail.scrollTop = 320;
+
+    prepareRunDetail(root, detail, button, "zh-CN");
+
+    expect(detail.scrollTop).toBe(0);
+    expect(button.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("keeps a persistent in-interface rail in sync with long process content", () => {
+    const root = document.createElement("main");
+    root.innerHTML = '<div class="run-detail-shell"><div id="run-detail"></div><div data-run-detail-scrollbar hidden><i data-run-detail-scroll-thumb></i></div></div>';
+    const detail = root.querySelector<HTMLElement>("#run-detail")!;
+    const rail = root.querySelector<HTMLElement>("[data-run-detail-scrollbar]")!;
+    const thumb = root.querySelector<HTMLElement>("[data-run-detail-scroll-thumb]")!;
+    Object.defineProperties(detail, {
+      clientHeight: { value: 400 },
+      scrollHeight: { value: 1_000 },
+    });
+    Object.defineProperty(rail, "clientHeight", { value: 384 });
+    detail.scrollTop = 300;
+
+    syncRunDetailScrollbar(detail);
+
+    expect(rail.hidden).toBe(false);
+    expect(thumb.style.height).toBe("154px");
+    expect(thumb.style.transform).toBe("translate3d(0, 115px, 0)");
   });
 });
 

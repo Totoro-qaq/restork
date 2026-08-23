@@ -1,4 +1,5 @@
 import type { DashboardSnapshot, Mode } from "../api/types";
+import { enabledSkills, skillView } from "../features/skillSuggest";
 import type { Locale } from "../i18n";
 import { tr } from "../i18n";
 import { escapeMarkup } from "./dom";
@@ -76,25 +77,16 @@ export function commandPaletteItems(
     keywords: `${item.title} ${item.summary ?? ""}`,
     entityId: item.item_id,
   })));
-  commands.push(...(snapshot.workspaceV2?.extensions ?? [])
-    .filter((record) => record.package_kind === "skill" && record.state === "enabled" && record.package_id)
-    .map((record) => {
-      const name = typeof record.manifest?.display_name === "string" && record.manifest.display_name.trim()
-        ? record.manifest.display_name
-        : record.package_id ?? "skill";
-      const description = typeof record.manifest?.description === "string" ? record.manifest.description : "";
-      const mode = record.manifest?.default_mode;
-      const defaultMode: Mode | undefined = mode === "research" || mode === "study" || mode === "work"
-        ? mode
-        : undefined;
+  commands.push(...enabledSkills(snapshot)
+    .map((skill) => {
       return {
-        label: tr(locale, `Use ${name}`, `用 ${name}`),
-        detail: description || tr(locale, "Imported skill", "已导入技能"),
-        view: "start",
-        mode: defaultMode,
-        keywords: `${name} ${description} skill`,
-        entityId: record.package_id,
-        skillId: record.package_id,
+        label: tr(locale, `Use ${skill.name}`, `用 ${skill.name}`),
+        detail: skill.description || tr(locale, "Imported skill", "已导入技能"),
+        view: skillView(skill),
+        mode: skillView(skill) === "start" ? skill.defaultMode : undefined,
+        keywords: `${skill.name} ${skill.description} ${skill.category} skill`,
+        entityId: skill.id,
+        skillId: skill.id,
       };
     }));
   return commands;

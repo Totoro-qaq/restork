@@ -4,6 +4,7 @@ import type {
   PresentationTemplateRecordV2,
   PresentationThemeLayoutV2,
 } from "../api/types";
+import { enabledSkills, skillsForSurface } from "../features/skillSuggest";
 import type { Locale } from "../i18n";
 import { tr } from "../i18n";
 import { safeMarkdownPreview } from "./markdown";
@@ -25,9 +26,7 @@ export function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Local
   const reports = records.filter((record) => record.kind === "daily_report" || record.kind === "weekly_report");
   const templates = snapshot.workspaceV2?.presentationTemplates ?? [];
   const providers = snapshot.workspaceV2?.providers ?? [];
-  const enabledSkills = (snapshot.workspaceV2?.extensions ?? []).filter(
-    (record) => record.package_kind === "skill" && record.state === "enabled",
-  );
+  const presentationSkills = skillsForSurface(enabledSkills(snapshot), "presentations");
   const providerOptions = providers.map((record) => (
     `<option value="${escapeHtml(record.provider.profile_id)}">`
       + `${escapeHtml(record.provider.display_name)} · ${escapeHtml(record.provider.model)}</option>`
@@ -67,13 +66,10 @@ export function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Local
       <label>${tr(locale, "Model", "模型")}<select name="provider_profile_id" required>${providerOptions}</select></label>
       <label>${tr(locale, "Presentation skill (optional)", "演示 Skill（可选）")}<select name="skill_id">
         <option value="">${tr(locale, "Restork built-in only", "仅使用 Restork 内置能力")}</option>
-        ${enabledSkills.map((record) => {
-          const displayName = typeof record.manifest?.display_name === "string"
-            ? record.manifest.display_name
-            : record.package_id;
-          return `<option value="${escapeHtml(record.package_id ?? "")}">${escapeHtml(displayName ?? "Skill")}</option>`;
+        ${presentationSkills.map((skill) => {
+          return `<option value="${escapeHtml(skill.id)}">${escapeHtml(skill.name)}</option>`;
         }).join("")}
-      </select><small>${tr(locale, "Only reviewed text guidance is used; scripts and binaries never run.", "只采用审核过的文本指引；不会运行脚本或二进制文件。")}</small></label>
+      </select></label>
       <label>${tr(locale, "Slides", "页数")}
         <input name="slide_count" type="number" inputmode="numeric"
           min="${MIN_SLIDE_COUNT}" max="${MAX_SLIDE_COUNT}" step="1"

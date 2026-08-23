@@ -1145,7 +1145,10 @@ pub(super) async fn get_research_artifact(
         return storage_unavailable();
     };
     match storage.research_artifact(&run_id) {
-        Ok(Some(artifact)) => Json(artifact).into_response(),
+        Ok(Some(mut artifact)) => {
+            normalize_research_note_path(&mut artifact, &run_id);
+            Json(artifact).into_response()
+        }
         Ok(None) => error_response(StatusCode::NOT_FOUND, "research artifact not found"),
         Err(error) => storage_error_response(error),
     }
@@ -1170,11 +1173,12 @@ pub(super) async fn preview_research_note(
     let Some(storage) = state.storage.as_ref() else {
         return storage_unavailable();
     };
-    let artifact = match storage.research_artifact(&run_id) {
+    let mut artifact = match storage.research_artifact(&run_id) {
         Ok(Some(artifact)) => artifact,
         Ok(None) => return error_response(StatusCode::NOT_FOUND, "research artifact not found"),
         Err(error) => return storage_error_response(error),
     };
+    normalize_research_note_path(&mut artifact, &run_id);
     let Some(path) = artifact["note_preview"]["relative_path"].as_str() else {
         return storage_unavailable();
     };
@@ -3361,6 +3365,7 @@ pub(super) fn persist_agent_outcome(storage: &Database, run: &RunRecord, outcome
         let Some(output) = outcome.output.as_deref() else {
             return;
         };
+        let question = run.task_spec["goal"].as_str().unwrap_or("Restork research");
         let mut events = Vec::new();
         let mut cursor = 0;
         loop {
@@ -3397,6 +3402,8 @@ pub(super) fn persist_agent_outcome(storage: &Database, run: &RunRecord, outcome
             }
         }
         let parsed = parse_model_json(output).unwrap_or_else(|| json!({"answer": output}));
+        let title =
+            bounded_model_text(&parsed["title"], 160).unwrap_or_else(|| question.to_owned());
         let claims = parsed["claims"]
             .as_array()
             .into_iter()
@@ -3429,7 +3436,7 @@ pub(super) fn persist_agent_outcome(storage: &Database, run: &RunRecord, outcome
         let answer = parsed["answer"].as_str().unwrap_or(output);
         let markdown = format!(
             "# Research: {}\n\n{}\n\n## Evidence\n{}\n",
-            run.task_spec["goal"].as_str().unwrap_or("Restork research"),
+            question,
             answer,
             ledger
                 .chunks
@@ -3441,7 +3448,8 @@ pub(super) fn persist_agent_outcome(storage: &Database, run: &RunRecord, outcome
         let artifact = json!({
             "artifact_id": artifact_id,
             "run_id": run.run_id,
-            "question": run.task_spec["goal"],
+            "title": title,
+            "question": question,
             "answer": answer,
             "claims": ledger.claims.iter().map(|claim| json!({
                 "claim_id": claim.claim_id,
@@ -3457,7 +3465,7 @@ pub(super) fn persist_agent_outcome(storage: &Database, run: &RunRecord, outcome
             "related_notes": [],
             "note_preview": {
                 "action": "create",
-                "relative_path": format!("Restork Research - {}.md", run.run_id),
+                "relative_path": research_note_path(&title, &run.run_id),
                 "expected_hash": null,
                 "markdown_hash": sha256_hex(markdown.as_bytes()),
                 "markdown": markdown,
@@ -3507,6 +3515,35 @@ fn parse_model_json(output: &str) -> Option<Value> {
         .filter(Value::is_object)
 }
 
+fn research_note_path(question: &str, run_id: &str) -> String {
+    format!(
+        "Restork Research - {}.md",
+        study_note_slug(question, run_id)
+    )
+}
+
+fn normalize_research_note_path(artifact: &mut Value, run_id: &str) {
+    let Some(path) = artifact["note_preview"]["relative_path"].as_str() else {
+        return;
+    };
+    let Some(identifier) = path
+        .strip_prefix("Restork Research - run-")
+        .and_then(|value| value.strip_suffix(".md"))
+    else {
+        return;
+    };
+    if identifier.is_empty() || !identifier.chars().all(|ch| ch.is_ascii_alphanumeric()) {
+        return;
+    }
+    let Some(title) = artifact["title"]
+        .as_str()
+        .or_else(|| artifact["question"].as_str())
+    else {
+        return;
+    };
+    artifact["note_preview"]["relative_path"] = Value::String(research_note_path(title, run_id));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3529,6 +3566,29 @@ mod tests {
         let long = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz";
         assert!(study_note_slug(long, "run-1").chars().count() <= 48);
         assert!(!study_note_slug(long, "run-1").ends_with('-'));
+    }
+
+    #[test]
+    fn research_note_path_uses_the_question_instead_of_the_run_id() {
+        let path = research_note_path("RAG 精确召回：订单号与价格", "run-secret-internal-id");
+        assert_eq!(path, "Restork Research - RAG-精确召回-订单号与价格.md");
+        assert!(!path.contains("run-secret-internal-id"));
+    }
+
+    #[test]
+    fn legacy_research_artifact_is_migrated_when_it_is_read_or_retried() {
+        let mut artifact = json!({
+            "title": "Pi 与 DeepSeek Harness 对比",
+            "question": "Pi 与 DeepSeek Harness 对比",
+            "note_preview": {
+                "relative_path": "Restork Research - run-b74d7d07a6960ae2a3ad6191bc5b5061.md"
+            }
+        });
+        normalize_research_note_path(&mut artifact, "run-b74d7d07a6960ae2a3ad6191bc5b5061");
+        assert_eq!(
+            artifact["note_preview"]["relative_path"],
+            "Restork Research - Pi-与-DeepSeek-Harness-对比.md"
+        );
     }
 
     #[test]

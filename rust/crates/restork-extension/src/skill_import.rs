@@ -283,6 +283,9 @@ pub fn import_agent_skill_package(value: &Value) -> Result<SkillManifest, SkillI
         description: parsed.description,
         keywords: parsed.keywords,
         default_mode: parsed.default_mode,
+        category: parsed.category,
+        surfaces: parsed.surfaces,
+        activation: parsed.activation,
         instructions: Some(parsed.instructions),
         import_report: Some(report),
         references,
@@ -305,6 +308,9 @@ struct ParsedSkillMd {
     description: Option<String>,
     keywords: Vec<String>,
     default_mode: Option<String>,
+    category: Option<String>,
+    surfaces: BTreeSet<String>,
+    activation: Option<String>,
     instructions: String,
 }
 
@@ -340,6 +346,30 @@ fn parse_skill_md(source: &str) -> Result<ParsedSkillMd, SkillImportError> {
             "default_mode must be research, study, or work",
         ));
     }
+    let category = fields
+        .iter()
+        .find(|(key, _)| key == "category")
+        .map(|(_, value)| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    let surfaces = fields
+        .iter()
+        .find(|(key, _)| key == "surfaces")
+        .map(|(_, value)| parse_keyword_list(value).into_iter().collect())
+        .unwrap_or_default();
+    let activation = fields
+        .iter()
+        .find(|(key, _)| key == "activation")
+        .map(|(_, value)| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    let (category, surfaces, activation) = infer_routing(
+        &name,
+        description.as_deref(),
+        &keywords,
+        default_mode.as_deref(),
+        category,
+        surfaces,
+        activation,
+    );
     let instructions = body.trim().to_owned();
     if instructions.is_empty() {
         return Err(SkillImportError::new("SKILL.md is empty"));
@@ -349,8 +379,84 @@ fn parse_skill_md(source: &str) -> Result<ParsedSkillMd, SkillImportError> {
         description,
         keywords,
         default_mode,
+        category,
+        surfaces,
+        activation,
         instructions,
     })
+}
+
+fn infer_routing(
+    name: &str,
+    description: Option<&str>,
+    keywords: &[String],
+    default_mode: Option<&str>,
+    category: Option<String>,
+    surfaces: BTreeSet<String>,
+    activation: Option<String>,
+) -> (Option<String>, BTreeSet<String>, Option<String>) {
+    if !surfaces.is_empty() {
+        return (
+            category,
+            surfaces,
+            activation.or_else(|| Some("manual".into())),
+        );
+    }
+    let corpus = format!(
+        "{} {} {}",
+        name,
+        description.unwrap_or_default(),
+        keywords.join(" ")
+    )
+    .to_ascii_lowercase();
+    let inferred = if [
+        "ppt",
+        "pptx",
+        "powerpoint",
+        "presentation",
+        "slide",
+        "deck",
+        "keynote",
+    ]
+    .iter()
+    .any(|term| corpus.contains(term))
+    {
+        Some(("presentation", "presentations", "manual"))
+    } else if ["vault", "obsidian", "knowledge base", "知识库", "笔记管理"]
+        .iter()
+        .any(|term| corpus.contains(term))
+    {
+        Some(("knowledge", "vault", "manual"))
+    } else if ["automation", "schedule", "自动化", "定时"]
+        .iter()
+        .any(|term| corpus.contains(term))
+    {
+        Some(("automation", "automation", "manual"))
+    } else {
+        default_mode.map(|mode| {
+            (
+                mode,
+                match mode {
+                    "study" => "start.study",
+                    "work" => "start.work",
+                    _ => "start.research",
+                },
+                "suggest",
+            )
+        })
+    };
+    let Some((inferred_category, surface, inferred_activation)) = inferred else {
+        return (
+            category.or_else(|| Some("general".into())),
+            surfaces,
+            activation.or_else(|| Some("manual".into())),
+        );
+    };
+    (
+        category.or_else(|| Some(inferred_category.into())),
+        BTreeSet::from([surface.into()]),
+        activation.or_else(|| Some(inferred_activation.into())),
+    )
 }
 
 fn split_front_matter(text: &str) -> (String, String) {
@@ -505,6 +611,9 @@ mod tests {
         assert_eq!(manifest.display_name.as_deref(), Some("ppt-master"));
         assert_eq!(manifest.default_mode.as_deref(), Some("work"));
         assert_eq!(manifest.keywords, vec!["ppt", "slides"]);
+        assert_eq!(manifest.category.as_deref(), Some("presentation"));
+        assert_eq!(manifest.surfaces, BTreeSet::from(["presentations".into()]));
+        assert_eq!(manifest.activation.as_deref(), Some("manual"));
         let report = manifest.import_report.expect("report");
         assert!(report.stripped.is_empty());
         assert_eq!(report.imported[0].kind, "instructions");

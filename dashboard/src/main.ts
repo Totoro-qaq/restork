@@ -60,7 +60,7 @@ import { startClock } from "./ui/clock";
 import { startSky } from "./ui/sky";
 import { activeView, bindEnterToSubmit, bindRovingFocus, escapeMarkup, fillModeWorkspace, paintNavBadge } from "./ui/dom";
 import { configureAutomation } from "./features/automation";
-import { bindRunDetailTabs, loadRunDetailFirstPage, prepareRunDetail, type RunDetailTab } from "./features/runDetail";
+import { bindRunDetailScrollbar, bindRunDetailTabs, loadRunDetailFirstPage, prepareRunDetail, syncRunDetailScrollbar, type RunDetailTab } from "./features/runDetail";
 import {
   bindRadarConfig,
   configureWeather,
@@ -84,6 +84,7 @@ import { selectedReasoningEffort } from "./features/startReasoning";
 import { configureCommandPalette } from "./features/commandPalette";
 import { configurePreviewDialog } from "./features/previewDialog";
 import { configureRuntimeScene } from "./features/runtimeScene";
+import { configureCyberpunkTheme } from "./features/cyberpunkTheme";
 import { configureSkillFolderImport, createExtensionInstallPreviewCard } from "./features/skillImport";
 import {
   configureSkillTriggers,
@@ -136,6 +137,7 @@ const dismissHandlers = new WeakMap<HTMLElement, (event: KeyboardEvent) => void>
 const radarStartupRefreshes = new WeakSet<HTMLElement>();
 const commandPaletteCleanups = new WeakMap<HTMLElement, () => void>();
 const updateCleanups = new WeakMap<HTMLElement, () => void>();
+const cyberpunkCleanups = new WeakMap<HTMLElement, () => void>();
 
 /**
  * Escape closes the topmost dismissible surface regardless of where focus sits.
@@ -164,7 +166,7 @@ function bindDismissStack(root: HTMLElement): void {
   dismissHandlers.set(root, handler);
 }
 
-const THEMES = new Set(["system", "light", "dark"]);
+const THEMES = new Set(["system", "light", "dark", "cyberpunk"]);
 
 /**
  * Apply the stored theme to the document root. `styles.css` resolves its colour
@@ -174,6 +176,13 @@ const THEMES = new Set(["system", "light", "dark"]);
 export function applyTheme(theme: string | undefined): void {
   const selected = theme && THEMES.has(theme) ? theme : "system";
   document.documentElement.dataset.theme = selected;
+}
+
+function applyWorkspaceTheme(root: HTMLElement, theme: string | undefined): void {
+  applyTheme(theme);
+  cyberpunkCleanups.get(root)?.();
+  cyberpunkCleanups.delete(root);
+  cyberpunkCleanups.set(root, configureCyberpunkTheme(root, document.documentElement.dataset.theme));
 }
 
 function syncReasoningControls(form: HTMLFormElement): void {
@@ -345,8 +354,10 @@ function renderWorkspace(root: HTMLElement, api: DashboardApi, snapshot: Dashboa
   stopMailStream(root);
   stopVaultStream(root);
   releaseCover(root);
+  cyberpunkCleanups.get(root)?.();
+  cyberpunkCleanups.delete(root);
   root.innerHTML = workspaceMarkup(snapshot, locale);
-  applyTheme(snapshot.workspaceV2?.personal?.settings.theme);
+  applyWorkspaceTheme(root, snapshot.workspaceV2?.personal?.settings.theme);
   startClock(root);
   startSky(root, snapshot.daily?.weather);
   bindProviderDiagnosticDismiss(root);
@@ -985,7 +996,14 @@ function configureRustWorkspace(
     }).catch((error) => { host.textContent = errorText(error, localeOf(root)); });
   });
 
-  root.querySelector<HTMLFormElement>("#personal-settings-form")?.addEventListener(
+  const personalSettingsForm = root.querySelector<HTMLFormElement>("#personal-settings-form");
+  personalSettingsForm?.querySelector<HTMLSelectElement>('select[name="theme"]')?.addEventListener(
+    "change",
+    (event) => {
+      applyWorkspaceTheme(root, (event.currentTarget as HTMLSelectElement).value);
+    },
+  );
+  personalSettingsForm?.addEventListener(
     "submit",
     (event) => {
       event.preventDefault();
@@ -1005,7 +1023,7 @@ function configureRustWorkspace(
       if (status) status.textContent = tr(localeOf(root), "Saving locally…", "正在保存到本地…");
       // Apply before the round trip so the control is not a placebo if the save
       // is slow; the reconciliation below corrects it if Core stored something else.
-      applyTheme(settings.theme);
+      applyWorkspaceTheme(root, settings.theme);
       void api.savePersonalSettings(version || null, settings).then((record) => {
         if (snapshot.workspaceV2) snapshot.workspaceV2.personal = record;
         const savedLocale = record.settings?.locale;
@@ -1023,6 +1041,7 @@ function configureRustWorkspace(
         ));
       }).catch((error) => {
         if (status) status.textContent = errorText(error, localeOf(root));
+        applyWorkspaceTheme(root, snapshot.workspaceV2?.personal?.settings.theme);
       });
     },
   );
@@ -2996,9 +3015,15 @@ async function showRun(
   const detail = root.querySelector<HTMLElement>("#run-detail");
   const run = snapshot.runs.find((entry) => entry.summary.run_id === button.dataset.runId);
   if (!detail || !run) return;
+  bindRunDetailScrollbar(detail);
   prepareRunDetail(root, detail, button, localeOf(root));
   try {
-    const { firstPage, firstConversation } = await loadRunDetailFirstPage(api, run.summary.run_id);
+    const [{ firstPage, firstConversation }, loadedResearchArtifact] = await Promise.all([
+      loadRunDetailFirstPage(api, run.summary.run_id),
+      run.summary.mode === "research" && api.researchArtifact
+        ? api.researchArtifact(run.summary.run_id).catch(() => null)
+        : Promise.resolve(null),
+    ]);
     const received = [...firstPage.events];
     const turns = [...(firstConversation?.turns ?? [])];
     let historyPage = firstPage.page;
@@ -3007,7 +3032,9 @@ async function showRun(
     let conversationDraft = "";
     let conversationError = "";
     let preservePrepend = false;
-    let activeTab: RunDetailTab = "process";
+    let researchArtifact = loadedResearchArtifact;
+    let activeTab: RunDetailTab = researchArtifact ? "result" : "process";
+    let firstRender = true;
     const render = (forceBottom = false): void => {
       if (!detail.isConnected) return;
       const previousInput = detail.querySelector<HTMLTextAreaElement>("#conversation-input");
@@ -3029,10 +3056,17 @@ async function showRun(
         draft: conversationDraft,
         error: conversationError,
         activeTab,
+        researchArtifact,
       });
+      if (firstRender) {
+        detail.scrollTop = 0;
+        firstRender = false;
+      }
+      syncRunDetailScrollbar(detail);
       bindRunDetailTabs(detail, (tab) => {
         activeTab = tab;
       });
+      bindNoteSave(root, api, detail);
       detail.querySelector<HTMLButtonElement>("[data-run-retry]")?.addEventListener("click", (event) => {
         void retryRun(
           root,
@@ -3130,6 +3164,13 @@ async function showRun(
             ? event.data.stop_reason
             : run.summary.stop_reason;
           render();
+          if (run.summary.mode === "research" && api.researchArtifact) {
+            void api.researchArtifact(run.summary.run_id).then((artifact) => {
+              researchArtifact = artifact;
+              activeTab = "result";
+              render();
+            }).catch(() => undefined);
+          }
           return;
         }
         // Append one row. Re-rendering the whole run per event made live

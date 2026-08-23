@@ -15,6 +15,7 @@ import type {
   RadarConfiguration,
   RadarConfigurationInput,
   ProviderDiagnostic,
+  ResearchArtifact,
   RunEvent,
   RunEventPage,
   RunSummary,
@@ -834,6 +835,13 @@ export class LocalApiClient implements DashboardApi {
       { content },
       true,
       `dashboard-conversation-${crypto.randomUUID()}`,
+    );
+  }
+
+  async researchArtifact(runId: string): Promise<ResearchArtifact> {
+    return this.#request<ResearchArtifact>(
+      "GET",
+      `/v1/research/${encodeURIComponent(runId)}`,
     );
   }
 

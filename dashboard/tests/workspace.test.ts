@@ -2364,6 +2364,18 @@ describe("Rust conversation workspace", () => {
       manifest_hash: "a".repeat(64),
       manifest: { display_name: "PPT Master" },
       updated_at: "2026-08-04T00:00:00Z",
+    }, {
+      package_id: "skill.last-30-days",
+      package_kind: "skill",
+      state: "enabled",
+      manifest_hash: "b".repeat(64),
+      manifest: {
+        display_name: "Last 30 Days · 最近 30 天",
+        description: "研究最近 30 天的公开信息与讨论。",
+        keywords: ["recent", "research"],
+        default_mode: "research",
+      },
+      updated_at: "2026-08-04T00:00:00Z",
     });
     state.workspaceV2.deliverables.push({
       deliverable_id: "deck-preview",
@@ -2401,6 +2413,8 @@ describe("Rust conversation workspace", () => {
     expect(form?.querySelector('select[name="provider_profile_id"]')).not.toBeNull();
     const skillSelect = form?.querySelector<HTMLSelectElement>('select[name="skill_id"]');
     expect(skillSelect?.textContent).toContain("PPT Master");
+    expect(skillSelect?.textContent).not.toContain("Last 30 Days");
+    expect(form?.textContent).not.toContain("只采用审核过的文本指引");
     expect(root.querySelectorAll(".slide-preview-card")).toHaveLength(1);
     expect(root.querySelector('[data-render-format="pptx"]')).not.toBeNull();
     expect(root.querySelector('[data-render-format="pdf"]')).not.toBeNull();

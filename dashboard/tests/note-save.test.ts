@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { mountDashboard } from "../src/main";
-import { approvalsView, researchPreviewMarkup, studyArtifactMarkup } from "../src/ui/render";
+import { approvalsView, researchPreviewMarkup, runEventsMarkup, studyArtifactMarkup } from "../src/ui/render";
 import type {
   ApprovalRequest,
   DashboardApi,
@@ -158,6 +158,43 @@ describe("save-to-vault buttons on artifacts", () => {
     expect(markup).toContain('data-note-run-id="run-research-note-save"');
     expect(markup).toContain("Save to vault");
     expect(markup).not.toContain('data-note-save="research" data-run-id=');
+  });
+
+  it("makes a completed research artifact the default run result", () => {
+    const artifact = researchArtifact();
+    artifact.conflicts = [
+      "字符串形式的冲突也能显示。",
+      { description: "对象形式的冲突也能显示。", evidence_refs: ["source-1"] },
+    ];
+    const markup = runEventsMarkup({
+      summary: {
+        run_id: artifact.run_id,
+        task_id: "task-research-result",
+        mode: "research",
+        state: "completed",
+        state_version: 1,
+        stop_reason: "completed",
+        created_at: NOW,
+        updated_at: NOW,
+      },
+      task: null,
+      budget: null,
+    }, [], "zh-CN", undefined, {
+      turns: [],
+      page: { limit: 24, has_more: false, next_cursor: null },
+      enabled: false,
+      activeTab: "result",
+      researchArtifact: artifact,
+    });
+
+    const root = document.createElement("div");
+    root.innerHTML = markup;
+    expect(root.querySelector('[data-rd-tab="result"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(root.querySelector('[data-rd-panel="result"]')?.hasAttribute("hidden")).toBe(false);
+    expect(root.textContent).toContain("研究结果");
+    expect(root.textContent).toContain("字符串形式的冲突也能显示。");
+    expect(root.textContent).toContain("对象形式的冲突也能显示。");
+    expect(root.textContent).toContain("存入知识库");
   });
 
   it("renders a save button on the study artifact only when a note preview exists", () => {

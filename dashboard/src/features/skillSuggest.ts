@@ -9,7 +9,14 @@ export interface EnabledSkill {
   description: string;
   keywords: string[];
   defaultMode?: Mode;
+  category: SkillCategory;
+  surfaces: SkillSurface[];
+  activation: SkillActivation;
 }
+
+export type SkillCategory = "research" | "study" | "presentation" | "knowledge" | "work" | "automation" | "general";
+export type SkillSurface = "start.research" | "start.study" | "start.work" | "presentations" | "vault" | "automation";
+export type SkillActivation = "manual" | "suggest";
 
 export interface SkillSuggestEffects {
   selectView(view: string): void;
@@ -17,6 +24,20 @@ export interface SkillSuggestEffects {
 }
 
 const MODE_VALUES = new Set<Mode>(["research", "study", "work"]);
+const CATEGORY_VALUES = new Set<SkillCategory>([
+  "research", "study", "presentation", "knowledge", "work", "automation", "general",
+]);
+const SURFACE_VALUES = new Set<SkillSurface>([
+  "start.research", "start.study", "start.work", "presentations", "vault", "automation",
+]);
+const ACTIVATION_VALUES = new Set<SkillActivation>(["manual", "suggest"]);
+const LEGACY_PRESENTATION_PATTERN = new RegExp(
+  "(?:^|[^a-z0-9])(?:ppt|pptx|powerpoint|presentation|presentations|"
+    + "slide|slides|deck|decks|keynote)(?=$|[^a-z0-9])|演示|幻灯片",
+  "iu",
+);
+const LEGACY_KNOWLEDGE_PATTERN = /(?:^|[^a-z0-9])(?:vault|obsidian|knowledge base|notes?)(?=$|[^a-z0-9])|知识库|笔记管理/iu;
+const LEGACY_AUTOMATION_PATTERN = /(?:^|[^a-z0-9])(?:automation|schedule|scheduled)(?=$|[^a-z0-9])|自动化|定时/iu;
 
 export function enabledSkills(snapshot: DashboardSnapshot): EnabledSkill[] {
   return (snapshot.workspaceV2?.extensions ?? [])
@@ -29,11 +50,28 @@ export function matchEnabledSkills(query: string, skills: EnabledSkill[]): Enabl
   const hay = query.trim().toLocaleLowerCase();
   if (hay.length < 6) return [];
   const tokens = tokenize(hay);
-  return skills.filter((skill) => {
-    const corpus = `${skill.name} ${skill.description} ${skill.keywords.join(" ")}`.toLocaleLowerCase();
-    return tokens.some((token) => corpus.includes(token))
-      || tokenize(skill.name.toLocaleLowerCase()).some((token) => hay.includes(token));
+  return skills.filter((skill) => skill.activation === "suggest").filter((skill) => {
+    const phrases = [skill.name, ...skill.keywords]
+      .map((value) => value.trim().toLocaleLowerCase())
+      .filter((value) => value.length >= 2);
+    return phrases.some((phrase) => hay.includes(phrase))
+      || tokens.some((token) => phrases.includes(token));
   });
+}
+
+export function skillsForSurface(skills: EnabledSkill[], surface: SkillSurface): EnabledSkill[] {
+  return skills.filter((skill) => skill.surfaces.includes(surface));
+}
+
+export function startSurface(mode: Mode): SkillSurface {
+  return `start.${mode}`;
+}
+
+export function skillView(skill: EnabledSkill): string {
+  if (skill.surfaces.includes("presentations")) return "deliverables";
+  if (skill.surfaces.includes("vault")) return "vault";
+  if (skill.surfaces.includes("automation")) return "automation";
+  return "start";
 }
 
 export function selectedSkillIds(form: HTMLFormElement): string[] {
@@ -48,13 +86,20 @@ export function selectedSkillIds(form: HTMLFormElement): string[] {
 }
 
 export function pinSkillOnStart(root: HTMLElement, skill: EnabledSkill, effects: SkillSuggestEffects): void {
-  effects.selectView("start");
+  const view = skillView(skill);
+  effects.selectView(view);
+  if (view === "deliverables") {
+    const select = root.querySelector<HTMLSelectElement>('#presentation-studio-form select[name="skill_id"]');
+    if (select && [...select.options].some((option) => option.value === skill.id)) select.value = skill.id;
+    return;
+  }
+  if (view !== "start") return;
   if (skill.defaultMode) effects.selectMode(skill.defaultMode);
   const form = root.querySelector<HTMLFormElement>("#start-run-form");
   const goal = root.querySelector<HTMLTextAreaElement>("#start-goal");
   if (form) {
     form.dataset.pinnedSkillIds = skill.id;
-    paintStartChips(form, localeOf(root), enabledSkillsFromRoot(root), goal?.value ?? "", [skill.id]);
+    paintStartChips(form, localeOf(root), [skill], goal?.value ?? "", [skill.id]);
   }
   goal?.focus();
 }
@@ -68,9 +113,22 @@ export function configureSkillTriggers(
   const skills = enabledSkills(snapshot);
   if (form && goal) {
     const paint = (): void => {
-      paintStartChips(form, localeOf(root), skills, goal.value, selectedSkillIds(form));
+      const available = skillsForSurface(skills, currentStartSurface(form));
+      paintStartChips(form, localeOf(root), available, goal.value, selectedSkillIds(form));
     };
-    goal.addEventListener("input", paint);
+    let composing = false;
+    goal.addEventListener("compositionstart", () => {
+      composing = true;
+    });
+    goal.addEventListener("compositionend", () => {
+      composing = false;
+      paint();
+    });
+    goal.addEventListener("input", (event) => {
+      if (composing || (event as InputEvent).isComposing) return;
+      paint();
+    });
+    form.addEventListener("start-mode-changed", paint);
     form.addEventListener("click", (event) => {
       const chip = (event.target as Element).closest<HTMLButtonElement>("[data-skill-chip]");
       if (!chip) return;
@@ -79,7 +137,8 @@ export function configureSkillTriggers(
       if (selected.has(skillId)) selected.delete(skillId);
       else selected.add(skillId);
       form.dataset.pinnedSkillIds = [...selected].join(",");
-      paintStartChips(form, localeOf(root), skills, goal.value, [...selected]);
+      const available = skillsForSurface(skills, currentStartSurface(form));
+      paintStartChips(form, localeOf(root), available, goal.value, [...selected]);
     });
     paint();
   }
@@ -89,7 +148,8 @@ export function configureSkillTriggers(
 export function paintConversationSuggestion(root: HTMLElement, snapshot: DashboardSnapshot): void {
   const host = root.querySelector<HTMLElement>("[data-skill-conversation-suggest]");
   if (!host) return;
-  const skills = enabledSkills(snapshot);
+  const form = root.querySelector<HTMLFormElement>("#start-run-form");
+  const skills = skillsForSurface(enabledSkills(snapshot), form ? currentStartSurface(form) : "start.research");
   const turns = [...root.querySelectorAll<HTMLElement>(".conversation-turn")];
   const last = turns.at(-1);
   const text = last?.textContent ?? "";
@@ -101,7 +161,7 @@ export function paintConversationSuggestion(root: HTMLElement, snapshot: Dashboa
     return;
   }
   const skill = matches[0];
-  const startForm = root.querySelector<HTMLFormElement>("#start-run-form");
+  const startForm = form;
   const isSelected = startForm ? selectedSkillIds(startForm).includes(skill.id) : false;
   host.hidden = false;
   host.replaceChildren();
@@ -132,18 +192,6 @@ export function paintConversationSuggestion(root: HTMLElement, snapshot: Dashboa
   host.append(row);
 }
 
-function enabledSkillsFromRoot(root: HTMLElement): EnabledSkill[] {
-  return [...root.querySelectorAll<HTMLButtonElement>("[data-skill-chip]")].map((button) => ({
-    id: button.dataset.skillChip ?? "",
-    name: button.dataset.skillName ?? button.dataset.skillChip ?? "",
-    description: button.dataset.skillDescription ?? "",
-    keywords: (button.dataset.skillKeywords ?? "").split(",").filter(Boolean),
-    defaultMode: MODE_VALUES.has(button.dataset.skillMode as Mode)
-      ? button.dataset.skillMode as Mode
-      : undefined,
-  })).filter((skill) => skill.id);
-}
-
 function paintStartChips(
   form: HTMLFormElement,
   locale: Locale,
@@ -171,6 +219,9 @@ function paintStartChips(
     button.dataset.skillName = skill.name;
     button.dataset.skillDescription = skill.description;
     button.dataset.skillKeywords = skill.keywords.join(",");
+    button.dataset.skillCategory = skill.category;
+    button.dataset.skillSurfaces = skill.surfaces.join(",");
+    button.dataset.skillActivation = skill.activation;
     if (skill.defaultMode) button.dataset.skillMode = skill.defaultMode;
     button.setAttribute("aria-pressed", String(selectedSet.has(skill.id)));
     button.innerHTML = `<strong>${escapeMarkup(tr(locale, `Use ${skill.name}?`, `使用 ${skill.name}？`))}</strong>`
@@ -189,13 +240,49 @@ function skillFromRecord(record: CatalogRecordV2): EnabledSkill | null {
     ? manifest.keywords.filter((item): item is string => typeof item === "string")
     : [];
   const mode = stringField(manifest.default_mode);
+  const defaultMode = MODE_VALUES.has(mode as Mode) ? mode as Mode : undefined;
+  const corpus = [id, name, description, ...keywords].join(" ");
+  const explicitSurfaces = Array.isArray(manifest.surfaces)
+    ? manifest.surfaces.filter((surface): surface is SkillSurface => SURFACE_VALUES.has(surface as SkillSurface))
+    : [];
+  const surfaces = explicitSurfaces.length ? explicitSurfaces : inferLegacySurfaces(corpus, defaultMode);
+  const explicitCategory = stringField(manifest.category);
+  const category = CATEGORY_VALUES.has(explicitCategory as SkillCategory)
+    ? explicitCategory as SkillCategory
+    : inferCategory(surfaces, defaultMode);
+  const explicitActivation = stringField(manifest.activation);
+  const activation = ACTIVATION_VALUES.has(explicitActivation as SkillActivation)
+    ? explicitActivation as SkillActivation
+    : defaultMode ? "suggest" : "manual";
   return {
     id,
     name,
     description,
     keywords,
-    defaultMode: MODE_VALUES.has(mode as Mode) ? mode as Mode : undefined,
+    defaultMode,
+    category,
+    surfaces,
+    activation,
   };
+}
+
+function currentStartSurface(form: HTMLFormElement): SkillSurface {
+  const value = form.querySelector<HTMLInputElement>("[data-start-mode-value]")?.value;
+  return startSurface(MODE_VALUES.has(value as Mode) ? value as Mode : "research");
+}
+
+function inferLegacySurfaces(corpus: string, mode?: Mode): SkillSurface[] {
+  if (LEGACY_PRESENTATION_PATTERN.test(corpus)) return ["presentations"];
+  if (LEGACY_KNOWLEDGE_PATTERN.test(corpus)) return ["vault"];
+  if (LEGACY_AUTOMATION_PATTERN.test(corpus)) return ["automation"];
+  return mode ? [startSurface(mode)] : [];
+}
+
+function inferCategory(surfaces: SkillSurface[], mode?: Mode): SkillCategory {
+  if (surfaces.includes("presentations")) return "presentation";
+  if (surfaces.includes("vault")) return "knowledge";
+  if (surfaces.includes("automation")) return "automation";
+  return mode ?? "general";
 }
 
 function stringField(value: unknown): string {

@@ -7,6 +7,7 @@ import { applyTheme, mountDashboard } from "../src/main";
 import type { DashboardApi, DashboardSnapshot, PersonalSettingsRecord } from "../src/api/types";
 
 const stylesheet = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
+const cyberThemeSource = readFileSync(resolve(import.meta.dirname, "../src/features/cyberpunkTheme.ts"), "utf8");
 
 function snapshotWith(theme: string | undefined): DashboardSnapshot {
   const personal: PersonalSettingsRecord | null = theme === undefined
@@ -64,8 +65,44 @@ describe("theme is a real control, not a placebo", () => {
 
   it("ships an explicit dark theme and a system-following fallback", () => {
     expect(stylesheet).toContain(':root[data-theme="dark"]');
+    expect(stylesheet).toContain(':root[data-theme="cyberpunk"]');
     expect(stylesheet).toContain("@media (prefers-color-scheme: dark)");
     expect(stylesheet).toContain(':root[data-theme="system"]');
+  });
+
+  it("ships the cyber neon theme with the prototype's maximal shell tokens", () => {
+    const cyber = stylesheet.slice(stylesheet.indexOf(':root[data-theme="cyberpunk"]'));
+    const block = cyber.slice(0, cyber.indexOf("}"));
+    expect(block).toContain("--bg: oklch(13.5% 0.028 268)");
+    expect(block).toContain("--surface: oklch(18% 0.032 266)");
+    expect(block).toContain("--brand: oklch(85% 0.15 195)");
+    expect(block).toContain("--action-end: oklch(72% 0.23 350)");
+    expect(block).toContain("color-scheme: dark");
+  });
+
+  it("keeps cyber motion on compositor-friendly transforms and preserves visible scroll rails", () => {
+    expect(stylesheet).toMatch(/@keyframes cyber-grid\s*\{[^}]*transform:/);
+    expect(stylesheet).toMatch(/@keyframes cyber-scan\s*\{[^}]*transform:/);
+    expect(stylesheet).not.toMatch(/@keyframes cyber-grid\s*\{[^}]*background-position:/);
+    expect(stylesheet).toMatch(/\.run-detail-scroll-rail\s*\{[\s\S]*?display:\s*block/);
+    expect(stylesheet).toMatch(/\.run-detail-scroll-rail > i\s*\{[\s\S]*?min-height:\s*52px/);
+  });
+
+  it("caps the atmospheric canvas and reuses one pointer-follow tween", () => {
+    expect(cyberThemeSource).toContain("timestamp - lastPaint < 32");
+    expect(cyberThemeSource).toContain("Math.min(window.devicePixelRatio || 1, 1.5)");
+    expect(cyberThemeSource).toContain("gsap.quickTo(spot, \"x\"");
+    expect(cyberThemeSource).toContain("gsap.quickTo(spot, \"y\"");
+    expect(cyberThemeSource).toContain("const glyphs =");
+    expect(cyberThemeSource).toContain("context.fillText(glyphs.charAt");
+    expect(cyberThemeSource).toContain("const sides = mote.shape === 1 ? 3 : 4");
+  });
+
+  it("uses cyan and magenta corner light plus gradient interface seams", () => {
+    expect(stylesheet).toMatch(/radial-gradient\(92% 82% at -8% -14%/);
+    expect(stylesheet).toMatch(/radial-gradient\(92% 86% at 110% 112%/);
+    expect(stylesheet).toMatch(/\.sidebar::before\s*\{[\s\S]*?linear-gradient\(180deg, transparent, var\(--brand\)/);
+    expect(stylesheet).toMatch(/\.topline::after\s*\{[\s\S]*?linear-gradient\(90deg, transparent, var\(--brand\)/);
   });
 
   it("gives the dark theme a different background and foreground", () => {
@@ -92,6 +129,9 @@ describe("theme is a real control, not a placebo", () => {
 
     applyTheme("solarized");
     expect(document.documentElement.dataset.theme).toBe("system");
+
+    applyTheme("cyberpunk");
+    expect(document.documentElement.dataset.theme).toBe("cyberpunk");
   });
 
   it("resolves body colours from tokens so a theme switch reaches the page", () => {

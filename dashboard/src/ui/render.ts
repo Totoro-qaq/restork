@@ -211,7 +211,7 @@ export function vaultFileListMarkup(
 ): string {
   const label = query
     ? tr(locale, `${items.length} matches for “${query}”`, `“${query}” 的 ${items.length} 条结果`)
-    : tr(locale, `${total} Markdown notes`, `${total} 篇 Markdown 笔记`);
+    : tr(locale, `${total} Markdown notes · newest first`, `${total} 篇 Markdown 笔记 · 最近更新优先`);
   const rows = items.map((item) => {
     const path = item.relative_path;
     const segments = path.split("/");
@@ -226,9 +226,8 @@ export function vaultFileListMarkup(
 }
 
 export function vaultNotePreviewMarkup(note: VaultNotePreviewV2, locale: Locale): string {
-  const shortHash = note.sha256.slice(0, 12);
   return `<article class="vault-note" data-vault-preview-path="${escapeHtml(note.relative_path)}">
-    <header><div><p class="eyebrow">${tr(locale, "Read-only preview", "只读预览")}</p><h3>${escapeHtml(note.relative_path.split("/").pop() ?? note.relative_path)}</h3><small>${escapeHtml(note.relative_path)}</small></div><span>${formatBytes(note.byte_count)} · SHA-256 ${escapeHtml(shortHash)}…</span></header>
+    <header><div><p class="eyebrow">${tr(locale, "Read-only preview", "只读预览")}</p><h3>${escapeHtml(note.relative_path.split("/").pop() ?? note.relative_path)}</h3><small>${escapeHtml(note.relative_path)}</small></div><span>${formatBytes(note.byte_count)} · Markdown</span></header>
     <div class="vault-untrusted"><b>${tr(locale, "Untrusted note content", "不受信任的笔记内容")}</b><span>${tr(locale, "Rendered as inert text; embedded HTML and scripts are never executed.", "仅以惰性文本渲染；内嵌 HTML 与脚本永不执行。")}</span></div>
     <section class="vault-reading-view" aria-label="${tr(locale, "Rendered Markdown preview", "Markdown 阅读预览")}">${safeMarkdownPreview(note.content)}</section>
     <button type="button" class="quiet-button" data-preview-open data-preview-kind="markdown"
@@ -1111,7 +1110,13 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
           <label>${tr(locale, "Display name (optional)", "称呼（可选）")}<input name="display_name" maxlength="80" value="${escapeHtml(settings.display_name ?? "")}" autocomplete="nickname"></label>
           <label>${tr(locale, "Language", "语言")}<select name="locale"><option value="en" ${settings.locale === "en" ? "selected" : ""}>English</option><option value="zh-CN" ${settings.locale === "zh-CN" ? "selected" : ""}>简体中文</option></select></label>
           <label>${tr(locale, "Time zone", "时区")}${timeZoneOptions(settings.timezone, locale)}</label>
-          <label>${tr(locale, "Theme", "主题")}<select name="theme"><option value="system">${tr(locale, "System", "跟随系统")}</option><option value="light" ${settings.theme === "light" ? "selected" : ""}>${tr(locale, "Light", "浅色")}</option><option value="dark" ${settings.theme === "dark" ? "selected" : ""}>${tr(locale, "Dark", "深色")}</option></select></label>
+          <label>${tr(locale, "Theme", "主题")}<select name="theme"><option value="system">${tr(locale, "System", "跟随系统")}</option><option value="light" ${settings.theme === "light" ? "selected" : ""}>${tr(locale, "Light", "浅色")}</option><option value="dark" ${settings.theme === "dark" ? "selected" : ""}>${tr(locale, "Dark", "深色")}</option><option value="cyberpunk" ${settings.theme === "cyberpunk" ? "selected" : ""}>${tr(locale, "Cyber neon", "赛博霓虹")}</option></select></label>
+          <fieldset class="cyber-theme-controls" data-cyberpunk-controls ${settings.theme === "cyberpunk" ? "" : "hidden"}>
+            <legend>${tr(locale, "Cyber shell", "赛博壳层")}</legend>
+            <label>${tr(locale, "Neon channel", "霓虹频道")}<select data-cyber-channel><option value="neon">${tr(locale, "Neon cyan", "霓虹青")}</option><option value="magenta">${tr(locale, "Magenta", "品红")}</option><option value="acid">${tr(locale, "Acid green", "酸绿")}</option></select></label>
+            <label>${tr(locale, "Visual effects", "视效强度")}<select data-cyber-fx><option value="full">${tr(locale, "Full · particles and scanlines", "满配 · 粒子网与扫描线")}</option><option value="lite">${tr(locale, "Lite · glow only", "精简 · 只留辉光")}</option><option value="off">${tr(locale, "Off · interface only", "关闭 · 纯界面")}</option></select></label>
+            <button type="button" class="quiet-button" data-cyber-replay>${tr(locale, "Replay boot sequence", "重放启动序列")}</button>
+          </fieldset>
           <label>${tr(locale, "Open on launch", "启动后打开")}<select name="startup_page"><option value="start" ${settings.startup_page !== "dashboard" ? "selected" : ""}>${tr(locale, "Start", "开始页")}</option><option value="dashboard" ${settings.startup_page === "dashboard" ? "selected" : ""}>${tr(locale, "Dashboard", "仪表盘")}</option></select></label>
           <button type="submit" class="btn-primary">${tr(locale, "Save locally", "保存到本地")}</button><p id="personal-settings-status" role="status"></p>
         </form>
@@ -1271,17 +1276,24 @@ export function runEventsMarkup(
     busy?: boolean;
     draft?: string;
     error?: string;
-    activeTab?: "process" | "chat";
+    activeTab?: "result" | "process" | "chat";
+    researchArtifact?: ResearchArtifact | null;
   },
 ): string {
   const summary = run.summary;
   const turns = conversation?.turns ?? [];
-  const activeTab = conversation?.activeTab === "chat" ? "chat" : "process";
+  const researchArtifact = conversation?.researchArtifact ?? null;
+  const activeTab = conversation?.activeTab === "result" && researchArtifact
+    ? "result"
+    : conversation?.activeTab === "chat"
+      ? "chat"
+      : "process";
   const prompt = [...turns].reverse().find((turn) => turn.prompt_version);
   const assistantOutput = events
     .filter((event) => event.type === "assistant.delta")
     .map((event) => typeof event.data.content === "string" ? event.data.content : "")
     .join("");
+  const runActive = isRunActive(summary.state);
   const phaseEvents = events.filter((event) => event.type !== "assistant.delta");
   const maxSteps = run.task?.budgets?.max_steps ?? run.budget?.budget?.max_steps ?? DEFAULT_MODEL_TURNS;
   const usedSteps = run.budget?.usage?.steps ?? 0;
@@ -1307,14 +1319,18 @@ export function runEventsMarkup(
           ))}</span></div></div>
       </header>
       <div class="rd-tabs" role="group" aria-label="${tr(locale, "Run detail sections", "运行详情分区")}">
+        ${researchArtifact ? `<button type="button" data-rd-tab="result" aria-pressed="${activeTab === "result"}">${tr(locale, "Result", "结果")}</button>` : ""}
         <button type="button" data-rd-tab="process" aria-pressed="${activeTab === "process"}">${tr(locale, "Process", "过程")} <span class="n">${phaseEvents.length}</span></button>
         <button type="button" data-rd-tab="chat" aria-pressed="${activeTab === "chat"}">${tr(locale, "Conversation", "对话")} <span class="n">${turns.length}</span></button>
       </div>
+      ${researchArtifact ? `<div class="rd-panel rd-result-panel" data-rd-panel="result" ${activeTab === "result" ? "" : "hidden"}>${researchPreviewMarkup(researchArtifact, locale)}</div>` : ""}
       <div class="rd-panel" data-rd-panel="process" ${activeTab === "process" ? "" : "hidden"}>
         ${runOutcomeMarkup(run, events, locale)}
         ${skills}
         ${traceMarkup(buildRunTrace(events), locale)}
-        <section class="assistant-stream" ${assistantOutput ? "" : "hidden"} aria-live="polite"><small>${tr(locale, "Assistant · stream", "助手 · 流式输出")}</small>${assistantStreamMarkup(assistantOutput, locale)}</section>
+        <section class="assistant-stream ${runActive ? "is-live" : "is-complete"}" ${assistantOutput ? "" : "hidden"} aria-live="polite"><small>${runActive
+          ? tr(locale, "Model output · live", "模型输出 · 实时")
+          : tr(locale, "Model result", "模型整理结果")}</small>${assistantStreamMarkup(assistantOutput, locale, !runActive)}</section>
         ${diagnostics}
       </div>
       <div class="rd-panel" data-rd-panel="chat" ${activeTab === "chat" ? "" : "hidden"}>
@@ -1352,19 +1368,29 @@ export function researchPreviewMarkup(
   locale: Locale = "en",
 ): string {
   const metrics = artifact.metrics;
+  const noteAction = artifact.note_preview.action === "create"
+    ? tr(locale, "New note", "新建笔记")
+    : artifact.note_preview.action === "append"
+      ? tr(locale, "Update note", "更新笔记")
+      : tr(locale, "No changes", "无需更新");
+  const claimKind = (kind: ResearchArtifact["claims"][number]["kind"]): string => kind === "grounded"
+    ? tr(locale, "Supported", "有证据")
+    : tr(locale, "Inference", "推断");
+  const conflictDescription = (conflict: ResearchArtifact["conflicts"][number]): string =>
+    typeof conflict === "string" ? conflict : conflict.description;
   return `<article class="research-result" aria-labelledby="research-result-title">
-    <header><div><p class="eyebrow">${tr(locale, "Research result", "研究结果")}</p><h3 id="research-result-title">${escapeHtml(artifact.question)}</h3></div><span>${escapeHtml(artifact.note_preview.action.toUpperCase())}</span></header>
+    <header><div><p class="eyebrow">${tr(locale, "Research result", "研究结果")}</p><h3 id="research-result-title">${escapeHtml(artifact.question)}</h3></div><span>${noteAction}</span></header>
     <dl class="research-metrics">
       <div><dt>${tr(locale, "Supported", "有证据")}</dt><dd>${percent(metrics.supported_claim_rate)}</dd></div>
       <div><dt>${tr(locale, "Primary", "一手来源")}</dt><dd>${measuredPercent(metrics.primary_source_ratio, locale)}</dd></div>
       <div><dt>${tr(locale, "Citations", "引用")}</dt><dd>${measuredPercent(metrics.citation_correctness, locale)}</dd></div>
       <div><dt>${tr(locale, "Related", "相关笔记")}</dt><dd>${metrics.related_note_count}</dd></div>
     </dl>
-    <section><h4>${tr(locale, "Findings", "结论")}</h4><ol>${artifact.claims.map((claim) => `<li><b>${escapeHtml(claim.kind)}</b>${escapeHtml(claim.statement)}<small>${claim.evidence_refs.map(escapeHtml).join(" · ") || escapeHtml(claim.inference_basis ?? tr(locale, "model inference", "模型推断"))}</small></li>`).join("")}</ol></section>
-    ${artifact.conflicts.length ? `<section><h4>${tr(locale, "Conflicts", "冲突")}</h4><ul>${artifact.conflicts.map((conflict) => `<li>${escapeHtml(conflict.description)}</li>`).join("")}</ul></section>` : ""}
-    <section><h4>${tr(locale, "Markdown preview", "Markdown 预览")} · ${escapeHtml(artifact.note_preview.relative_path)}</h4><pre>${escapeHtml(artifact.note_preview.markdown)}</pre></section>
+    <section><h4>${tr(locale, "Findings", "结论")}</h4><ol>${artifact.claims.map((claim) => `<li><b>${claimKind(claim.kind)}</b>${escapeHtml(claim.statement)}<small>${claim.evidence_refs.map(escapeHtml).join(" · ") || escapeHtml(claim.inference_basis ?? tr(locale, "model inference", "模型推断"))}</small></li>`).join("")}</ol></section>
+    ${artifact.conflicts.length ? `<section><h4>${tr(locale, "Conflicts", "冲突")}</h4><ul>${artifact.conflicts.map((conflict) => `<li>${escapeHtml(conflictDescription(conflict))}</li>`).join("")}</ul></section>` : ""}
+    <section><h4>${tr(locale, "Note preview", "笔记预览")} · ${escapeHtml(artifact.note_preview.relative_path)}</h4><div class="vault-reading-view research-note-preview">${safeMarkdownPreview(artifact.note_preview.markdown)}</div></section>
     <button type="button" data-note-save="research" data-note-run-id="${escapeHtml(artifact.run_id)}">${tr(locale, "Save to vault", "存入知识库")}</button>
-    <p class="fine">${tr(locale, "Preview only · Core has not written this note.", "仅预览 · Core 尚未写入此笔记。")} ${tr(locale, "Artifact", "产物")} ${escapeHtml(artifact.artifact_id)}</p>
+    <p class="fine">${tr(locale, "Preview only · Core has not written this note.", "仅预览 · Core 尚未写入此笔记。")}</p>
   </article>`;
 }
 
@@ -1677,13 +1703,13 @@ export function runsView(snapshot: DashboardSnapshot, locale: Locale): string {
         : "is-running";
   const runItem = (run: (typeof runs)[number]): string => {
     const state = run.summary.state;
+    const goal = run.task?.goal?.trim() || modeLabel(run.summary.mode, locale);
     return `<button type="button" class="list-item run-item" data-run-id="${escapeHtml(run.summary.run_id)}" data-run-state="${escapeHtml(state)}">`
-      + `<span class="row"><span class="mode">${escapeHtml(modeLabel(run.summary.mode, locale))}</span><span class="state ${stateClass(state)}"><i></i>${escapeHtml(runStateLabel(state, locale))}</span></span>`
-      + `<span class="goal">${escapeHtml(run.task?.goal ?? run.summary.task_id)}</span>`
-      + `<span class="foot">${formatDate(run.summary.updated_at, locale)}</span></button>`;
+      + `<span class="row"><span class="run-copy"><span class="goal">${escapeHtml(goal)}</span><span class="foot">${escapeHtml(modeLabel(run.summary.mode, locale))} · ${formatDate(run.summary.updated_at, locale)}</span></span>`
+      + `<span class="state ${stateClass(state)}"><i></i>${escapeHtml(runStateLabel(state, locale))}</span></span></button>`;
   };
   return `${chrome}<article class="paper-card full-card">
-    <div class="split-view runs-split"><div>${filterRow}<div class="item-list" data-run-list>${runs.map(runItem).join("") || `<p class="empty">${tr(locale, "No runs yet. Start one from the home page.", "还没有运行。回开始页用一句话发起。")}</p>`}</div>${paginationControl("runs", page, locale)}</div><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its activity.", "选择一个运行查看执行过程。")}</div></div>
+    <div class="split-view runs-split"><div>${filterRow}<div class="item-list" data-run-list>${runs.map(runItem).join("") || `<p class="empty">${tr(locale, "No runs yet. Start one from the home page.", "还没有运行。回开始页用一句话发起。")}</p>`}</div>${paginationControl("runs", page, locale)}</div><div class="run-detail-shell"><div id="run-detail" class="detail-placeholder">${tr(locale, "Select a run to inspect its activity.", "选择一个运行查看执行过程。")}</div><div class="run-detail-scroll-rail" data-run-detail-scrollbar hidden aria-hidden="true"><i data-run-detail-scroll-thumb></i></div></div></div>
   </article>`;
 }
 
@@ -1912,7 +1938,11 @@ function dailyContext(snapshot: DashboardSnapshot, locale: Locale): string {
         <circle cx="50" cy="50" r="45"></circle><circle class="clock-rule" cx="50" cy="50" r="39"></circle>
         <g class="clock-numerals"><text x="50" y="14">XII</text><text x="70" y="19">I</text><text x="84" y="33">II</text><text x="89" y="53">III</text><text x="84" y="73">IV</text><text x="70" y="87">V</text><text x="50" y="92">VI</text><text x="30" y="87">VII</text><text x="16" y="73">VIII</text><text x="11" y="53">IX</text><text x="16" y="33">X</text><text x="30" y="19">XI</text></g>
         <line data-clock-hour class="clock-hand hour-hand" x1="50" y1="53" x2="50" y2="29"></line><line data-clock-minute class="clock-hand minute-hand" x1="50" y1="54" x2="50" y2="19"></line><line data-clock-second class="clock-hand second-hand" x1="50" y1="57" x2="50" y2="16"></line><circle class="clock-pin" cx="50" cy="50" r="2.5"></circle>
-      </svg><time id="clock-text">${tr(locale, "Reading local time…", "读取本地时间…")}</time>
+      </svg><div class="clock-live-copy">
+        <time id="clock-text" class="clock-digital">${tr(locale, "Reading local time…", "读取本地时间…")}</time>
+        <span class="clock-date" data-clock-date></span>
+        <span class="clock-zone" data-clock-zone></span>
+      </div>
     </article>
     <div class="now-divider" aria-hidden="true"></div>
     <article class="daily-card weather-card"><header><h2>${tr(locale, "Weather", "天气")}</h2><span>${escapeHtml(dailyStatusLabel(weather?.status ?? "offline", locale))}</span></header>
@@ -2380,13 +2410,39 @@ function parseStructuredListEnvelope(output: string): { key: "questions" | "plan
   return null;
 }
 
+function readableAssistantProse(output: string): string {
+  const escapedBreaks = output.match(/\\n/g)?.length ?? 0;
+  const realBreaks = output.match(/\n/g)?.length ?? 0;
+  if (escapedBreaks < 2 || realBreaks > 1) return output;
+  return output
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t");
+}
+
+function compactAssistantProse(output: string, limit = 320): { preview: string; truncated: boolean } {
+  const value = readableAssistantProse(output).trim();
+  const characters = Array.from(value);
+  if (characters.length <= limit) return { preview: value, truncated: false };
+  const candidate = characters.slice(0, limit).join("");
+  const sentence = Math.max(
+    candidate.lastIndexOf("。"),
+    candidate.lastIndexOf("！"),
+    candidate.lastIndexOf("？"),
+    candidate.lastIndexOf(". "),
+    candidate.lastIndexOf("\n\n"),
+  );
+  const end = sentence >= Math.floor(limit * 0.58) ? sentence + 1 : limit;
+  return { preview: `${candidate.slice(0, end).trimEnd()}…`, truncated: true };
+}
+
 /**
  * The assistant stream box. While a run streams, the raw text accumulates in a
  * plain pre; once the research JSON envelope is complete it is upgraded to a
  * readable answer. Raw envelopes belong to developer diagnostics, not the
  * user-facing answer surface.
  */
-export function assistantStreamMarkup(output: string, locale: Locale = "en"): string {
+export function assistantStreamMarkup(output: string, locale: Locale = "en", compact = false): string {
   const envelope = parseResearchEnvelope(output);
   if (!envelope) {
     const structured = parseStructuredListEnvelope(output);
@@ -2405,12 +2461,36 @@ export function assistantStreamMarkup(output: string, locale: Locale = "en"): st
       return `<div class="assistant-answer" data-assistant-stream><p>${escapeHtml(note)}</p></div>`;
     }
     // 未完成的 JSON 保持原文（流式中途）；散文回答按 Markdown 渲染，不再裸露 # 号
-    const lead = output.trimStart();
+    const readable = readableAssistantProse(output);
+    const lead = readable.trimStart();
     if (lead.startsWith("{") || lead.startsWith("```") || !output.trim()) {
+      if (compact && output.trim()) {
+        return `<div class="assistant-answer assistant-answer-note"><p>${tr(
+          locale,
+          "The model left an incomplete structured response. It is kept for troubleshooting.",
+          "模型留下了一段未完成的结构化输出，已保留用于排查。",
+        )}</p></div><details class="assistant-output-full"><summary>${tr(
+          locale,
+          "View raw model output",
+          "查看原始模型输出",
+        )}</summary><pre data-assistant-stream>${escapeHtml(readable)}</pre></details>`;
+      }
       return `<pre data-assistant-stream>${escapeHtml(output)}</pre>`;
     }
-    return `<div class="assistant-answer markdown-body" data-assistant-stream>${safeMarkdownPreview(output)}</div>`;
+    if (compact) {
+      const { preview, truncated } = compactAssistantProse(readable);
+      const complete = truncated
+        ? `<details class="assistant-output-full"><summary>${tr(
+          locale,
+          "View complete model output",
+          "查看完整模型输出",
+        )}</summary><pre data-assistant-stream>${escapeHtml(readable.trim())}</pre></details>`
+        : "";
+      return `<div class="assistant-answer assistant-answer-compact markdown-body"${truncated ? "" : " data-assistant-stream"}>${safeMarkdownPreview(preview)}</div>${complete}`;
+    }
+    return `<div class="assistant-answer markdown-body" data-assistant-stream>${safeMarkdownPreview(readable)}</div>`;
   }
+  const answer = compact ? compactAssistantProse(envelope.answer) : { preview: envelope.answer, truncated: false };
   const claims = envelope.claims.slice(0, 12).map((claim) => {
     const refs = claim.evidenceRefs.slice(0, 4).join(" · ");
     const kind = claim.kind ? ` <b>${escapeHtml(claim.kind)}</b>` : "";
@@ -2425,8 +2505,11 @@ export function assistantStreamMarkup(output: string, locale: Locale = "en"): st
     tr(locale, "Unresolved questions", "未解问题"),
     envelope.unresolvedQuestions,
   );
-  return `<div class="assistant-answer" data-assistant-stream><p>${escapeHtml(envelope.answer)}</p>`
-    + `${claimsSection}${conflicts}${open}</div>`;
+  const completeAnswer = answer.truncated
+    ? `<details class="assistant-output-full"><summary>${tr(locale, "View complete answer", "查看完整回答")}</summary><pre>${escapeHtml(envelope.answer)}</pre></details>`
+    : "";
+  return `<div class="assistant-answer" data-assistant-stream><p>${escapeHtml(answer.preview)}</p>`
+    + `${claimsSection}${conflicts}${open}${completeAnswer}</div>`;
 }
 
 /**

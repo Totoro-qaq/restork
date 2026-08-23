@@ -242,6 +242,12 @@ pub struct SkillManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub surfaces: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub import_report: Option<crate::skill_import::SkillImportReport>,
@@ -274,6 +280,38 @@ impl SkillManifest {
         }
         if let Some(mode) = &self.default_mode
             && !matches!(mode.as_str(), "research" | "study" | "work")
+        {
+            return Err(ExtensionError::InvalidIdentifier(self.id.clone()));
+        }
+        if let Some(category) = &self.category
+            && !matches!(
+                category.as_str(),
+                "research"
+                    | "study"
+                    | "presentation"
+                    | "knowledge"
+                    | "work"
+                    | "automation"
+                    | "general"
+            )
+        {
+            return Err(ExtensionError::InvalidIdentifier(self.id.clone()));
+        }
+        if self.surfaces.iter().any(|surface| {
+            !matches!(
+                surface.as_str(),
+                "start.research"
+                    | "start.study"
+                    | "start.work"
+                    | "presentations"
+                    | "vault"
+                    | "automation"
+            )
+        }) {
+            return Err(ExtensionError::InvalidIdentifier(self.id.clone()));
+        }
+        if let Some(activation) = &self.activation
+            && !matches!(activation.as_str(), "manual" | "suggest")
         {
             return Err(ExtensionError::InvalidIdentifier(self.id.clone()));
         }
