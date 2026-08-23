@@ -42,7 +42,7 @@ mod state;
 mod todo_api;
 mod vault_api;
 mod x_cocreation_api;
-use x_cocreation_api::*;
+use x_cocreation_api::{compose_x_cocreation_drafts, list_x_cocreation, put_x_cocreation_settings};
 pub use x_cocreation_api::{execute_scheduled_x_cocreation_draft, execute_scheduled_x_radar};
 
 use agent_run_options::AgentRunCreate;
@@ -303,6 +303,22 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
     },
     ApiRouteDescription {
         path: "/v1/radar/{item_id}/action",
+        methods: &["POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/x-cocreation",
+        methods: &["GET", "POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/x-cocreation/settings",
+        methods: &["PUT"],
+    },
+    ApiRouteDescription {
+        path: "/v1/x-cocreation/drafts/{draft_id}/published",
+        methods: &["POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/x-cocreation/voice/preview",
         methods: &["POST"],
     },
     ApiRouteDescription {
