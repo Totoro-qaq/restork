@@ -68,6 +68,26 @@ pub enum ScheduleJob {
         #[serde(default)]
         network_access_confirmed: bool,
     },
+    XRadarRefresh {
+        topics: String,
+        #[serde(default)]
+        network_access_confirmed: bool,
+    },
+    XCocreationDraft {
+        provider_profile_id: String,
+        language: String,
+        #[serde(default)]
+        network_access_confirmed: bool,
+    },
+}
+
+impl ScheduleJob {
+    pub fn uses_model(&self) -> bool {
+        matches!(
+            self,
+            Self::ModelDraft { .. } | Self::XCocreationDraft { .. }
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -130,6 +150,26 @@ impl ScheduleSpec {
                 validate_text(focus, 2_000)?;
                 if !*network_access_confirmed {
                     return Err("model schedule network access was not confirmed");
+                }
+            }
+            ScheduleJob::XRadarRefresh {
+                topics,
+                network_access_confirmed,
+            } => {
+                validate_text(topics, 500)?;
+                if !*network_access_confirmed {
+                    return Err("X Radar network access was not confirmed");
+                }
+            }
+            ScheduleJob::XCocreationDraft {
+                provider_profile_id,
+                language,
+                network_access_confirmed,
+            } => {
+                validate_text(provider_profile_id, 256)?;
+                validate_text(language, 64)?;
+                if !*network_access_confirmed {
+                    return Err("X draft network access was not confirmed");
                 }
             }
         }

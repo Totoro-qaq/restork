@@ -168,7 +168,10 @@ fn x_schedules_separate_read_only_collection_from_reviewable_drafting() {
     let radar = ScheduleSpec::new(
         "x-radar-daily",
         "Asia/Shanghai",
-        Recurrence::Daily { hour: 9, minute: 10 },
+        Recurrence::Daily {
+            hour: 9,
+            minute: 10,
+        },
         MissedRunPolicy::Skip,
         ScheduleJob::XRadarRefresh {
             topics: "agent harness, @OpenAI".to_owned(),
