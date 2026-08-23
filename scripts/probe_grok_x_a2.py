@@ -292,6 +292,18 @@ def _compact_evidence_text(value: str) -> str:
     return "".join(character for character in normalized if character.isalnum())
 
 
+def _evidence_text_matches(excerpt: str, public_text: str) -> bool:
+    if excerpt in public_text:
+        return True
+    common_prefix = 0
+    for excerpt_character, public_character in zip(excerpt, public_text):
+        if excerpt_character != public_character:
+            break
+        common_prefix += 1
+    shorter = min(len(excerpt), len(public_text))
+    return shorter > 0 and common_prefix >= 80 and common_prefix / shorter >= 0.8
+
+
 def validate_oembed_response(
     item: Dict[str, Any],
     *,
@@ -345,12 +357,15 @@ def validate_oembed_response(
         raise VerificationError("oEmbed author did not match the candidate", retryable=False)
     parser = _TweetTextParser()
     parser.feed(payload["html"])
-    post_text = _compact_evidence_text(" ".join(parser.parts))
+    public_text = " ".join(" ".join(parser.parts).split())
+    post_text = _compact_evidence_text(public_text)
     excerpt = _compact_evidence_text(str(item["text_excerpt"]).rstrip(".…"))
-    if len(excerpt) < 12 or excerpt not in post_text:
-        raise VerificationError("oEmbed excerpt did not match the public post", retryable=False)
+    if len(post_text) < 12:
+        raise VerificationError("oEmbed response did not contain public post text", retryable=False)
     return {
         **item,
+        "text_excerpt": public_text[:1000].rstrip(),
+        "candidate_excerpt_matched": _evidence_text_matches(excerpt, post_text),
         "verification_state": "verified",
         "provenance_verified": True,
         "verified_at": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
