@@ -3625,6 +3625,17 @@ details.todo-trash > *:not(summary),
   clip-path: polygon(0 0, calc(100% - 13px) 0, 100% 13px, 100% 100%, 13px 100%, 0 calc(100% - 13px));
   backdrop-filter: none;
 }
+:root[data-theme="cyberpunk"] .board > .dashboard-card,
+:root[data-theme="cyberpunk"] .board > .dashboard-card:nth-child(2n) {
+  border: 1px solid rgb(var(--accent-rgb) / 26%);
+  padding: var(--space-6);
+  background:
+    linear-gradient(145deg, rgb(var(--surface-rgb) / 93%), rgb(var(--surface-alt-rgb) / 77%)),
+    radial-gradient(circle at 100% 0, rgb(var(--cyber-secondary-rgb) / 5%), transparent 22rem);
+  overflow: hidden;
+}
+:root[data-theme="cyberpunk"] .board > .dashboard-card > header,
+:root[data-theme="cyberpunk"] .board > .dashboard-card > .dashboard-card-body { min-width: 0; }
 :root[data-theme="cyberpunk"] .paper-card::before {
   top: 0;
   bottom: auto;
@@ -4050,6 +4061,8 @@ details.todo-trash > *:not(summary),
   :root[data-theme="cyberpunk"] .workspace { padding: 20px 16px 36px; }
   :root[data-theme="cyberpunk"] .paper-card,
   :root[data-theme="cyberpunk"] .paper-card.full-card { padding: 20px; }
+  :root[data-theme="cyberpunk"] .board > .dashboard-card,
+  :root[data-theme="cyberpunk"] .board > .dashboard-card:nth-child(2n) { padding: var(--space-5); }
   :root[data-theme="cyberpunk"] .cyber-theme-controls { grid-template-columns: 1fr; }
   .cyber-boot-mark { font-size: clamp(2.5rem, 16vw, 5rem); }
 }
