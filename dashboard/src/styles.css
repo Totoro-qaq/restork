@@ -1763,7 +1763,7 @@ button:disabled[aria-busy="true"] { cursor: wait; }
 .hour-hand { stroke-width: 2.5; }.minute-hand { stroke-width: 1.7; }.second-hand { stroke: var(--danger-ink); stroke-width: .75; }.clock-pin { fill: var(--danger-ink); }
 .clock-live-copy { min-width: 0; }
 .clock-digital { display: block; overflow: hidden; color: var(--fg-strong); font-family: var(--font-mono); font-size: var(--text-xl); font-variant-numeric: tabular-nums; line-height: 1.15; text-overflow: ellipsis; }
-.clock-date, .clock-zone { display: block; margin-top: 5px; color: var(--fg-secondary); font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: .035em; }
+.clock-date, .clock-zone { display: block; margin-top: 4px; color: var(--fg-secondary); font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: .035em; }
 .weather-temperature { color: var(--ink-black); font-size: var(--text-temperature); line-height: var(--leading-none); }
 .weather-main { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; align-items: center; margin-top: 12px; }
 .wx-sky { width: 96px; height: 96px; }
@@ -3522,7 +3522,7 @@ details.todo-trash > *:not(summary),
   box-shadow: 0 0 10px var(--cyber-glow);
 }
 :root[data-theme="cyberpunk"] .runs-split #run-detail {
-  padding-right: 18px;
+  padding-right: 20px;
   scrollbar-width: none;
 }
 :root[data-theme="cyberpunk"] .runs-split #run-detail::-webkit-scrollbar { width: 0; }

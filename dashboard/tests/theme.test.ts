@@ -98,6 +98,36 @@ describe("theme is a real control, not a placebo", () => {
     expect(cyberThemeSource).toContain("const sides = mote.shape === 1 ? 3 : 4");
   });
 
+  it("keeps the motion engine out of every other theme's bundle", () => {
+    // A static import would ship GSAP to readers who never leave the light theme.
+    expect(cyberThemeSource).not.toMatch(/^import \{ gsap \} from "gsap";$/m);
+    expect(cyberThemeSource).toContain('await import("gsap")');
+    expect(cyberThemeSource).toContain("if (disposed) return;");
+  });
+
+  it("keeps the ambient field dense enough to read as a network", () => {
+    // Below these floors the motes never reach each other and the field reads as
+    // dust. They are a floor, not a target: raising them is fine, quietly
+    // lowering them undoes the whole point of the theme.
+    const area = /Math\.floor\(\(width \* height\) \/ (\d+)_(\d+)\)/.exec(cyberThemeSource);
+    expect(area).not.toBeNull();
+    expect(Number(`${area?.[1]}${area?.[2]}`)).toBeLessThanOrEqual(15_000);
+
+    const link = /distanceSquared > (\d+)_(\d+)/.exec(cyberThemeSource);
+    expect(link).not.toBeNull();
+    expect(Number(`${link?.[1]}${link?.[2]}`)).toBeGreaterThanOrEqual(23_104);
+
+    const glyphAlpha = /globalAlpha = 0\.(\d+) \+ fade \* 0\.(\d+)/.exec(cyberThemeSource);
+    expect(glyphAlpha).not.toBeNull();
+    expect(Number(`0.${glyphAlpha?.[2]}`)).toBeGreaterThanOrEqual(0.38);
+  });
+
+  it("stops painting rather than freezing the last frame when effects are off", () => {
+    expect(cyberThemeSource).toContain('if (fx === "off" || document.hidden)');
+    expect(cyberThemeSource).toContain("context.clearRect(0, 0, width, height);");
+    expect(cyberThemeSource).toContain('const density = fx === "lite" ? 0.45 : 1;');
+  });
+
   it("uses cyan and magenta corner light plus gradient interface seams", () => {
     expect(stylesheet).toMatch(/radial-gradient\(92% 82% at -8% -14%/);
     expect(stylesheet).toMatch(/radial-gradient\(92% 86% at 110% 112%/);

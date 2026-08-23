@@ -111,3 +111,23 @@ export function paintNavBadge(badge: HTMLElement, unseen: number, spoken: string
     label.textContent = spoken;
   }
 }
+
+/** Open a settings dialog from its trigger and close it on backdrop or button. */
+export function bindSettingsDialog(
+  root: HTMLElement,
+  dialogSelector: string,
+  triggerSelector: string,
+): void {
+  const dialog = root.querySelector<HTMLDialogElement>(dialogSelector);
+  const trigger = root.querySelector<HTMLButtonElement>(triggerSelector);
+  trigger?.addEventListener("click", () => {
+    if (dialog && !dialog.open) dialog.showModal();
+  });
+  dialog?.querySelector<HTMLButtonElement>("[data-settings-close]")?.addEventListener(
+    "click",
+    () => dialog.close(),
+  );
+  dialog?.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+}
