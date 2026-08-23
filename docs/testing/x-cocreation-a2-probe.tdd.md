@@ -29,7 +29,7 @@ RED commit：`21ddfe8`。GREEN commit：`e1023b7`。
 
 ## Live execution
 
-- A3：3 类查询、12 次 X 工具调用；0 次 observation 暴露，失败。
+- A3：3 类查询、12 次 X 工具调用；0 次 observation 暴露。后续按 xAI 服务端工具公开契约纠正为预期边界：A3 完成，不再要求 observation；最终字段与 citations 只作为 A4 的候选输入。
 - A2：7/7 场景均执行；2 条结构通过、5 条 progress-only。
 - 原始 stdout/stderr 位于任务临时目录，不进入 Git、Vault 或测试 fixture。
 

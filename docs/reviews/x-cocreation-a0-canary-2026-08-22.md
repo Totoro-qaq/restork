@@ -150,7 +150,7 @@ macOS 系统 HTTP、HTTPS 与 SOCKS 代理均指向 `127.0.0.1:7890`；Grok 服�
 | 问题讨论（MCP / tool security） | 0 / 35,078 ms | 4 | 0/4 | 失败 |
 | 指定账号（@AnthropicAI） | 0 / 27,207 ms | 1 | 0/1 | 失败 |
 
-ACP 能明确区分 `tool_call`、`tool_call_update` 与 `end`，但 12/12 个 X 工具完成事件的 `content`、`locations` 都为空；`rawOutput` 只有 call_id、查询输入、工具名与内部 ID。帖子 URL 只可能出现在后续助手文本，不能作为工具 observation。因此 A3 正式失败，不实现 observation 绑定。
+ACP 能明确区分 `tool_call`、`tool_call_update` 与 `end`，但 12/12 个 X 工具完成事件的 `content`、`locations` 都为空；`rawOutput` 只有 call_id、查询输入、工具名与内部 ID。当时按「必须取得 observation」的 Gate 将 A3 判为失败；后续核对 xAI 官方工具契约后，该判定在下文纠正。
 
 ## 2026-08-23 · A2 完整诊断重跑
 
@@ -179,8 +179,21 @@ ACP 能明确区分 `tool_call`、`tool_call_update` 与 `end`，但 12/12 个 X
 
 ### 更新后的 Gate 决策
 
-- A3：失败，ACP 不暴露 X 工具 observation；
+- A3：完成，确认 ACP 不暴露 X 服务端工具 observation；
 - A2：2/7，失败；
-- A4：待实现，oEmbed 仅为候选验证器；
+- A4：待实现，citation + oEmbed 仅为候选验证链；
 - Slice B / 产品层：继续不放行；
 - 下一步：先做 A4 与 `progress | complete` 终态修复，再第三次完整重跑 A2。
+
+## 2026-08-23 · 上游契约纠正
+
+xAI 官方文档将 `x_search` 定义为托管在 xAI 服务端的内置工具，而不是 MCP 工具；服务端工具调用只暴露调用记录，不返回原始 tool output，来源出口是最终响应的 citations 与内联引用：
+
+- <https://docs.x.ai/developers/tools/overview>
+- <https://docs.x.ai/developers/tools/tool-usage-details>
+- <https://docs.x.ai/developers/tools/x-search>
+- <https://docs.x.ai/developers/tools/citations>
+
+因此 12/12 个 completed update 的空 `content` 不是套餐权限证据，也不是可通过本地 MCP 修复的协议缺陷。Spec 撤销「必须取得 observation」这一不可满足条件：模型输出与 citations 只产生候选证据，A4 负责独立验证 URL、作者与引用正文；只有验证通过的候选才生成 `evidence_id` 并进入产品层。
+
+MCP 决策：v1 不新增 MCP Server。Restork 已有原生工具边界，包装同一 CLI 不会增加来源信息，只会增加配置与故障面。若未来有两个以上独立宿主需要复用验证能力，或上游提供正式 X Search MCP endpoint，再另立 ADR。
