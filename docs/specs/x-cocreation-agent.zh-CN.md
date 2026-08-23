@@ -1,6 +1,6 @@
 # Restork X 共创写作 Agent Spec（v1：只读与草稿）
 
-- 状态：待实现
+- 状态：Gate A 阻塞（A0、A1 已完成；A3 原生事件不含 X observation；A2 完整重跑仍为 2/7）
 - 日期：2026-08-22
 - 适用版本：unsigned alpha（下一个次要版本）
 - 涉及范围：Radar、交付物、自动化、知识库、设置
@@ -210,11 +210,17 @@ draft_id, 栏目, 草稿原文, 终稿, 最终帖子 URL（可选）,
 
 ## 实施前剩余 Gate
 
-1. **A0 · 3 条 canary。** 先通过现有 `x_search` 跑 3 类真实查询（一手发布、问题讨论、指定账号），记录 CLI 版本、认证模式、耗时、返回字节数、X URL 数量、原始 envelope 与缺失字段。任一条没有可核对链接，或无法稳定定位条目边界，就停止，不做界面。
-2. **A1 · 类型化适配器。** 基于 A0 固定 `items[]` schema、解析器、长度/URL/时间校验和 fixture；优先读取 Grok CLI 顶层 `structuredOutput`。兼容 Grok CLI 1.0.5 在服务端 X 工具循环中把多个 schema 对象串接到 `text` 的已知行为时，只允许解析完整的 JSON 对象序列并仅采用最后一个对象；任何普通文本、截断对象或无 `structuredOutputError` 的降级都失败。逐项校验 canonical URL、handle、数字 status ID，并由 X Snowflake 推导发布时间，与 `posted_at` 的误差不得超过 5 分钟。不能把自由文本靠提示词「约定」成可靠接口。加入无链接、多条共用一个链接、超长输出、空结果、ID/时间矛盾与恶意指令 fixture。
-3. **A2 · 剩余 7 条。** 再跑 7 条不同检索式，必须全部经过类型化适配器；逐条记录通过、降级或失败原因。10 条样本只是实现 Gate，不代表召回率、行业覆盖率或长期稳定性已经得到统计证明。
-4. 雷达与草稿先各做一版静态稿，用 A2 的真实证据填充，确认你会点「存为选题」再实现自动化。
-5. 风格档案的字段在积累 10 次真实修改之后再定稿，不提前设计。
+1. **A0 · 3 条 canary（已完成，3/3）。** 通过现有 `x_search` 跑 3 类真实查询（一手发布、问题讨论、指定账号），记录 CLI 版本、认证模式、耗时、返回字节数、X URL 数量、原始 envelope 与缺失字段。
+2. **A1 · 类型化适配器（已完成）。** 基于 A0 固定 `items[]` schema、解析器、长度/URL/时间校验和 fixture；优先读取 Grok CLI 顶层 `structuredOutput`。兼容 Grok CLI 1.0.5 在服务端 X 工具循环中把多个 schema 对象串接到 `text` 的已知行为时，只允许解析完整的 JSON 对象序列并仅采用最后一个对象；任何普通文本、截断对象或无 `structuredOutputError` 的降级都失败。逐项校验 canonical URL、handle、数字 status ID，并由 X Snowflake 推导发布时间，与 `posted_at` 的误差不得超过 5 分钟。不能把自由文本靠提示词「约定」成可靠接口。离线 fixture 已覆盖无链接、多条共用一个链接、超长输出、空结果、ID/时间矛盾与恶意指令。
+3. **A3 · 原生事件溯源（已执行，失败）。** 使用 Grok CLI `--output-format streaming-json` 在隔离工作区重跑 A0 三类查询，记录并解析原生 ACP 会话更新。只有由 X 搜索工具事件直接返回的 URL、post ID、作者与时间才属于「观察到的证据」；助手文本、最终回答、`structuredOutput` 与模型补写字段都不构成来源。Restork 为每条工具 observation 生成本地 `observation_id`，后续类型化结果只能引用这些 ID，且产品 URL 必须从冻结 observation 确定性解析。
+   - A3 通过：三类查询都能捕获可区分的 X 工具调用与结果事件；至少一条 observation 含可核对帖子；进度事件、工具完成事件与会话终态可明确区分；原生流不泄露 token、认证文件或本机路径。
+   - A3 实测：三类查询分别产生 7、4、1 次 X 工具调用；12/12 个 `tool_call_update` 均为 `completed`，但 `content`、`locations` 为空，`rawOutput` 只有 call_id、输入参数与工具名。ACP 没有暴露帖子结果，A3 失败。
+   - A3 失败后不得用提示词、Snowflake 或 URL 形状冒充真实性证明。2026-08-23 的候选验证实验显示：结构通过的 8 条 URL 经 `publish.x.com/oembed` 均返回 200，变造一个 post ID 后返回 404；它可以进入 A4 稳定性 Gate，但在固定重定向、响应 schema、超时、限流、删除/保护帖语义与失败关闭策略前，不是生产安全边界。若 A4 也失败，产品必须在「手工核验 v0」与「修改本 Spec、接入只读 X Posts lookup」之间重新决策。
+4. **A2 · 完整重跑（已执行，2/7）。** 7 条均经过当前类型化适配器：OpenAI/Codex 与开源 Agent Harness 两类结构通过，共 8 条 URL；其余 5 条在 8～15 秒后以进度空对象提前结束。所有结构通过结果因 A3 失败仍为 `provenance_verified=false`，不得进入产品层。每条最终必须得到明确终态：包含独立存在性验证的有效结果，或标记为 `complete` 的真实空结果。进度空对象、超时、模型新增 URL、没有独立验证的 canonical-looking URL 均为失败。7/7 通过才放行 Slice B。
+5. **A4 · 公开存在性验证器。** 对固定的 `https://publish.x.com/oembed?url=<canonical-x-url>` 做独立适配：只允许跟随 `publish.twitter.com` 到 `publish.x.com` 的固定重定向；200 必须返回 JSON 且 `author_url` 与候选 handle 一致；404 记为不存在；其它状态、超时、重定向漂移、响应超限与 schema 变化全部失败关闭。使用真实存在、变造 ID、删除/不可见、大小写 handle、限流与网络失败 fixture，并连续多轮复测后才能决定是否接受该无 token 依赖。
+6. 修复进度空对象终态：schema 必须显式区分 `progress | complete`；只有 `complete` 可作为最终结果，进度结束应返回可重试失败并受一次额外调用与总预算上限约束。
+7. A4 与终态修复完成后再次重跑 A2；7/7 才放行。雷达与草稿先各做一版静态稿，用通过后的真实证据填充，确认你会点「存为选题」再实现自动化。
+8. 风格档案的字段在积累 10 次真实修改之后再定稿，不提前设计。
 
 ---
 
