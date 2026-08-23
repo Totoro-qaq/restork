@@ -41,6 +41,7 @@ mod skill_wire;
 mod state;
 mod todo_api;
 mod vault_api;
+mod x_cocreation_api;
 
 use agent_run_options::AgentRunCreate;
 use auth_api::*;
