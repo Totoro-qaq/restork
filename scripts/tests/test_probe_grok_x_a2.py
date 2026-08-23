@@ -13,9 +13,33 @@ SPEC.loader.exec_module(probe)
 
 
 class GrokXA2ProbeTests(unittest.TestCase):
+    valid_item = {
+        "post_url": "https://x.com/OpenAI/status/2082263717916586117",
+        "post_id": "2082263717916586117",
+        "author_handle": "OpenAI",
+        "posted_at": "2026-07-29T17:05:14Z",
+        "text_excerpt": "We quietly released the open-source Codex Security CLI",
+        "source_role": "original",
+    }
+    valid_oembed = {
+        "url": "https://x.com/OpenAI/status/2082263717916586117",
+        "author_name": "OpenAI",
+        "author_url": "https://x.com/OpenAI",
+        "html": (
+            '<blockquote class="twitter-tweet"><p lang="en" dir="ltr">'
+            "We quietly released the open-source Codex Security CLI, but Hacker News found it first."
+            "</p>&mdash; OpenAI (@OpenAI)</blockquote>"
+        ),
+        "width": 550,
+        "height": None,
+        "type": "rich",
+        "version": "1.0",
+    }
+
     def test_accepts_individually_consistent_structured_items(self):
         envelope = {
             "structuredOutput": {
+                "phase": "complete",
                 "items": [{
                     "post_url": "https://x.com/cursor_ai/status/2090136956101414982",
                     "post_id": "2090136956101414982",
@@ -36,6 +60,7 @@ class GrokXA2ProbeTests(unittest.TestCase):
     def test_rejects_a_snowflake_timestamp_mismatch(self):
         envelope = {
             "structuredOutput": {
+                "phase": "complete",
                 "items": [{
                     "post_url": "https://x.com/e2b/status/1956429183042183561",
                     "post_id": "1956429183042183561",
@@ -52,8 +77,9 @@ class GrokXA2ProbeTests(unittest.TestCase):
             probe.parse_and_validate_envelope(json.dumps(envelope))
 
     def test_accepts_only_complete_json_sequence_fallback(self):
-        progress = json.dumps({"items": [], "warnings": ["Searching the account."]})
+        progress = json.dumps({"phase": "progress", "items": [], "warnings": ["Searching the account."]})
         final = json.dumps({
+            "phase": "complete",
             "items": [{
                 "post_url": "https://x.com/cursor_ai/status/2090136956101414982",
                 "post_id": "2090136956101414982",
@@ -80,6 +106,7 @@ class GrokXA2ProbeTests(unittest.TestCase):
     def test_progress_only_empty_result_is_not_a_completed_empty_result(self):
         envelope = {
             "structuredOutput": {
+                "phase": "progress",
                 "items": [],
                 "warnings": ["Searching the requested account."],
             }
@@ -88,6 +115,81 @@ class GrokXA2ProbeTests(unittest.TestCase):
         parsed = probe.parse_and_validate_envelope(json.dumps(envelope))
 
         self.assertEqual(parsed["classification"], "progress_only")
+
+    def test_rejects_a_payload_without_an_explicit_terminal_phase(self):
+        envelope = {"structuredOutput": {"items": [], "warnings": []}}
+        with self.assertRaisesRegex(ValueError, "phase"):
+            probe.parse_and_validate_envelope(json.dumps(envelope))
+
+    def test_a4_accepts_only_matching_public_oembed_evidence(self):
+        verified = probe.validate_oembed_response(
+            self.valid_item,
+            status=200,
+            final_url="https://publish.x.com/oembed",
+            content_type="application/json; charset=utf-8",
+            body=json.dumps(self.valid_oembed).encode(),
+        )
+        self.assertEqual(verified["verification_state"], "verified")
+        self.assertEqual(verified["post_url"], self.valid_item["post_url"])
+        self.assertTrue(verified["provenance_verified"])
+
+    def test_a4_fails_closed_for_author_or_excerpt_mismatch(self):
+        wrong_author = dict(self.valid_oembed, author_url="https://x.com/not_openai")
+        with self.assertRaisesRegex(probe.VerificationError, "author"):
+            probe.validate_oembed_response(
+                self.valid_item,
+                status=200,
+                final_url="https://publish.x.com/oembed",
+                content_type="application/json",
+                body=json.dumps(wrong_author).encode(),
+            )
+        wrong_text = dict(self.valid_oembed, html="<blockquote><p>Unrelated post.</p></blockquote>")
+        with self.assertRaisesRegex(probe.VerificationError, "excerpt"):
+            probe.validate_oembed_response(
+                self.valid_item,
+                status=200,
+                final_url="https://publish.x.com/oembed",
+                content_type="application/json",
+                body=json.dumps(wrong_text).encode(),
+            )
+
+    def test_a4_distinguishes_permanent_and_retryable_failures(self):
+        with self.assertRaises(probe.VerificationError) as missing:
+            probe.validate_oembed_response(
+                self.valid_item,
+                status=404,
+                final_url="https://publish.x.com/oembed",
+                content_type="application/json",
+                body=b"{}",
+            )
+        self.assertFalse(missing.exception.retryable)
+        with self.assertRaises(probe.VerificationError) as limited:
+            probe.validate_oembed_response(
+                self.valid_item,
+                status=429,
+                final_url="https://publish.x.com/oembed",
+                content_type="application/json",
+                body=b"{}",
+            )
+        self.assertTrue(limited.exception.retryable)
+
+    def test_a4_rejects_endpoint_drift_and_oversized_bodies(self):
+        with self.assertRaisesRegex(probe.VerificationError, "endpoint"):
+            probe.validate_oembed_response(
+                self.valid_item,
+                status=200,
+                final_url="https://example.com/oembed",
+                content_type="application/json",
+                body=json.dumps(self.valid_oembed).encode(),
+            )
+        with self.assertRaisesRegex(probe.VerificationError, "large"):
+            probe.validate_oembed_response(
+                self.valid_item,
+                status=200,
+                final_url="https://publish.x.com/oembed",
+                content_type="application/json",
+                body=b"x" * (probe.MAX_OEMBED_BYTES + 1),
+            )
 
 
 if __name__ == "__main__":
