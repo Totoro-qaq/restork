@@ -137,7 +137,8 @@ class GrokXA2ProbeTests(unittest.TestCase):
         item = dict(
             self.valid_item,
             text_excerpt=(
-                "We quietly released the open-source Codex Security CLI, but Hacker News found it first. "
+                "We quietly released the open-source Codex Security CLI, but Hacker News found it first "
+                "before our announcement. "
                 "The full candidate continues with exact public wording that oEmbed does not return."
             ),
         )
@@ -145,7 +146,7 @@ class GrokXA2ProbeTests(unittest.TestCase):
             self.valid_oembed,
             html=(
                 '<blockquote><p>We quietly released the open-source Codex Security CLI, but Hacker News '
-                "found it first.…</p></blockquote>"
+                "found it first before our announcement.…</p></blockquote>"
             ),
         )
 
@@ -159,7 +160,7 @@ class GrokXA2ProbeTests(unittest.TestCase):
 
         self.assertTrue(verified["provenance_verified"])
 
-    def test_a4_fails_closed_for_author_or_excerpt_mismatch(self):
+    def test_a4_fails_closed_for_author_mismatch(self):
         wrong_author = dict(self.valid_oembed, author_url="https://x.com/not_openai")
         with self.assertRaisesRegex(probe.VerificationError, "author"):
             probe.validate_oembed_response(
@@ -169,14 +170,33 @@ class GrokXA2ProbeTests(unittest.TestCase):
                 content_type="application/json",
                 body=json.dumps(wrong_author).encode(),
             )
-        wrong_text = dict(self.valid_oembed, html="<blockquote><p>Unrelated post.</p></blockquote>")
-        with self.assertRaisesRegex(probe.VerificationError, "excerpt"):
+
+    def test_a4_replaces_the_model_excerpt_with_public_oembed_text(self):
+        paraphrased = dict(self.valid_item, text_excerpt="A model-authored summary that is not the source text.")
+
+        verified = probe.validate_oembed_response(
+            paraphrased,
+            status=200,
+            final_url="https://publish.x.com/oembed",
+            content_type="application/json",
+            body=json.dumps(self.valid_oembed).encode(),
+        )
+
+        self.assertEqual(
+            verified["text_excerpt"],
+            "We quietly released the open-source Codex Security CLI, but Hacker News found it first.",
+        )
+        self.assertFalse(verified["candidate_excerpt_matched"])
+
+    def test_a4_rejects_an_oembed_response_without_public_post_text(self):
+        empty_post = dict(self.valid_oembed, html="<blockquote><p> </p></blockquote>")
+        with self.assertRaisesRegex(probe.VerificationError, "public post text"):
             probe.validate_oembed_response(
                 self.valid_item,
                 status=200,
                 final_url="https://publish.x.com/oembed",
                 content_type="application/json",
-                body=json.dumps(wrong_text).encode(),
+                body=json.dumps(empty_post).encode(),
             )
 
     def test_a4_distinguishes_permanent_and_retryable_failures(self):
