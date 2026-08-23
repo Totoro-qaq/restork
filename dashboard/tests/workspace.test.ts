@@ -1127,6 +1127,38 @@ describe("authenticated workspace", () => {
     expect(api.loadPage).toHaveBeenCalledTimes(1);
   });
 
+  it("adds verified X evidence to the existing Radar without inventing a new navigation page", () => {
+    const root = document.createElement("main");
+    const xItem = {
+      item_id: "x-2082263717916586117",
+      lane: "x" as const,
+      title: "@OpenAI",
+      source: "X · independently verified",
+      url: "https://x.com/OpenAI/status/2082263717916586117",
+      summary: "We quietly released the open-source Codex Security CLI.",
+      score: 1,
+      published_at: "2026-07-29T00:35:31Z",
+      state: "new",
+      data_class: "public",
+    };
+    mountDashboard(root, {
+      api: fakeApi(),
+      snapshot: { ...snapshot, radar: { configured: true, items: [xItem] } },
+    });
+    openDashboardView(root, "radar");
+
+    const navCopy = [...root.querySelectorAll<HTMLElement>(".nav-item")]
+      .map((item) => item.textContent?.trim())
+      .join(" ");
+    expect(navCopy).not.toContain("X 雷达");
+    const panel = root.querySelector<HTMLElement>('[data-view-panel="radar"]');
+    expect(panel?.querySelector("h2")?.textContent).toBe("Radar");
+    expect(panel?.querySelector(".radar-x-lane")?.textContent).toContain("X · 已核验证据");
+    expect(panel?.textContent).toContain("We quietly released the open-source Codex Security CLI.");
+    expect(panel?.textContent).toContain("已核验");
+    expect(panel?.querySelector('[data-radar-action="save_topic"]')).not.toBeNull();
+  });
+
   it("launches a Radar Research run and renders its write-free preview", async () => {
     const root = document.createElement("main");
     const api = fakeApi();

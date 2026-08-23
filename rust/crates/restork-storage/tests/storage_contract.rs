@@ -508,6 +508,41 @@ fn radar_lane_cleanup_removes_legacy_and_only_prunes_unreviewed_items() {
 }
 
 #[test]
+fn radar_accepts_verified_x_evidence_and_preserves_saved_topics() {
+    let directory = TestDirectory::new("radar-x-evidence");
+    let database = Database::open(directory.database()).expect("open database");
+    let stored = database
+        .upsert_radar(NewRadarRecord {
+            item_id: "x-2082263717916586117",
+            lane: "x",
+            title: "@OpenAI",
+            source: "X · independently verified",
+            url: "https://x.com/OpenAI/status/2082263717916586117",
+            summary: "We quietly released the open-source Codex Security CLI.",
+            score: 1_785_000_000.0,
+            stars_total: None,
+            published_at: Some("2026-07-29T00:35:31Z"),
+            state: "new",
+            data_class: "public",
+            occurred_at: "2026-08-23T00:00:00Z",
+        })
+        .expect("store verified X evidence");
+
+    assert_eq!(stored.lane, "x");
+    let saved = database
+        .update_radar_state(&stored.item_id, "topic", "2026-08-23T00:01:00Z")
+        .expect("save topic");
+    assert_eq!(saved.state, "topic");
+    assert_eq!(
+        database
+            .delete_stale_new_radar_lane("x", "2026-08-23T00:02:00Z")
+            .expect("prune stale X candidates"),
+        0,
+        "saved topics must survive a Radar refresh",
+    );
+}
+
+#[test]
 fn radar_star_history_reports_only_real_daily_and_weekly_deltas() {
     let directory = TestDirectory::new("radar-star-history");
     let database = Database::open(directory.database()).expect("open database");

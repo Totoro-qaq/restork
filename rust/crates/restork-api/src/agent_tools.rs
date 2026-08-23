@@ -1387,9 +1387,10 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        GROK_X_SEARCH_SCHEMA, GrokSearchKind, SERVER_SIDE_WEB_SEARCH, VaultWriteTool,
-        grok_auth_file_has_token, grok_search_command, normalize_x_search_query,
-        parse_grok_x_search_output,
+        GROK_X_SEARCH_SCHEMA, GrokSearchKind, GrokXSearchItem, GrokXSourceRole,
+        SERVER_SIDE_WEB_SEARCH, VaultWriteTool, grok_auth_file_has_token,
+        grok_search_command, normalize_x_search_query, parse_grok_x_search_output,
+        validate_grok_oembed_response,
     };
 
     /// 能力表是「加新模型改一处」的那一处；这条测试盯住它不被写歪：
@@ -1619,6 +1620,81 @@ mod tests {
             "structuredOutputError": "model output was not valid JSON"
         });
         assert!(parse_grok_x_search_output(mixed_output.to_string().as_bytes()).is_err());
+    }
+
+    #[test]
+    fn x_search_parser_accepts_only_an_explicit_complete_phase() {
+        let output = json!({
+            "structuredOutput": {
+                "phase": "complete",
+                "items": [{
+                    "post_url": "https://x.com/OpenAI/status/2082263717916586117",
+                    "post_id": "2082263717916586117",
+                    "author_handle": "OpenAI",
+                    "posted_at": "2026-07-29T00:35:31Z",
+                    "text_excerpt": "A model candidate that must be replaced by public text.",
+                    "source_role": "original"
+                }],
+                "warnings": []
+            }
+        });
+
+        let parsed = parse_grok_x_search_output(output.to_string().as_bytes())
+            .expect("complete X result");
+        assert_eq!(parsed.items.len(), 1);
+
+        let progress = json!({
+            "structuredOutput": {
+                "phase": "progress",
+                "items": [],
+                "warnings": ["Searching X."]
+            }
+        });
+        assert!(parse_grok_x_search_output(progress.to_string().as_bytes()).is_err());
+    }
+
+    #[test]
+    fn oembed_verification_replaces_model_text_and_rejects_endpoint_drift() {
+        let item = GrokXSearchItem {
+            post_url: "https://x.com/OpenAI/status/2082263717916586117".to_owned(),
+            post_id: "2082263717916586117".to_owned(),
+            author_handle: "OpenAI".to_owned(),
+            posted_at: Some("2026-07-29T00:35:31Z".to_owned()),
+            text_excerpt: "Model-authored summary".to_owned(),
+            source_role: GrokXSourceRole::Original,
+            retrieved_at: "2026-08-23T00:00:00Z".to_owned(),
+        };
+        let body = json!({
+            "url": item.post_url,
+            "author_url": "https://x.com/OpenAI",
+            "html": "<blockquote><p>We quietly released the open-source Codex Security CLI.</p></blockquote>",
+            "type": "rich",
+            "version": "1.0"
+        })
+        .to_string();
+
+        let verified = validate_grok_oembed_response(
+            item,
+            200,
+            "https://publish.x.com/oembed",
+            "application/json; charset=utf-8",
+            body.as_bytes(),
+        )
+        .expect("verified evidence");
+        assert_eq!(
+            verified.text_excerpt,
+            "We quietly released the open-source Codex Security CLI."
+        );
+        assert!(verified.provenance_verified);
+
+        assert!(validate_grok_oembed_response(
+            verified.item,
+            200,
+            "https://example.com/oembed",
+            "application/json",
+            body.as_bytes(),
+        )
+        .is_err());
     }
 
     #[test]

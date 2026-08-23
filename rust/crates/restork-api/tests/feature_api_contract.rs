@@ -107,7 +107,9 @@ async fn radar_configuration_uses_public_github_discovery_without_an_account() {
         Some(json!({
             "enabled": true,
             "github_discovery": true,
-            "hacker_news": false
+            "hacker_news": false,
+            "x_search": true,
+            "x_topics": "coding agents, local-first AI, agent security"
         })),
         Some(&authorization),
         Some("radar-public-discovery"),
@@ -116,6 +118,8 @@ async fn radar_configuration_uses_public_github_discovery_without_an_account() {
     assert_eq!(status, StatusCode::OK);
     let body = body.expect("Radar configuration");
     assert_eq!(body["github_discovery"], true);
+    assert_eq!(body["x_search"], true);
+    assert_eq!(body["x_topics"], "coding agents, local-first AI, agent security");
     assert!(body.get("github_user").is_none());
 }
 
