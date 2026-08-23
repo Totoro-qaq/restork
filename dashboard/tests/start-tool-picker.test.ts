@@ -12,6 +12,7 @@ function fixture(): { root: HTMLElement; form: HTMLFormElement } {
   root.innerHTML = `
     <form id="start-run-form">
       <textarea id="start-goal"></textarea>
+      <input type="hidden" value="research" data-start-mode-value>
       <select name="provider_profile_id"><option value="deepseek">DeepSeek</option></select>
       <button type="button" data-quick-tool-toggle="web_search" aria-pressed="false" disabled>Web</button>
       <button type="button" data-quick-tool-toggle="x_search" aria-pressed="false" disabled>X</button>
@@ -41,6 +42,19 @@ function snapshot(): DashboardSnapshot {
             display_name: "Last 30 days",
             description: "Research the last 30 days of public discussion",
             keywords: ["reddit", "trends"],
+            default_mode: "research",
+            category: "research",
+            surfaces: ["start.research", "start.study"],
+            activation: "suggest",
+          },
+        },
+        {
+          package_id: "ppt-master",
+          package_kind: "skill",
+          state: "enabled",
+          manifest: {
+            display_name: "ppt-master",
+            description: "Plan presentation decks and slides",
           },
         },
       ],
@@ -56,6 +70,7 @@ function api(tools: string[]): DashboardApi {
       web_search_backend: tools.includes("web_search") ? "grok_cli" : "unavailable",
       x_search_supported: tools.includes("x_search"),
       x_search_status: tools.includes("x_search") ? "ready" : "not_installed",
+      x_search_auth_mode: tools.includes("x_search") ? "oauth" : "unknown",
     }),
   } as unknown as DashboardApi;
 }
@@ -76,6 +91,7 @@ describe("start tool picker", () => {
     expect(toolChips.every((chip) => chip.getAttribute("aria-pressed") === "true")).toBe(true);
     const skillChips = [...form.querySelectorAll<HTMLButtonElement>("[data-picker-skill-chip]")];
     expect(skillChips.map((chip) => chip.textContent)).toEqual(["Last 30 days"]);
+    expect(form.querySelector('[data-picker-skill-chip="ppt-master"]')).toBeNull();
     // 未触碰时不上送，后端默认全部可用
     expect(pickedAllowedTools(form)).toEqual([]);
   });
@@ -99,6 +115,7 @@ describe("start tool picker", () => {
       web_search_backend: "unavailable",
       x_search_supported: false,
       x_search_status: "login_required",
+      x_search_auth_mode: "unknown",
     });
     configureToolPicker(root, localApi, snapshot());
     await openPicker(root);
@@ -116,6 +133,7 @@ describe("start tool picker", () => {
         web_search_backend: "unavailable",
         x_search_supported: false,
         x_search_status: "not_installed",
+        x_search_auth_mode: "unknown",
       })
       .mockResolvedValueOnce({
         tools: ["web_search", "vault_search", "x_search"],
@@ -123,6 +141,7 @@ describe("start tool picker", () => {
         web_search_backend: "grok_cli",
         x_search_supported: true,
         x_search_status: "ready",
+        x_search_auth_mode: "oauth",
       })
       .mockResolvedValueOnce({
         tools: ["web_search", "vault_search", "x_search"],
@@ -130,6 +149,7 @@ describe("start tool picker", () => {
         web_search_backend: "grok_cli",
         x_search_supported: true,
         x_search_status: "ready",
+        x_search_auth_mode: "oauth",
       });
     configureToolPicker(root, { listAvailableTools } as unknown as DashboardApi, snapshot());
     await openPicker(root);

@@ -4,7 +4,12 @@ import type { DashboardApi, DashboardSnapshot } from "../src/api/types";
 import { commandPaletteItems } from "../src/ui/commandPalette";
 import { paintConversationSuggestion, selectedSkillIds } from "../src/features/skillSuggest";
 
-function skillRecord(id: string, keywords: string[], state: "enabled" | "quarantined" = "enabled") {
+function skillRecord(
+  id: string,
+  keywords: string[],
+  state: "enabled" | "quarantined" = "enabled",
+  manifest: Record<string, unknown> = {},
+) {
   return {
     package_id: id,
     package_kind: "skill",
@@ -15,6 +20,10 @@ function skillRecord(id: string, keywords: string[], state: "enabled" | "quarant
       description: `${id} instructions`,
       keywords,
       default_mode: "research",
+      category: "research",
+      surfaces: ["start.research"],
+      activation: "suggest",
+      ...manifest,
     },
     updated_at: "2026-08-13T00:00:00Z",
   };
@@ -88,7 +97,7 @@ describe("skill triggers", () => {
   it("keeps a reserved chip row and toggles a matching skill without replacing the host", () => {
     const root = document.createElement("main");
     document.body.append(root);
-    const state = snapshot();
+    const state = snapshot([skillRecord("last-30-days", ["last 30 days", "recent research"])]);
     const client = api(state);
     mountDashboard(root, { api: client, snapshot: state, locale: "zh-CN" });
     const form = root.querySelector<HTMLFormElement>("#start-run-form");
@@ -99,18 +108,34 @@ describe("skill triggers", () => {
     expect(host?.dataset.empty).toBe("true");
 
     if (!goal) throw new Error("start goal");
-    goal.value = "Make a PPT research update";
+    goal.value = "Research the last 30 days";
     goal.dispatchEvent(new Event("input", { bubbles: true }));
-    const chip = form?.querySelector<HTMLButtonElement>("[data-skill-chip='ppt-master']");
+    const chip = form?.querySelector<HTMLButtonElement>("[data-skill-chip='last-30-days']");
     expect(chip).not.toBeNull();
     expect(host?.dataset.empty).toBe("false");
     expect(form?.querySelector("[data-skill-suggest]")).toBe(host);
 
     chip?.click();
-    const pressed = form?.querySelector<HTMLButtonElement>("[data-skill-chip='ppt-master']");
+    const pressed = form?.querySelector<HTMLButtonElement>("[data-skill-chip='last-30-days']");
     expect(pressed?.getAttribute("aria-pressed")).toBe("true");
-    expect(selectedSkillIds(form!)).toEqual(["ppt-master"]);
+    expect(selectedSkillIds(form!)).toEqual(["last-30-days"]);
     expect(client.createRun).not.toHaveBeenCalled();
+  });
+
+  it("keeps presentation skills out of start suggestions", () => {
+    const root = document.createElement("main");
+    document.body.append(root);
+    const state = snapshot([skillRecord("ppt-master", ["ppt", "slides"], "enabled", {
+      category: "presentation",
+      surfaces: ["presentations"],
+      activation: "manual",
+      default_mode: undefined,
+    })]);
+    mountDashboard(root, { api: api(state), snapshot: state, locale: "zh-CN" });
+    const goal = root.querySelector<HTMLTextAreaElement>("#start-goal")!;
+    goal.value = "Make a PPT research update";
+    goal.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(root.querySelector("[data-skill-chip='ppt-master']")).toBeNull();
   });
 
   it("registers enabled skills in the command palette and ignores disabled ones", () => {
@@ -126,7 +151,7 @@ describe("skill triggers", () => {
   it("does not attach a conversation suggestion until it is confirmed", async () => {
     const root = document.createElement("main");
     document.body.append(root);
-    const state = snapshot();
+    const state = snapshot([skillRecord("last-30-days", ["last 30 days", "recent research"])]);
     const client = api(state);
     mountDashboard(root, { api: client, snapshot: state, locale: "zh-CN" });
     const host = document.createElement("div");
@@ -135,7 +160,7 @@ describe("skill triggers", () => {
     root.append(host);
     const turn = document.createElement("div");
     turn.className = "conversation-turn";
-    turn.textContent = "Please turn this into a PPT research update";
+    turn.textContent = "Please research the last 30 days";
     root.append(turn);
 
     paintConversationSuggestion(root, state);
@@ -147,7 +172,7 @@ describe("skill triggers", () => {
     expect(selectedSkillIds(form!)).toEqual([]);
 
     confirm?.click();
-    expect(selectedSkillIds(form!)).toEqual(["ppt-master"]);
+    expect(selectedSkillIds(form!)).toEqual(["last-30-days"]);
     expect(confirm?.getAttribute("aria-pressed")).toBe("true");
     expect(confirm?.textContent).toContain("会使用");
     expect(client.createRun).not.toHaveBeenCalled();
@@ -162,7 +187,7 @@ describe("skill triggers", () => {
         "Create a research deck",
         "public",
         expect.any(String),
-        ["ppt-master"],
+        ["last-30-days"],
         [],
       );
     });

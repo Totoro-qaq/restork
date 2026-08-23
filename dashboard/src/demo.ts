@@ -954,6 +954,7 @@ class DemoApi implements DashboardApi {
       web_search_backend: "provider",
       x_search_supported: false,
       x_search_status: "not_installed",
+      x_search_auth_mode: "unknown",
     };
   }
   async prepareStudy(): Promise<StudyDiagnostic> { return studyDiagnostic; }
@@ -1580,7 +1581,7 @@ if (snapshot.workspaceV2?.personal?.settings) {
   snapshot.workspaceV2.personal.settings.startup_page =
     demoParams.get("startup") === "start" ? "start" : "dashboard";
   const demoTheme = demoParams.get("theme");
-  if (demoTheme === "dark" || demoTheme === "light" || demoTheme === "system") {
+  if (demoTheme === "dark" || demoTheme === "light" || demoTheme === "system" || demoTheme === "cyberpunk") {
     snapshot.workspaceV2.personal.settings.theme = demoTheme;
   }
 }

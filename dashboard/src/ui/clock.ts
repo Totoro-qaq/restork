@@ -8,13 +8,24 @@ export function startClock(root: HTMLElement): void {
   const minute = root.querySelector<SVGElement>("[data-clock-minute]");
   const second = root.querySelector<SVGElement>("[data-clock-second]");
   const text = root.querySelector<HTMLTimeElement>("#clock-text");
+  const date = root.querySelector<HTMLElement>("[data-clock-date]");
+  const zone = root.querySelector<HTMLElement>("[data-clock-zone]");
   if (!hour || !minute || !second || !text) return;
   const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   // Read the active locale rather than hardcoding one: an English user was
   // shown a Chinese-formatted date under the clock.
-  const formatter = new Intl.DateTimeFormat(localeOf(root), {
-    dateStyle: "full",
-    timeStyle: "medium",
+  const locale = localeOf(root);
+  const timeFormatter = new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const dateFormatter = new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long",
   });
 
   const update = (): void => {
@@ -26,7 +37,16 @@ export function startClock(root: HTMLElement): void {
     minute.setAttribute("transform", `rotate(${minutes * 6} 50 50)`);
     second.setAttribute("transform", `rotate(${seconds * 6} 50 50)`);
     text.dateTime = now.toISOString();
-    text.textContent = formatter.format(now);
+    text.textContent = timeFormatter.format(now);
+    if (date) date.textContent = dateFormatter.format(now);
+    if (zone) {
+      const zoneName = Intl.DateTimeFormat().resolvedOptions().timeZone || "Local";
+      const offsetMinutes = -now.getTimezoneOffset();
+      const sign = offsetMinutes >= 0 ? "+" : "-";
+      const offsetHours = Math.floor(Math.abs(offsetMinutes) / 60);
+      const offsetRemainder = Math.abs(offsetMinutes) % 60;
+      zone.textContent = `${zoneName} · UTC${sign}${offsetHours}${offsetRemainder ? `:${String(offsetRemainder).padStart(2, "0")}` : ""}`;
+    }
   };
   update();
   // A workspace render replaces the clock, and tests frequently remove the

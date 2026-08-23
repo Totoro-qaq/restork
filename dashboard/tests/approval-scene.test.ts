@@ -32,10 +32,30 @@ describe("approval scene", () => {
       .toContain("Research/Findings.md");
     expect(root.querySelector(".approval-impact")?.textContent).toContain("写入位置");
     expect(root.querySelector(".approval-impact")?.textContent).toContain("有效期至");
-    expect(root.querySelector(".approval-technical")?.textContent).toContain("内容指纹");
+    expect(root.querySelector(".approval-technical")?.textContent).toContain("预览一致性");
+    expect(root.querySelector(".approval-technical")?.textContent).toContain("已锁定为你刚才预览的内容");
+    expect(root.querySelector("[data-approval-mark]")).toBeNull();
+    expect(root.textContent).not.toContain("aaaaaaaaaaaaaaaa");
     expect(root.querySelector('[data-decision="approve"]')?.textContent).toContain("确认");
     expect(root.querySelector('[data-decision="reject"]')?.textContent).toContain("不执行");
     expect(markup.indexOf("approval-impact")).toBeLessThan(markup.indexOf("approval-technical"));
+  });
+
+  it("hides legacy run identifiers behind a human destination", () => {
+    const markup = approvalCardMarkup(approval({
+      human_summary: "Apply the reviewed Markdown task change to Restork Research - run-b74d7d07a6960ae2a3ad6191bc5b5061.md?",
+      canonical_scope: "Restork Research - run-b74d7d07a6960ae2a3ad6191bc5b5061.md",
+      risk_class: "local_file_write",
+    }), "zh-CN");
+
+    expect(markup).toContain("将刚才预览的研究笔记存入知识库？");
+    expect(markup).toContain("知识库 / 研究笔记");
+    expect(markup).not.toContain("run-b74d7d07a6960ae2a3ad6191bc5b5061");
+    const root = document.createElement("main");
+    root.innerHTML = markup;
+    expect(root.textContent).not.toContain("vault_write");
+    expect(root.textContent).not.toContain("local_file_write");
+    expect(root.textContent).not.toContain("markdown-journal-v1");
   });
 
   it("retains existing action selectors and escapes untrusted text", () => {

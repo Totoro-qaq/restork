@@ -23,12 +23,64 @@ function decisionLabel(decision: string, locale: Locale): string {
   return tr(locale, en, zh);
 }
 
+function isLegacyResearchPath(value: string): boolean {
+  return /^Restork Research - run-[a-z0-9]+\.md$/iu.test(value.trim());
+}
+
+function approvalDestination(approval: ApprovalRequest, locale: Locale): string {
+  if (isLegacyResearchPath(approval.canonical_scope)) {
+    return tr(locale, "Vault / Research note", "知识库 / 研究笔记");
+  }
+  return approval.canonical_scope;
+}
+
+function actionLabel(actionKind: string, locale: Locale): string {
+  const labels: Record<string, [string, string]> = {
+    vault_write: ["Save a note to the vault", "保存知识库笔记"],
+    task_write: ["Update a vault task", "更新知识库任务"],
+    handoff_export: ["Export a reviewed handoff", "导出已确认的交接稿"],
+  };
+  const [en, zh] = labels[actionKind] ?? ["Apply the reviewed change", "执行已确认的更改"];
+  return tr(locale, en, zh);
+}
+
+function impactLabel(riskClass: string, locale: Locale): string {
+  const labels: Record<string, [string, string]> = {
+    local_file_write: [
+      "Creates or updates one Markdown file in the local vault",
+      "将在本地知识库中创建或更新一个 Markdown 文件",
+    ],
+    local_write: [
+      "Creates or updates local data",
+      "将在本地创建或更新数据",
+    ],
+    external_effect: [
+      "Runs an action that can change data outside this task",
+      "将执行可能改变任务外部数据的操作",
+    ],
+  };
+  const [en, zh] = labels[riskClass] ?? [
+    "Applies the change shown in the preview",
+    "将应用刚才预览的更改",
+  ];
+  return tr(locale, en, zh);
+}
+
 export function approvalSummary(approval: ApprovalRequest, locale: Locale): string {
   const summary = approval.human_summary.trim();
+  const taskChange = summary.match(/^Apply the reviewed Markdown task change to (.+)\?$/u);
+  if (taskChange && isLegacyResearchPath(taskChange[1])) {
+    return tr(
+      locale,
+      "Save the research note you just reviewed to the vault?",
+      "将刚才预览的研究笔记存入知识库？",
+    );
+  }
   if (locale !== "zh-CN" || /[\u3400-\u9fff]/u.test(summary)) return summary;
 
-  const taskChange = summary.match(/^Apply the reviewed Markdown task change to (.+)\?$/u);
-  if (taskChange) return `将刚才预览的 Markdown 任务改动写入「${taskChange[1]}」？`;
+  if (taskChange) {
+    return `将刚才预览的 Markdown 任务改动写入「${taskChange[1]}」？`;
+  }
 
   const handoff = summary.match(/^Export reviewed Work handoff (.+) to private artifacts\?$/u);
   if (handoff) return `将工作交接稿「${handoff[1]}」导出到本地文件？`;
@@ -70,24 +122,24 @@ export function approvalCardMarkup(
   locale: Locale,
   dashboardCard = false,
 ): string {
-  const mark = approval.decision === "approved" ? "✓" : "!";
-  const body = `<div class="approval-mark is-${escapeMarkup(approval.decision)}" data-approval-mark aria-hidden="true">${mark}</div>
-    <p class="run-title approval-summary">${escapeMarkup(approvalSummary(approval, locale))}</p>
+  const body = `<p class="run-title approval-summary">${escapeMarkup(approvalSummary(approval, locale))}</p>
     <dl class="approval-impact">
-      <div><dt>${tr(locale, "Destination", "写入位置")}</dt><dd>${escapeMarkup(approval.canonical_scope)}</dd></div>
+      <div><dt>${tr(locale, "Destination", "写入位置")}</dt><dd>${escapeMarkup(approvalDestination(approval, locale))}</dd></div>
       <div><dt>${tr(locale, "Expires", "有效期至")}</dt><dd><time datetime="${escapeMarkup(approval.expires_at)}">${escapeMarkup(formatDate(approval.expires_at, locale))}</time></dd></div>
     </dl>
-    <details class="approval-technical"><summary>${tr(locale, "Technical details", "技术详情")}</summary>
+    <details class="approval-technical"><summary>${tr(locale, "Safety details", "安全说明")}</summary>
       <dl class="metadata compact">
-        <div><dt>${tr(locale, "Action", "动作类型")}</dt><dd>${escapeMarkup(approval.action_kind)}</dd></div>
-        <div><dt>${tr(locale, "Risk", "风险类型")}</dt><dd>${escapeMarkup(approval.risk_class)}</dd></div>
-        <div><dt>${tr(locale, "Rule version", "规则版本")}</dt><dd>${escapeMarkup(approval.policy_version)}</dd></div>
-        <div><dt>${tr(locale, "Content fingerprint", "内容指纹")}</dt><dd><code>${escapeMarkup(approval.action_digest.slice(0, 16))}…</code></dd></div>
+        <div><dt>${tr(locale, "Action", "操作")}</dt><dd>${escapeMarkup(actionLabel(approval.action_kind, locale))}</dd></div>
+        <div><dt>${tr(locale, "Impact", "影响")}</dt><dd>${escapeMarkup(impactLabel(approval.risk_class, locale))}</dd></div>
+        <div><dt>${tr(locale, "Preview integrity", "预览一致性")}</dt><dd>${tr(locale, "Locked to the content you just reviewed", "已锁定为你刚才预览的内容")}</dd></div>
       </dl>
     </details>
     ${approvalActions(approval, locale)}`;
+  const heading = approval.action_kind === "vault_write"
+    ? tr(locale, "Save to vault", "保存到知识库")
+    : tr(locale, "Review before change", "更改前确认");
   return `<article class="paper-card approval-card approval-scene${dashboardCard ? " dashboard-card" : ""}"><header>
-    <h2>${tr(locale, "Review before change", "更改前确认")}</h2>
+    <h2>${heading}</h2>
     <span class="ribbon approval">${escapeMarkup(decisionLabel(approval.decision, locale))}</span></header>
     ${dashboardCard ? `<div class="dashboard-card-body">${body}</div>` : body}
   </article>`;

@@ -142,6 +142,9 @@ describe("Dashboard locales", () => {
     expect(chinese).toContain("将刚才预览的 Markdown 任务改动写入「Study/LoRA.md」？");
     expect(chinese).not.toContain("Apply the reviewed Markdown task change");
     expect(english).toContain("Apply the reviewed Markdown task change to Study/LoRA.md?");
+    expect(chinese).toContain("保存知识库笔记");
+    expect(chinese).not.toContain("内容指纹");
+    expect(chinese).not.toContain("markdown-journal-v1");
   });
 });
 

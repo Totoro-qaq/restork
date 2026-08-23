@@ -27,6 +27,7 @@ pub enum Theme {
     System,
     Light,
     Dark,
+    Cyberpunk,
 }
 
 /// Workspace shown after a local session is restored.

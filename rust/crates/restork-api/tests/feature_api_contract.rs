@@ -410,6 +410,10 @@ async fn available_tools_reflect_vault_and_provider_capability() {
         x_status,
         "ready" | "not_installed" | "login_required"
     ));
+    assert!(matches!(
+        deepseek["x_search_auth_mode"].as_str(),
+        Some("oauth" | "api_key" | "unknown")
+    ));
     assert_eq!(deepseek["x_search_supported"], x_status == "ready");
     assert_eq!(
         tools.iter().any(|tool| tool == "x_search"),
@@ -440,6 +444,7 @@ async fn available_tools_reflect_vault_and_provider_capability() {
         }
     );
     assert_eq!(glm["x_search_status"], deepseek["x_search_status"]);
+    assert_eq!(glm["x_search_auth_mode"], deepseek["x_search_auth_mode"]);
     let tools = glm["tools"].as_array().expect("tools array");
     assert!(tools.iter().any(|tool| tool == "vault_search"));
     assert_eq!(tools.iter().any(|tool| tool == "web_search"), grok_ready);

@@ -47,6 +47,7 @@ export function configureStartWorkspace(
 
   const selectMode = (mode: Mode): void => {
     if (modeValue) modeValue.value = mode;
+    form.dispatchEvent(new CustomEvent("start-mode-changed", { detail: { mode } }));
     root.querySelectorAll<HTMLButtonElement>("[data-start-mode]").forEach((button) => {
       const active = button.dataset.startMode === mode;
       button.classList.toggle("is-active", active);

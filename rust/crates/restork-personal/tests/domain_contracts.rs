@@ -114,6 +114,16 @@ fn personal_settings_are_optional_clearable_and_strictly_deserialized() {
         "ambient_location": true
     });
     assert!(serde_json::from_value::<PersonalSettings>(unknown).is_err());
+
+    let cyberpunk = serde_json::json!({
+        "display_name": null,
+        "locale": null,
+        "timezone": null,
+        "week_start": null,
+        "theme": "cyberpunk",
+        "startup_page": null
+    });
+    assert!(serde_json::from_value::<PersonalSettings>(cyberpunk).is_ok());
 }
 
 #[test]

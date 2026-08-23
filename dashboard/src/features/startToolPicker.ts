@@ -1,6 +1,6 @@
 import { localeOf, tr } from "../i18n";
 import type { AvailableToolsV2, DashboardApi, DashboardSnapshot } from "../api/types";
-import { enabledSkills, selectedSkillIds } from "./skillSuggest";
+import { enabledSkills, selectedSkillIds, skillsForSurface, startSurface } from "./skillSuggest";
 
 /**
  * composer 的选择器：让用户显式挑选本次运行可用的工具与技能。
@@ -54,6 +54,11 @@ export function configureToolPicker(
         toolCache.delete(form);
         void paintToolPicker(root, api, snapshot, form);
       });
+    form.addEventListener("start-mode-changed", () => {
+      const allowed = new Set(skillsForCurrentMode(snapshot, form).map((skill) => skill.id));
+      form.dataset.pinnedSkillIds = selectedSkillIds(form).filter((id) => allowed.has(id)).join(",");
+      void paintToolPicker(root, api, snapshot, form);
+    });
     for (const button of quickButtons) {
       button.addEventListener("click", () => {
         const providerId = form.querySelector<HTMLSelectElement>('select[name="provider_profile_id"]')?.value ?? "";
@@ -160,7 +165,7 @@ async function paintToolPicker(
 
   // 技能区（本地快照即有）
   const skillHost = form.querySelector<HTMLElement>("[data-tool-picker-skill-chips]");
-  const skills = enabledSkills(snapshot);
+  const skills = skillsForCurrentMode(snapshot, form);
   const chosenSkills = new Set(selectedSkillIds(form));
   if (skillHost) {
     skillHost.replaceChildren();
@@ -203,6 +208,7 @@ async function paintToolPicker(
       web_search_backend: "unavailable",
       x_search_supported: false,
       x_search_status: "not_installed",
+      x_search_auth_mode: "unknown",
     };
     byProvider.set(providerId, listing);
     if (note) note.textContent = tr(locale, "Could not load tools for this model.", "暂时读不到这个模型的可用工具。");
@@ -256,6 +262,12 @@ async function paintToolPicker(
       note.textContent = tr(locale, "This model has no server-side web search. Install Grok CLI to add X search.", "这个模型没有服务端联网搜索；安装 Grok CLI 可增加 X 搜索。");
     }
   }
+}
+
+function skillsForCurrentMode(snapshot: DashboardSnapshot, form: HTMLFormElement) {
+  const value = form.querySelector<HTMLInputElement>("[data-start-mode-value]")?.value;
+  const mode = value === "study" || value === "work" ? value : "research";
+  return skillsForSurface(enabledSkills(snapshot), startSurface(mode));
 }
 
 function paintQuickToolToggles(

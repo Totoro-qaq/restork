@@ -64,6 +64,9 @@ describe("skill matching", () => {
         description: "Make decks",
         keywords: ["ppt", "slides"],
         defaultMode: "research",
+        category: "presentation",
+        surfaces: ["presentations"],
+        activation: "suggest",
       },
       {
         id: "study-notes",
@@ -71,6 +74,9 @@ describe("skill matching", () => {
         description: "Study notes",
         keywords: ["study", "notes"],
         defaultMode: "study",
+        category: "study",
+        surfaces: ["start.study"],
+        activation: "suggest",
       },
       {
         id: "deck-polish",
@@ -78,6 +84,9 @@ describe("skill matching", () => {
         description: "Polish slides",
         keywords: ["slides", "deck"],
         defaultMode: "work",
+        category: "work",
+        surfaces: ["start.work"],
+        activation: "suggest",
       },
     ];
     expect(matchEnabledSkills("Make a PPT outline", skills).map((item) => item.id))

@@ -393,12 +393,12 @@ impl SafeWorkspace {
                     modified_unix_ms,
                 });
                 if notes.len() >= maximum {
-                    notes.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+                    sort_notes_by_recent(&mut notes);
                     return Ok(notes);
                 }
             }
         }
-        notes.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+        sort_notes_by_recent(&mut notes);
         Ok(notes)
     }
 
@@ -518,6 +518,15 @@ impl SafeWorkspace {
     }
 }
 
+fn sort_notes_by_recent(notes: &mut [WorkspaceNoteMetadata]) {
+    notes.sort_by(|left, right| {
+        right
+            .modified_unix_ms
+            .cmp(&left.modified_unix_ms)
+            .then_with(|| left.relative_path.cmp(&right.relative_path))
+    });
+}
+
 fn validate_relative(value: &str) -> Result<&Path, WorkspaceError> {
     if value.is_empty() || value.len() > 4_096 || value.contains(['\0', '\n', '\r']) {
         return Err(WorkspaceError::InvalidPath);
@@ -629,7 +638,25 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{SafeWorkspace, WorkspaceError};
+    use super::{SafeWorkspace, WorkspaceError, WorkspaceNoteMetadata, sort_notes_by_recent};
+
+    #[test]
+    fn note_inventory_puts_recently_changed_notes_first() {
+        let mut notes = vec![
+            WorkspaceNoteMetadata {
+                relative_path: "older.md".into(),
+                byte_count: 1,
+                modified_unix_ms: 10,
+            },
+            WorkspaceNoteMetadata {
+                relative_path: "newer.md".into(),
+                byte_count: 1,
+                modified_unix_ms: 20,
+            },
+        ];
+        sort_notes_by_recent(&mut notes);
+        assert_eq!(notes[0].relative_path, "newer.md");
+    }
 
     #[test]
     fn write_requires_the_reviewed_hash_and_rejects_traversal() {

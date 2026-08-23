@@ -73,6 +73,8 @@ describe("Vault browser", () => {
     expect(preview?.textContent).toContain("<script>alert(1)</script>");
     expect(preview?.querySelector("script")).toBeNull();
     expect(preview?.querySelector("img, iframe, object")).toBeNull();
+    expect(preview?.textContent).toContain("57 B · Markdown");
+    expect(preview?.textContent).not.toContain("SHA-256");
     const bullet = preview?.querySelector<HTMLElement>(".vault-bullet");
     const task = preview?.querySelector<HTMLElement>(".vault-task");
     expect(bullet?.children).toHaveLength(2);

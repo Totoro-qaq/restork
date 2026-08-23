@@ -1145,7 +1145,10 @@ pub(super) async fn get_research_artifact(
         return storage_unavailable();
     };
     match storage.research_artifact(&run_id) {
-        Ok(Some(artifact)) => Json(artifact).into_response(),
+        Ok(Some(mut artifact)) => {
+            normalize_research_note_path(&mut artifact, &run_id);
+            Json(artifact).into_response()
+        }
         Ok(None) => error_response(StatusCode::NOT_FOUND, "research artifact not found"),
         Err(error) => storage_error_response(error),
     }
@@ -1170,11 +1173,12 @@ pub(super) async fn preview_research_note(
     let Some(storage) = state.storage.as_ref() else {
         return storage_unavailable();
     };
-    let artifact = match storage.research_artifact(&run_id) {
+    let mut artifact = match storage.research_artifact(&run_id) {
         Ok(Some(artifact)) => artifact,
         Ok(None) => return error_response(StatusCode::NOT_FOUND, "research artifact not found"),
         Err(error) => return storage_error_response(error),
     };
+    normalize_research_note_path(&mut artifact, &run_id);
     let Some(path) = artifact["note_preview"]["relative_path"].as_str() else {
         return storage_unavailable();
     };
@@ -3361,6 +3365,7 @@ pub(super) fn persist_agent_outcome(storage: &Database, run: &RunRecord, outcome
         let Some(output) = outcome.output.as_deref() else {
             return;
         };
+        let question = run.task_spec["goal"].as_str().unwrap_or("Restork research");
         let mut events = Vec::new();
         let mut cursor = 0;
         loop {
@@ -3397,6 +3402,8 @@ pub(super) fn persist_agent_outcome(storage: &Database, run: &RunRecord, outcome
             }
         }
         let parsed = parse_model_json(output).unwrap_or_else(|| json!({"answer": output}));
+        let title =
+            bounded_model_text(&parsed["title"], 160).unwrap_or_else(|| question.to_owned());
         let claims = parsed["claims"]
             .as_array()
             .into_iter()
@@ -3429,7 +3436,7 @@ pub(super) fn persist_agent_outcome(storage: &Database, run: &RunRecord, outcome
         let answer = parsed["answer"].as_str().unwrap_or(output);
         let markdown = format!(
             "# Research: {}\n\n{}\n\n## Evidence\n{}\n",
-            run.task_spec["goal"].as_str().unwrap_or("Restork research"),
+            question,
             answer,
             ledger
                 .chunks
@@ -3441,7 +3448,8 @@ pub(super) fn persist_agent_outcome(storage: &Database, run: &RunRecord, outcome
         let artifact = json!({
             "artifact_id": artifact_id,
             "run_id": run.run_id,
-            "question": run.task_spec["goal"],
+            "title": title,
+            "question": question,
             "answer": answer,
             "claims": ledger.claims.iter().map(|claim| json!({
                 "claim_id": claim.claim_id,
@@ -3457,7 +3465,7 @@ pub(super) fn persist_agent_outcome(storage: &Database, run: &RunRecord, outcome
             "related_notes": [],
             "note_preview": {
                 "action": "create",
-                "relative_path": format!("Restork Research - {}.md", run.run_id),
+                "relative_path": research_note_path(&title, &run.run_id),
                 "expected_hash": null,
                 "markdown_hash": sha256_hex(markdown.as_bytes()),
                 "markdown": markdown,
@@ -3507,94 +3515,34 @@ fn parse_model_json(output: &str) -> Option<Value> {
         .filter(Value::is_object)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn study_note_slug_keeps_cjk_and_collapses_separators() {
-        assert_eq!(
-            study_note_slug("Agent Harness 总览", "run-1"),
-            "Agent-Harness-总览"
-        );
-        assert_eq!(
-            study_note_slug("a/b\\c:d*e?f\"g<h>i|j", "run-1"),
-            "a-b-c-d-e-f-g-h-i-j"
-        );
-    }
-
-    #[test]
-    fn study_note_slug_falls_back_and_caps_length() {
-        assert!(study_note_slug("///...", "run-abc").starts_with("run-"));
-        let long = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz";
-        assert!(study_note_slug(long, "run-1").chars().count() <= 48);
-        assert!(!study_note_slug(long, "run-1").ends_with('-'));
-    }
-
-    #[test]
-    fn study_note_markdown_renders_grounded_sections() {
-        let note = study_note_markdown(
-            "Agent Harness 总览",
-            "ready",
-            &json!(["能说出 harness 的职责"]),
-            &[
-                json!({"title": "学习-Agent Harness 总览", "relative_path": "学习-Agent Harness 总览.md", "rationale": "基础概念"}),
-            ],
-            &[
-                json!({"order": 1, "title": "Harness 是什么", "outcome": "说清控制层", "note_refs": ["学习-Agent Harness 总览.md"]}),
-            ],
-            &[
-                json!({"kind": "active_recall", "prompt": "harness 和 loop 的区别", "concept": "harness", "hints": ["从职责边界想"]}),
-            ],
-            &[
-                json!({"title": "学习-Agent Loop与Loop Engineering", "relative_path": "学习-Agent Loop与Loop Engineering.md"}),
-            ],
-        );
-        assert!(note.starts_with("# Restork Study: Agent Harness 总览\n"));
-        assert!(note.contains("Readiness: ready"));
-        assert!(note.contains("- 能说出 harness 的职责"));
-        assert!(
-            note.contains("[[学习-Agent Harness 总览]] (`学习-Agent Harness 总览.md`) — 基础概念")
-        );
-        assert!(note.contains("1. **Harness 是什么** — 说清控制层"));
-        assert!(note.contains("- [active_recall] harness 和 loop 的区别 — concept: harness"));
-        assert!(note.contains("  - Hint: 从职责边界想"));
-        assert!(note.contains("[[学习-Agent Loop与Loop Engineering]]"));
-        // Answer keys / rubrics must never leak into the note.
-        assert!(!note.contains("grading_rubric"));
-    }
-
-    #[test]
-    fn work_folder_grant_resolves_without_exposing_the_path_in_the_request() {
-        let grant_dir = tempfile::tempdir().expect("grant directory");
-        let workspace = tempfile::tempdir().expect("workspace");
-        let grant_id = "0123456789abcdef0123456789abcdef";
-        fs::write(
-            grant_dir.path().join(format!("{grant_id}.grant")),
-            workspace.path().to_string_lossy().as_bytes(),
-        )
-        .expect("grant fixture");
-        let payload = WorkStart {
-            goal: "prepare the release".to_owned(),
-            workspace_root: None,
-            workspace_grant_id: Some(grant_id.to_owned()),
-            target_files: Vec::new(),
-            context_files: Vec::new(),
-            constraints: Vec::new(),
-            non_goals: Vec::new(),
-            completion_criteria: Vec::new(),
-            verification_commands: Vec::new(),
-            context_data_class: "public".to_owned(),
-        };
-
-        assert!(validate_work_start(&payload).is_ok());
-        let (resolved, consumed) =
-            resolve_work_root_with_grant_dir(&payload, Some(grant_dir.path()))
-                .expect("resolved grant");
-        assert_eq!(resolved, workspace.path());
-        assert_eq!(
-            consumed,
-            Some(grant_dir.path().join(format!("{grant_id}.grant")))
-        );
-    }
+fn research_note_path(question: &str, run_id: &str) -> String {
+    format!(
+        "Restork Research - {}.md",
+        study_note_slug(question, run_id)
+    )
 }
+
+fn normalize_research_note_path(artifact: &mut Value, run_id: &str) {
+    let Some(path) = artifact["note_preview"]["relative_path"].as_str() else {
+        return;
+    };
+    let Some(identifier) = path
+        .strip_prefix("Restork Research - run-")
+        .and_then(|value| value.strip_suffix(".md"))
+    else {
+        return;
+    };
+    if identifier.is_empty() || !identifier.chars().all(|ch| ch.is_ascii_alphanumeric()) {
+        return;
+    }
+    let Some(title) = artifact["title"]
+        .as_str()
+        .or_else(|| artifact["question"].as_str())
+    else {
+        return;
+    };
+    artifact["note_preview"]["relative_path"] = Value::String(research_note_path(title, run_id));
+}
+
+#[cfg(test)]
+mod tests;
