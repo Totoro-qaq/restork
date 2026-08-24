@@ -28,6 +28,7 @@ mod catalog_api;
 mod config_api;
 mod core_skills;
 mod daily_api;
+mod dashboard_assets;
 mod error;
 mod feature_api;
 mod http_middleware;
@@ -41,6 +42,12 @@ mod skill_wire;
 mod state;
 mod todo_api;
 mod vault_api;
+mod x_cocreation_api;
+use x_cocreation_api::{
+    compose_x_cocreation_drafts, list_x_cocreation, preview_x_voice_profile,
+    put_x_cocreation_settings, record_x_cocreation_publication,
+};
+pub use x_cocreation_api::{execute_scheduled_x_cocreation_draft, execute_scheduled_x_radar};
 
 use agent_run_options::AgentRunCreate;
 use auth_api::*;
@@ -48,6 +55,7 @@ use automation_api::*;
 use catalog_api::*;
 use config_api::*;
 use daily_api::*;
+use dashboard_assets::*;
 use error::{error_response, error_response_owned};
 use presentation_api::*;
 use session_api::*;
@@ -300,6 +308,22 @@ pub const API_ROUTES: &[ApiRouteDescription<'static>] = &[
     },
     ApiRouteDescription {
         path: "/v1/radar/{item_id}/action",
+        methods: &["POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/x-cocreation",
+        methods: &["GET", "POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/x-cocreation/settings",
+        methods: &["PUT"],
+    },
+    ApiRouteDescription {
+        path: "/v1/x-cocreation/drafts/{draft_id}/published",
+        methods: &["POST"],
+    },
+    ApiRouteDescription {
+        path: "/v1/x-cocreation/voice/preview",
         methods: &["POST"],
     },
     ApiRouteDescription {
@@ -1335,10 +1359,6 @@ struct SearchResults<T> {
     items: T,
 }
 
-#[derive(RustEmbed)]
-#[folder = "web/"]
-struct DashboardAssets;
-
 /// Run one model-backed schedule without granting it Vault or export effects.
 pub async fn execute_scheduled_model_draft(
     storage: &Database,
@@ -1401,49 +1421,6 @@ pub fn router_with_runtime(
 
 fn build_router(state: ApiState) -> Router {
     routes::build_router(state)
-}
-
-async fn dashboard_index() -> Response {
-    embedded_asset("index.html", false)
-}
-
-async fn dashboard_asset(Path(path): Path<String>) -> Response {
-    if path.is_empty()
-        || path.contains(['\\', '\0'])
-        || path.split('/').any(|component| component == "..")
-    {
-        return error_response(StatusCode::NOT_FOUND, "asset not found");
-    }
-    embedded_asset(&path, path.starts_with("assets/"))
-}
-
-fn embedded_asset(path: &str, immutable: bool) -> Response {
-    let Some(asset) = DashboardAssets::get(path) else {
-        return error_response(StatusCode::NOT_FOUND, "asset not found");
-    };
-    let content_type = match path.rsplit_once('.').map(|(_, extension)| extension) {
-        Some("html") => "text/html; charset=utf-8",
-        Some("css") => "text/css; charset=utf-8",
-        Some("js") => "text/javascript; charset=utf-8",
-        Some("svg") => "image/svg+xml",
-        Some("png") => "image/png",
-        Some("jpg" | "jpeg") => "image/jpeg",
-        Some("webp") => "image/webp",
-        _ => "application/octet-stream",
-    };
-    let mut response = Response::new(Body::from(asset.data));
-    response
-        .headers_mut()
-        .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static(if immutable {
-            "public, max-age=31536000, immutable"
-        } else {
-            "no-cache, no-store"
-        }),
-    );
-    response
 }
 
 async fn readiness() -> Json<Readiness<'static>> {
@@ -1667,19 +1644,8 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
             StatusCode::INTERNAL_SERVER_ERROR,
         )
     };
-    let (presentation_templates, presentation_template_next) = state
-        .storage
-        .as_ref()
-        .and_then(|storage| storage.deliverable_templates_page(None, 6, false).ok())
-        .map_or_else(
-            || (serde_json::json!([]), serde_json::Value::Null),
-            |page| {
-                (
-                    serde_json::to_value(page.items).unwrap_or_default(),
-                    serde_json::to_value(page.next).unwrap_or(serde_json::Value::Null),
-                )
-            },
-        );
+    let (presentation_templates, presentation_template_next) =
+        presentation_api::bootstrap_presentation_templates(&state);
     let apple_music_credential_present = NativeSecretStore
         .exists(apple_developer_token_reference())
         .await;
@@ -1771,6 +1737,7 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
             ),
         ),
     };
+    let x_cocreation = x_cocreation_api::bootstrap_x_cocreation(&state);
 
     Json(serde_json::json!({
         "runs": runs,
@@ -1798,6 +1765,7 @@ async fn bootstrap_workspace(State(state): State<ApiState>, request: Request) ->
             "sessions": sessions,
             "extensions": extensions,
             "deliverables": deliverables,
+            "xCocreation": x_cocreation,
             "presentationTemplates": presentation_templates,
             "presentationTemplateNext": presentation_template_next,
             "schedules": schedules,

@@ -88,6 +88,15 @@ describe("theme is a real control, not a placebo", () => {
     expect(stylesheet).toMatch(/\.run-detail-scroll-rail > i\s*\{[\s\S]*?min-height:\s*52px/);
   });
 
+  it("uses the prototype's broad trailing scan pulse instead of a hard line", () => {
+    expect(stylesheet).toMatch(/\.cyber-scan\s*\{[\s\S]*?height:\s*34vh/);
+    expect(stylesheet).toMatch(/\.cyber-scan\s*\{[\s\S]*?linear-gradient\(180deg,\s*transparent/);
+    expect(stylesheet).not.toMatch(/\.cyber-scan\s*\{[\s\S]*?height:\s*2px/);
+    expect(stylesheet).toMatch(
+      /@keyframes cyber-scan\s*\{[\s\S]*?translate3d\(0,\s*-40vh,\s*0\)[\s\S]*?translate3d\(0,\s*115vh,\s*0\)/,
+    );
+  });
+
   it("caps the atmospheric canvas and reuses one pointer-follow tween", () => {
     expect(cyberThemeSource).toContain("timestamp - lastPaint < 32");
     expect(cyberThemeSource).toContain("Math.min(window.devicePixelRatio || 1, 1.5)");

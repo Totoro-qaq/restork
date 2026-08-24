@@ -32,6 +32,7 @@ const MODULES: &[&str] = &[
     "config_api",
     "core_skills",
     "daily_api",
+    "dashboard_assets",
     "error",
     "feature_api",
     "http_middleware",
@@ -45,6 +46,7 @@ const MODULES: &[&str] = &[
     "state",
     "todo_api",
     "vault_api",
+    "x_cocreation_api",
 ];
 
 /// Reads one file from `src/` by name. The name always comes from [`MODULES`] or

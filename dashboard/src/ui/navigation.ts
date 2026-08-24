@@ -12,6 +12,7 @@ export function whereCopy(view: string, locale: Locale): { title: string; sub: s
     tasks: ["Tasks", "任务"],
     conversation: ["Conversation", "对话"],
     vault: ["Knowledge", "知识库"],
+    radar: ["Radar", "雷达"],
     deliverables: ["Deliverables", "交付物"],
     automation: ["Automation", "自动化"],
     settings: ["Settings", "设置"],
@@ -23,6 +24,7 @@ export function whereCopy(view: string, locale: Locale): { title: string; sub: s
     tasks: ["Local to-dos", "本机待办"],
     conversation: ["Saved sessions", "已保存的会话"],
     vault: ["Local notes and search", "本机笔记与检索"],
+    radar: ["Verified public signals", "已核验公开信号"],
     deliverables: ["Files produced", "已产出的文件"],
     automation: ["Schedules and triggers", "计划与触发"],
     settings: ["Device preferences and models", "本机偏好与模型"],
@@ -58,7 +60,8 @@ function navGroup(id: string, locale: Locale, en: string, zh: string, items: str
 
 /**
  * Conversation stays a first-level item (Step 14: it is a primary entry).
- * Approvals, memory, radar, and extensions are aliases, not rail items.
+ * Approvals, memory, and extensions are aliases. Radar is a recurring
+ * evidence workspace, so it remains visible in the Knowledge group.
  */
 export function primaryNav(snapshot: DashboardSnapshot, locale: Locale): string {
   const active = snapshot.runs.filter((entry) => isRunActive(entry.summary.state)).length;
@@ -84,6 +87,14 @@ export function primaryNav(snapshot: DashboardSnapshot, locale: Locale): string 
   ].filter(Boolean);
   const knowledge = [
     navButton("vault", "nav-vault", tr(locale, "Knowledge", "知识库"), false),
+    navButton(
+      "radar",
+      "nav-radar",
+      tr(locale, "Radar", "雷达"),
+      false,
+      snapshot.radar.items.length,
+      locale,
+    ),
     v2
       ? navButton(
         "deliverables",
@@ -152,6 +163,7 @@ export function settingsTabSwitch(locale: Locale, current = "personal"): string 
     ["personal", "Personal", "个人"],
     ["models", "Models", "模型"],
     ["knowledge", "Knowledge & data", "知识库与数据"],
+    ["x", "X intelligence", "X 情报"],
     ["extensions", "Extensions", "扩展"],
     ["advanced", "Advanced", "高级"],
     ["about", "About & updates", "关于与更新"],

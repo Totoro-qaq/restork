@@ -32,7 +32,10 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-use super::radar::{NewRadarOwned, RadarConfiguration, github_discovery_urls, github_radar_record};
+use super::radar::{
+    NewRadarOwned, RadarConfiguration, github_discovery_urls, github_radar_record,
+    verified_x_radar_records,
+};
 use super::vault_api::study_note_slug;
 use super::{
     ApiState, authorize, authorize_scopes, bounded_usize_query, error_response,
@@ -842,7 +845,7 @@ pub(super) async fn preview_task_capture(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn create_task_preview(
+pub(super) fn create_task_preview(
     state: &ApiState,
     workspace: &SafeWorkspace,
     key: &str,
@@ -1019,7 +1022,14 @@ pub(super) async fn configure_radar(State(state): State<ApiState>, request: Requ
         Err(response) => return *response,
     };
     let github_discovery = payload.github_discovery || payload.github_user.is_some();
-    if payload.enabled && !github_discovery && !payload.hacker_news {
+    let x_topics = payload.x_topics.trim();
+    if payload.x_search && (x_topics.is_empty() || x_topics.chars().count() > 500) {
+        return error_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "X topics must be between 1 and 500 characters",
+        );
+    }
+    if payload.enabled && !github_discovery && !payload.hacker_news && !payload.x_search {
         return error_response(
             StatusCode::UNPROCESSABLE_ENTITY,
             "enable at least one Radar source",
@@ -1030,6 +1040,8 @@ pub(super) async fn configure_radar(State(state): State<ApiState>, request: Requ
         "enabled": payload.enabled,
         "github_discovery": github_discovery,
         "hacker_news": payload.hacker_news,
+        "x_search": payload.x_search,
+        "x_topics": x_topics,
     });
     match storage.put_daily_cache("radar-config", &config, &now, "9999-12-31T23:59:59Z", &now) {
         Ok(_) => {
@@ -1117,6 +1129,7 @@ pub(super) async fn radar_action(
         "read_later" => "read_later",
         "research" => "researched",
         "make_task" => "read_later",
+        "save_topic" => "topic",
         _ => return error_response(StatusCode::UNPROCESSABLE_ENTITY, "invalid Radar action"),
     };
     let now = Utc::now().to_rfc3339();
@@ -1362,6 +1375,25 @@ async fn refresh_radar(storage: &restork_storage::Database, config: &Value) -> R
             });
         }
     }
+    let x_search = config["x_search"].as_bool() == Some(true);
+    let mut x_refreshed = false;
+    if x_search {
+        let topics = config["x_topics"]
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("coding agents, local-first AI, agent security");
+        match verified_x_radar_records(topics, now).await {
+            Ok(posts) => {
+                x_refreshed = true;
+                records.extend(posts);
+            }
+            Err(error) if !github_discovery && config["hacker_news"].as_bool() != Some(true) => {
+                return Err(format!("X Radar refresh failed ({error})"));
+            }
+            Err(_) => {}
+        }
+    }
     let occurred_at = now.to_rfc3339();
     if github_discovery {
         storage
@@ -1398,6 +1430,11 @@ async fn refresh_radar(storage: &restork_storage::Database, config: &Value) -> R
             .delete_stale_new_radar_lane("hn", &occurred_at)
             .map_err(|_| "Hacker News Radar cache could not be pruned".to_owned())?;
     }
+    if x_refreshed {
+        storage
+            .delete_stale_new_radar_lane("x", &occurred_at)
+            .map_err(|_| "X Radar cache could not be pruned".to_owned())?;
+    }
     storage
         .put_daily_cache(
             "radar-feed",
@@ -1410,7 +1447,7 @@ async fn refresh_radar(storage: &restork_storage::Database, config: &Value) -> R
     Ok(())
 }
 
-fn configured_workspace(state: &ApiState) -> Result<SafeWorkspace, Response> {
+pub(super) fn configured_workspace(state: &ApiState) -> Result<SafeWorkspace, Response> {
     let root = state.vault_dir.as_deref().ok_or_else(|| {
         error_response(StatusCode::SERVICE_UNAVAILABLE, "Vault is not configured")
     })?;

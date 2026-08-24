@@ -1,95 +1,51 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
-  <title id="title">What Restork remembers and what it leaves alone</title>
-  <desc id="desc">Restork selects only what the current task needs. Your files stay local, and you can review anything before it is sent to a cloud model.</desc>
+  <title id="title">Restork Core trust and evidence architecture</title>
+  <desc id="desc">Local Markdown and explicit public sources enter one Rust Core. Policy, evidence verification and approvals gate every model request, tool call and local write.</desc>
   <defs>
-    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#FFFDF8"/>
-      <stop offset="1" stop-color="#F7F0E4"/>
-    </linearGradient>
-    <pattern id="rules" width="28" height="28" patternUnits="userSpaceOnUse">
-      <path d="M0 27.5H28" stroke="#A08F78" stroke-opacity="0.09"/>
-    </pattern>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#061A24"/><stop offset=".52" stop-color="#080F1D"/><stop offset="1" stop-color="#27102A"/></linearGradient>
+    <linearGradient id="signal" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#27F3E5"/><stop offset="1" stop-color="#FF4EB8"/></linearGradient>
+    <pattern id="scan" width="18" height="18" patternUnits="userSpaceOnUse"><path d="M0 17.5H18" stroke="#BDEBF5" stroke-opacity=".045"/></pattern>
   </defs>
-  <rect width="1200" height="560" rx="26" fill="#FBF8F1"/>
-  <rect width="1200" height="560" rx="26" fill="url(#rules)"/>
-  <path d="M48 36V524" stroke="#C0392F" stroke-opacity="0.18"/>
-  <g font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
-    <text x="72" y="62" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="27" font-weight="800" letter-spacing="1.5">WHAT RESTORK REMEMBERS, WHAT IT LEAVES ALONE</text>
-    <text x="72" y="90" fill="#6B5D4B" font-size="15">Your files stay local. Review what is sent before it leaves your computer.</text>
-
-    <g transform="translate(72 122)">
-      <g>
-        <rect width="246" height="142" rx="16" fill="url(#paper)" stroke="#8B5CF6"/>
-        <rect width="246" height="8" rx="4" fill="#8B5CF6"/>
-        <text x="18" y="42" fill="#6D45D4" font-family="American Typewriter, Courier New, monospace" font-size="13" font-weight="800">CURRENT CHAT</text>
-        <text x="18" y="69" fill="#3B3126" font-size="17" font-weight="700">Recent conversation</text>
-        <text x="18" y="93" fill="#6B5D4B" font-size="13">Recent turns · length limit</text>
-        <text x="18" y="115" fill="#6B5D4B" font-size="13">optional encrypted summary</text>
-        <text x="18" y="132" fill="#A08F78" font-size="11">CLEARED AFTER USE</text>
+  <rect width="1200" height="560" rx="28" fill="url(#bg)"/><rect width="1200" height="560" rx="28" fill="url(#scan)"/>
+  <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+    <text x="56" y="62" fill="#F1FBFF" font-size="30" font-weight="750">One Core. Visible evidence. Bounded effects.</text>
+    <text x="56" y="91" fill="#7EA7B7" font-size="15">The Dashboard and CLI ask; the Rust Core decides, records and recovers.</text>
+    <rect x="56" y="112" width="1088" height="3" fill="url(#signal)"/>
+    <g transform="translate(56 146)">
+      <text x="0" y="0" fill="#68EDE5" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" letter-spacing="2">INPUTS</text>
+      <g transform="translate(0 24)" font-size="16">
+        <rect width="230" height="64" fill="#0C1C2B" stroke="#27F3E5" stroke-opacity=".45"/><text x="18" y="29" fill="#D9F5F8" font-weight="650">Local Markdown</text><text x="18" y="49" fill="#789EAE" font-size="12">Vault · Tasks · Profile</text>
+        <rect y="78" width="230" height="64" fill="#0C1C2B" stroke="#27F3E5" stroke-opacity=".38"/><text x="18" y="107" fill="#D9F5F8" font-weight="650">Public evidence</text><text x="18" y="127" fill="#789EAE" font-size="12">Web · GitHub · HN · verified X</text>
+        <rect y="156" width="230" height="64" fill="#15152A" stroke="#FF4EB8" stroke-opacity=".42"/><text x="18" y="185" fill="#F7D7EA" font-weight="650">Your intent</text><text x="18" y="205" fill="#A98AA1" font-size="12">Mode · Model · Reasoning · Tools</text>
       </g>
-      <g transform="translate(270)">
-        <rect width="246" height="142" rx="16" fill="url(#paper)" stroke="#EC4899"/>
-        <rect width="246" height="8" rx="4" fill="#EC4899"/>
-        <text x="18" y="42" fill="#A62D68" font-family="American Typewriter, Courier New, monospace" font-size="13" font-weight="800">RUN HISTORY</text>
-        <text x="18" y="69" fill="#3B3126" font-size="17" font-weight="700">Runs and decisions</text>
-        <text x="18" y="93" fill="#6B5D4B" font-size="13">Runs · attempts · decisions</text>
-        <text x="18" y="115" fill="#6B5D4B" font-size="13">dates and sources kept</text>
-        <text x="18" y="132" fill="#A08F78" font-size="11">RETENTION IS YOUR CHOICE</text>
+      <path d="M246 133H314" stroke="#7FE8F0" stroke-width="2"/><path d="M306 126L316 133L306 140" fill="none" stroke="#7FE8F0" stroke-width="2"/>
+    </g>
+    <g transform="translate(374 146)">
+      <text x="0" y="0" fill="#FF82CA" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" letter-spacing="2">RESTORK CORE</text>
+      <path d="M0 24H394L416 46V244L394 266H0Z" fill="#0A1423" fill-opacity=".9" stroke="#7FE8F0" stroke-opacity=".6"/>
+      <g transform="translate(24 48)" font-size="15">
+        <rect width="168" height="48" fill="#27F3E5" fill-opacity=".06" stroke="#27F3E5" stroke-opacity=".38"/><text x="16" y="29" fill="#D9F5F8">Run policy + budgets</text>
+        <rect x="194" width="168" height="48" fill="#FF4EB8" fill-opacity=".06" stroke="#FF4EB8" stroke-opacity=".38"/><text x="210" y="29" fill="#F7D7EA">Evidence ledger</text>
+        <rect y="66" width="168" height="48" fill="#27F3E5" fill-opacity=".05" stroke="#27F3E5" stroke-opacity=".35"/><text x="16" y="95" fill="#D9F5F8">Tool sandbox</text>
+        <rect x="194" y="66" width="168" height="48" fill="#FF4EB8" fill-opacity=".05" stroke="#FF4EB8" stroke-opacity=".35"/><text x="210" y="95" fill="#F7D7EA">Preview + approval</text>
+        <rect y="132" width="362" height="48" fill="#8CD9F3" fill-opacity=".05" stroke="#8CD9F3" stroke-opacity=".38"/><text x="16" y="161" fill="#CDEFF5">SQLite event history · retry · recovery</text>
       </g>
-      <g transform="translate(540)">
-        <rect width="246" height="142" rx="16" fill="url(#paper)" stroke="#22AFC6"/>
-        <rect width="246" height="8" rx="4" fill="#22D3EE"/>
-        <text x="18" y="42" fill="#167C89" font-family="American Typewriter, Courier New, monospace" font-size="13" font-weight="800">YOUR NOTES</text>
-        <text x="18" y="69" fill="#3B3126" font-size="17" font-weight="700">Markdown notes and links</text>
-        <text x="18" y="93" fill="#6B5D4B" font-size="13">Notes · headings · wiki links</text>
-        <text x="18" y="115" fill="#6B5D4B" font-size="13">rebuildable search index</text>
-        <text x="18" y="132" fill="#A08F78" font-size="11">YOUR NOTES STAY PRIMARY</text>
-      </g>
-      <g transform="translate(810)">
-        <rect width="246" height="142" rx="16" fill="url(#paper)" stroke="#D68806"/>
-        <rect width="246" height="8" rx="4" fill="#F59E0B"/>
-        <text x="18" y="42" fill="#9B5B00" font-family="American Typewriter, Courier New, monospace" font-size="13" font-weight="800">YOUR SETTINGS</text>
-        <text x="18" y="69" fill="#3B3126" font-size="17" font-weight="700">Preferences and rules</text>
-        <text x="18" y="93" fill="#6B5D4B" font-size="13">Locale · preferences · rules</text>
-        <text x="18" y="115" fill="#6B5D4B" font-size="13">local settings and instructions</text>
-        <text x="18" y="132" fill="#A08F78" font-size="11">ONLY EXPLICIT SETTINGS</text>
+      <text x="24" y="244" fill="#63F89B" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12">EFFECTS REQUIRE A MATCHING, SINGLE-USE APPROVAL</text>
+    </g>
+    <g transform="translate(846 146)">
+      <text x="0" y="0" fill="#68EDE5" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" letter-spacing="2">OUTPUTS</text>
+      <path d="M-54 133H-8" stroke="#7FE8F0" stroke-width="2"/><path d="M-16 126L-6 133L-16 140" fill="none" stroke="#7FE8F0" stroke-width="2"/>
+      <g transform="translate(0 24)" font-size="16">
+        <rect width="298" height="64" fill="#0C1C2B" stroke="#27F3E5" stroke-opacity=".45"/><text x="18" y="29" fill="#D9F5F8" font-weight="650">Research / Study / Work</text><text x="18" y="49" fill="#789EAE" font-size="12">Sources, paths, plans and handoffs</text>
+        <rect y="78" width="298" height="64" fill="#15152A" stroke="#FF4EB8" stroke-opacity=".42"/><text x="18" y="107" fill="#F7D7EA" font-weight="650">Reviewable deliverables</text><text x="18" y="127" fill="#A98AA1" font-size="12">Reports · decks · three X drafts</text>
+        <rect y="156" width="298" height="64" fill="#0C1C2B" stroke="#27F3E5" stroke-opacity=".4"/><text x="18" y="185" fill="#D9F5F8" font-weight="650">Ordinary local files</text><text x="18" y="205" fill="#789EAE" font-size="12">Markdown you can inspect or delete</text>
       </g>
     </g>
-
-    <g transform="translate(72 294)">
-      <path d="M123 0V24M393 0V24M663 0V24M933 0V24" stroke="#A08F78" stroke-width="2"/>
-      <path d="M123 24H933" stroke="#A08F78" stroke-width="2" stroke-dasharray="4 5"/>
-      <path d="M528 24V48" stroke="#A08F78" stroke-width="2"/>
-      <path d="M522 40L528 49L534 40" fill="none" stroke="#A08F78" stroke-width="2"/>
-      <rect y="48" width="780" height="108" rx="17" fill="#3B3126"/>
-      <text x="22" y="77" fill="#F7F0E4" font-family="American Typewriter, Courier New, monospace" font-size="13" font-weight="800" letter-spacing="1.2">WHAT THIS REQUEST INCLUDES</text>
-      <text x="22" y="106" fill="#FFFFFF" font-size="18" font-weight="700">Recent turns + user settings + local search</text>
-      <text x="22" y="130" fill="#D8CCBB" font-size="14">Size limit · relevant records · sources kept with results</text>
-      <rect x="604" y="69" width="150" height="58" rx="12" fill="#FFFFFF" opacity="0.10" stroke="#D8CCBB"/>
-      <text x="624" y="92" fill="#6EE7B7" font-family="American Typewriter, Courier New, monospace" font-size="11" font-weight="800">SEND PREVIEW</text>
-      <text x="624" y="113" fill="#FFFFFF" font-size="12">review before sending</text>
-
-      <path d="M780 102H826" stroke="#EC4899" stroke-width="3"/>
-      <path d="M817 94L829 102L817 110" fill="none" stroke="#EC4899" stroke-width="3"/>
-      <rect x="832" y="48" width="224" height="108" rx="17" fill="#FFFDF8" stroke="#EC4899" stroke-width="2"/>
-      <text x="854" y="77" fill="#A62D68" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">READY TO SEND</text>
-      <text x="854" y="103" fill="#3B3126" font-size="15" font-weight="700">destination · included data · size</text>
-      <text x="854" y="126" fill="#6B5D4B" font-size="12">send after review · keep a record</text>
-      <text x="854" y="145" fill="#A08F78" font-size="10">NOTHING LEAVES WITHOUT REVIEW</text>
-    </g>
-
-    <g transform="translate(72 474)">
-      <rect width="1056" height="52" rx="14" fill="#FFFFFF" opacity="0.70" stroke="#D8CCBB"/>
-      <text x="20" y="22" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">ORIGINAL FILES</text>
-      <text x="20" y="41" fill="#6B5D4B" font-size="12">Markdown stays in place</text>
-      <path d="M242 26H286" stroke="#A08F78" stroke-dasharray="3 3"/>
-      <text x="306" y="22" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">RUN HISTORY</text>
-      <text x="306" y="41" fill="#6B5D4B" font-size="12">runs · confirmations · results</text>
-      <path d="M572 26H616" stroke="#A08F78" stroke-dasharray="3 3"/>
-      <text x="636" y="22" fill="#3B3126" font-family="American Typewriter, Courier New, monospace" font-size="12" font-weight="800">REBUILDABLE</text>
-      <text x="636" y="41" fill="#6B5D4B" font-size="12">search index and links</text>
-      <rect x="876" y="11" width="158" height="30" rx="15" fill="#34D399" opacity="0.15" stroke="#2BAE7A"/>
-      <text x="903" y="31" fill="#1E8A56" font-family="American Typewriter, Courier New, monospace" font-size="10" font-weight="800">FILES STAY UNCHANGED</text>
+    <g transform="translate(56 476)" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12">
+      <circle cx="5" cy="-4" r="4" fill="#54F59B"/><text x="18" y="0" fill="#9FC4CF">LOOPBACK ONLY</text>
+      <circle cx="184" cy="-4" r="4" fill="#54F59B"/><text x="197" y="0" fill="#9FC4CF">NATIVE CREDENTIAL STORAGE</text>
+      <circle cx="452" cy="-4" r="4" fill="#54F59B"/><text x="465" y="0" fill="#9FC4CF">NO X PUBLISHING PATH</text>
+      <text x="860" y="0" fill="#FF8BD0">PREVIEW → CONFIRM → APPLY</text>
     </g>
   </g>
 </svg>

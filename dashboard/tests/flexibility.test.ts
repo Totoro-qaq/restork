@@ -103,7 +103,7 @@ describe("empty-state next steps", () => {
     const presentations = readFileSync(resolve(import.meta.dirname, "../src/ui/presentations.ts"), "utf8");
     const render = readFileSync(resolve(import.meta.dirname, "../src/ui/render.ts"), "utf8");
     const snippets = [
-      "还没有草稿。回开始页说一句",
+      "还没有报告或演示文稿，可以在下方新建。",
       "还没有自动化。在下面填名称和时间，点保存即可。",
       "还没有运行。回开始页用一句话发起。",
       "这里还没有保存任何内容。留下一条有用的回答，就会出现在这里。",

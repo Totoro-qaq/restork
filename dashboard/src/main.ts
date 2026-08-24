@@ -2780,14 +2780,17 @@ async function decide(root: HTMLElement, api: DashboardApi, button: HTMLButtonEl
 async function actOnRadar(root: HTMLElement, api: DashboardApi, button: HTMLButtonElement): Promise<void> {
   button.disabled = true;
   const target = root.querySelector<HTMLElement>("#research-result");
-  if (target) target.innerHTML = agentWaitMarkup("sources", localeOf(root));
+  const action = button.dataset.radarAction as RadarAction;
+  if (target && action === "research") target.innerHTML = agentWaitMarkup("sources", localeOf(root));
   try {
-    const action = button.dataset.radarAction as RadarAction;
     const result = await api.radarAction(
       button.dataset.radarId ?? "",
       action,
     );
     await refresh(root, api, action === "make_task" ? "approvals" : "radar");
+    if (action === "save_topic") {
+      announceStatus(root, tr(localeOf(root), "Saved as a local topic.", "已存为本地选题。"));
+    }
     if (result.research_artifact) {
       const resultTarget = root.querySelector<HTMLElement>("#research-result");
       if (resultTarget) {
