@@ -116,7 +116,7 @@ describe("DSN-010 CJK tracking", () => {
 });
 
 describe("DSN-011 nav sprite", () => {
-  it("renders nine primary items from the inline SVG sprite", () => {
+  it("renders ten primary items from the inline SVG sprite", () => {
     const root = mount();
     expect(root.querySelector("svg.icon-sprite")).not.toBeNull();
     const hrefs = [...root.querySelectorAll<SVGUseElement>(".nav-item[data-view] svg.icon use")]
@@ -128,6 +128,7 @@ describe("DSN-011 nav sprite", () => {
       "#nav-tasks",
       "#nav-conversation",
       "#nav-vault",
+      "#nav-radar",
       "#nav-deliverables",
       "#nav-automation",
       "#nav-settings",

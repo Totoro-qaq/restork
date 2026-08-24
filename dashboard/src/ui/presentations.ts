@@ -32,18 +32,16 @@ export function deliverablesWorkspace(snapshot: DashboardSnapshot, locale: Local
       + `${escapeHtml(record.provider.display_name)} · ${escapeHtml(record.provider.model)}</option>`
   )).join("");
   return `<article class="paper-card full-card catalog-workspace deliverables-studio">
-    <header><div><p class="eyebrow">${tr(locale, "Deliverables", "交付物")}</p><h2>${tr(locale, "Reports and presentations", "报告与演示文稿")}</h2>
-    <p>${tr(locale, "Tell Restork what you want to say. It drafts a cited outline first; download only after you are happy with it.", "说说你想讲什么，Restork 先给你一份带来源的草稿，看过满意再下载。")}</p></div>
-    <span class="ribbon work">${tr(locale, "Built in · no install", "内置 · 无需安装")}</span></header>
+    <header><h2>${tr(locale, "Create and export", "创作与导出")}</h2></header>
     ${xCocreationStudio(snapshot, providerOptions, locale)}
-    <section aria-labelledby="deliverable-library-title"><header><div><small>${tr(locale, "Your files", "你的文件")}</small>
-    <h3 id="deliverable-library-title">${tr(locale, "Drafts and downloads", "草稿与下载")}</h3></div></header>
+    <section class="deliverable-library" aria-labelledby="deliverable-library-title"><header>
+    <h3 id="deliverable-library-title">${tr(locale, "Reports and presentations", "报告与演示文稿")}</h3></header>
     <div class="catalog-grid deliverable-grid">${records
       .map((record) => deliverableCard(record, locale))
       .join("") || `<p class="empty">${tr(
         locale,
-        "No drafts yet. Go to Start and ask Restork to turn this week’s runs into a weekly report.",
-        "还没有草稿。回开始页说一句「把这周的运行整理成周报」，第一份就有了。",
+        "No reports or presentations yet. Create one below.",
+        "还没有报告或演示文稿，可以在下方新建。",
       )}</p>`}</div></section>
     <div class="catalog-compose-grid">${manualReportForm(locale)}
     ${aiReportForm(snapshot, locale)}
@@ -105,21 +103,34 @@ function xCocreationStudio(
       ? tr(locale, "Run grok login before refreshing X evidence.", "请先运行 grok login，再同步 X 证据。")
       : workspace?.auth_mode === "api_key"
         ? tr(locale, "API key mode may create xAI API charges.", "API key 模式可能产生 xAI API 费用。")
-        : tr(locale, "Uses your Grok Build / xAI account allowance.", "使用你的 Grok Build / xAI 账户额度。")
+        : "";
+  const weeklyPlaceholder = tr(
+    locale,
+    "Completed work, decisions, or a failure worth sharing",
+    "已完成事项、关键决定，或值得复盘的问题",
+  );
+  const draftCards = drafts.map((draft) => xDraftCard(draft, locale)).join("");
+  const emptyDrafts = `<p class="empty">${tr(
+    locale,
+    "Save a topic in Radar, or write this week’s progress above.",
+    "先在雷达存一个选题，或填写本周进展。",
+  )}</p>`;
   return `<section class="x-cocreation-studio" aria-labelledby="x-cocreation-title">
-    <header><div><small>${tr(locale, "Verified X evidence + your week", "已核验 X 证据 + 你这一周")}</small>
-      <h3 id="x-cocreation-title">${tr(locale, "X writing studio", "X 共创写作")}</h3>
-      <p>${tr(locale, "Three editable versions and two image directions. Restork never posts to X.", "每个选题生成三版可编辑文案和两个配图方向；Restork 永远不会替你发布到 X。")}</p></div>
-      <span>${drafts.length}</span></header>
+    <header><h3 id="x-cocreation-title">${tr(locale, "X writing", "X 共创写作")}</h3>
+      ${drafts.length ? `<span>${tr(locale, `${drafts.length} drafts`, `${drafts.length} 份草稿`)}</span>` : ""}</header>
     <form id="x-cocreation-form" class="x-cocreation-compose">
-      <label>${tr(locale, "Model", "模型")}<select name="provider_profile_id" required>${providerOptions}</select></label>
-      <label class="wide-label">${tr(locale, "What did you finish this week?", "你这周实际完成了什么？")}
-        <textarea name="weekly_summary" rows="4" maxlength="2000" placeholder="${tr(locale, "For example: shipped verified X evidence in Radar and fixed the approval copy.", "例如：把已核验 X 证据接进 Radar，并修好了写入确认文案。")}"></textarea></label>
-      <button type="submit" ${ready && providerOptions ? "" : "disabled"}>${tr(locale, "Create this week’s drafts", "生成本周草稿")}</button>
-      <button type="button" class="quiet-button" data-x-voice-preview>${tr(locale, "Preview writing preferences", "预览写作偏好")}</button>
-      <p data-x-cocreation-status role="status">${escapeHtml(statusCopy)}</p>
+      <div class="x-compose-controls">
+        <label>${tr(locale, "Draft model", "草稿模型")}<select name="provider_profile_id" required>${providerOptions}</select></label>
+        <div class="x-compose-actions">
+          <button type="submit" ${ready && providerOptions ? "" : "disabled"}>${tr(locale, "Create 3 drafts", "生成 3 版草稿")}</button>
+          <button type="button" class="quiet-button" data-x-voice-preview>${tr(locale, "Writing preferences", "写作偏好")}</button>
+        </div>
+      </div>
+      <label class="x-summary-field">${tr(locale, "This week’s progress", "本周进展")}
+        <textarea name="weekly_summary" rows="3" maxlength="2000" placeholder="${weeklyPlaceholder}"></textarea></label>
+      <p data-x-cocreation-status role="status" ${statusCopy ? "" : "hidden"}>${escapeHtml(statusCopy)}</p>
     </form>
-    <div class="x-cocreation-drafts">${drafts.map((draft) => xDraftCard(draft, locale)).join("") || `<p class="empty">${tr(locale, "Save verified X evidence as a topic, then create the first weekly draft here.", "先把已核验 X 证据存为选题，再在这里生成第一组周草稿。")}</p>`}</div>
+    <div class="x-cocreation-drafts">${draftCards || emptyDrafts}</div>
   </section>`;
 }
 
@@ -128,6 +139,14 @@ function xDraftCard(
   locale: Locale,
 ): string {
   const artifact = draft.artifact;
+  const differenceKinds = [
+    ["opening", "Opening", "开头"], ["length", "Length", "长度"],
+    ["tone", "Tone", "语气"], ["remove_numbers", "Numbers", "数字"],
+    ["cta", "CTA", "行动引导"], ["image", "Image", "配图"],
+  ].map(([value, en, zh]) => (
+    `<label><input type="checkbox" name="difference_kinds" value="${value}">`
+      + `${tr(locale, en, zh)}</label>`
+  )).join("");
   return `<article class="x-draft-card" data-x-draft="${escapeHtml(draft.draft_id)}">
     <header><div><small>${escapeHtml(artifact.category)}</small><h4>${escapeHtml(artifact.title)}</h4></div>
       <span>${draft.state === "published" ? tr(locale, "Recorded manually", "已手动记录") : tr(locale, "Draft", "草稿")}</span></header>
@@ -140,7 +159,7 @@ function xDraftCard(
         <textarea name="final_reply" rows="3" maxlength="2000" required>${escapeHtml(variant.first_reply)}</textarea></label>
       <label>${tr(locale, "Final X URL (optional)", "最终 X 链接（可选）")}<input name="final_url" maxlength="512" placeholder="https://x.com/you/status/..."></label>
       <fieldset class="x-difference-kinds"><legend>${tr(locale, "What did you change?", "你改了什么？")}</legend>
-        ${[["opening", "Opening", "开头"], ["length", "Length", "长度"], ["tone", "Tone", "语气"], ["remove_numbers", "Numbers", "数字"], ["cta", "CTA", "行动引导"], ["image", "Image", "配图"]].map(([value, en, zh]) => `<label><input type="checkbox" name="difference_kinds" value="${value}">${tr(locale, en, zh)}</label>`).join("")}
+        ${differenceKinds}
       </fieldset>
       <button type="submit">${tr(locale, "Record as published", "记录为已发布")}</button>
     </form>`).join("")}</div>

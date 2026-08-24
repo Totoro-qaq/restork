@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use axum::{
     Json,
@@ -6,6 +6,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use restork_core::auth::{RADAR_WRITE, TASKS_WRITE};
 use restork_storage::{NewXCocreationDraft, RadarRecord};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -14,6 +15,43 @@ use super::*;
 
 const X_DRAFT_MAX_TOPICS: usize = 3;
 const X_DRAFT_MAX_BODY_CHARS: usize = 2_000;
+
+pub(super) fn bootstrap_x_cocreation(state: &ApiState) -> Value {
+    state.storage.as_ref().map_or_else(
+        || {
+            json!({
+                "drafts": [],
+                "status": agent_tools::grok_integration_status(),
+                "auth_mode": agent_tools::grok_auth_mode(),
+                "settings": null,
+            })
+        },
+        |storage| {
+            let drafts = storage.x_cocreation_drafts(50).unwrap_or_default();
+            let settings = storage
+                .daily_cache("x-cocreation-config")
+                .ok()
+                .flatten()
+                .map(|record| record.payload)
+                .unwrap_or_else(|| {
+                    json!({
+                        "enabled": false,
+                        "topics_and_accounts": "coding agents, local-first AI, agent security",
+                        "daily_time": "09:00",
+                        "weekly_time": "09:00",
+                        "provider_profile_id": "",
+                        "automation_enabled": false,
+                    })
+                });
+            json!({
+                "drafts": drafts,
+                "status": agent_tools::grok_integration_status(),
+                "auth_mode": agent_tools::grok_auth_mode(),
+                "settings": settings,
+            })
+        },
+    )
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -34,6 +72,18 @@ struct XCocreationSettingsRequest {
     provider_profile_id: String,
     #[serde(default)]
     automation_enabled: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct XCocreationPublication {
+    final_body: String,
+    final_reply: String,
+    #[serde(default)]
+    final_url: Option<String>,
+    #[serde(default)]
+    difference_kinds: Vec<String>,
+    expected_updated_at: String,
 }
 
 #[derive(Deserialize)]
@@ -305,6 +355,138 @@ pub(super) async fn put_x_cocreation_settings(
         Ok(_) => Json(config).into_response(),
         Err(error) => storage_error_response(error),
     }
+}
+
+pub(super) async fn record_x_cocreation_publication(
+    State(state): State<ApiState>,
+    Path(draft_id): Path<String>,
+    request: Request,
+) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), RADAR_WRITE) {
+        return *response;
+    }
+    if let Err(response) = require_idempotency_key(request.headers()) {
+        return response;
+    }
+    let Some(storage) = state.storage else {
+        return storage_unavailable();
+    };
+    let payload = match parse_json::<XCocreationPublication>(request, 16 * 1024).await {
+        Ok(payload) => payload,
+        Err(response) => return *response,
+    };
+    let occurred_at = match now_rfc3339() {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    match storage.record_x_cocreation_publication(
+        &draft_id,
+        &payload.final_body,
+        &payload.final_reply,
+        payload.final_url.as_deref(),
+        &payload.difference_kinds,
+        &payload.expected_updated_at,
+        &occurred_at,
+    ) {
+        Ok(record) => Json(json!({
+            "draft_id": record.draft_id,
+            "artifact": record.artifact,
+            "artifact_hash": record.artifact_hash,
+            "state": record.state,
+            "final_body": record.final_body,
+            "final_reply": record.final_reply,
+            "final_url": record.final_url,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+            "publication_verification": "user_recorded",
+        }))
+        .into_response(),
+        Err(error) => storage_error_response(error),
+    }
+}
+
+pub(super) async fn preview_x_voice_profile(
+    State(state): State<ApiState>,
+    request: Request,
+) -> Response {
+    if let Err(response) = authorize(&state.authority, request.headers(), TASKS_WRITE) {
+        return *response;
+    }
+    let key = match idempotency_key(request.headers()) {
+        Ok(value) => value.to_owned(),
+        Err(response) => return response,
+    };
+    let _ = match parse_json::<BTreeMap<String, Value>>(request, 8 * 1024).await {
+        Ok(value) => value,
+        Err(response) => return *response,
+    };
+    let Some(storage) = state.storage.as_ref() else {
+        return storage_unavailable();
+    };
+    let counts = match storage.x_voice_observation_counts() {
+        Ok(counts) if !counts.is_empty() => counts,
+        Ok(_) => {
+            return error_response(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "no recorded edits are available for the voice profile",
+            );
+        }
+        Err(error) => return storage_error_response(error),
+    };
+    let markdown = x_voice_markdown(&counts);
+    let workspace = match feature_api::configured_workspace(&state) {
+        Ok(workspace) => workspace,
+        Err(response) => return response,
+    };
+    let path = "x-voice.md";
+    let (before, expected) = match workspace.read_note(path) {
+        Ok((content, hash)) => (content, hash),
+        Err(_) => (String::new(), sha256_hex(b"")),
+    };
+    feature_api::create_task_preview(
+        &state,
+        &workspace,
+        &key,
+        "x-voice-profile",
+        path,
+        "x_voice_profile",
+        &before,
+        &markdown,
+        &expected,
+        &markdown,
+    )
+}
+
+fn x_voice_markdown(counts: &BTreeMap<String, usize>) -> String {
+    const PREFERENCES: [(&str, &str); 6] = [
+        ("opening", "开头用具体动作，不用泛化宣布"),
+        ("length", "正文保持紧凑，只保留一个主判断"),
+        ("tone", "使用直接、可核对的个人表达"),
+        ("remove_numbers", "数字必须带语境或对照"),
+        ("cta", "只有确实需要读者行动时才加入 CTA"),
+        ("image", "配图方向必须对应正文中的具体证据"),
+    ];
+    let mut confirmed = Vec::new();
+    let mut pending = Vec::new();
+    for (kind, copy) in PREFERENCES {
+        let count = counts.get(kind).copied().unwrap_or_default();
+        if count >= 3 {
+            confirmed.push(format!("- {copy}（你一致修改了 {count} 次）"));
+        } else if count > 0 {
+            pending.push(format!("- {copy}（样本 {count} 次，不足以确认）"));
+        }
+    }
+    if confirmed.is_empty() {
+        confirmed.push("- 暂无；同向修改累计 3 次后才会进入这里。".to_owned());
+    }
+    if pending.is_empty() {
+        pending.push("- 暂无。".to_owned());
+    }
+    format!(
+        "# X 写作偏好\n\n这是一份可直接编辑和删除的本地 Markdown。Restork 只根据你手动记录的修改类型提出建议，不读取 X 指标，也不把帖子正文写进这里。\n\n## 已确认的写法\n{}\n\n## 待观察\n{}\n",
+        confirmed.join("\n"),
+        pending.join("\n"),
+    )
 }
 
 fn sync_x_schedules(

@@ -1105,6 +1105,22 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
   const projectSecurityUrl = locale === "zh-CN" ? `${projectBaseUrl}/blob/main/SECURITY.zh-CN.md` : `${projectBaseUrl}/security/policy`;
   const projectSecurityLink = safeLink(projectSecurityUrl, tr(locale, "Security", "安全政策"), externalLinkAttributes);
   const projectLicenseLink = safeLink(`${projectBaseUrl}/blob/main/LICENSE`, "MIT license", externalLinkAttributes);
+  const xAuthCopy = xCocreation?.auth_mode === "api_key"
+    ? tr(
+      locale,
+      "API key mode may create xAI API charges; scheduled automation stays off by default.",
+      "API key 模式可能产生 xAI API 费用；定时自动化默认保持关闭。",
+    )
+    : tr(
+      locale,
+      "X search uses your signed-in Grok Build / xAI account allowance. Restork requests no X publishing permission.",
+      "X 搜索使用你已登录的 Grok Build / xAI 账户额度；Restork 不申请任何 X 发布权限。",
+    );
+  const xStatusLabel = xCocreation?.status === "ready"
+    ? tr(locale, "Ready", "就绪")
+    : xCocreation?.status === "login_required"
+      ? tr(locale, "Sign in required", "需要登录")
+      : tr(locale, "Not installed", "尚未安装");
   return `<article class="paper-card full-card settings-workspace"><header><div><p class="eyebrow">${tr(locale, "Settings", "设置")}</p><h2>${tr(locale, "Make Restork yours", "让 Restork 更像你的工作台")}</h2></div><span class="ribbon study">${tr(locale, "On device", "保存在本机")}</span></header>
     <div class="settings-sections">
       <section class="settings-section" data-settings-panel="personal"><header><div><small>${tr(locale, "Personal", "个人")}</small><h3>${tr(locale, "Name & appearance", "称呼与外观")}</h3></div></header>
@@ -1123,16 +1139,19 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
           <label>${tr(locale, "Open on launch", "启动后打开")}<select name="startup_page"><option value="start" ${settings.startup_page !== "dashboard" ? "selected" : ""}>${tr(locale, "Start", "开始页")}</option><option value="dashboard" ${settings.startup_page === "dashboard" ? "selected" : ""}>${tr(locale, "Dashboard", "仪表盘")}</option></select></label>
           <button type="submit" class="btn-primary">${tr(locale, "Save locally", "保存到本地")}</button><p id="personal-settings-status" role="status"></p>
         </form>
+      </section>
+      <section class="settings-section" data-settings-panel="x" hidden>
+        <header><div><small>X</small><h3>${tr(locale, "Intelligence & writing", "情报与写作")}</h3></div>
+          <span>${escapeHtml(xStatusLabel)}</span></header>
+        <p class="fine">${escapeHtml(xAuthCopy)}</p>
         <form id="x-cocreation-settings-form" class="x-cocreation-settings">
-          <header><div><small>${tr(locale, "Read only + drafts", "只读 + 草稿")}</small><h3>${tr(locale, "X intelligence & writing", "X 情报与写作")}</h3></div>
-            <span>${escapeHtml(xCocreation?.status ?? "not_installed")}</span></header>
-          <p class="fine">${xCocreation?.auth_mode === "api_key"
-            ? tr(locale, "API key mode may create xAI API charges; scheduled automation stays off by default.", "API key 模式可能产生 xAI API 费用；定时自动化默认保持关闭。")
-            : tr(locale, "X search uses your signed-in Grok Build / xAI account allowance. Restork requests no X publishing permission.", "X 搜索使用你已登录的 Grok Build / xAI 账户额度；Restork 不申请任何 X 发布权限。")}</p>
-          <label class="check-label"><input type="checkbox" name="enabled" ${xCocreation?.settings?.enabled ? "checked" : ""}>${tr(locale, "Enable X evidence and writing", "启用 X 证据与写作")}</label>
+          <label class="check-label">
+            <input type="checkbox" name="enabled" ${xCocreation?.settings?.enabled ? "checked" : ""}>
+            ${tr(locale, "Enable X evidence and writing", "启用 X 证据与写作")}
+          </label>
           <label class="wide-label">${tr(locale, "Topics and accounts", "关注主题与账号")}<textarea name="topics_and_accounts" rows="3" maxlength="500" required>${escapeHtml(xCocreation?.settings?.topics_and_accounts ?? "coding agents, local-first AI, agent security")}</textarea></label>
           <label>${tr(locale, "Daily Radar time", "每日雷达时间")}<input type="time" name="daily_time" required value="${escapeHtml(xCocreation?.settings?.daily_time ?? "09:00")}"></label>
-          <label>${tr(locale, "Weekly draft time", "每周选题时间")}<input type="time" name="weekly_time" required value="${escapeHtml(xCocreation?.settings?.weekly_time ?? "09:00")}"></label>
+          <label>${tr(locale, "Weekly draft time", "每周草稿时间")}<input type="time" name="weekly_time" required value="${escapeHtml(xCocreation?.settings?.weekly_time ?? "09:00")}"></label>
           <label>${tr(locale, "Draft model", "草稿模型")}<select name="provider_profile_id" required>${providers.map((record) => `<option value="${escapeHtml(record.provider.profile_id)}" ${xCocreation?.settings?.provider_profile_id === record.provider.profile_id ? "selected" : ""}>${escapeHtml(record.provider.display_name)} · ${escapeHtml(record.provider.model)}</option>`).join("")}</select></label>
           <label class="check-label"><input type="checkbox" name="automation_enabled" ${xCocreation?.settings?.automation_enabled ? "checked" : ""} ${xCocreation?.auth_mode === "api_key" ? "disabled" : ""}>${tr(locale, "Run these two schedules automatically", "按以上两个时间自动运行")}</label>
           <input type="hidden" name="auth_mode" value="${escapeHtml(xCocreation?.auth_mode ?? "unknown")}">
@@ -1871,28 +1890,30 @@ export function radarView(snapshot: DashboardSnapshot, locale: Locale): string {
   if (notice && radarState !== "not_configured") {
     return `<article class="paper-card full-card"><header><h2>Radar</h2></header>${notice}</article>`;
   }
+  const radarTopics = snapshot.workspaceV2?.xCocreation?.settings?.topics_and_accounts
+    ?? "coding agents, local-first AI, agent security";
   const configForm = `<form id="radar-config-form" class="radar-config">
     <label class="radar-config-source"><input type="checkbox" name="github_discovery" value="1" checked> ${tr(locale, "Discover public AI, Agent and MCP projects on GitHub", "发现 GitHub 上公开的 AI、Agent 与 MCP 项目")}</label>
     <label class="radar-config-source"><input type="checkbox" name="hacker_news" value="1" checked> ${tr(locale, "Include Hacker News top stories", "收录 Hacker News 热门")}</label>
-    <label class="radar-config-source"><input type="checkbox" name="x_search" value="1" checked> ${tr(locale, "Include independently verified public X evidence", "收录经过独立核验的公开 X 证据")}</label>
-    <label>${tr(locale, "X topics", "X 关注主题")}<input type="text" name="x_topics" maxlength="500" value="coding agents, local-first AI, agent security"></label>
+    <label class="radar-config-source"><input type="checkbox" name="x_search" value="1" checked> ${tr(locale, "Include X", "收录 X")}</label>
+    <label>${tr(locale, "X topics", "X 关注主题")}<input type="text" name="x_topics" maxlength="500" value="${escapeHtml(radarTopics)}"></label>
     <button type="submit">${tr(locale, "Save & fetch", "保存并拉取")}</button>
     <small>${tr(locale, "Core fetches every source. X discovery uses the signed-in Grok CLI, then independently verifies each public URL, author and post body before it can appear here.", "所有来源都由 Core 拉取。X 候选由已登录的 Grok CLI 发现，并独立核验公开链接、作者与正文后才会出现在这里。")}</small>
     <p class="form-hint" id="radar-config-status" role="status"></p>
   </form>`;
   if (!snapshot.radar.configured) {
-    return `<article class="paper-card full-card"><header><h2>Radar</h2><span class="ribbon radar">${tr(locale, "Core connectors", "Core 连接器")}</span></header>
-      <div class="radar-onboarding"><strong>${tr(locale, "Choose what Restork should watch", "选择 Restork 要关注的公开来源")}</strong><p>${tr(locale, "Restork can watch public GitHub projects, Hacker News, and verified X evidence. Core fetches and caches them only after you opt in here.", "Restork 可关注 GitHub 公开项目、Hacker News 与已核验 X 证据；只有你在这里明确启用后，Core 才会拉取并缓存。")}</p></div>
+    return `<article class="paper-card full-card"><header><h2>Radar</h2></header>
+      <div class="radar-onboarding"><strong>${tr(locale, "Choose public sources", "选择公开来源")}</strong></div>
       ${configForm}
     </article>`;
   }
   const githubItems = snapshot.radar.items.filter((item) => item.lane === "trending");
   const hackerNewsItems = snapshot.radar.items.filter((item) => item.lane === "hn");
   const xItems = snapshot.radar.items.filter((item) => item.lane === "x");
-  return `<article class="paper-card full-card"><header><h2>Radar</h2><span class="ribbon radar">${tr(locale, "Core connectors", "Core 连接器")}</span></header>
+  return `<article class="paper-card full-card"><header><h2>Radar</h2></header>
     <div id="research-result" class="research-result-host" role="status"></div>
     <div class="lanes"><section class="radar-github-lane"><h3>GitHub AI / Agent</h3>${radarGithubPeriods(githubItems, locale)}</section><section><h3>Hacker News</h3>${hackerNewsItems.map((item) => radarItem(item, locale)).join("") || `<p class="empty">${tr(locale, "No public stories in this refresh.", "本次刷新没有公开条目。")}</p>`}</section></div>
-    <section class="radar-x-lane"><h3>${tr(locale, "X · verified public evidence", "X · 已核验证据")}</h3><p class="radar-x-note">${tr(locale, "Candidates appear only after their public URL, author and post body pass independent verification.", "候选只有在公开链接、作者与正文通过独立核验后才会显示。")}</p><div class="radar-x-list">${xItems.map((item) => radarXItem(item, locale)).join("") || `<p class="empty">${tr(locale, "No verified X evidence in this refresh.", "本次刷新没有通过核验的 X 证据。")}</p>`}</div></section>${paginationControl("radar", snapshot.pagination?.radar, locale)}
+    <section class="radar-x-lane"><h3>X</h3><div class="radar-x-list">${xItems.map((item) => radarXItem(item, locale)).join("") || `<p class="empty">${tr(locale, "No X posts in this refresh.", "本次刷新没有 X 条目。")}</p>`}</div></section>${paginationControl("radar", snapshot.pagination?.radar, locale)}
     <details class="radar-recheck"><summary>${tr(locale, "Radar sources", "Radar 来源设置")}</summary>${configForm}</details>
   </article>`;
 }
@@ -2295,7 +2316,7 @@ function radarXItem(item: RadarItem, locale: Locale): string {
   const topic = item.state === "topic"
     ? `<span class="radar-x-topic">${tr(locale, "Saved as topic", "已存为选题")}</span>`
     : `<button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="save_topic">${tr(locale, "save as topic", "存为选题")}</button>`;
-  return `<article class="radar-item radar-x-item"><header>${safeLink(item.url, item.title, 'target="_blank" rel="noreferrer"')}<span class="radar-x-verified">${tr(locale, "verified", "已核验")}</span></header><p>${escapeHtml(item.summary)}</p><small>${escapeHtml(item.source)}${item.published_at ? ` · ${formatDate(item.published_at, locale)}` : ""}</small><div class="radar-item-actions">${topic}<button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="research">${tr(locale, "research", "研究")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="read_later">${tr(locale, "read later", "稍后阅读")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="dismiss">${tr(locale, "dismiss", "忽略")}</button></div></article>`;
+  return `<article class="radar-item radar-x-item"><header>${safeLink(item.url, item.title, 'target="_blank" rel="noreferrer"')}<span class="radar-x-verified">${tr(locale, "verified", "已核验")}</span></header><p>${escapeHtml(item.summary)}</p><small>X${item.published_at ? ` · ${formatDate(item.published_at, locale)}` : ""}</small><div class="radar-item-actions">${topic}<button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="research">${tr(locale, "research", "研究")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="read_later">${tr(locale, "read later", "稍后阅读")}</button><button type="button" data-radar-id="${escapeHtml(item.item_id)}" data-radar-action="dismiss">${tr(locale, "dismiss", "忽略")}</button></div></article>`;
 }
 
 function radarSummary(item: RadarItem, locale: Locale): string {

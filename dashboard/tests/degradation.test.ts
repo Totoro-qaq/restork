@@ -54,7 +54,7 @@ describe("a broken backend is not an empty workspace", () => {
   it("turns an unconfigured Radar into a setup path rather than an empty feed", () => {
     const root = mount({ radar: { state: "not_configured", status: 404 } });
 
-    expect(panelText(root, "radar")).toContain("Choose what Restork should watch");
+    expect(panelText(root, "radar")).toContain("Choose public sources");
     expect(root.querySelector("#radar-config-form")).not.toBeNull();
     expect(panelText(root, "radar")).not.toContain("Empty");
   });

@@ -53,7 +53,6 @@ import type {
   WorkHandoffPreview,
   WorkPlanArtifact,
   WorkVerificationReport,
-  XCocreationComposeInputV1,
   XCocreationDraftV1,
   XCocreationPublicationInputV1,
   XCocreationSettingsV1,
@@ -1049,6 +1048,7 @@ class DemoApi implements DashboardApi {
   async radarAction(itemId: string, action: RadarAction): Promise<RadarActionResult> {
     const item = snapshot.radar.items.find((candidate) => candidate.item_id === itemId)
       ?? snapshot.radar.items[0];
+    if (action === "save_topic") item.state = "topic";
     return {
       item,
       run_id: action === "research" ? researchArtifact.run_id : null,
@@ -1060,9 +1060,7 @@ class DemoApi implements DashboardApi {
   async configureRadar(input: RadarConfigurationInput): Promise<RadarConfiguration> {
     return { ...input };
   }
-  async composeXCocreationDrafts(
-    _input: XCocreationComposeInputV1,
-  ): Promise<{ items: XCocreationDraftV1[] }> {
+  async composeXCocreationDrafts(): Promise<{ items: XCocreationDraftV1[] }> {
     return { items: workspace().xCocreation?.drafts ?? [] };
   }
   async recordXCocreationPublication(
@@ -1697,6 +1695,17 @@ if (demoLocale === "zh-CN") {
       if (named["claim:approval"]) named["claim:approval"].text = "每次调用都要确认";
       if (named["claim:sandbox"]) named["claim:sandbox"].text = "系统沙箱隔离";
     }
+  }
+  const xDraft = snapshot.workspaceV2?.xCocreation?.drafts[0];
+  if (xDraft) {
+    xDraft.artifact.title = "为什么写入前确认值得多一步";
+    xDraft.artifact.variants = [
+      { label: "A", body: "从具体改动写起，不从“很高兴宣布”写起。", first_reply: "来源：https://x.com/OpenAI/status/2082263717916586117" },
+      { label: "B", body: "预览不是多余步骤，而是产品边界的一部分。", first_reply: "来源：https://x.com/OpenAI/status/2082263717916586117" },
+      { label: "C", body: "本地优先仍然需要看得见的写入边界。", first_reply: "来源：https://x.com/OpenAI/status/2082263717916586117" },
+    ];
+    xDraft.artifact.image_directions = ["标注清楚的审批边界", "已核验证据流向本地 Markdown 笔记"];
+    xDraft.artifact.manual_weekly_summary = "完成了已核验 X Radar 的真实链路。";
   }
 }
 

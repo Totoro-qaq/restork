@@ -32,6 +32,12 @@ interface DeliverablesEffects {
   status(message: string): void;
 }
 
+function inlineStatus(target: HTMLElement | null, message: string): void {
+  if (!target) return;
+  target.hidden = !message;
+  target.textContent = message;
+}
+
 export function configureDeliverables(
   root: HTMLElement,
   api: DashboardApi,
@@ -46,13 +52,13 @@ export function configureDeliverables(
     const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
     if (!api.composeXCocreationDrafts) return;
     if (button) button.disabled = true;
-    if (status) status.textContent = tr(localeOf(root), "Drafting from verified evidence and your week…", "正在根据已核验证据和你这一周生成草稿…");
+    inlineStatus(status, tr(localeOf(root), "Generating 3 drafts…", "正在生成 3 版草稿…"));
     void api.composeXCocreationDrafts({
       provider_profile_id: String(data.get("provider_profile_id") ?? ""),
       weekly_summary: String(data.get("weekly_summary") ?? "").trim(),
       language: localeOf(root) === "zh-CN" ? "zh-CN" : "en-US",
     }).then(() => effects.reload())
-      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); })
+      .catch((error) => inlineStatus(status, errorText(error, localeOf(root))))
       .finally(() => { if (button) button.disabled = false; });
   });
   root.querySelectorAll<HTMLFormElement>("[data-x-publication-form]").forEach((form) => {
@@ -83,9 +89,9 @@ export function configureDeliverables(
     if (!api.previewXVoiceProfile) return;
     button.disabled = true;
     void api.previewXVoiceProfile().then(() => {
-      if (status) status.textContent = tr(localeOf(root), "Writing-preference preview is waiting in Approvals; no file was written yet.", "写作偏好预览已进入审批；现在还没有写入文件。");
+      effects.status(tr(localeOf(root), "Writing preferences are ready to approve.", "写作偏好已进入审批。"));
       return effects.reload();
-    }).catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); })
+    }).catch((error) => inlineStatus(status, errorText(error, localeOf(root))))
       .finally(() => { button.disabled = false; });
   });
   root.querySelector<HTMLFormElement>("#x-cocreation-settings-form")?.addEventListener("submit", (event) => {
@@ -103,7 +109,7 @@ export function configureDeliverables(
       automation_enabled: data.get("automation_enabled") === "on",
       auth_mode: String(data.get("auth_mode") ?? "unknown") as "oauth" | "api_key" | "unknown",
     }).then(() => effects.reload())
-      .catch((error) => { if (status) status.textContent = errorText(error, localeOf(root)); });
+      .catch((error) => inlineStatus(status, errorText(error, localeOf(root))));
   });
   root.addEventListener("click", (event) => {
     const button = (event.target as Element).closest<HTMLButtonElement>("[data-report-download]");

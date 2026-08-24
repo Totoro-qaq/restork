@@ -1129,7 +1129,7 @@ describe("authenticated workspace", () => {
     expect(api.loadPage).toHaveBeenCalledTimes(1);
   });
 
-  it("adds verified X evidence to the existing Radar without inventing a new navigation page", async () => {
+  it("keeps verified X evidence in Radar and exposes Radar as a primary knowledge entry", async () => {
     const root = document.createElement("main");
     const api = fakeApi();
     const xItem = {
@@ -1153,10 +1153,11 @@ describe("authenticated workspace", () => {
     const navCopy = [...root.querySelectorAll<HTMLElement>(".nav-item")]
       .map((item) => item.textContent?.trim())
       .join(" ");
-    expect(navCopy).not.toContain("X 雷达");
+    expect(navCopy).toContain("Radar");
+    expect(root.querySelector('[data-view="radar"]')).not.toBeNull();
     const panel = root.querySelector<HTMLElement>('[data-view-panel="radar"]');
     expect(panel?.querySelector("h2")?.textContent).toBe("Radar");
-    expect(panel?.querySelector(".radar-x-lane")?.textContent).toContain("X · verified public evidence");
+    expect(panel?.querySelector(".radar-x-lane")?.querySelector("h3")?.textContent).toBe("X");
     expect(panel?.textContent).toContain("We quietly released the open-source Codex Security CLI.");
     expect(panel?.textContent).toContain("verified");
     panel?.querySelector<HTMLButtonElement>('[data-radar-action="save_topic"]')?.click();
@@ -1724,10 +1725,12 @@ describe("Rust conversation workspace", () => {
     api.saveXCocreationSettings = vi.fn(async (input) => ({ ...input, auth_mode: "oauth" }));
     mountDashboard(root, { api, snapshot: state, locale: "zh-CN" });
     openDashboardView(root, "settings");
+    root.querySelector<HTMLButtonElement>('[data-settings-tab="x"]')?.click();
 
-    const form = root.querySelector<HTMLFormElement>("#x-cocreation-settings-form");
-    expect(form?.textContent).toContain("X 情报与写作");
-    expect(form?.textContent).toContain("Grok Build / xAI 账户额度");
+    const panel = root.querySelector<HTMLElement>('[data-settings-panel="x"]');
+    const form = panel?.querySelector<HTMLFormElement>("#x-cocreation-settings-form");
+    expect(panel?.textContent).toContain("情报与写作");
+    expect(panel?.textContent).toContain("Grok Build / xAI 账户额度");
     expect(root.querySelector('[data-view-panel="extensions"]')?.textContent)
       .not.toContain("X 情报与写作");
     form?.requestSubmit();

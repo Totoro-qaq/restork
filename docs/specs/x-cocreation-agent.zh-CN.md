@@ -1,8 +1,8 @@
 # Restork X 共创写作 Agent Spec（v1：只读与草稿）
 
-- 状态：Gate A 已通过（A0、A1、A3、A4 已完成；A2 新鲜重跑 7/7 通过）
-- 实现进度：真实 Radar X 来源与本地 `topic` 状态已落成；A/B/C 草稿生成与风格学习尚未实现
-- 日期：2026-08-22
+- 状态：v1 已完成（Gate A、真实 Radar、三版草稿、差异记录、偏好审批与两条计划均已验收）
+- 实现进度：真实 X 搜索 → 独立核验 → `topic` → 每周三版草稿 → 手动发布记录 → `x-voice.md` 审批写入全链路已落成
+- 日期：2026-08-24
 - 适用版本：unsigned alpha（下一个次要版本）
 - 涉及范围：Radar、交付物、自动化、知识库、设置
 - 依赖：`x_search` 工具（`rust/crates/restork-api/src/agent_tools.rs`，已存在、只读）
@@ -223,8 +223,11 @@ draft_id, 栏目, 草稿原文, 终稿, 最终帖子 URL（可选）,
 3. **A3 · 上游来源契约确认（已完成）。** 使用 Grok CLI `--output-format streaming-json` 在隔离工作区重跑 A0 三类查询，确认原生事件能区分 X 工具调用、完成更新与会话终态，且不泄露 token、认证文件或本机路径。三类查询分别产生 7、4、1 次 X 工具调用；12/12 个 `tool_call_update` 均为 `completed`，`content`、`locations` 为空。该行为与 xAI 服务端工具公开契约一致：只返回调用记录，不返回原始工具输出；来源通过最终内容和 citations 暴露。A3 的结论是**不得依赖 observation，也不新增 MCP 绕过边界**，不是账号无权搜索或工具失败。
 4. **A2 · 新鲜完整重跑（已完成，7/7）。** schema 已显式区分 `progress | complete`；只有 `complete` 可作为最终结果，progress-only 最多追加一次受总预算约束的重试。2026-08-23 新鲜重跑 7 条查询全部得到 `verified_pass`：26 条候选通过独立 URL、作者与公开正文验证，1 条超过 1,000 字边界的候选被丢弃；没有未验证候选进入产品证据。
 5. **A4 · citation 与公开内容验证器（已完成）。** 输入只接受 A1 产生的 canonical X URL；若上游提供独立 citations，先要求候选 URL 与 citation 匹配。验证器直接请求固定的 `https://publish.x.com/oembed?url=<canonical-x-url>`，不接受重定向到其它 host；200 必须返回不超过 128 KiB 的 JSON，响应 URL 与候选 URL 一致、`author_url` 与候选 handle 一致，并包含公开帖子正文。404 记为不存在；其它状态、超时、429、endpoint 漂移、响应超限与 schema 变化全部失败关闭。验证通过后丢弃模型提供的 `text_excerpt`，以净化后的公开正文覆盖并冻结；模型摘要只保留布尔诊断 `candidate_excerpt_matched`，不进入产品内容。fixture 覆盖匹配、作者错误、404、429、endpoint 漂移、超限、空正文、oEmbed 截断和模型续写；旧批次 27/27 重放通过，新鲜 A2 批次 26/26 通过。
-6. **Slice A Gate：通过。** 雷达与草稿下一步各做一版静态稿，使用本轮已验证证据填充，确认你会点「存为选题」再实现 Slice C 自动化。A4 当前落在可重复 Gate 探针；接入真实产品前必须把相同的失败关闭契约移入 Restork 原生 `x_search` 适配器，不得直接复用旧的自由文本结果。
-7. 风格档案的字段在积累 10 次真实修改之后再定稿，不提前设计。
+6. **Slice A Gate：通过。** A4 的失败关闭契约已移入 Restork 原生 `x_search` 适配器；Radar 只消费独立核验后生成的证据，不再使用旧自由文本结果。
+7. **Slice B / C：完成。** 交付物页消费 `state=topic` 的已核验证据；一次模型调用最多生成 3 个选题，每个选题严格包含 3 版无链接正文、确定性来源回复与 2 个配图方向。最终版本由用户编辑并手动记录，最终 X URL 可留空。
+8. **风格学习：完成。** 差异记录只接受六类确定性标签；1～2 次进入「待观察」，同向累计 3 次进入「已确认的写法」。`x-voice.md` 的每次更新先生成单次审批预览，批准后才写入 Vault；X 帖子正文不会进入该文件。
+9. **自动化：完成。** 设置生成每日 `x_radar_refresh` 与每周 `x_cocreation_draft` 两条 Core 计划；每日任务错过即跳过，每周任务只生成可审阅草稿。API key 模式拒绝开启自动计划。
+10. **2026-08-24 真实安装链路：通过。** 安装包内 Core 在临时数据库与临时 Vault 中得到 11 条独立核验 X 证据；每日计划与每周草稿计划均 `completed`；草稿为 1 个选题、3 版正文、2 个配图方向；手动发布记录、最终 URL 可选和偏好审批写入均通过，且没有 X 写入路径。详见 [TDD 与验收证据](../testing/x-cocreation-v1.tdd.md)。
 
 ---
 

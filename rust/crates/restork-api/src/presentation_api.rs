@@ -2,6 +2,22 @@
 
 use super::*;
 
+pub(crate) fn bootstrap_presentation_templates(state: &ApiState) -> (Value, Value) {
+    state
+        .storage
+        .as_ref()
+        .and_then(|storage| storage.deliverable_templates_page(None, 6, false).ok())
+        .map_or_else(
+            || (serde_json::json!([]), Value::Null),
+            |page| {
+                (
+                    serde_json::to_value(page.items).unwrap_or_default(),
+                    serde_json::to_value(page.next).unwrap_or(Value::Null),
+                )
+            },
+        )
+}
+
 /// A one-slide brief is a valid deliberate choice. The ceiling is the
 /// deterministic renderer's honest working range rather than a menu of
 /// blessed lengths.
