@@ -1103,6 +1103,7 @@ fn grok_search_command(
     command
 }
 
+#[cfg(target_os = "macos")]
 fn apply_system_proxy_to_grok(command: &mut tokio::process::Command) {
     if ["HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"]
         .into_iter()
@@ -1110,7 +1111,6 @@ fn apply_system_proxy_to_grok(command: &mut tokio::process::Command) {
     {
         return;
     }
-    #[cfg(target_os = "macos")]
     if let Ok(output) = std::process::Command::new("/usr/sbin/scutil")
         .arg("--proxy")
         .output()
@@ -1124,6 +1124,9 @@ fn apply_system_proxy_to_grok(command: &mut tokio::process::Command) {
             .env("ALL_PROXY", &proxy);
     }
 }
+
+#[cfg(not(target_os = "macos"))]
+fn apply_system_proxy_to_grok(_: &mut tokio::process::Command) {}
 
 #[cfg(target_os = "macos")]
 fn parse_macos_http_proxy(text: &str) -> Option<String> {
