@@ -149,7 +149,10 @@ describe("Gate D2 navigation", () => {
 
     openDashboardView(root, "radar");
     expect(root.querySelector<HTMLElement>('[data-view-panel="radar"]')?.hidden).toBe(false);
-    expect(root.querySelector('[data-view="overview"]')?.getAttribute("aria-current")).toBe("page");
+    expect(root.querySelector('[data-view="radar"]')?.getAttribute("aria-current")).toBe("page");
+    expect(root.querySelector('[data-view="overview"]')?.getAttribute("aria-current")).toBeNull();
+    expect(root.querySelector("[data-where-title]")?.textContent).toBe("雷达");
+    expect(root.querySelector("[data-where-sub]")?.textContent).toBe("已核验公开信号");
 
     openDashboardView(root, "extensions");
     expect(root.querySelector<HTMLElement>('[data-view-panel="extensions"]')?.hidden).toBe(false);
