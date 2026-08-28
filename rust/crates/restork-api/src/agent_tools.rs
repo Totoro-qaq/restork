@@ -315,8 +315,7 @@ impl AgentTool for McpAgentTool {
             let mut call = self.resolved.clone();
             call.input = input;
             let secrets = resolve_mcp_secrets(&call).await?;
-            let execution_id = ephemeral_execution_id()?;
-            let output = restork_worker::execute_stdio_mcp(&execution_id, &call, &secrets)
+            let output = restork_worker::execute_stdio_mcp(&call, &secrets)
                 .await
                 .map_err(|error| ToolFailure {
                     kind: ToolFailureKind::ExecutionFailed,
@@ -368,18 +367,6 @@ fn native_mcp_secret_reference(reference: &str) -> Result<String, ToolFailure> {
     #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     let native = format!("keychain:restork/mcp/{identifier}");
     Ok(native)
-}
-
-fn ephemeral_execution_id() -> Result<String, ToolFailure> {
-    let mut entropy = [0_u8; 16];
-    getrandom::fill(&mut entropy).map_err(|_| execution_failure())?;
-    Ok(format!(
-        "agent-mcp-{}",
-        entropy
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>()
-    ))
 }
 
 /// 服务端联网搜索能力表——本仓库里唯一决定「这个模型能不能联网」的地方。
