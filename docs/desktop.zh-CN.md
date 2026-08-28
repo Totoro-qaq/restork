@@ -110,6 +110,17 @@ Rust 进程里，Dashboard 只会收到一个临时授权编号和可显示的�
 
 ## 诊断与恢复
 
+### 干净机器故障排查
+
+| 现象 | 范围与常见原因 | 安全处理方式 |
+|---|---|---|
+| Windows 没有出现 Restork 窗口，并提示缺少 WebView2 Runtime | 安装版；NSIS/MSI 通常会使用 Tauri 的联网 WebView2 bootstrapper，但离线或受限网络可能无法取得它 | 只从 [Microsoft WebView2 分发文档](https://learn.microsoft.com/zh-cn/microsoft-edge/webview2/concepts/distribution)下载匹配架构的 **Evergreen Standalone Installer**，确认发布者为 Microsoft，安装后再打开 Restork。该操作会修改电脑；不要关闭 SmartScreen。 |
+| Linux 源码构建找不到 WebKitGTK、AppIndicator、SVG 或 `patchelf` | 贡献者构建依赖缺失；使用已下载 AppImage/DEB 的用户不需要开发头文件 | Debian/Ubuntu 运行 `sudo apt update && sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`。该操作会修改电脑，并与 Restork CI 一致；其他发行版按 [Tauri 前置要求](https://v2.tauri.app/zh-cn/start/prerequisites/)处理。 |
+| Linux 保存供应商 Key 时出现 `native_secret_store_unavailable` | 缺少 `secret-tool`，或当前 D-Bus Secret Service 未启动/未解锁 | 先运行 `command -v secret-tool`。Debian/Ubuntu 可用 `sudo apt install libsecret-tools` 安装命令，并确认桌面会话的 Secret Service（如 GNOME Keyring）正在运行且已解锁。该操作会修改电脑；不要把 Key 改放进仓库或 `.env`。 |
+| 源码模式提示 `port_unavailable` 或“地址已被占用” | 固定的 `RESTORK_PORT` / `-Port` 已被其他进程占用 | 让系统重新选择私有 loopback 端口：`RESTORK_PORT=0 ./scripts/quickstart.sh` 或 `./scripts/quickstart.ps1 -Port 0`。安装版已经这样处理；不要为了抢端口终止未知进程。 |
+| macOS 提示无法验证开发者 | 下载的 Alpha 或贡献者构建没有 Developer ID 签名/公证 | 只有在核对仓库来源和 SHA-256 后，才使用 Control 点击 → **打开**，或单个应用的**仍要打开**。不要全局关闭 Gatekeeper，也不要递归移除 quarantine。 |
+| 桌面端退出、重试或进入 Core 恢复状态 | 隐私安全的生命周期日志只记录固定事件名和时间戳 | 只读末尾记录：macOS `tail -n 100 "$HOME/Library/Logs/io.github.totoro-qaq.restork/desktop-events.jsonl"`；Linux `tail -n 100 "$HOME/.local/share/io.github.totoro-qaq.restork/logs/desktop-events.jsonl"`；Windows `Get-Content "$env:LOCALAPPDATA\io.github.totoro-qaq.restork\logs\desktop-events.jsonl" -Tail 100`。只分享事件名与时间戳，不分享私有工作区内容。 |
+
 生命周期日志只有固定事件名和时间戳，不含提示词、笔记、路径、位置、端口、PID、token、
 配对码或 API Key。macOS 当前日志位置为：
 
