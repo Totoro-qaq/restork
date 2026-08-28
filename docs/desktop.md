@@ -119,6 +119,17 @@ ID and safe folder label to the Dashboard.
 
 ## Diagnostics and recovery
 
+### Clean-machine troubleshooting
+
+| Symptom | Scope and likely cause | Safe next step |
+|---|---|---|
+| Windows opens no Restork window and reports a missing WebView2 Runtime | Installed preview; the NSIS/MSI normally uses Tauri's online WebView2 bootstrapper, but it may be unavailable on an offline or restricted machine | Download the matching **Evergreen Standalone Installer** only from [Microsoft's WebView2 distribution page](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution), verify Microsoft as the publisher, install it, then reopen Restork. This changes the machine. Do not disable SmartScreen. |
+| A Linux source build cannot find WebKitGTK, AppIndicator, SVG, or `patchelf` | Contributor build dependencies are missing; downloaded AppImage/DEB users do not need development headers | On Debian/Ubuntu run `sudo apt update && sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`. This changes the machine and matches Restork CI; other distributions should follow the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/). |
+| Linux reports `native_secret_store_unavailable` when saving a provider key | `secret-tool` or an unlocked D-Bus Secret Service is unavailable | First run `command -v secret-tool`. On Debian/Ubuntu, `sudo apt install libsecret-tools` installs that command; also ensure the desktop session's Secret Service (for example GNOME Keyring) is running and unlocked. This changes the machine. Never move the key into the repository or an `.env` file. |
+| Source mode reports `port_unavailable` or “address already in use” | A fixed `RESTORK_PORT` / `-Port` is occupied | Let the OS choose a new private loopback port: `RESTORK_PORT=0 ./scripts/quickstart.sh` or `./scripts/quickstart.ps1 -Port 0`. The installed app already does this. Do not terminate an unknown process just to reclaim a port. |
+| macOS says the developer cannot be verified | The downloaded Alpha or contributor build is not Developer-ID signed/notarized | Only after checking the repository source and SHA-256, use Control-click → **Open** or the per-app **Open Anyway** control. Never disable Gatekeeper globally and do not strip quarantine recursively. |
+| The desktop exits, retries, or shows a Core recovery state | The privacy-safe lifecycle log records fixed event names and timestamps | Read only the last entries: macOS `tail -n 100 "$HOME/Library/Logs/io.github.totoro-qaq.restork/desktop-events.jsonl"`; Linux `tail -n 100 "$HOME/.local/share/io.github.totoro-qaq.restork/logs/desktop-events.jsonl"`; Windows `Get-Content "$env:LOCALAPPDATA\io.github.totoro-qaq.restork\logs\desktop-events.jsonl" -Tail 100`. Share event names and timestamps, not private workspace material. |
+
 Lifecycle diagnostics contain fixed event names and timestamps only—not prompts, notes, paths,
 locations, ports, PIDs, tokens, pairing codes, or API keys. On macOS the current log is:
 
