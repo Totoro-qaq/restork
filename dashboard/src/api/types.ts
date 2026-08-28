@@ -1,3 +1,9 @@
+import type {
+  XCocreationComposeInputV1, XCocreationDraftV1, XCocreationPublicationInputV1,
+  XCocreationSettingsV1, XCocreationWorkspaceV1,
+} from "./xCocreation";
+export type * from "./xCocreation";
+
 export type Mode = "research" | "study" | "work";
 
 export interface PageInfo {
@@ -215,11 +221,11 @@ export interface DeletedTodoPage {
   page: PageInfo;
 }
 
-export type RadarAction = "dismiss" | "read_later" | "research" | "make_task";
+export type RadarAction = "dismiss" | "read_later" | "research" | "make_task" | "save_topic";
 
 export interface RadarItem {
   item_id: string;
-  lane: "my_stars" | "trending" | "hn" | "papers";
+  lane: "my_stars" | "trending" | "hn" | "papers" | "x";
   title: string;
   source: string;
   url: string;
@@ -483,12 +489,16 @@ export interface RadarConfigurationInput {
   enabled: boolean;
   github_discovery: boolean;
   hacker_news: boolean;
+  x_search: boolean;
+  x_topics: string;
 }
 
 export interface RadarConfiguration {
   enabled: boolean;
   github_discovery: boolean;
   hacker_news: boolean;
+  x_search: boolean;
+  x_topics: string;
 }
 
 export interface PendingRunSummary {
@@ -1212,6 +1222,7 @@ export interface RustWorkspaceSnapshot {
   sessions: SessionRecordV2[];
   extensions: CatalogRecordV2[];
   deliverables: CatalogRecordV2[];
+  xCocreation?: XCocreationWorkspaceV1;
   presentationTemplates?: PresentationTemplateRecordV2[];
   presentationTemplateNext?: CatalogCursorV2 | null;
   schedules: CatalogRecordV2[];
@@ -1439,6 +1450,17 @@ export interface DashboardApi {
   ): Promise<ApprovalRequest>;
   radarAction(itemId: string, action: RadarAction): Promise<RadarActionResult>;
   configureRadar(input: RadarConfigurationInput): Promise<RadarConfiguration>;
+  composeXCocreationDrafts?(
+    input: XCocreationComposeInputV1,
+  ): Promise<{ items: XCocreationDraftV1[] }>;
+  recordXCocreationPublication?(
+    draftId: string,
+    input: XCocreationPublicationInputV1,
+  ): Promise<XCocreationDraftV1>;
+  previewXVoiceProfile?(): Promise<TaskMutationPreview>;
+  saveXCocreationSettings?(
+    input: XCocreationSettingsV1,
+  ): Promise<XCocreationSettingsV1>;
   cancelRun(runId: string): Promise<void>;
   retryRun?(runId: string): Promise<void>;
   loadRunSummary?(runId: string): Promise<PendingRunSummary | null>;

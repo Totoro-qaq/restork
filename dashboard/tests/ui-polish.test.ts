@@ -140,6 +140,13 @@ describe("responsive readability", () => {
     expect(stylesheet).toMatch(/\.lanes section\s*\{[^}]*padding-bottom:\s*clamp/);
   });
 
+  it("extends the existing Radar card with one bounded X lane instead of a new app shell", () => {
+    expect(renderer).toContain('class="radar-x-lane"');
+    expect(renderer).not.toContain('data-view="x-radar"');
+    expect(stylesheet).toMatch(/\.radar-x-lane\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/);
+    expect(stylesheet).toMatch(/\.radar-x-list\s*\{[^}]*max-height:[^}]*overflow-y:\s*auto/);
+  });
+
   it("keeps each Radar description readable instead of clipping it behind metadata", () => {
     expect(stylesheet).toMatch(/\.radar-item a\s*\{[^}]*min-width:\s*0[^}]*overflow-wrap:\s*anywhere/);
     const summaryRule = stylesheet.match(/\.radar-item p\s*\{([^}]*)\}/)?.[1] ?? "";

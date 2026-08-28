@@ -22,6 +22,7 @@ restork-provider = { path = "../restork-provider", version = "=0.1.0" }
 restork-render = { path = "../restork-render", version = "=0.1.0" }
 restork-storage = { path = "../restork-storage", version = "=0.1.0" }
 restork-worker = { path = "../restork-worker", version = "=0.1.0" }
+reqwest = { workspace = true, default-features = false, features = ["json", "rustls", "stream", "system-proxy"] }
 rust-embed.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

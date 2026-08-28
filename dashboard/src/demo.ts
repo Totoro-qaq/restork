@@ -53,6 +53,9 @@ import type {
   WorkHandoffPreview,
   WorkPlanArtifact,
   WorkVerificationReport,
+  XCocreationDraftV1,
+  XCocreationPublicationInputV1,
+  XCocreationSettingsV1,
 } from "./api/types";
 
 const NOW = "2026-08-02T03:00:00Z";
@@ -385,6 +388,18 @@ const snapshot: DashboardSnapshot = {
         state: "read_later",
         data_class: "public",
       },
+      {
+        item_id: "x-2082263717916586117",
+        lane: "x",
+        title: "@OpenAI",
+        source: "X · independently verified",
+        url: "https://x.com/OpenAI/status/2082263717916586117",
+        summary: "We quietly released the open-source Codex Security CLI, but Hacker News found it before we had a chance to share it here.",
+        score: 0.91,
+        published_at: "2026-07-29T00:35:31Z",
+        state: "new",
+        data_class: "public",
+      },
     ],
   },
   memory: {
@@ -653,6 +668,43 @@ const snapshot: DashboardSnapshot = {
       },
       updated_at: NOW,
     }],
+    xCocreation: {
+      status: "ready",
+      auth_mode: "oauth",
+      settings: {
+        enabled: true,
+        topics_and_accounts: "coding agents, local-first AI, agent security",
+        daily_time: "09:00",
+        weekly_time: "09:00",
+        provider_profile_id: "deepseek-main",
+        automation_enabled: false,
+      },
+      drafts: [{
+        draft_id: "x-draft-demo",
+        artifact_hash: "f".repeat(64),
+        state: "draft",
+        final_body: null,
+        final_reply: null,
+        final_url: null,
+        created_at: NOW,
+        updated_at: NOW,
+        artifact: {
+          schema_version: 1,
+          category: "开发判断",
+          title: "Why reviewed writes are worth one more step",
+          evidence_ids: ["x-2082263717916586117"],
+          variants: [
+            { label: "A", body: "Start with the concrete change, not the announcement.", first_reply: "Source: https://x.com/OpenAI/status/2082263717916586117" },
+            { label: "B", body: "A preview is part of the product boundary, not extra ceremony.", first_reply: "Source: https://x.com/OpenAI/status/2082263717916586117" },
+            { label: "C", body: "Local-first still needs a visible write boundary.", first_reply: "Source: https://x.com/OpenAI/status/2082263717916586117" },
+          ],
+          image_directions: ["Annotated approval boundary", "Verified evidence flowing into a local Markdown note"],
+          public_run_refs: ["demo-research"],
+          manual_weekly_summary: "Finished the verified X Radar path.",
+          language: "en-US",
+        },
+      }],
+    },
     schedules: [{
       schedule_id: "daily.refresh.demo",
       state: "active",
@@ -996,6 +1048,7 @@ class DemoApi implements DashboardApi {
   async radarAction(itemId: string, action: RadarAction): Promise<RadarActionResult> {
     const item = snapshot.radar.items.find((candidate) => candidate.item_id === itemId)
       ?? snapshot.radar.items[0];
+    if (action === "save_topic") item.state = "topic";
     return {
       item,
       run_id: action === "research" ? researchArtifact.run_id : null,
@@ -1006,6 +1059,47 @@ class DemoApi implements DashboardApi {
   }
   async configureRadar(input: RadarConfigurationInput): Promise<RadarConfiguration> {
     return { ...input };
+  }
+  async composeXCocreationDrafts(): Promise<{ items: XCocreationDraftV1[] }> {
+    return { items: workspace().xCocreation?.drafts ?? [] };
+  }
+  async recordXCocreationPublication(
+    draftId: string,
+    input: XCocreationPublicationInputV1,
+  ): Promise<XCocreationDraftV1> {
+    const draft = workspace().xCocreation?.drafts.find((item) => item.draft_id === draftId);
+    if (!draft) throw new Error("Synthetic X draft not found");
+    Object.assign(draft, {
+      state: "published" as const,
+      final_body: input.final_body,
+      final_reply: input.final_reply,
+      final_url: input.final_url ?? null,
+      publication_verification: "user_recorded" as const,
+      updated_at: demoTimestamp(),
+    });
+    return draft;
+  }
+  async previewXVoiceProfile(): Promise<TaskMutationPreview> {
+    return {
+      task_id: "x-voice-profile",
+      relative_path: "x-voice.md",
+      before_line: "",
+      after_line: "## 已确认的写法",
+      expected_hash: "0".repeat(64),
+      postimage_hash: "1".repeat(64),
+      approval: {
+        ...approval,
+        approval_id: "x-voice-approval",
+        run_id: "task-write",
+        action_kind: "vault_write",
+        human_summary: "Apply the reviewed writing preferences?",
+        canonical_scope: "x-voice.md",
+      },
+    };
+  }
+  async saveXCocreationSettings(input: XCocreationSettingsV1): Promise<XCocreationSettingsV1> {
+    if (workspace().xCocreation) workspace().xCocreation!.settings = input;
+    return input;
   }
   async cancelRun(): Promise<void> {}
   async retryRun(): Promise<void> {}
@@ -1601,6 +1695,17 @@ if (demoLocale === "zh-CN") {
       if (named["claim:approval"]) named["claim:approval"].text = "每次调用都要确认";
       if (named["claim:sandbox"]) named["claim:sandbox"].text = "系统沙箱隔离";
     }
+  }
+  const xDraft = snapshot.workspaceV2?.xCocreation?.drafts[0];
+  if (xDraft) {
+    xDraft.artifact.title = "为什么写入前确认值得多一步";
+    xDraft.artifact.variants = [
+      { label: "A", body: "从具体改动写起，不从“很高兴宣布”写起。", first_reply: "来源：https://x.com/OpenAI/status/2082263717916586117" },
+      { label: "B", body: "预览不是多余步骤，而是产品边界的一部分。", first_reply: "来源：https://x.com/OpenAI/status/2082263717916586117" },
+      { label: "C", body: "本地优先仍然需要看得见的写入边界。", first_reply: "来源：https://x.com/OpenAI/status/2082263717916586117" },
+    ];
+    xDraft.artifact.image_directions = ["标注清楚的审批边界", "已核验证据流向本地 Markdown 笔记"];
+    xDraft.artifact.manual_weekly_summary = "完成了已核验 X Radar 的真实链路。";
   }
 }
 

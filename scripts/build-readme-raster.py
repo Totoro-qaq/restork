@@ -10,16 +10,21 @@ from PIL import Image
 
 MINIMUM_WIDTH = 1600
 MINIMUM_HEIGHT = 1000
-FRAME_NAMES = (
-    "00-overview.png",
-    "01-runs.png",
-    "02-approvals.png",
-    "03-tasks.png",
-    "04-radar.png",
-    "05-memory.png",
-    "06-overview-cd.png",
-    "07-work.png",
+GIF_FRAME_NAMES = (
+    "01-radar.png",
+    "02-topic-saved.png",
+    "03-drafts.png",
+    "04-variants.png",
+    "05-recorded.png",
 )
+SHOWCASE_FRAMES = {
+    "showcase-start": "00-start.png",
+    "showcase-radar": "01-radar.png",
+    "showcase-drafts": "04-variants.png",
+    "showcase-run": "06-run.png",
+    "showcase-approval": "07-approval.png",
+    "showcase-vault": "08-vault.png",
+}
 
 
 def parser() -> argparse.ArgumentParser:
@@ -39,7 +44,8 @@ def main() -> int:
     suffix = "" if arguments.locale == "en" else ".zh-CN"
     poster_output = output_dir / f"demo-poster{suffix}.webp"
     gif_output = output_dir / f"demo-hd{suffix}.gif"
-    sources = [frame_dir / name for name in FRAME_NAMES]
+    social_output = output_dir / f"social-preview{suffix}.png"
+    sources = [frame_dir / name for name in GIF_FRAME_NAMES]
     poster_source = frame_dir / "poster.png"
     missing = [path.name for path in (*sources, poster_source) if not path.is_file()]
     if missing:
@@ -63,29 +69,31 @@ def main() -> int:
         method=6,
         exact=True,
     )
+    social = poster.resize((1280, 800), Image.Resampling.LANCZOS).crop((0, 0, 1280, 640))
+    social.save(social_output, "PNG", optimize=True)
+    for output_name, source_name in SHOWCASE_FRAMES.items():
+        showcase = _read_rgb(frame_dir / source_name)
+        showcase.save(
+            output_dir / f"{output_name}{suffix}.webp",
+            "WEBP",
+            quality=86,
+            method=6,
+            exact=True,
+        )
 
     sequence: list[Image.Image] = []
     durations: list[int] = []
     for index, frame in enumerate(frames):
         sequence.append(frame)
-        durations.append(950 if index else 1_300)
-        if index + 1 < len(frames):
-            next_frame = frames[index + 1]
-            sequence.extend(
-                (
-                    Image.blend(frame, next_frame, 0.34),
-                    Image.blend(frame, next_frame, 0.67),
-                )
-            )
-            durations.extend((90, 90))
+        durations.append(1_100 if index else 1_450)
 
     palette = sequence[0].quantize(
-        colors=192,
+        colors=96,
         method=Image.Quantize.MAXCOVERAGE,
         dither=Image.Dither.NONE,
     )
     indexed = [
-        frame.quantize(palette=palette, dither=Image.Dither.FLOYDSTEINBERG)
+        frame.quantize(palette=palette, dither=Image.Dither.NONE)
         for frame in sequence
     ]
     indexed[0].save(

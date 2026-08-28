@@ -856,10 +856,10 @@ impl Database {
             || item.title.is_empty()
             || item.title.len() > 1_000
             || item.summary.len() > 8_000
-            || !matches!(item.lane, "my_stars" | "trending" | "hn" | "papers")
+            || !matches!(item.lane, "my_stars" | "trending" | "hn" | "papers" | "x")
             || !matches!(
                 item.state,
-                "new" | "read_later" | "dismissed" | "researched"
+                "new" | "read_later" | "dismissed" | "researched" | "topic"
             )
             || !valid_data_class(item.data_class)
             || !item.url.starts_with("https://")
@@ -950,7 +950,7 @@ impl Database {
     }
 
     pub fn delete_radar_lane(&self, lane: &str) -> Result<usize, StorageError> {
-        if !matches!(lane, "my_stars" | "trending" | "hn" | "papers") {
+        if !matches!(lane, "my_stars" | "trending" | "hn" | "papers" | "x") {
             return Err(StorageError::Invalid("invalid Radar lane"));
         }
         let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
@@ -960,7 +960,7 @@ impl Database {
     }
 
     pub fn delete_new_radar_lane(&self, lane: &str) -> Result<usize, StorageError> {
-        if !matches!(lane, "my_stars" | "trending" | "hn" | "papers") {
+        if !matches!(lane, "my_stars" | "trending" | "hn" | "papers" | "x") {
             return Err(StorageError::Invalid("invalid Radar lane"));
         }
         let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;
@@ -977,7 +977,7 @@ impl Database {
         lane: &str,
         refreshed_at: &str,
     ) -> Result<usize, StorageError> {
-        if !matches!(lane, "my_stars" | "trending" | "hn" | "papers") {
+        if !matches!(lane, "my_stars" | "trending" | "hn" | "papers" | "x") {
             return Err(StorageError::Invalid("invalid Radar lane"));
         }
         validate_timestamp(refreshed_at)?;
@@ -996,7 +996,10 @@ impl Database {
         state: &str,
         occurred_at: &str,
     ) -> Result<RadarRecord, StorageError> {
-        if !matches!(state, "new" | "read_later" | "dismissed" | "researched") {
+        if !matches!(
+            state,
+            "new" | "read_later" | "dismissed" | "researched" | "topic"
+        ) {
             return Err(StorageError::Invalid("invalid Radar state"));
         }
         let connection = self.connection.lock().map_err(|_| StorageError::Poisoned)?;

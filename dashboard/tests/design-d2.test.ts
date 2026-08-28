@@ -96,12 +96,13 @@ const PRIMARY = [
   "tasks",
   "conversation",
   "vault",
+  "radar",
   "deliverables",
   "automation",
   "settings",
 ];
 
-const ALIASES = ["approvals", "memory", "radar", "extensions"];
+const ALIASES = ["approvals", "memory", "extensions"];
 const PANELS = [
   "start",
   "overview",
@@ -119,7 +120,7 @@ const PANELS = [
 ];
 
 describe("Gate D2 navigation", () => {
-  it("keeps nine first-level items in three groups, including conversation", () => {
+  it("keeps ten first-level items in three groups, including Radar", () => {
     const root = mount();
     const items = [...root.querySelectorAll<HTMLElement>(".sidebar nav [data-view]")];
     expect(items.map((item) => item.dataset.view)).toEqual(PRIMARY);
@@ -148,7 +149,10 @@ describe("Gate D2 navigation", () => {
 
     openDashboardView(root, "radar");
     expect(root.querySelector<HTMLElement>('[data-view-panel="radar"]')?.hidden).toBe(false);
-    expect(root.querySelector('[data-view="overview"]')?.getAttribute("aria-current")).toBe("page");
+    expect(root.querySelector('[data-view="radar"]')?.getAttribute("aria-current")).toBe("page");
+    expect(root.querySelector('[data-view="overview"]')?.getAttribute("aria-current")).toBeNull();
+    expect(root.querySelector("[data-where-title]")?.textContent).toBe("雷达");
+    expect(root.querySelector("[data-where-sub]")?.textContent).toBe("已核验公开信号");
 
     openDashboardView(root, "extensions");
     expect(root.querySelector<HTMLElement>('[data-view-panel="extensions"]')?.hidden).toBe(false);
@@ -179,7 +183,7 @@ describe("Gate D2 navigation", () => {
 });
 
 describe("Gate D2 settings", () => {
-  it("exposes six settings tabs and keeps Advanced collapsed until chosen", () => {
+  it("exposes seven settings tabs and keeps Advanced collapsed until chosen", () => {
     const root = mount(workspaceSnapshot(), "zh-CN");
     root.querySelector<HTMLButtonElement>('[data-view="settings"]')?.click();
     const tabs = [...root.querySelectorAll<HTMLElement>(
@@ -189,6 +193,7 @@ describe("Gate D2 settings", () => {
       "personal",
       "models",
       "knowledge",
+      "x",
       "extensions",
       "advanced",
       "about",

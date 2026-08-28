@@ -1494,6 +1494,7 @@ dependencies = [
  "http-body-util",
  "libc",
  "notify",
+ "reqwest",
  "restork-automation",
  "restork-core",
  "restork-daily",

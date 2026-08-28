@@ -1107,6 +1107,8 @@ describe("authenticated workspace", () => {
       enabled: true,
       github_discovery: true,
       hacker_news: true,
+      x_search: true,
+      x_topics: "coding agents, local-first AI, agent security",
     }));
     expect(api.loadPage).toHaveBeenCalledWith("radar", "");
   });
@@ -1125,6 +1127,44 @@ describe("authenticated workspace", () => {
 
     await vi.waitFor(() => expect(api.loadPage).toHaveBeenCalledWith("radar", ""));
     expect(api.loadPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps verified X evidence in Radar and exposes Radar as a primary knowledge entry", async () => {
+    const root = document.createElement("main");
+    const api = fakeApi();
+    const xItem = {
+      item_id: "x-2082263717916586117",
+      lane: "x" as const,
+      title: "@OpenAI",
+      source: "X · independently verified",
+      url: "https://x.com/OpenAI/status/2082263717916586117",
+      summary: "We quietly released the open-source Codex Security CLI.",
+      score: 1,
+      published_at: "2026-07-29T00:35:31Z",
+      state: "new",
+      data_class: "public",
+    };
+    mountDashboard(root, {
+      api,
+      snapshot: { ...snapshot, radar: { configured: true, items: [xItem] } },
+    });
+    openDashboardView(root, "radar");
+
+    const navCopy = [...root.querySelectorAll<HTMLElement>(".nav-item")]
+      .map((item) => item.textContent?.trim())
+      .join(" ");
+    expect(navCopy).toContain("Radar");
+    expect(root.querySelector('[data-view="radar"]')).not.toBeNull();
+    const panel = root.querySelector<HTMLElement>('[data-view-panel="radar"]');
+    expect(panel?.querySelector("h2")?.textContent).toBe("Radar");
+    expect(panel?.querySelector(".radar-x-lane")?.querySelector("h3")?.textContent).toBe("X");
+    expect(panel?.textContent).toContain("We quietly released the open-source Codex Security CLI.");
+    expect(panel?.textContent).toContain("verified");
+    panel?.querySelector<HTMLButtonElement>('[data-radar-action="save_topic"]')?.click();
+    await vi.waitFor(() => expect(api.radarAction).toHaveBeenCalledWith(
+      "x-2082263717916586117",
+      "save_topic",
+    ));
   });
 
   it("launches a Radar Research run and renders its write-free preview", async () => {
@@ -1569,6 +1609,132 @@ describe("Rust conversation workspace", () => {
       }],
       prompts: [],
     },
+  });
+
+  it("renders X co-creation drafts as three editable versions with separate replies", async () => {
+    const root = document.createElement("main");
+    const state = workspaceSnapshot();
+    if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.providers = [{
+      provider: {
+        profile_id: "deepseek",
+        version: 1,
+        display_name: "DeepSeek",
+        kind: "deepseek",
+        base_url: "https://api.deepseek.com",
+        model: "deepseek-v4-pro",
+        secret_ref: "keychain:restork/provider/deepseek",
+        fallback: "disabled",
+        reasoning: { effort: "high", max_tokens: null },
+      },
+      revision: 1,
+      updated_at: "2026-08-24T00:00:00Z",
+    }];
+    state.workspaceV2.xCocreation = {
+      status: "ready",
+      auth_mode: "oauth",
+      settings: {
+        enabled: true,
+        topics_and_accounts: "local-first AI, @OpenAI",
+        daily_time: "09:00",
+        weekly_time: "09:00",
+        provider_profile_id: "deepseek",
+        automation_enabled: false,
+      },
+      drafts: [{
+        draft_id: "x-draft-1",
+        artifact_hash: "a".repeat(64),
+        state: "draft",
+        final_body: null,
+        final_reply: null,
+        final_url: null,
+        created_at: "2026-08-24T09:00:00Z",
+        updated_at: "2026-08-24T09:00:00Z",
+        artifact: {
+          schema_version: 1,
+          category: "开发判断",
+          title: "Why reviewed writes are worth one more step",
+          evidence_ids: ["x-2082263717916586117"],
+          variants: [
+            { label: "A", body: "Start from the change.", first_reply: "Source: https://x.com/OpenAI/status/2082263717916586117" },
+            { label: "B", body: "A preview is a product boundary.", first_reply: "Source: https://x.com/OpenAI/status/2082263717916586117" },
+            { label: "C", body: "Local-first still needs visible writes.", first_reply: "Source: https://x.com/OpenAI/status/2082263717916586117" },
+          ],
+          image_directions: ["Annotated approval boundary", "Evidence-to-note flow"],
+          public_run_refs: ["run-public-1"],
+          manual_weekly_summary: "Finished the verified Radar path.",
+          language: "en-US",
+        },
+      }],
+    };
+    const api = fakeApi();
+    api.recordXCocreationPublication = vi.fn(async (draftId, input) => ({
+      ...state.workspaceV2!.xCocreation!.drafts[0],
+      draft_id: draftId,
+      state: "published" as const,
+      final_body: input.final_body,
+      final_reply: input.final_reply,
+      final_url: input.final_url ?? null,
+      publication_verification: "user_recorded" as const,
+    }));
+    mountDashboard(root, { api, snapshot: state });
+    openDashboardView(root, "deliverables");
+
+    const card = root.querySelector<HTMLElement>('[data-x-draft="x-draft-1"]');
+    expect(card?.querySelectorAll("[data-x-variant]")).toHaveLength(3);
+    expect(card?.querySelectorAll("[data-x-image-direction]")).toHaveLength(2);
+    expect(card?.querySelector('[name="final_body"]')?.textContent).not.toContain("https://");
+    expect(card?.querySelector('[name="final_reply"]')?.textContent).toContain("https://x.com/");
+    card?.querySelector<HTMLFormElement>("[data-x-publication-form]")?.requestSubmit();
+    await vi.waitFor(() => expect(api.recordXCocreationPublication).toHaveBeenCalled());
+  });
+
+  it("shows X intelligence settings as a product capability rather than an extension", async () => {
+    const root = document.createElement("main");
+    const state = workspaceSnapshot();
+    if (!state.workspaceV2) throw new Error("workspace fixture");
+    state.workspaceV2.providers = [{
+      provider: {
+        profile_id: "deepseek",
+        version: 1,
+        display_name: "DeepSeek",
+        kind: "deepseek",
+        base_url: "https://api.deepseek.com",
+        model: "deepseek-v4-pro",
+        secret_ref: "keychain:restork/provider/deepseek",
+        fallback: "disabled",
+        reasoning: { effort: "high", max_tokens: null },
+      },
+      revision: 1,
+      updated_at: "2026-08-24T00:00:00Z",
+    }];
+    state.workspaceV2.xCocreation = {
+      status: "ready",
+      auth_mode: "oauth",
+      settings: {
+        enabled: true,
+        topics_and_accounts: "agent harness, @OpenAI",
+        daily_time: "09:00",
+        weekly_time: "09:00",
+        provider_profile_id: "deepseek",
+        automation_enabled: false,
+      },
+      drafts: [],
+    };
+    const api = fakeApi();
+    api.saveXCocreationSettings = vi.fn(async (input) => ({ ...input, auth_mode: "oauth" }));
+    mountDashboard(root, { api, snapshot: state, locale: "zh-CN" });
+    openDashboardView(root, "settings");
+    root.querySelector<HTMLButtonElement>('[data-settings-tab="x"]')?.click();
+
+    const panel = root.querySelector<HTMLElement>('[data-settings-panel="x"]');
+    const form = panel?.querySelector<HTMLFormElement>("#x-cocreation-settings-form");
+    expect(panel?.textContent).toContain("情报与写作");
+    expect(panel?.textContent).toContain("Grok Build / xAI 账户额度");
+    expect(root.querySelector('[data-view-panel="extensions"]')?.textContent)
+      .not.toContain("X 情报与写作");
+    form?.requestSubmit();
+    await vi.waitFor(() => expect(api.saveXCocreationSettings).toHaveBeenCalled());
   });
 
   it("explains the free community boundary without exposing a personal contact address", () => {

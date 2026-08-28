@@ -34,6 +34,7 @@ _PUBLIC_RASTERS = {
     "desktop/src-tauri/icons/icon.png",
 }
 _PUBLIC_RASTER_PREFIXES = {
+    "assets/readme/showcase-",
     "assets/promo/wechat/",
 }
 _PLACEHOLDER_USERS = {"demo", "example", "name", "user", "username"}

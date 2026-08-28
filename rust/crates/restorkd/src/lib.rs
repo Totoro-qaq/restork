@@ -273,7 +273,7 @@ pub async fn run_due_schedules_once(
             );
             continue;
         };
-        if matches!(&schedule.job, ScheduleJob::ModelDraft { .. }) {
+        if schedule.job.uses_model() {
             if model_draft_started {
                 continue;
             }
@@ -306,6 +306,9 @@ pub async fn run_due_schedules_once(
                     "external_effect": false,
                 })
             }
+            ScheduleJob::XRadarRefresh { topics, .. } => {
+                restork_api::execute_scheduled_x_radar(storage, topics).await
+            }
             ScheduleJob::ModelDraft { .. } => {
                 let claim = serde_json::json!({
                     "state": "running",
@@ -333,6 +336,43 @@ pub async fn run_due_schedules_once(
                         &schedule,
                         &period_key,
                         false,
+                    )
+                    .await;
+                    storage
+                        .complete_schedule_run(&record.schedule_id, &period_key, &claim, &result)?
+                        .result
+                }
+            }
+            ScheduleJob::XCocreationDraft {
+                provider_profile_id,
+                language,
+                ..
+            } => {
+                let claim = serde_json::json!({
+                    "state": "running",
+                    "claim_token": format!(
+                        "claim:{}:{}",
+                        record.schedule_id,
+                        now.timestamp_nanos_opt().unwrap_or_default(),
+                    ),
+                    "provider_call": false,
+                    "network_effect": false,
+                    "manual": false,
+                });
+                let claimed = storage.claim_schedule_run(
+                    &record.schedule_id,
+                    &period_key,
+                    &claim,
+                    &now.to_rfc3339(),
+                )?;
+                run_was_recorded = true;
+                if claimed.replayed {
+                    claimed.result
+                } else {
+                    let result = restork_api::execute_scheduled_x_cocreation_draft(
+                        storage,
+                        provider_profile_id,
+                        language,
                     )
                     .await;
                     storage

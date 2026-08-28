@@ -225,7 +225,7 @@ pub(crate) async fn run_schedule_now(
     };
     let period_key = format!("manual:{idempotency_key}");
     let now = Utc::now();
-    if matches!(&schedule.job, ScheduleJob::ModelDraft { .. }) {
+    if schedule.job.uses_model() {
         let claim = serde_json::json!({
             "state": "running",
             "claim_token": format!(
@@ -248,7 +248,19 @@ pub(crate) async fn run_schedule_now(
         if claimed.replayed {
             return Json(claimed).into_response();
         }
-        let result = execute_scheduled_model_draft(&storage, &schedule, &period_key, true).await;
+        let result = match &schedule.job {
+            ScheduleJob::ModelDraft { .. } => {
+                execute_scheduled_model_draft(&storage, &schedule, &period_key, true).await
+            }
+            ScheduleJob::XCocreationDraft {
+                provider_profile_id,
+                language,
+                ..
+            } => {
+                execute_scheduled_x_cocreation_draft(&storage, provider_profile_id, language).await
+            }
+            _ => unreachable!("model jobs are claimed above"),
+        };
         return match storage.complete_schedule_run(&schedule_id, &period_key, &claim, &result) {
             Ok(record) => Json(record).into_response(),
             Err(error) => storage_error_response(error),
@@ -268,7 +280,12 @@ pub(crate) async fn run_schedule_now(
             }
             schedule_result(&schedule, true)
         }
-        ScheduleJob::ModelDraft { .. } => unreachable!("model jobs are claimed above"),
+        ScheduleJob::XRadarRefresh { topics, .. } => {
+            execute_scheduled_x_radar(&storage, topics).await
+        }
+        ScheduleJob::ModelDraft { .. } | ScheduleJob::XCocreationDraft { .. } => {
+            unreachable!("model jobs are claimed above")
+        }
     };
     let created_at = now.to_rfc3339();
     match storage.record_schedule_run(&schedule_id, &period_key, None, &result, &created_at) {
@@ -447,6 +464,8 @@ pub(crate) fn validated_schedule(schedule: ScheduleSpec) -> Result<ScheduleSpec,
                 ScheduledReportKind::DailyReport => "Daily report draft".to_owned(),
                 ScheduledReportKind::WeeklyReport => "Weekly report draft".to_owned(),
             },
+            ScheduleJob::XRadarRefresh { .. } => "X Radar refresh".to_owned(),
+            ScheduleJob::XCocreationDraft { .. } => "X weekly drafts".to_owned(),
         });
     if name.len() > 300 {
         return Err(error_response(
@@ -472,12 +491,20 @@ pub(crate) fn validated_schedule(schedule: ScheduleSpec) -> Result<ScheduleSpec,
                 "deterministic schedule job is not supported",
             ));
         }
-        ScheduleJob::ModelDraft { .. }
+        ScheduleJob::ModelDraft { .. } | ScheduleJob::XCocreationDraft { .. }
             if schedule.missed_run_policy != MissedRunPolicy::CreateDraft =>
         {
             return Err(error_response(
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "model schedules must create reviewable drafts",
+            ));
+        }
+        ScheduleJob::XRadarRefresh { .. }
+            if schedule.missed_run_policy != MissedRunPolicy::Skip =>
+        {
+            return Err(error_response(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "X Radar schedules skip missed runs",
             ));
         }
         _ => {}
@@ -540,6 +567,18 @@ pub(crate) fn schedule_result(schedule: &ScheduleSpec, manual: bool) -> serde_js
             "reason": "model draft execution was not initialized",
             "manual": manual,
             "external_effect": false,
+        }),
+        ScheduleJob::XRadarRefresh { .. } => serde_json::json!({
+            "state": "rejected",
+            "reason": "X Radar execution was not initialized",
+            "manual": manual,
+            "x_write": false,
+        }),
+        ScheduleJob::XCocreationDraft { .. } => serde_json::json!({
+            "state": "rejected",
+            "reason": "X draft execution was not initialized",
+            "manual": manual,
+            "x_write": false,
         }),
     }
 }

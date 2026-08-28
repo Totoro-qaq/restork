@@ -19,38 +19,43 @@ v1 只解决这一段。账号是从零开始的，现在的瓶颈是文案质�
 
 ## Slice A — 先验证工具够不够（不写界面）
 
-1. A0 先跑 3 条 canary：一手发布、问题讨论、指定账号；记录 CLI 版本、认证模式、耗时、返回字节、X URL 数、原始 envelope 与缺失字段。
-2. 任一 canary 出现不可核验链接、占位 URL 或无法定位条目边界，立即停止样本扩张，先改 `agent_tools.rs`。
-3. A1 固定 `items[]` schema，解析 CLI 的结构化 envelope，并对每一项分别校验状态 URL、数字 post ID、作者、短摘录、时间、来源角色和长度。模型不能给 `evidence_id`。
-4. 加入无链接、两项共用一条链接、占位 URL、超长输出、空结果和恶意指令 fixture。
-5. A2 再跑剩余 7 条查询；10/10 都必须经过类型化适配器，并逐条记录通过、降级或失败原因。10 条只是实现 Gate，不是召回率或长期稳定性的证明。
-6. 产出 Gate 记录，作为 Slice B 静态稿的真实素材。
+1. A0 已完成：3 条 canary（一手发布、问题讨论、指定账号）3/3 通过，环境与 envelope 已记录。
+2. A1 已完成：`items[]` schema、逐项 URL/ID/作者/时间/长度校验、结构化序列降级与恶意输入 fixture 已落成。A2 首轮仅 2/7 通过，证明最终模型 JSON 仍不能作为来源证明。
+3. A3 已完成上游契约确认：三类查询共 12 次 X 工具调用全部完成；ACP update 不含 observation，符合 xAI 服务端工具只暴露调用记录、最终内容和 citations 的公开边界。v1 不再等待 observation，也不新增 MCP 绕过该边界。
+4. A4 已完成：固定 `publish.x.com/oembed`、200/404/429 语义、URL/author/schema/128 KiB 边界、超时与 endpoint 漂移全部失败关闭；公开正文覆盖模型摘要，模型续写不进入产品证据。
+5. 最终 schema 已明确 `phase: progress | complete`；进度对象不能结束调用，对 progress-only 最多一次受总预算约束的重试。
+6. A2 新鲜完整重跑 7/7 `verified_pass`：26 条公开证据验证通过，1 条超长候选被安全丢弃；旧批次 27/27 重放通过。
+7. Slice A Gate 已通过；进入 Slice B 静态稿。Slice C 接入前，将探针中的同一验证契约移入 Restork 原生 `x_search` 适配器。
+
+### 为什么 v1 不做 MCP
+
+Restork 已经有原生 `x_search` 工具与状态接口；新增本地 MCP 只会包装同一条 Grok CLI 链路，既拿不到 xAI 不返回的服务端 tool output，也会增加进程生命周期、配置、权限和诊断面。v1 直接实现为 Restork 原生 citation 验证适配器。只有两个以上独立宿主需要复用该能力，或上游提供正式 X Search MCP endpoint 时，才另立接口 ADR。
 
 ## Slice B — 雷达与草稿的静态稿
 
-1. Radar 页新增「X 雷达」来源分区，用 Slice A 的真实素材填充。
-2. 交付物页新增「本周选题」卡：3 个选题 × 3 版文案 × 2 个配图方向。
-3. 草稿格式硬约束：正文不含 URL，链接落在第一条回复位。
-4. 确认你会点「存为选题」，再进 Slice C。不确认就回到 Slice A 调查询。
+1. 已完成：Radar 页在现有 GitHub/Hacker News 卡内新增 X 来源分区，使用独立核验证据；Radar 同时恢复为左侧知识分组的一级入口。
+2. 已完成：交付物页新增本周选题工作区，最多 3 个选题 × 3 版文案 × 2 个配图方向。
+3. 已完成：正文不含 URL，来源由 Core 根据 `evidence_id` 确定性放入第一条回复。
+4. 已完成：「存为选题」状态进入真实草稿链路，不再停留在静态稿。
 
 ## Slice C — 落成真实能力
 
-1. Radar：`x_search` 多查询编排，只消费 A1 的类型化结果；缺链接或字段校验失败的条目不进入产品层。
+1. Radar（已完成首个纵向切片）：真实 `x_search` → `progress | complete` → oEmbed URL/作者/公开正文验证 → `lane=x` 本地缓存；缺链接、字段校验或独立验证失败的条目不进入产品层。现有 GitHub/Hacker News 两列保持不动，X 位于同一 Radar 卡下方，不新增导航页。
 2. 不可信输入处理分三段：收集器只有 `x_search`；整理器无工具且只读冻结证据；应用器只接受 schema 校验后的内容字段与 `evidence_id`，URL 从缓存确定性解析。
-3. 证据缓存进入 Restork 内部数据库，不进知识库；只保留最小字段，30 天后清理。
-4. 选题与草稿生成：读 `vault/x-voice.md` 作为写作偏好输入。
-5. 差异记录：「标记为已发」时存草稿原文 ↔ 终稿 + 差异类型，全部本机。
-6. 风格档案写入：累计 3 次同向修改才提议，走现有预览与确认流程。
-7. 自动化：每日雷达、每周选题两条计划，复用现有自动化页。
-8. 设置新增「X 情报与写作」一节（不是 Skill / MCP / Plugin）：显示 Grok CLI 状态、`oauth | api_key | unknown` 认证模式、关注主题与账号、两个时间。API key 模式提示可能计费并默认关闭定时自动化。
+3. 已完成：证据缓存进入 Restork 内部数据库，不进知识库；只保留最小字段，30 天后清理。
+4. 已完成：选题与草稿生成只读 `x-voice.md`，整理器没有工具。
+5. 已完成：X 证据可持久化为 `topic`；草稿 A/B/C、配图方向和手动发布差异记录全部由 Core 生成或保存。
+6. 已完成：累计 3 次同向修改才进入已确认写法，`x-voice.md` 更新走现有预览与确认流程。
+7. 已完成：每日 Radar 与每周草稿两条计划复用现有调度器；前者只读核验，后者只生成本地草稿。
+8. 已完成：设置新增「X 情报与写作」产品区，显示状态、认证模式、关注主题与账号、两个时间；API key 模式提示计费并拒绝自动计划。
 
 ## Slice D — 审查与发布
 
-1. Rust + Dashboard 合约测试覆盖 XCO-001…015。
-2. 注入测试单独写：构造含「忽略以上指令」的帖子，断言不执行、不写档案（XCO-003）。
-3. Impeccable critique：Radar 与交付物两页。
-4. `check_spacing_grid.py`、`check_voice.py`、vitest、clippy 全绿。
-5. PR，打 `full-ci`，通过后 squash 进 `main`。
+1. 已完成：Rust + Dashboard 合约测试覆盖 XCO-001…015 的数据、UI 与权限边界。
+2. 已完成：恶意 X 正文 fixture 不触发工具，也不进入风格档案。
+3. 已完成：Radar、交付物与设置沿用现有 Cyber 组件和滚动边界。
+4. 发布门禁：`check_spacing_grid.py`、`check_voice.py`、Vitest、Clippy 与 full CI 全绿。
+5. 发布动作：PR 通过后 squash 进 `main`。
 
 ## 之后怎么分
 

@@ -8,7 +8,6 @@ import { whereCopy } from "../ui/navigation";
 export const PARENT_VIEW: Record<string, string> = {
   approvals: "runs",
   memory: "vault",
-  radar: "overview",
   extensions: "settings",
 };
 

@@ -80,6 +80,10 @@ import type {
   VaultNotePageV2,
   VaultNotePreviewV2,
   VaultSearchHitV2,
+  XCocreationComposeInputV1,
+  XCocreationDraftV1,
+  XCocreationPublicationInputV1,
+  XCocreationSettingsV1,
 } from "./types";
 
 interface LocalApiClientOptions {
@@ -1004,6 +1008,51 @@ export class LocalApiClient implements DashboardApi {
       input,
       true,
       `dashboard-radar-config-${crypto.randomUUID()}`,
+    );
+  }
+
+  async composeXCocreationDrafts(
+    input: XCocreationComposeInputV1,
+  ): Promise<{ items: XCocreationDraftV1[] }> {
+    return this.#request<{ items: XCocreationDraftV1[] }>(
+      "POST",
+      "/v1/x-cocreation",
+      input,
+    );
+  }
+
+  async recordXCocreationPublication(
+    draftId: string,
+    input: XCocreationPublicationInputV1,
+  ): Promise<XCocreationDraftV1> {
+    return this.#request<XCocreationDraftV1>(
+      "POST",
+      `/v1/x-cocreation/drafts/${encodeURIComponent(draftId)}/published`,
+      input,
+      true,
+      `dashboard-x-published-${crypto.randomUUID()}`,
+    );
+  }
+
+  async previewXVoiceProfile(): Promise<TaskMutationPreview> {
+    return this.#request<TaskMutationPreview>(
+      "POST",
+      "/v1/x-cocreation/voice/preview",
+      {},
+      true,
+      `dashboard-x-voice-${crypto.randomUUID()}`,
+    );
+  }
+
+  async saveXCocreationSettings(
+    input: XCocreationSettingsV1,
+  ): Promise<XCocreationSettingsV1> {
+    return this.#request<XCocreationSettingsV1>(
+      "PUT",
+      "/v1/x-cocreation/settings",
+      input,
+      true,
+      `dashboard-x-settings-${crypto.randomUUID()}`,
     );
   }
 
