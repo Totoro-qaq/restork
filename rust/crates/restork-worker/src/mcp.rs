@@ -54,7 +54,6 @@ impl McpRuntimeError {
 /// resolved call or returned value. Environment values equal to a declared
 /// `secret:*` reference are replaced immediately before process creation.
 pub async fn execute_stdio_mcp(
-    execution_id: &str,
     call: &ResolvedToolCall,
     secret_values: &BTreeMap<String, Zeroizing<String>>,
 ) -> Result<McpExecutionOutput, McpRuntimeError> {
@@ -74,16 +73,14 @@ pub async fn execute_stdio_mcp(
     if !executable.is_file() {
         return Err(McpRuntimeError::InvalidExecutable);
     }
-    let work_root = std::env::temp_dir()
-        .join("restork-mcp")
-        .join(safe_component(execution_id));
-    tokio::fs::create_dir_all(&work_root)
-        .await
+    let work_root = tempfile::Builder::new()
+        .prefix("restork-mcp-")
+        .tempdir()
         .map_err(|_| McpRuntimeError::SpawnFailed)?;
 
-    let (mut command, isolation) = isolated_command(definition, &call.sandbox, &work_root)?;
+    let (mut command, isolation) = isolated_command(definition, &call.sandbox, work_root.path())?;
     command
-        .current_dir(&work_root)
+        .current_dir(work_root.path())
         .env_clear()
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -113,7 +110,7 @@ pub async fn execute_stdio_mcp(
             Err(McpRuntimeError::Timeout)
         }
     };
-    let _ = tokio::fs::remove_dir_all(&work_root).await;
+    drop(work_root);
     output
 }
 
@@ -320,14 +317,6 @@ async fn terminate(child: &mut Child) {
     }
     let _ = child.kill().await;
     let _ = child.wait().await;
-}
-
-fn safe_component(value: &str) -> String {
-    value
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
-        .take(128)
-        .collect()
 }
 
 #[cfg(target_os = "macos")]
