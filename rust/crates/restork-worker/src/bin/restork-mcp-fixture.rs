@@ -31,7 +31,10 @@ fn main() {
                             .unwrap_or_default()
                     }],
                     "isError": false,
-                    "ambientHomeInherited": std::env::var_os("HOME").is_some()
+                    "ambientHomeInherited": std::env::var_os("HOME").is_some(),
+                    "workingDirectory": std::env::current_dir()
+                        .ok()
+                        .map(|path| path.to_string_lossy().into_owned())
                 }
             }),
             _ => continue,

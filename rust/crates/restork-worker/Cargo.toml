@@ -11,9 +11,9 @@ restork-extension = { path = "../restork-extension", version = "=0.1.0" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2.workspace = true
+tempfile = "3.27.0"
 tokio = { workspace = true, features = ["fs", "io-util", "process", "time"] }
 zeroize.workspace = true
 
 [dev-dependencies]
-tempfile = "3.27.0"
 tokio = { workspace = true, features = ["fs", "macros", "rt-multi-thread"] }
