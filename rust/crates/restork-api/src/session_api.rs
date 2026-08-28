@@ -1374,7 +1374,7 @@ pub(crate) async fn execute_session_tool_call(
             );
         }
     };
-    let outcome = execute_stdio_mcp(&execution_id, &resolved, &secret_values).await;
+    let outcome = execute_stdio_mcp(&resolved, &secret_values).await;
     let completed_at = match now_rfc3339() {
         Ok(value) => value,
         Err(response) => return response,

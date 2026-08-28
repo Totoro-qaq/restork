@@ -38,11 +38,21 @@ async fn reviewed_stdio_mcp_uses_json_rpc_without_shell_or_ambient_environment()
         input: json!({"query": "memory-safe agents"}),
     };
 
-    let output = execute_stdio_mcp("execution-fixture", &call, &BTreeMap::new())
+    let output = execute_stdio_mcp(&call, &BTreeMap::new())
         .await
         .expect("MCP output");
     assert_eq!(output.protocol_version, "2025-06-18");
     assert_eq!(output.content["content"][0]["text"], "memory-safe agents");
     assert_eq!(output.content["ambientHomeInherited"], false);
     assert!(output.output_is_untrusted);
+    let working_directory = output.content["workingDirectory"]
+        .as_str()
+        .expect("fixture reports its isolated working directory");
+    let leaf = std::path::Path::new(working_directory)
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .expect("working directory has a UTF-8 leaf");
+    assert!(leaf.starts_with("restork-mcp-"));
+    assert_ne!(leaf, "shared-root");
+    assert!(!std::path::Path::new(working_directory).exists());
 }
