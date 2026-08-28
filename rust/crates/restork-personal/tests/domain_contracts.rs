@@ -363,6 +363,98 @@ fn reasoning_policy_is_explicit_provider_scoped_and_hash_bound() {
 }
 
 #[test]
+fn reasoning_capability_matrix_rejects_unsupported_levels_without_downgrading() {
+    struct Case {
+        label: &'static str,
+        kind: ProviderKind,
+        effort: ReasoningEffort,
+        max_tokens: Option<u32>,
+        expected: Option<(ReasoningEffort, Option<u32>)>,
+    }
+
+    // Add a future provider by adding rows for its automatic, disabled,
+    // supported, and one unsupported effort. No network or model ID is needed.
+    let cases = [
+        Case {
+            label: "auto-only provider keeps auto",
+            kind: ProviderKind::OpenAi,
+            effort: ReasoningEffort::Auto,
+            max_tokens: None,
+            expected: Some((ReasoningEffort::Auto, None)),
+        },
+        Case {
+            label: "auto-only provider rejects none",
+            kind: ProviderKind::OpenAi,
+            effort: ReasoningEffort::Off,
+            max_tokens: None,
+            expected: None,
+        },
+        Case {
+            label: "toggle provider accepts none",
+            kind: ProviderKind::Kimi,
+            effort: ReasoningEffort::Off,
+            max_tokens: None,
+            expected: Some((ReasoningEffort::Off, None)),
+        },
+        Case {
+            label: "bounded provider accepts low",
+            kind: ProviderKind::Ollama,
+            effort: ReasoningEffort::Low,
+            max_tokens: None,
+            expected: Some((ReasoningEffort::Low, None)),
+        },
+        Case {
+            label: "bounded provider accepts medium",
+            kind: ProviderKind::Ollama,
+            effort: ReasoningEffort::Medium,
+            max_tokens: None,
+            expected: Some((ReasoningEffort::Medium, None)),
+        },
+        Case {
+            label: "bounded provider accepts high",
+            kind: ProviderKind::Ollama,
+            effort: ReasoningEffort::High,
+            max_tokens: None,
+            expected: Some((ReasoningEffort::High, None)),
+        },
+        Case {
+            label: "bounded provider rejects max instead of replacing it",
+            kind: ProviderKind::Ollama,
+            effort: ReasoningEffort::Max,
+            max_tokens: None,
+            expected: None,
+        },
+        Case {
+            label: "full provider preserves explicit budget",
+            kind: ProviderKind::Qwen,
+            effort: ReasoningEffort::High,
+            max_tokens: Some(2_048),
+            expected: Some((ReasoningEffort::High, Some(2_048))),
+        },
+        Case {
+            label: "provider without budgets rejects rather than dropping one",
+            kind: ProviderKind::DeepSeek,
+            effort: ReasoningEffort::High,
+            max_tokens: Some(2_048),
+            expected: None,
+        },
+    ];
+
+    for case in cases {
+        let result =
+            restork_personal::ReasoningConfig::try_new(case.kind, case.effort, case.max_tokens);
+        match case.expected {
+            Some((effort, max_tokens)) => {
+                let config = result.unwrap_or_else(|error| panic!("{}: {error}", case.label));
+                assert_eq!(config.effort(), effort, "{}", case.label);
+                assert_eq!(config.max_tokens(), max_tokens, "{}", case.label);
+            }
+            None => assert!(result.is_err(), "{}", case.label),
+        }
+    }
+}
+
+#[test]
 fn prompt_manifest_freezes_exactly_four_typed_layers() {
     let manifest = prompt_manifest();
     assert_eq!(manifest.policy().layer(), PromptLayer::Policy);
