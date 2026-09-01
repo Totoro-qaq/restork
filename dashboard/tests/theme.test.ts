@@ -169,17 +169,35 @@ describe("theme is a real control, not a placebo", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
-  it("falls back to system for an absent or unknown theme", () => {
+  it("uses cyber neon as the default for an absent or unknown theme", () => {
     const root = document.createElement("main");
 
     mountDashboard(root, { api: api(), snapshot: snapshotWith(undefined) });
-    expect(document.documentElement.dataset.theme).toBe("system");
+    expect(document.documentElement.dataset.theme).toBe("cyberpunk");
+    expect(root.querySelector<HTMLSelectElement>('select[name="theme"]')?.value).toBe("cyberpunk");
 
     applyTheme("solarized");
-    expect(document.documentElement.dataset.theme).toBe("system");
+    expect(document.documentElement.dataset.theme).toBe("cyberpunk");
 
     applyTheme("cyberpunk");
     expect(document.documentElement.dataset.theme).toBe("cyberpunk");
+  });
+
+  it("keeps the current theme when the top-right refresh omits an appearance preference", async () => {
+    const root = document.createElement("main");
+    const client = {
+      pair: vi.fn(async () => undefined),
+      loadDashboard: vi.fn(async () => snapshotWith(undefined)),
+    } as unknown as DashboardApi;
+
+    mountDashboard(root, { api: client, snapshot: snapshotWith("dark") });
+    expect(document.documentElement.dataset.theme).toBe("dark");
+
+    root.querySelector<HTMLButtonElement>("#refresh")?.click();
+
+    await vi.waitFor(() => expect(client.loadDashboard).toHaveBeenCalledOnce());
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(root.querySelector<HTMLSelectElement>('select[name="theme"]')?.value).toBe("dark");
   });
 
   it("resolves body colours from tokens so a theme switch reaches the page", () => {
