@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { applyTheme, mountDashboard } from "../src/main";
+import { configureCyberpunkTheme } from "../src/features/cyberpunkTheme";
 import type { DashboardApi, DashboardSnapshot, PersonalSettingsRecord } from "../src/api/types";
 
 const stylesheet = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
@@ -117,6 +118,16 @@ describe("theme is a real control, not a placebo", () => {
   it("keeps the default cyber boot marker out of browser storage", () => {
     expect(cyberThemeSource).not.toContain("sessionStorage");
     expect(cyberThemeSource).not.toContain("restork.cyber.boot");
+  });
+
+  it("does not start decorative cyber motion in the non-visual jsdom runner", () => {
+    const root = document.createElement("main");
+    root.innerHTML = '<select name="theme"><option value="cyberpunk" selected>Cyber</option></select>';
+
+    const cleanup = configureCyberpunkTheme(root, "cyberpunk");
+
+    expect(root.querySelector(".cyber-fx")).toBeNull();
+    cleanup();
   });
 
   it("keeps the ambient field dense enough to read as a network", () => {

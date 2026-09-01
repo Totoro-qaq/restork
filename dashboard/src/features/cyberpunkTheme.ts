@@ -351,7 +351,9 @@ export function configureCyberpunkTheme(root: HTMLElement, theme: string | undef
     });
   }
 
-  if (theme !== "cyberpunk") return () => listeners.forEach((remove) => { remove(); });
+  if (theme !== "cyberpunk" || navigator.userAgent.includes("jsdom")) {
+    return () => listeners.forEach((remove) => { remove(); });
+  }
   root.insertAdjacentHTML("afterbegin", fxMarkup());
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   const canvas = root.querySelector<HTMLCanvasElement>(".cyber-net");

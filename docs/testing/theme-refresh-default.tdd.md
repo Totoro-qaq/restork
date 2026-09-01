@@ -19,7 +19,9 @@
 | GREEN · 默认值与刷新 | 同一命令 | 20/20 通过；默认赛博与刷新保留当前主题均通过。 |
 | RED · 浏览器存储 | `npm --prefix dashboard test` | 5 项失败：默认赛博启动标记写入 `sessionStorage`，破坏零浏览器工作区状态契约。 |
 | GREEN · 浏览器存储 | `npm --prefix dashboard test -- theme.test.ts` 与 `npm --prefix dashboard test -- session-recovery.test.ts workspace.test.ts` | 21/21 与 87/87 通过；启动序列改用页面内存。 |
-| GREEN · 全量 | `npm --prefix dashboard test` | 45 个测试文件、365 项测试全部通过。 |
+| RED · CI 动效隔离 | PR #156 的 Dashboard job 与 `npm --prefix dashboard test -- theme.test.ts -t "does not start decorative cyber motion"` | 默认赛博使 jsdom 也加载 GSAP；慢速 CI 中相邻 MCP 确认测试超时，新增定向测试复现装饰层进入非视觉 runner。 |
+| GREEN · CI 动效隔离 | 同一定向主题测试 + `npm --prefix dashboard test -- workspace.test.ts -t "shows MCP tools separately"` | jsdom 不再启动装饰层；主题与 MCP 安装确认分别通过。生产浏览器行为不变。 |
+| GREEN · 全量 | `npm --prefix dashboard test` | 45 个测试文件、366 项测试全部通过。 |
 
 RED checkpoint：`79691a4`。  
 GREEN checkpoints：`4c8e524`、`acfc992`。
@@ -32,7 +34,8 @@ GREEN checkpoints：`4c8e524`、`acfc992`。
 | 2 | 设置页主题选择器与实际默认主题一致 | `dashboard/tests/theme.test.ts` | DOM integration | PASS |
 | 3 | 顶栏刷新缺失主题字段时保留当前主题 | `dashboard/tests/theme.test.ts` | DOM integration | PASS |
 | 4 | 默认赛博启动状态不进入 `sessionStorage` | `dashboard/tests/theme.test.ts`、`session-recovery.test.ts`、`workspace.test.ts` | static / integration | PASS |
-| 5 | 前端类型检查、Vite 内嵌构建和 ESLint 通过 | `npm --prefix dashboard run build`、`npm --prefix dashboard run lint` | build / static | PASS |
+| 5 | 非视觉 jsdom runner 不加载赛博装饰层或 GSAP | `dashboard/tests/theme.test.ts`、`workspace.test.ts` | unit / integration | PASS |
+| 6 | 前端类型检查、Vite 内嵌构建和 ESLint 通过 | `npm --prefix dashboard run build`、`npm --prefix dashboard run lint` | build / static | PASS |
 
 ## Coverage and known gaps
 
