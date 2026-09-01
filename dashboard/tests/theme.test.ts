@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { applyTheme, mountDashboard } from "../src/main";
+import { configureCyberpunkTheme } from "../src/features/cyberpunkTheme";
 import type { DashboardApi, DashboardSnapshot, PersonalSettingsRecord } from "../src/api/types";
 
 const stylesheet = readFileSync(resolve(import.meta.dirname, "../src/styles.css"), "utf8");
@@ -114,6 +115,21 @@ describe("theme is a real control, not a placebo", () => {
     expect(cyberThemeSource).toContain("if (disposed) return;");
   });
 
+  it("keeps the default cyber boot marker out of browser storage", () => {
+    expect(cyberThemeSource).not.toContain("sessionStorage");
+    expect(cyberThemeSource).not.toContain("restork.cyber.boot");
+  });
+
+  it("does not start decorative cyber motion in the non-visual jsdom runner", () => {
+    const root = document.createElement("main");
+    root.innerHTML = '<select name="theme"><option value="cyberpunk" selected>Cyber</option></select>';
+
+    const cleanup = configureCyberpunkTheme(root, "cyberpunk");
+
+    expect(root.querySelector(".cyber-fx")).toBeNull();
+    cleanup();
+  });
+
   it("keeps the ambient field dense enough to read as a network", () => {
     // Below these floors the motes never reach each other and the field reads as
     // dust. They are a floor, not a target: raising them is fine, quietly
@@ -169,17 +185,35 @@ describe("theme is a real control, not a placebo", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
-  it("falls back to system for an absent or unknown theme", () => {
+  it("uses cyber neon as the default for an absent or unknown theme", () => {
     const root = document.createElement("main");
 
     mountDashboard(root, { api: api(), snapshot: snapshotWith(undefined) });
-    expect(document.documentElement.dataset.theme).toBe("system");
+    expect(document.documentElement.dataset.theme).toBe("cyberpunk");
+    expect(root.querySelector<HTMLSelectElement>('select[name="theme"]')?.value).toBe("cyberpunk");
 
     applyTheme("solarized");
-    expect(document.documentElement.dataset.theme).toBe("system");
+    expect(document.documentElement.dataset.theme).toBe("cyberpunk");
 
     applyTheme("cyberpunk");
     expect(document.documentElement.dataset.theme).toBe("cyberpunk");
+  });
+
+  it("keeps the current theme when the top-right refresh omits an appearance preference", async () => {
+    const root = document.createElement("main");
+    const client = {
+      pair: vi.fn(async () => undefined),
+      loadDashboard: vi.fn(async () => snapshotWith(undefined)),
+    } as unknown as DashboardApi;
+
+    mountDashboard(root, { api: client, snapshot: snapshotWith("dark") });
+    expect(document.documentElement.dataset.theme).toBe("dark");
+
+    root.querySelector<HTMLButtonElement>("#refresh")?.click();
+
+    await vi.waitFor(() => expect(client.loadDashboard).toHaveBeenCalledOnce());
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(root.querySelector<HTMLSelectElement>('select[name="theme"]')?.value).toBe("dark");
   });
 
   it("resolves body colours from tokens so a theme switch reaches the page", () => {

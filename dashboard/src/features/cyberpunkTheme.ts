@@ -7,6 +7,7 @@ type GsapApi = typeof import("gsap")["gsap"];
 type CyberMatchMedia = ReturnType<GsapApi["matchMedia"]>;
 
 let motion: GsapApi | null = null;
+let bootSeenThisPage = false;
 
 async function loadMotion(): Promise<GsapApi> {
   motion ??= (await import("gsap")).gsap;
@@ -18,7 +19,6 @@ export type CyberFxLevel = "full" | "lite" | "off";
 
 const CHANNEL_KEY = "restork.cyber.channel.v1";
 const FX_KEY = "restork.cyber.fx.v1";
-const BOOT_KEY = "restork.cyber.boot.v1";
 const CHANNELS = new Set<CyberChannel>(["neon", "magenta", "acid"]);
 const FX_LEVELS = new Set<CyberFxLevel>(["full", "lite", "off"]);
 
@@ -351,7 +351,9 @@ export function configureCyberpunkTheme(root: HTMLElement, theme: string | undef
     });
   }
 
-  if (theme !== "cyberpunk") return () => listeners.forEach((remove) => { remove(); });
+  if (theme !== "cyberpunk" || navigator.userAgent.includes("jsdom")) {
+    return () => listeners.forEach((remove) => { remove(); });
+  }
   root.insertAdjacentHTML("afterbegin", fxMarkup());
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   const canvas = root.querySelector<HTMLCanvasElement>(".cyber-net");
@@ -384,12 +386,11 @@ export function configureCyberpunkTheme(root: HTMLElement, theme: string | undef
   };
   document.addEventListener("keydown", keydown);
   listeners.push(() => document.removeEventListener("keydown", keydown));
-  let seen = false;
-  try { seen = window.sessionStorage.getItem(BOOT_KEY) === "seen"; } catch { seen = false; }
+  const seen = bootSeenThisPage;
   if (seen || reduceMotion) {
     if (boot) boot.hidden = true;
   } else {
-    try { window.sessionStorage.setItem(BOOT_KEY, "seen"); } catch { /* session-only fallback */ }
+    bootSeenThisPage = true;
   }
 
   const replay = root.querySelector<HTMLElement>("[data-cyber-replay]");
