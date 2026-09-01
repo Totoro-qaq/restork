@@ -114,6 +114,11 @@ describe("theme is a real control, not a placebo", () => {
     expect(cyberThemeSource).toContain("if (disposed) return;");
   });
 
+  it("keeps the default cyber boot marker out of browser storage", () => {
+    expect(cyberThemeSource).not.toContain("sessionStorage");
+    expect(cyberThemeSource).not.toContain("restork.cyber.boot");
+  });
+
   it("keeps the ambient field dense enough to read as a network", () => {
     // Below these floors the motes never reach each other and the field reads as
     // dust. They are a floor, not a target: raising them is fine, quietly
