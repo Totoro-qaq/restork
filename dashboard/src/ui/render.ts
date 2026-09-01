@@ -59,6 +59,7 @@ import { scheduleIntervalField } from "./schedules";
 import { timeZoneOptions } from "./timezone";
 import { previewDialogMarkup } from "./previewDialog";
 import { safeMarkdownPreview } from "./markdown";
+import { resolveDashboardTheme } from "../theme";
 import { assistantStreamMarkup } from "./assistantStream";
 export { assistantStreamMarkup };
 import {
@@ -1092,6 +1093,7 @@ function reasoningEffortOptions(locale: Locale): string {
 function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale): string {
   const record = snapshot.workspaceV2?.personal;
   const settings = record?.settings ?? {};
+  const selectedTheme = resolveDashboardTheme(settings.theme);
   const providers = snapshot.workspaceV2?.providers ?? [];
   const profiles = snapshot.workspaceV2?.profiles ?? [];
   const prompts = snapshot.workspaceV2?.prompts ?? [];
@@ -1129,8 +1131,8 @@ function personalSettingsWorkspace(snapshot: DashboardSnapshot, locale: Locale):
           <label>${tr(locale, "Display name (optional)", "称呼（可选）")}<input name="display_name" maxlength="80" value="${escapeHtml(settings.display_name ?? "")}" autocomplete="nickname"></label>
           <label>${tr(locale, "Language", "语言")}<select name="locale"><option value="en" ${settings.locale === "en" ? "selected" : ""}>English</option><option value="zh-CN" ${settings.locale === "zh-CN" ? "selected" : ""}>简体中文</option></select></label>
           <label>${tr(locale, "Time zone", "时区")}${timeZoneOptions(settings.timezone, locale)}</label>
-          <label>${tr(locale, "Theme", "主题")}<select name="theme"><option value="system">${tr(locale, "System", "跟随系统")}</option><option value="light" ${settings.theme === "light" ? "selected" : ""}>${tr(locale, "Light", "浅色")}</option><option value="dark" ${settings.theme === "dark" ? "selected" : ""}>${tr(locale, "Dark", "深色")}</option><option value="cyberpunk" ${settings.theme === "cyberpunk" ? "selected" : ""}>${tr(locale, "Cyber neon", "赛博霓虹")}</option></select></label>
-          <fieldset class="cyber-theme-controls" data-cyberpunk-controls ${settings.theme === "cyberpunk" ? "" : "hidden"}>
+          <label>${tr(locale, "Theme", "主题")}<select name="theme"><option value="system" ${selectedTheme === "system" ? "selected" : ""}>${tr(locale, "System", "跟随系统")}</option><option value="light" ${selectedTheme === "light" ? "selected" : ""}>${tr(locale, "Light", "浅色")}</option><option value="dark" ${selectedTheme === "dark" ? "selected" : ""}>${tr(locale, "Dark", "深色")}</option><option value="cyberpunk" ${selectedTheme === "cyberpunk" ? "selected" : ""}>${tr(locale, "Cyber neon", "赛博霓虹")}</option></select></label>
+          <fieldset class="cyber-theme-controls" data-cyberpunk-controls ${selectedTheme === "cyberpunk" ? "" : "hidden"}>
             <legend>${tr(locale, "Cyber shell", "赛博壳层")}</legend>
             <label>${tr(locale, "Neon channel", "霓虹频道")}<select data-cyber-channel><option value="neon">${tr(locale, "Neon cyan", "霓虹青")}</option><option value="magenta">${tr(locale, "Magenta", "品红")}</option><option value="acid">${tr(locale, "Acid green", "酸绿")}</option></select></label>
             <label>${tr(locale, "Visual effects", "视效强度")}<select data-cyber-fx><option value="full">${tr(locale, "Full · particles and scanlines", "满配 · 粒子网与扫描线")}</option><option value="lite">${tr(locale, "Lite · glow only", "精简 · 只留辉光")}</option><option value="off">${tr(locale, "Off · interface only", "关闭 · 纯界面")}</option></select></label>

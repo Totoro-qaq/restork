@@ -1,6 +1,7 @@
 import "./styles.css";
 
 import { LocalApiClient, systemTimeZone } from "./api/client";
+import { resolveDashboardTheme, retainDashboardTheme } from "./theme";
 import { bindDesktopExternalLinks, detectDesktopBridge } from "./desktop";
 import { isRunActive } from "./runState";
 import type { DesktopBridge } from "./desktop";
@@ -176,15 +177,13 @@ function bindDismissStack(root: HTMLElement): void {
   dismissHandlers.set(root, handler);
 }
 
-const THEMES = new Set(["system", "light", "dark", "cyberpunk"]);
-
 /**
  * Apply the stored theme to the document root. `styles.css` resolves its colour
  * tokens from `[data-theme]`, with `system` deferring to `prefers-color-scheme`.
  * Without this the Theme control round-trips to Core and changes nothing.
  */
 export function applyTheme(theme: string | undefined): void {
-  const selected = theme && THEMES.has(theme) ? theme : "system";
+  const selected = resolveDashboardTheme(theme);
   document.documentElement.dataset.theme = selected;
   paintBrowserChrome(selected);
 }
@@ -3745,7 +3744,9 @@ function terminalStateForEvent(type: string): string {
 
 async function refresh(root: HTMLElement, api: DashboardApi, view = "start"): Promise<void> {
   try {
-    renderWorkspace(root, api, await api.loadDashboard());
+    const currentTheme = document.documentElement.dataset.theme;
+    const snapshot = retainDashboardTheme(await api.loadDashboard(), currentTheme);
+    renderWorkspace(root, api, snapshot);
     selectView(root, view);
   } catch (error) {
     announceError(root, errorText(error, localeOf(root)));
